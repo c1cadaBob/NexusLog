@@ -5,7 +5,6 @@
  */
 
 import type { MenuProps } from 'antd';
-import type { ReactNode } from 'react';
 
 /**
  * 菜单项类型

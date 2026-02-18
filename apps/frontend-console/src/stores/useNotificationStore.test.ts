@@ -152,7 +152,7 @@ describe('useNotificationStore 属性测试', () => {
           
           // 随机删除一个通知
           if (ids.length > 0) {
-            const idToRemove = ids[0];
+            const idToRemove = ids[0]!;
             const notificationToRemove = useNotificationStore.getState()
               .notifications.find(n => n.id === idToRemove);
             const wasUnread = notificationToRemove && !notificationToRemove.read;
@@ -286,7 +286,7 @@ describe('useNotificationStore 属性测试', () => {
           const lengthBefore = useNotificationStore.getState().notifications.length;
           
           if (ids.length > 0) {
-            useNotificationStore.getState().removeNotification(ids[0]);
+            useNotificationStore.getState().removeNotification(ids[0]!);
             
             const lengthAfter = useNotificationStore.getState().notifications.length;
             expect(lengthAfter).toBe(lengthBefore - 1);
@@ -337,8 +337,8 @@ describe('useNotificationStore 属性测试', () => {
             const notifications = useNotificationStore.getState().notifications;
             
             // 最新的通知应该在前面
-            expect(notifications[0].id).toBe(id2);
-            expect(notifications[1].id).toBe(id1);
+            expect(notifications[0]!.id).toBe(id2);
+            expect(notifications[1]!.id).toBe(id1);
           }
         ),
         { numRuns: 100 }

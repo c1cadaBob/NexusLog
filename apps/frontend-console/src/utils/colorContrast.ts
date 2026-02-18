@@ -89,7 +89,7 @@ export function parseColor(color: string): RGB | null {
   
   // rgb/rgba 格式
   const rgbMatch = color.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
-  if (rgbMatch) {
+  if (rgbMatch && rgbMatch[1] && rgbMatch[2] && rgbMatch[3]) {
     return {
       r: parseInt(rgbMatch[1], 10),
       g: parseInt(rgbMatch[2], 10),

@@ -14,9 +14,6 @@ import type {
   ThemeMode, 
   DensityMode, 
   ThemeColors,
-  DARK_THEME_COLORS,
-  LIGHT_THEME_COLORS,
-  HIGH_CONTRAST_THEME_COLORS,
 } from '@/types/theme';
 
 // ============================================================================

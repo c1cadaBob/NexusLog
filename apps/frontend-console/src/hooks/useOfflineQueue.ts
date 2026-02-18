@@ -11,7 +11,6 @@
 
 import { useCallback, useMemo } from 'react';
 import { 
-  useOfflineStore, 
   useIsOnline, 
   useIsSyncing, 
   useOfflineQueue as useOfflineQueueStore,

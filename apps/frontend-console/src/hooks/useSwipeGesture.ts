@@ -33,7 +33,7 @@ export interface UseSwipeGestureOptions {
 }
 
 export interface UseSwipeGestureReturn {
-  ref: React.RefObject<HTMLElement>;
+  ref: React.RefObject<HTMLElement | null>;
   swipeState: SwipeState;
   reset: () => void;
 }
@@ -74,20 +74,24 @@ export function useSwipeGesture({
   const handleTouchStart = useCallback((e: TouchEvent) => {
     if (disabled) return;
     const touch = e.touches[0];
-    startX.current = touch.clientX;
-    startY.current = touch.clientY;
-    startTime.current = Date.now();
-    setSwipeState(prev => ({ ...prev, isSwiping: true, deltaX: 0, deltaY: 0 }));
+    if (touch) {
+      startX.current = touch.clientX;
+      startY.current = touch.clientY;
+      startTime.current = Date.now();
+      setSwipeState(prev => ({ ...prev, isSwiping: true, deltaX: 0, deltaY: 0 }));
+    }
   }, [disabled]);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
     if (disabled || !swipeState.isSwiping) return;
     const touch = e.touches[0];
-    const deltaX = touch.clientX - startX.current;
-    const deltaY = touch.clientY - startY.current;
-    const direction = getDirection(deltaX, deltaY);
-    if (preventDefault && direction) e.preventDefault();
-    setSwipeState(prev => ({ ...prev, deltaX, deltaY, direction }));
+    if (touch) {
+      const deltaX = touch.clientX - startX.current;
+      const deltaY = touch.clientY - startY.current;
+      const direction = getDirection(deltaX, deltaY);
+      if (preventDefault && direction) e.preventDefault();
+      setSwipeState(prev => ({ ...prev, deltaX, deltaY, direction }));
+    }
   }, [disabled, swipeState.isSwiping, getDirection, preventDefault]);
 
   const handleTouchEnd = useCallback(() => {

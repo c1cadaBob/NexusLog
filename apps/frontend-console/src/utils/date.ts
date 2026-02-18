@@ -335,7 +335,7 @@ export function toLocalISOString(date: Date | number): string {
  */
 export function parseRelativeTime(relativeTime: string): number {
   const match = relativeTime.match(/^(\d+)(ms|s|m|h|d|w|M|y)$/);
-  if (!match) return 0;
+  if (!match || !match[1]) return 0;
 
   const amount = parseInt(match[1], 10);
   const unit = match[2];

@@ -7,7 +7,6 @@
  */
 
 import { create } from 'zustand';
-import type { ID } from '@/types/common';
 
 // ============================================================================
 // 类型定义
@@ -65,6 +64,10 @@ export interface CacheActions {
   remove: (key: string) => void;
   /** 按标签删除缓存 */
   removeByTag: (tag: string) => void;
+  /** 按标签失效缓存（别名） */
+  invalidateByTag: (tag: string) => void;
+  /** 按前缀失效缓存 */
+  invalidateByPrefix: (prefix: string) => void;
   /** 清除所有缓存 */
   clear: () => void;
   /** 清除过期缓存 */
@@ -216,6 +219,30 @@ export const useCacheStore = create<CacheStore>()((set, get) => ({
       
       for (const [key, entry] of newCache) {
         if (entry.tags?.includes(tag)) {
+          newCache.delete(key);
+        }
+      }
+      
+      return { cache: newCache };
+    });
+  },
+
+  /**
+   * 按标签失效缓存（别名）
+   */
+  invalidateByTag: (tag: string) => {
+    get().removeByTag(tag);
+  },
+
+  /**
+   * 按前缀失效缓存
+   */
+  invalidateByPrefix: (prefix: string) => {
+    set(state => {
+      const newCache = new Map(state.cache);
+      
+      for (const key of newCache.keys()) {
+        if (key.startsWith(prefix)) {
           newCache.delete(key);
         }
       }

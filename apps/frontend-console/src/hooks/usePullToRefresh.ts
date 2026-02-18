@@ -20,7 +20,7 @@ export interface UsePullToRefreshOptions {
 }
 
 export interface UsePullToRefreshReturn {
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   pullDistance: number;
   isRefreshing: boolean;
   canRelease: boolean;
@@ -51,20 +51,26 @@ export function usePullToRefresh({
     if (disabled || isRefreshing) return;
     const container = containerRef.current;
     if (!container || container.scrollTop > 0) return;
-    startY.current = e.touches[0].clientY;
-    setIsPulling(true);
+    const touch = e.touches[0];
+    if (touch) {
+      startY.current = touch.clientY;
+      setIsPulling(true);
+    }
   }, [disabled, isRefreshing]);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
     if (!isPulling || disabled || isRefreshing) return;
     const container = containerRef.current;
     if (!container) return;
-    currentY.current = e.touches[0].clientY;
-    const diff = currentY.current - startY.current;
-    if (diff > 0 && container.scrollTop === 0) {
-      const dampedDistance = Math.min(diff * 0.5, maxPullDistance);
-      setPullDistance(dampedDistance);
-      if (dampedDistance > 10) e.preventDefault();
+    const touch = e.touches[0];
+    if (touch) {
+      currentY.current = touch.clientY;
+      const diff = currentY.current - startY.current;
+      if (diff > 0 && container.scrollTop === 0) {
+        const dampedDistance = Math.min(diff * 0.5, maxPullDistance);
+        setPullDistance(dampedDistance);
+        if (dampedDistance > 10) e.preventDefault();
+      }
     }
   }, [isPulling, disabled, isRefreshing, maxPullDistance]);
 

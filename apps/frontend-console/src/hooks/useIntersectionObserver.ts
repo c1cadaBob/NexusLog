@@ -62,13 +62,15 @@ export function useIntersectionObserver(
 
     const observer = new IntersectionObserver(
       ([observerEntry]) => {
-        setEntry(observerEntry);
-        
-        if (observerEntry.isIntersecting) {
-          setHasIntersected(true);
+        if (observerEntry) {
+          setEntry(observerEntry);
           
-          if (triggerOnce && targetRef.current) {
-            observer.unobserve(targetRef.current);
+          if (observerEntry.isIntersecting) {
+            setHasIntersected(true);
+            
+            if (triggerOnce && targetRef.current) {
+              observer.unobserve(targetRef.current);
+            }
           }
         }
       },
@@ -133,12 +135,14 @@ export function useIntersectionObserverCallback(
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        callbackRef.current(entry);
-        
-        if (entry.isIntersecting && triggerOnce) {
-          hasTriggeredRef.current = true;
-          if (targetRef.current) {
-            observer.unobserve(targetRef.current);
+        if (entry) {
+          callbackRef.current(entry);
+          
+          if (entry.isIntersecting && triggerOnce) {
+            hasTriggeredRef.current = true;
+            if (targetRef.current) {
+              observer.unobserve(targetRef.current);
+            }
           }
         }
       },

@@ -44,13 +44,13 @@ export function trapFocus(container: HTMLElement, event: KeyboardEvent): void {
     // Shift + Tab: 如果在第一个元素，跳到最后一个
     if (document.activeElement === firstElement) {
       event.preventDefault();
-      lastElement.focus();
+      lastElement?.focus();
     }
   } else {
     // Tab: 如果在最后一个元素，跳到第一个
     if (document.activeElement === lastElement) {
       event.preventDefault();
-      firstElement.focus();
+      firstElement?.focus();
     }
   }
 }
@@ -71,7 +71,7 @@ export function createFocusTrap(container: HTMLElement | null) {
       // 聚焦到第一个可聚焦元素
       const focusableElements = getFocusableElements(container);
       if (focusableElements.length > 0) {
-        focusableElements[0].focus();
+        focusableElements[0]?.focus();
       }
     },
     deactivate: () => {
@@ -630,7 +630,7 @@ export function getRelativeLuminance(r: number, g: number, b: number): number {
       ? sRGB / 12.92
       : Math.pow((sRGB + 0.055) / 1.055, 2.4);
   });
-  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+  return 0.2126 * rs! + 0.7152 * gs! + 0.0722 * bs!;
 }
 
 /**

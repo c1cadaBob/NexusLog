@@ -164,7 +164,7 @@
     - **Property 15: Hooks 无 Context API 依赖**
     - **Validates: Requirements 11.3**
 
-- [ ] 8. 检查点 - 基础模块验证
+- [-] 8. 检查点 - 基础模块验证
   - 确保所有测试通过，如有问题请向用户确认。
 
 - [ ] 9. ECharts 图表组件迁移

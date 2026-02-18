@@ -23,7 +23,7 @@ export interface UseFocusTrapOptions {
 }
 
 export interface UseFocusTrapReturn {
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   activate: () => void;
   deactivate: () => void;
 }

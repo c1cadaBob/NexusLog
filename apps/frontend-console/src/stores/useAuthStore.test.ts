@@ -10,7 +10,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import * as fc from 'fast-check';
 import { useAuthStore } from './useAuthStore';
-import type { User } from '@/types/user';
 
 // ============================================================================
 // 测试辅助函数
