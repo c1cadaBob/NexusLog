@@ -27,8 +27,8 @@
     - 创建 `tests/e2e/`、`tests/integration/`、`tests/performance/`、`tests/chaos/` 目录
     - _需求: 1.1_
 
-- [ ] 2. 前端控制台初始化
-  - [ ] 2.1 创建前端项目结构和依赖安装
+- [x] 2. 前端控制台初始化
+  - [x] 2.1 创建前端项目结构和依赖安装
     - 在 `apps/frontend-console/` 下创建 `package.json`（pnpm）
     - 安装核心依赖：react@19、react-dom@19、react-router-dom、antd、echarts、zustand
     - 安装开发依赖：typescript、@types/react@19、@types/react-dom@19、vite、@vitejs/plugin-react、vitest、fast-check
@@ -38,13 +38,13 @@
     - 创建 `tests/` 测试目录
     - _需求: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7_
 
-  - [ ] 2.2 配置 TypeScript（tsconfig.json）
+  - [x] 2.2 配置 TypeScript（tsconfig.json）
     - 配置严格模式：strict、noImplicitAny、strictNullChecks
     - 配置路径别名：`@/*` → `src/*`
     - 配置 React 19 JSX：jsx: "react-jsx"
     - _需求: 2.8_
 
-  - [ ] 2.3 配置 Vite（vite.config.ts）
+  - [x] 2.3 配置 Vite（vite.config.ts）
     - 配置开发服务器（端口、HMR、CORS）
     - 配置路径别名解析
     - 配置生产构建代码分割策略（React、Ant Design、ECharts 独立 vendor chunk）
@@ -52,42 +52,42 @@
     - 配置生产环境移除 console/debugger
     - _需求: 12.1, 12.2, 12.3, 12.4_
 
-  - [ ] 2.4 配置环境变量和运行时配置
+  - [x] 2.4 配置环境变量和运行时配置
     - 创建 `.env.development` 和 `.env.production`
     - 创建 `src/config/appConfig.ts` 运行时配置加载模块
     - _需求: 12.5, 22.1, 22.3_
 
-  - [ ] 2.5 配置 Vitest 测试框架
+  - [x] 2.5 配置 Vitest 测试框架
     - 创建 `vitest.config.ts`
     - 创建 `src/test/setup.ts` 测试初始化文件
     - _需求: 2.7_
 
-  - [ ] 2.6 创建前端 Dockerfile
+  - [x] 2.6 创建前端 Dockerfile
     - 创建 `apps/frontend-console/Dockerfile`（多阶段构建：pnpm install → build → nginx 静态服务）
     - _需求: 19.7_
 
-- [ ] 3. 类型系统迁移
-  - [ ] 3.1 迁移核心类型定义文件
+- [x] 3. 类型系统迁移
+  - [x] 3.1 迁移核心类型定义文件
     - 迁移 `types/common.ts`、`types/user.ts`、`types/log.ts`、`types/alert.ts`、`types/dashboard.ts`、`types/api.ts`、`types/notification.ts`、`types/navigation.ts`
     - _需求: 10.1, 10.2_
 
-  - [ ] 3.2 迁移并调整需适配的类型文件
+  - [x] 3.2 迁移并调整需适配的类型文件
     - 迁移 `types/theme.ts`，新增 `antdTheme: ThemeConfig` 类型
     - 迁移 `types/components.ts`，调整 TableColumn 等类型适配 Ant Design
     - _需求: 10.3_
 
-  - [ ] 3.3 创建类型统一导出入口
+  - [x] 3.3 创建类型统一导出入口
     - 创建 `types/index.ts`
     - _需求: 10.4_
 
-- [ ] 4. 工具函数和常量迁移
-  - [ ] 4.1 迁移工具函数模块
+- [x] 4. 工具函数和常量迁移
+  - [x] 4.1 迁移工具函数模块
     - 迁移 `utils/formatters.ts`、`utils/validators.ts`、`utils/date.ts`、`utils/cache.ts`、`utils/sanitize.ts`、`utils/helpers.ts`
     - 迁移其余工具函数：env、accessibility、colorContrast、globalErrorHandler、routePreloader、mobileOptimization
     - 创建 `utils/index.ts` 统一导出
     - _需求: 11.1, 11.4_
 
-  - [ ] 4.2 迁移常量定义
+  - [x] 4.2 迁移常量定义
     - 迁移 `constants/auth.ts` 和其他常量文件
     - 创建菜单配置常量 `constants/menu.ts`
 
