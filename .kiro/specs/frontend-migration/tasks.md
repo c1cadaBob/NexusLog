@@ -91,64 +91,64 @@
     - 迁移 `constants/auth.ts` 和其他常量文件
     - 创建菜单配置常量 `constants/menu.ts`
 
-- [ ] 5. Zustand 状态管理迁移
-  - [ ] 5.1 创建 useAuthStore（替代 AuthContext）
+- [x] 5. Zustand 状态管理迁移
+  - [x] 5.1 创建 useAuthStore（替代 AuthContext）
     - 实现 AuthState 和 AuthActions 接口
     - 包含 login、logout、refreshToken、updateUser、clearError 方法
     - _需求: 7.1_
 
-  - [ ] 5.2 编写 useAuthStore 属性测试
+  - [x] 5.2 编写 useAuthStore 属性测试
     - **Property 9: useAuthStore 状态管理**
     - **Validates: Requirements 7.1**
 
-  - [ ] 5.3 创建 useThemeStore（替代 ThemeContext）
+  - [x] 5.3 创建 useThemeStore（替代 ThemeContext）
     - 实现 ThemeState 和 ThemeActions 接口
     - 包含 antdTheme 派生属性
     - 支持 dark/light/auto/high-contrast 模式
     - _需求: 7.2_
 
-  - [ ] 5.4 编写 useThemeStore 属性测试
+  - [x] 5.4 编写 useThemeStore 属性测试
     - **Property 10: useThemeStore 状态管理**
     - **Validates: Requirements 7.2**
 
-  - [ ] 5.5 创建 useNotificationStore（替代 NotificationContext）
+  - [x] 5.5 创建 useNotificationStore（替代 NotificationContext）
     - 实现通知的增删查、标记已读、未读计数功能
     - 集成 Ant Design message/notification API
     - _需求: 7.3_
 
-  - [ ] 5.6 编写 useNotificationStore 属性测试
+  - [x] 5.6 编写 useNotificationStore 属性测试
     - **Property 11: useNotificationStore 状态管理**
     - **Validates: Requirements 7.3**
 
-  - [ ] 5.7 创建 useCacheStore 和 useOfflineStore
+  - [x] 5.7 创建 useCacheStore 和 useOfflineStore
     - 迁移 CacheContext 和 OfflineContext 功能
     - _需求: 7.4_
 
-  - [ ] 5.8 创建 stores 统一导出入口
+  - [x] 5.8 创建 stores 统一导出入口
     - 创建 `stores/index.ts`
     - _需求: 7.5_
 
-- [ ] 6. API 服务层迁移
-  - [ ] 6.1 迁移 API 客户端和服务模块
+- [x] 6. API 服务层迁移
+  - [x] 6.1 迁移 API 客户端和服务模块
     - 迁移 `services/api/client.ts`（HTTP 客户端封装）
     - 迁移 `services/api/auth.ts`、`services/api/logs.ts`、`services/api/alerts.ts`、`services/api/dashboard.ts`
     - 迁移 `services/api/cachedApi.ts`
     - 创建 `services/api/index.ts` 统一导出
     - _需求: 11.1_
 
-  - [ ] 6.2 迁移 WebSocket 和监控服务
+  - [x] 6.2 迁移 WebSocket 和监控服务
     - 迁移 `services/websocket.ts`
     - 迁移 `services/monitoring/` 目录下的 analytics、errorTracking、performance、init 模块
     - 创建 `services/index.ts` 统一导出
     - _需求: 11.1_
 
-- [ ] 7. 自定义 Hooks 迁移
-  - [ ] 7.1 迁移核心 Hooks
+- [x] 7. 自定义 Hooks 迁移
+  - [x] 7.1 迁移核心 Hooks
     - 迁移 useApi、useDebounce、useLocalStorage、useDashboardData、useAutoSave
     - 将依赖 Context API 的 Hooks 改为从 Zustand Store 获取状态
     - _需求: 11.2, 11.3_
 
-  - [ ] 7.2 迁移其余 Hooks
+  - [x] 7.2 迁移其余 Hooks
     - 迁移 useApiCache、useDashboardLayout、useErrorRecovery、useFocusManagement
     - 迁移 useIdleTimeout、useIntersectionObserver、useKeyboardShortcuts、useMemoizedValue
     - 迁移 useMonitoring、useMutation、useOfflineCache、useOfflineQueue、useOnlineStatus
@@ -156,11 +156,11 @@
     - 迁移 useSessionStorage、useSwipeGesture、useThemeStyles、useUrlSync
     - _需求: 11.2, 11.3_
 
-  - [ ] 7.3 创建 Hooks 统一导出入口
+  - [x] 7.3 创建 Hooks 统一导出入口
     - 创建 `hooks/index.ts`
     - _需求: 11.4_
 
-  - [ ] 7.4 编写 Hooks 无 Context API 依赖属性测试
+  - [x] 7.4 编写 Hooks 无 Context API 依赖属性测试
     - **Property 15: Hooks 无 Context API 依赖**
     - **Validates: Requirements 11.3**
 

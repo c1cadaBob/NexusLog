@@ -37,3 +37,13 @@ export {
   getBreadcrumbs,
 } from './menu';
 
+// Dashboard 相关常量
+export {
+  KPI_DATA,
+  TOP_SERVICES,
+  RECENT_AUDITS,
+  DEFAULT_REFRESH_INTERVAL,
+  REFRESH_INTERVAL_OPTIONS,
+  REFRESH_INTERVAL_STORAGE_KEY,
+} from './dashboard';
+
