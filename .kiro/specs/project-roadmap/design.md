@@ -74,85 +74,374 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Monorepo 目录结构
+### Monorepo 项目结构
 
 ```
 NexusLog/
-├── apps/                        # 应用层
-│   ├── frontend-console/        # 前端控制台 (React 19 + AntD + ECharts + Zustand)
-│   └── bff-service/             # BFF 层 (可选, NestJS)
-├── services/                    # 后端微服务
-│   ├── control-plane/           # 控制面 (Go Gin + gRPC)
-│   ├── health-worker/           # 健康检测 (Go)
-│   ├── data-services/           # 数据服务 (query-api / audit-api / export-api)
-│   └── api-service/             # API 服务 (Go Gin)
-├── gateway/                     # API 网关
-│   └── openresty/               # OpenResty (Nginx + Lua)
-├── iam/                         # 身份认证与授权
-│   ├── keycloak/                # Keycloak 配置
-│   ├── opa/                     # OPA 策略
-│   └── vault/                   # Vault 配置
-├── agents/                      # 采集代理
-│   └── collector-agent/         # 日志采集代理 (Go)
-├── stream/                      # 流计算
-│   └── flink-jobs/              # Flink SQL + CEP 作业
-├── messaging/                   # 消息传输
-│   ├── kafka/                   # Kafka 配置
-│   └── schema-registry/         # Schema Registry
-├── contracts/                   # 契约定义
-│   ├── schema-contracts/        # Avro/Protobuf/JSON Schema
-│   └── api-contracts/           # OpenAPI/gRPC Proto
-├── storage/                     # 存储配置
-│   ├── elasticsearch/           # ES 索引模板 + ILM
-│   ├── postgresql/              # PG 迁移脚本 + RLS
-│   ├── redis/                   # Redis 配置
-│   └── minio/                   # MinIO 配置
-├── observability/               # 可观测性
-│   ├── prometheus/              # Prometheus 配置
-│   ├── alertmanager/            # Alertmanager 配置
-│   ├── grafana/                 # Grafana Dashboard
-│   ├── jaeger/                  # Jaeger 配置
-│   ├── otel-collector/          # OTel Collector 配置
-│   └── loki/                    # Loki 配置
-├── platform/                    # 平台治理
-│   ├── kubernetes/              # K8s 部署清单 (base / overlays)
-│   ├── helm/                    # Helm Charts
-│   ├── gitops/                  # Argo CD 配置
-│   └── istio/                   # Istio 配置 (P2)
-├── infra/                       # 基础设施即代码
-│   ├── terraform/               # Terraform (modules / envs)
-│   └── ansible/                 # Ansible (inventories / roles)
-├── ml/                          # 机器学习 (P2)
-│   ├── anomaly-detection/
-│   ├── log-classifier/
-│   └── nlp-query/
-├── edge/                        # 边缘计算 (P2)
-│   ├── edge-agent/
-│   ├── edge-gateway/
-│   └── edge-store/
-├── configs/                     # 公共配置 (环境隔离)
+├── README.md
+├── LICENSE
+├── CHANGELOG.md
+├── .gitignore
+├── .editorconfig
+├── Makefile                     # 统一构建/测试命令入口
+├── go.work                      # Go 多模块工作区
+├── package.json                 # pnpm workspace 配置
+├── docs/                        # 项目文档
+│   ├── architecture/            # 架构文档（系统上下文、逻辑架构、部署架构、数据流、安全架构）
+│   ├── adr/                     # 架构决策记录
+│   ├── runbooks/                # 运维手册
+│   ├── oncall/
+│   ├── security/
+│   └── sla-slo/
+├── configs/                     # 公共配置（环境隔离）
 │   ├── common/
 │   ├── dev/
 │   ├── staging/
 │   └── prod/
-├── docs/                        # 项目文档
-│   ├── architecture/
-│   ├── adr/
-│   ├── runbooks/
-│   ├── oncall/
+├── apps/                        # 应用层
+│   ├── frontend-console/        # 前端控制台（React 19 + TS + AntD + ECharts + Zustand）
+│   │   ├── src/
+│   │   │   ├── components/      # 组件
+│   │   │   │   ├── charts/      # ECharts 图表组件
+│   │   │   │   ├── common/      # 通用组件（基于 Ant Design 封装）
+│   │   │   │   ├── layout/      # 布局组件（Layout, Sidebar, Header）
+│   │   │   │   └── auth/        # 认证组件
+│   │   │   ├── pages/           # 页面（按模块分目录）
+│   │   │   ├── stores/          # Zustand Store
+│   │   │   ├── hooks/           # 自定义 Hooks
+│   │   │   ├── services/        # API 服务层
+│   │   │   ├── types/           # TypeScript 类型定义
+│   │   │   ├── utils/           # 工具函数
+│   │   │   ├── constants/       # 常量定义
+│   │   │   ├── config/          # 运行时配置
+│   │   │   ├── App.tsx
+│   │   │   └── main.tsx
+│   │   ├── public/
+│   │   │   └── config/
+│   │   │       └── app-config.json
+│   │   ├── tests/
+│   │   ├── index.html
+│   │   ├── vite.config.ts
+│   │   ├── tsconfig.json
+│   │   ├── package.json
+│   │   └── Dockerfile
+│   └── bff-service/             # BFF 层（NestJS，可选）
+│       ├── src/
+│       ├── test/
+│       ├── package.json
+│       └── Dockerfile
+├── gateway/                     # API 网关
+│   └── openresty/
+│       ├── nginx.conf
+│       ├── conf.d/
+│       ├── lua/
+│       ├── tenants/
+│       ├── policies/
+│       ├── tests/
+│       └── Dockerfile
+├── iam/                         # 身份认证与授权
+│   ├── keycloak/
+│   │   ├── realms/
+│   │   ├── clients/
+│   │   ├── roles/
+│   │   └── mappers/
+│   ├── opa/
+│   │   ├── policies/
+│   │   ├── bundles/
+│   │   └── tests/
+│   └── vault/
+│       ├── policies/
+│       ├── auth/
+│       └── engines/
+├── services/                    # 微服务层
+│   ├── control-plane/           # 控制面服务（Go Gin + gRPC）
+│   │   ├── cmd/api/
+│   │   ├── internal/
+│   │   │   ├── app/
+│   │   │   ├── domain/
+│   │   │   ├── service/
+│   │   │   ├── repository/
+│   │   │   └── transport/
+│   │   │       ├── http/
+│   │   │       └── grpc/
+│   │   ├── api/
+│   │   │   ├── openapi/
+│   │   │   └── proto/
+│   │   ├── configs/
+│   │   ├── tests/
+│   │   └── Dockerfile
+│   ├── health-worker/           # 健康检测服务
+│   │   ├── cmd/worker/
+│   │   ├── internal/
+│   │   │   ├── checker/
+│   │   │   ├── scheduler/
+│   │   │   └── reporter/
+│   │   ├── configs/
+│   │   ├── tests/
+│   │   └── Dockerfile
+│   ├── data-services/           # 数据服务集合
+│   │   ├── query-api/
+│   │   ├── audit-api/
+│   │   ├── export-api/
+│   │   ├── shared/
+│   │   └── Dockerfile
+│   └── api-service/             # API 服务
+│       ├── cmd/api/
+│       ├── internal/
+│       ├── api/openapi/
+│       ├── configs/
+│       └── Dockerfile
+├── agents/                      # 采集代理
+│   └── collector-agent/
+│       ├── cmd/agent/
+│       ├── internal/
+│       │   ├── collector/
+│       │   ├── pipeline/
+│       │   ├── checkpoint/
+│       │   └── retry/
+│       ├── plugins/
+│       │   ├── grpc/
+│       │   └── wasm/
+│       ├── configs/
+│       ├── tests/
+│       └── Dockerfile
+├── stream/                      # 流计算
+│   └── flink/
+│       ├── jobs/
+│       │   ├── sql/
+│       │   └── cep/
+│       ├── udf/
+│       ├── libs/
+│       ├── savepoints/
+│       ├── configs/
+│       └── tests/
+├── messaging/                   # 消息传输
+│   ├── kafka/
+│   │   ├── topics/
+│   │   ├── quotas/
+│   │   └── broker-config/
+│   ├── schema-registry/
+│   │   ├── config/
+│   │   └── compatibility-rules/
+│   └── dlq-retry/
+│       ├── retry-policies/
+│       └── consumer-config/
+├── contracts/                   # 契约定义
+│   └── schema-contracts/
+│       ├── avro/
+│       ├── protobuf/
+│       ├── jsonschema/
+│       ├── compatibility/
+│       └── tests/
+├── storage/                     # 存储配置
+│   ├── elasticsearch/
+│   │   ├── index-templates/
+│   │   ├── ilm-policies/
+│   │   ├── ingest-pipelines/
+│   │   └── snapshots/
+│   ├── postgresql/
+│   │   ├── migrations/
+│   │   ├── seeds/
+│   │   ├── rls-policies/
+│   │   ├── patroni/
+│   │   ├── etcd/
+│   │   └── pgbouncer/
+│   ├── redis/
+│   │   ├── cluster-config/
+│   │   └── lua-scripts/
+│   ├── minio/
+│   │   ├── buckets/
+│   │   └── lifecycle/
+│   └── glacier/
+│       └── archive-policies/
+├── observability/               # 可观测性
+│   ├── prometheus/
+│   │   ├── prometheus.yml
+│   │   ├── rules/
+│   │   └── targets/
+│   ├── alertmanager/
+│   │   ├── alertmanager.yml
+│   │   └── templates/
+│   ├── grafana/
+│   │   ├── dashboards/
+│   │   └── datasources/
+│   ├── jaeger/
+│   │   └── config/
+│   ├── otel-collector/
+│   │   └── config/
+│   └── loki/
+│       └── config/
+├── ml/                          # 机器学习（可选）
+│   ├── training/
+│   ├── inference/
+│   ├── models/
+│   ├── mlflow/
+│   └── nlp/
+│       ├── prompts/
+│       └── rules/
+├── edge/                        # 边缘计算（可选）
+│   ├── mqtt/
+│   ├── sqlite/
+│   └── boltdb/
+├── platform/                    # 平台治理
+│   ├── kubernetes/
+│   │   ├── base/
+│   │   ├── namespaces/
+│   │   ├── rbac/
+│   │   ├── network-policies/
+│   │   └── storageclasses/
+│   ├── helm/
+│   │   ├── nexuslog-gateway/
+│   │   ├── nexuslog-control-plane/
+│   │   ├── nexuslog-data-plane/
+│   │   ├── nexuslog-storage/
+│   │   └── nexuslog-observability/
+│   ├── gitops/
+│   │   ├── argocd/
+│   │   │   ├── projects/
+│   │   │   └── applicationsets/
+│   │   ├── apps/
+│   │   │   ├── ingress-system/
+│   │   │   ├── iam-system/
+│   │   │   ├── control-plane/
+│   │   │   ├── data-plane/
+│   │   │   ├── storage-system/
+│   │   │   └── observability/
+│   │   └── clusters/
+│   │       ├── dev/
+│   │       ├── staging/
+│   │       └── prod/
+│   ├── ci/
+│   │   ├── templates/
+│   │   └── scripts/
 │   ├── security/
-│   └── sla-slo/
-├── scripts/                     # 构建/运维脚本
-├── tests/                       # 跨服务测试
+│   │   ├── trivy/
+│   │   ├── sast/
+│   │   └── image-sign/
+│   └── istio/
+│       ├── gateways/
+│       ├── virtualservices/
+│       └── destinationrules/
+├── infra/                       # 基础设施即代码
+│   ├── terraform/
+│   │   ├── modules/
+│   │   └── envs/
+│   │       ├── dev/
+│   │       ├── staging/
+│   │       └── prod/
+│   └── ansible/
+│       ├── inventories/
+│       └── roles/
+├── scripts/                     # 脚本工具
+│   ├── bootstrap.sh
+│   ├── lint.sh
+│   ├── test.sh
+│   ├── build.sh
+│   ├── release.sh
+│   └── rollback.sh
+├── tests/                       # 集成/E2E/性能/混沌测试
 │   ├── e2e/
 │   ├── integration/
 │   ├── performance/
 │   └── chaos/
-├── go.work                      # Go 多模块工作区
-├── package.json                 # pnpm workspace
-├── Makefile                     # 统一构建入口
-├── docker-compose.yml           # 本地开发环境
-└── README.md
+└── .github/
+    └── workflows/               # CI/CD 流水线
+```
+
+### 目录设计原则
+
+1. **敏感信息不入仓**：密钥、token、证书走 Vault/K8s Secret
+2. **契约先行**：`contracts/schema-contracts` 变更必须 CI 校验兼容性
+3. **平台与业务分离**：`platform/` 只放交付与治理，不放业务逻辑代码
+4. **环境隔离一致**：dev/staging/prod 目录结构完全一致，减少发布偏差
+5. **统一入口**：所有构建/测试命令尽量汇聚到根级 Makefile
+
+### 架构图
+
+```mermaid
+graph TB
+    subgraph "NexusLog Monorepo 全栈架构"
+        subgraph "入口层 (gateway/)"
+            GW[OpenResty 1.25+ API网关]
+        end
+
+        subgraph "IAM 安全层 (iam/)"
+            KC[Keycloak 24+ 身份认证]
+            OPA[OPA 0.6x+ 策略控制]
+            VT[Vault 1.15+ 密钥管理]
+        end
+
+        subgraph "应用层 (apps/)"
+            UI[Frontend Console<br/>React 19 + TS + AntD]
+            BFF[BFF Service<br/>NestJS 可选]
+        end
+
+        subgraph "微服务层 (services/)"
+            CP[Control Plane<br/>Go Gin + gRPC]
+            HW[Health Worker<br/>Go]
+            DS[Data Services<br/>query/audit/export]
+            API[API Service<br/>Go Gin]
+        end
+
+        subgraph "采集层 (agents/)"
+            CA[Collector Agent<br/>Go + 插件]
+        end
+
+        subgraph "消息层 (messaging/)"
+            KF[Kafka 3.7+]
+            SR[Schema Registry]
+        end
+
+        subgraph "流计算层 (stream/)"
+            FL[Flink 1.19+ SQL+CEP]
+        end
+
+        subgraph "存储层 (storage/)"
+            ES[Elasticsearch 8.13+]
+            PG[PostgreSQL 16+ / Patroni]
+            RD[Redis Cluster 7.2+]
+            S3[MinIO/S3]
+        end
+
+        subgraph "可观测性 (observability/)"
+            PM[Prometheus 2.48+]
+            AM[Alertmanager 0.27+]
+            GF[Grafana 10.2+]
+            JG[Jaeger + OTel]
+        end
+
+        subgraph "平台治理 (platform/)"
+            K8S[Kubernetes 1.28+]
+            HELM[Helm Charts]
+            ARGO[Argo CD GitOps]
+            ISTIO[Istio Service Mesh]
+        end
+    end
+
+    GW -->|JWT/OIDC| KC
+    GW -->|ABAC| OPA
+    UI -->|HTTP/WS| GW
+    BFF -->|HTTP| GW
+    GW -->|路由| CP
+    GW -->|路由| API
+    GW -->|路由| DS
+    CP --> PG
+    CP --> RD
+    API --> ES
+    API --> PG
+    DS --> ES
+    DS --> PG
+    HW --> RD
+    CA -->|采集| KF
+    KF --> FL
+    FL --> ES
+    CP --> VT
+    PM --> AM
+    PM --> GF
+    ARGO --> K8S
+    K8S --> CP
+    K8S --> API
+    K8S --> UI
 ```
 
 ## 阶段交付设计

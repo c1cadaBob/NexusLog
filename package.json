@@ -1,0 +1,29 @@
+{
+  "name": "nexuslog",
+  "version": "0.1.0",
+  "private": true,
+  "description": "企业级日志管理系统 - Monorepo 全栈架构",
+  "keywords": [
+    "log-management",
+    "observability",
+    "enterprise",
+    "monorepo"
+  ],
+  "license": "MIT",
+  "author": "NexusLog Team",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "bootstrap": "./scripts/bootstrap.sh",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "clean": "pnpm -r clean"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

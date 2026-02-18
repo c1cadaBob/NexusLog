@@ -1,0 +1,77 @@
+# 依赖目录
+node_modules/
+vendor/
+
+# 构建输出
+dist/
+build/
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 测试覆盖率
+coverage/
+*.cover
+*.out
+
+# IDE 和编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# Go
+*.test
+go.work.sum
+
+# pnpm
+.pnpm-debug.log
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Ansible
+*.retry
+
+# Docker
+.docker/
+
+# 密钥和证书（绝不提交）
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+secrets/
+.secrets/
+
+# Helm
+charts/*/charts/
+*.tgz
+
+# 本地配置覆盖
+*.local.yaml
+*.local.json

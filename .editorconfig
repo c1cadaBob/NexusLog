@@ -1,0 +1,54 @@
+# EditorConfig 帮助开发者在不同编辑器和 IDE 之间保持一致的编码风格
+# https://editorconfig.org
+
+root = true
+
+# 所有文件的默认设置
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Go 文件
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# Python 文件
+[*.py]
+indent_size = 4
+
+# Makefile
+[Makefile]
+indent_style = tab
+
+# YAML 文件
+[*.{yml,yaml}]
+indent_size = 2
+
+# JSON 文件
+[*.json]
+indent_size = 2
+
+# Markdown 文件
+[*.md]
+trim_trailing_whitespace = false
+
+# Shell 脚本
+[*.sh]
+indent_size = 2
+
+# SQL 文件
+[*.sql]
+indent_size = 2
+
+# Protobuf 文件
+[*.proto]
+indent_size = 2
+
+# Rego 文件 (OPA)
+[*.rego]
+indent_size = 2
