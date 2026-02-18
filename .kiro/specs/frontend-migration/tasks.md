@@ -164,21 +164,21 @@
     - **Property 15: Hooks 无 Context API 依赖**
     - **Validates: Requirements 11.3**
 
-- [-] 8. 检查点 - 基础模块验证
+- [x] 8. 检查点 - 基础模块验证
   - 确保所有测试通过，如有问题请向用户确认。
 
-- [ ] 9. ECharts 图表组件迁移
-  - [ ] 9.1 创建 BaseChart 通用包装组件
+- [x] 9. ECharts 图表组件迁移
+  - [x] 9.1 创建 BaseChart 通用包装组件
     - 实现 ECharts 实例的初始化、更新、销毁生命周期管理
     - 实现容器 resize 自动适配
     - 实现主题切换响应（dark/light）
     - _需求: 6.1, 6.3, 6.4, 6.5_
 
-  - [ ] 9.2 编写图表 resize 响应属性测试
+  - [x] 9.2 编写图表 resize 响应属性测试
     - **Property 8: 图表 resize 响应**
     - **Validates: Requirements 6.3**
 
-  - [ ] 9.3 迁移具体图表组件
+  - [x] 9.3 迁移具体图表组件
     - 创建 TimeSeriesChart（ECharts line/area series）
     - 创建 BarChart（ECharts bar series）
     - 创建 PieChart（ECharts pie series）
@@ -186,26 +186,26 @@
     - 创建 `components/charts/index.ts` 统一导出
     - _需求: 6.2_
 
-- [ ] 10. 通用组件迁移（Ant Design 封装）
-  - [ ] 10.1 迁移 DataTable 组件
+- [x] 10. 通用组件迁移（Ant Design 封装）
+  - [x] 10.1 迁移 DataTable 组件
     - 基于 Ant Design Table 封装，保留排序、筛选、分页功能
     - _需求: 8.1_
 
-  - [ ] 10.2 编写 DataTable 排序属性测试
+  - [x] 10.2 编写 DataTable 排序属性测试
     - **Property 12: DataTable 排序正确性**
     - **Validates: Requirements 8.1**
 
-  - [ ] 10.3 迁移 Modal、Drawer 和 ErrorBoundary 组件
+  - [x] 10.3 迁移 Modal、Drawer 和 ErrorBoundary 组件
     - Modal 基于 Ant Design Modal 封装
     - Drawer 基于 Ant Design Drawer 封装
     - ErrorBoundary 使用 Ant Design Result 展示错误信息
     - _需求: 8.2, 8.3_
 
-  - [ ] 10.4 编写 ErrorBoundary 属性测试
+  - [x] 10.4 编写 ErrorBoundary 属性测试
     - **Property 13: ErrorBoundary 错误捕获**
     - **Validates: Requirements 8.3**
 
-  - [ ] 10.5 迁移 LoadingScreen、StatCard 和其余通用组件
+  - [x] 10.5 迁移 LoadingScreen、StatCard 和其余通用组件
     - LoadingScreen 使用 Ant Design Spin
     - StatCard 使用 Ant Design Card + Statistic
     - 迁移 SearchBar、FormField、Card、List、ContextMenu 等
@@ -213,7 +213,7 @@
     - 创建 `components/common/index.ts` 统一导出
     - _需求: 8.4, 8.5, 5.5_
 
-  - [ ] 10.6 编写 StatCard 属性测试
+  - [x] 10.6 编写 StatCard 属性测试
     - **Property 14: StatCard 数据展示完整性**
     - **Validates: Requirements 8.5**
 
