@@ -1,0 +1,39 @@
+{
+  "name": "@nexuslog/frontend-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "NexusLog 前端控制台 - React 19 + Ant Design + ECharts",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --run --coverage",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "antd": "^5.22.0",
+    "echarts": "^5.5.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "fast-check": "^3.23.2",
+    "jsdom": "^25.0.1",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.0",
+    "vite-plugin-compression": "^0.5.1",
+    "vitest": "^3.2.0"
+  }
+}

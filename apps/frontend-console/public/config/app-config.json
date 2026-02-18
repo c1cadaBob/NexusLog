@@ -1,0 +1,19 @@
+{
+  "apiBaseUrl": "/api/v1",
+  "wsBaseUrl": "/ws",
+  "appName": "NexusLog",
+  "version": "0.1.0",
+  "features": {
+    "enableWebSocket": true,
+    "enableOfflineMode": false,
+    "enableAnalytics": false
+  },
+  "theme": {
+    "defaultMode": "light",
+    "primaryColor": "#1890ff"
+  },
+  "session": {
+    "idleTimeoutMinutes": 30,
+    "refreshIntervalMinutes": 5
+  }
+}
