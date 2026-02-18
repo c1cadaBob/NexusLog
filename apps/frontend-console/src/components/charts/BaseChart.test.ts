@@ -109,14 +109,12 @@ class MockResizeObserver {
 class ChartResizeHandler {
   private chart: MockEChartsInstance | null = null;
   private resizeObserver: MockResizeObserver | null = null;
-  private container: HTMLDivElement | null = null;
   
   /**
    * 初始化处理器
    */
   init(chart: MockEChartsInstance, container: HTMLDivElement) {
     this.chart = chart;
-    this.container = container;
     
     // 创建 ResizeObserver
     this.resizeObserver = new MockResizeObserver(() => {
@@ -156,7 +154,6 @@ class ChartResizeHandler {
     this.resizeObserver?.disconnect();
     this.chart?.dispose();
     this.chart = null;
-    this.container = null;
   }
   
   /**

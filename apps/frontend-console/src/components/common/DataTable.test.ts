@@ -68,6 +68,10 @@ const testRecordArb = fc.record({
 
 type TestRecord = fc.RecordValue<typeof testRecordArb>;
 
+// 使用 TestRecord 类型确保类型安全
+const _typeCheck: TestRecord = {} as TestRecord;
+void _typeCheck;
+
 /**
  * 生成测试数据数组
  */

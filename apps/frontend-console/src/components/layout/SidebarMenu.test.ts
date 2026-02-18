@@ -107,8 +107,10 @@ const validPathArb = fc.constantFrom(...allValidPaths);
 
 /**
  * 生成有效菜单 key 的 Arbitrary
+ * 保留用于未来扩展测试
  */
-const validKeyArb = fc.constantFrom(...allValidKeys);
+const _validKeyArb = fc.constantFrom(...allValidKeys);
+void _validKeyArb;
 
 // ============================================================================
 // 属性测试

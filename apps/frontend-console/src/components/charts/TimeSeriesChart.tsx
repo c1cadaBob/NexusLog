@@ -242,7 +242,7 @@ export const TimeSeriesChart = memo(function TimeSeriesChart({
         type: 'category',
         data: xAxisData,
         axisLabel: {
-          formatter: (value: number) => xAxisFormatter(value),
+          formatter: (value: string) => xAxisFormatter(Number(value)),
         },
         axisTick: {
           alignWithLabel: true,

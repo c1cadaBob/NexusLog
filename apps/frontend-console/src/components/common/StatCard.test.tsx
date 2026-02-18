@@ -7,7 +7,6 @@
  * @module components/common/StatCard.test
  */
 
-import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as fc from 'fast-check';
 import { render, cleanup } from '@testing-library/react';

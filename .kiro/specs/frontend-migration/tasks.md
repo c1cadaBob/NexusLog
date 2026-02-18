@@ -217,86 +217,86 @@
     - **Property 14: StatCard 数据展示完整性**
     - **Validates: Requirements 8.5**
 
-- [ ] 11. 布局组件迁移
-  - [ ] 11.1 创建 AppLayout 布局组件
+- [x] 11. 布局组件迁移
+  - [x] 11.1 创建 AppLayout 布局组件
     - 使用 Ant Design Layout、Sider、Header、Content 组件
     - 实现侧边栏折叠/展开功能
     - 实现响应式：屏幕宽度 < 768px 时转为抽屉式导航
     - 在侧边栏顶部显示 "NexusLog" 品牌标识
     - _需求: 4.1, 4.2, 4.3, 4.4, 4.6_
 
-  - [ ] 11.2 编写侧边栏折叠状态切换属性测试
+  - [x] 11.2 编写侧边栏折叠状态切换属性测试
     - **Property 7: 侧边栏折叠状态切换**
     - **Validates: Requirements 4.3**
 
-  - [ ] 11.3 创建侧边栏菜单组件
+  - [x] 11.3 创建侧边栏菜单组件
     - 使用 Ant Design Menu 实现多级菜单导航
     - 根据当前路由自动高亮对应菜单项
     - 从 `constants/menu.ts` 读取菜单配置
     - _需求: 4.5_
 
-  - [ ] 11.4 编写菜单高亮与路由匹配属性测试
+  - [x] 11.4 编写菜单高亮与路由匹配属性测试
     - **Property 5: 菜单高亮与路由匹配**
     - **Validates: Requirements 4.5**
 
-  - [ ] 11.5 创建 Header 顶部导航组件
+  - [x] 11.5 创建 Header 顶部导航组件
     - 包含面包屑导航、用户信息下拉、主题切换按钮
     - _需求: 4.1_
 
-- [ ] 12. 认证组件和 Ant Design 主题配置
-  - [ ] 12.1 迁移 ProtectedRoute 组件
+- [-] 12. 认证组件和 Ant Design 主题配置
+  - [x] 12.1 迁移 ProtectedRoute 组件
     - 从 useAuthStore 获取认证状态，未认证重定向到 /login
     - _需求: 3.5_
 
-  - [ ] 12.2 迁移登录相关页面和组件
+  - [x] 12.2 迁移登录相关页面和组件
     - 迁移 LoginForm（Ant Design Form）、RegisterForm、ForgotPasswordForm
     - 迁移 LoginPage、RegisterPage、ForgotPasswordPage
     - 迁移 PasswordInput、SocialLoginButtons、SSOLoginForm、RememberMeCheckbox
     - 创建 `components/auth/index.ts` 统一导出
     - _需求: 3.5, 9.4_
 
-  - [ ] 12.3 配置 Ant Design 主题 Token 和 ConfigProvider
+  - [x] 12.3 配置 Ant Design 主题 Token 和 ConfigProvider
     - 定义主色调、暗色/亮色模式色彩方案
     - 在 App.tsx 中使用 ConfigProvider 包裹应用
     - 配置中文语言包 zh_CN
     - _需求: 5.2, 5.3, 2.3_
 
-  - [ ] 12.4 编写主题切换一致性属性测试
+  - [x] 12.4 编写主题切换一致性属性测试
     - **Property 6: 主题切换一致性**
     - **Validates: Requirements 5.3, 6.5**
 
-- [ ] 13. 路由结构和应用入口迁移
-  - [ ] 13.1 创建 App.tsx 应用入口
+- [-] 13. 路由结构和应用入口迁移
+  - [x] 13.1 创建 App.tsx 应用入口
     - 配置 HashRouter
     - 配置 Ant Design ConfigProvider（主题、语言）
     - 移除 Context Provider 嵌套，改用 Zustand Store
     - _需求: 2.6, 5.3_
 
-  - [ ] 13.2 迁移完整路由结构
+  - [x] 13.2 迁移完整路由结构
     - 迁移全部 15 个路由模块的嵌套路由配置
     - 对非首页路由使用 React.lazy 实现懒加载
     - 配置 404 回退到 Dashboard
     - 配置公开路由和受保护路由
     - _需求: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-  - [ ] 13.3 编写路由模块完整性属性测试
+  - [x] 13.3 编写路由模块完整性属性测试
     - **Property 2: 路由模块完整性和嵌套结构**
     - **Validates: Requirements 3.1, 3.2**
 
-  - [ ] 13.4 编写非首页路由懒加载属性测试
+  - [x] 13.4 编写非首页路由懒加载属性测试
     - **Property 3: 非首页路由懒加载**
     - **Validates: Requirements 3.3**
 
-  - [ ] 13.5 编写公开/受保护路由分类属性测试
+  - [x] 13.5 编写公开/受保护路由分类属性测试
     - **Property 4: 公开路由与受保护路由分类**
     - **Validates: Requirements 3.5**
 
-  - [ ] 13.6 创建 main.tsx 入口文件
+  - [x] 13.6 创建 main.tsx 入口文件
     - 初始化应用监控
     - 渲染 React 应用到 DOM
     - _需求: 2.1_
 
-- [ ] 14. 检查点 - 前端框架验证
+- [-] 14. 检查点 - 前端框架验证
   - 确保所有测试通过，如有问题请向用户确认。
 
 - [ ] 15. Dashboard 首页迁移

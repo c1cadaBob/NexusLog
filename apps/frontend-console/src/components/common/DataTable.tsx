@@ -132,7 +132,7 @@ export function DataTable<T extends Record<string, unknown>>({
   selection,
   bordered = false,
   striped = false,
-  hoverable = true,
+  hoverable: _hoverable = true,
   size = 'middle',
   loading = false,
   emptyText = '暂无数据',
@@ -141,6 +141,8 @@ export function DataTable<T extends Record<string, unknown>>({
   onRowClick,
   onSortChange,
 }: DataTableProps<T>) {
+  // hoverable 属性保留用于 API 兼容性，Ant Design Table 默认支持 hover 效果
+  void _hoverable;
   // 转换列定义
   const antdColumns = useMemo(
     () => convertToAntdColumns(columns, sort ?? null),

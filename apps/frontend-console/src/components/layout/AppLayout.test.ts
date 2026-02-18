@@ -7,7 +7,7 @@
  * @module components/layout/AppLayout.test
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 
 // ============================================================================
@@ -264,10 +264,10 @@ describe('AppLayout 属性测试', () => {
     it('移动端模式下侧边栏始终折叠', () => {
       fc.assert(
         fc.property(
-          fc.boolean(), // 初始折叠状态
+          fc.boolean(), // 初始折叠状态（保留用于 API 兼容性）
           fc.boolean(), // 抽屉是否可见
           fc.nat({ max: 10 }), // 切换次数
-          (initialCollapsed, drawerVisible, toggleCount) => {
+          (_initialCollapsed, drawerVisible, toggleCount) => {
             // 创建移动端状态
             let state: SidebarState = {
               collapsed: true,

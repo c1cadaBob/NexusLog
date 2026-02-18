@@ -8,7 +8,6 @@
 
 import React from 'react';
 import { Modal as AntModal, Button } from 'antd';
-import type { ModalProps as AntModalProps } from 'antd';
 import type { ModalProps, ModalSize } from '@/types';
 
 // ============================================================================
