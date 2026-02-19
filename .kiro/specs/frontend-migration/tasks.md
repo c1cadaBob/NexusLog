@@ -296,11 +296,11 @@
     - 渲染 React 应用到 DOM
     - _需求: 2.1_
 
-- [-] 14. 检查点 - 前端框架验证
+- [x] 14. 检查点 - 前端框架验证
   - 确保所有测试通过，如有问题请向用户确认。
 
-- [ ] 15. Dashboard 首页迁移
-  - [ ] 15.1 迁移 Dashboard 页面
+- [x] 15. Dashboard 首页迁移
+  - [x] 15.1 迁移 Dashboard 页面
     - 使用 Ant Design Card + Statistic 实现 KPI 卡片
     - 使用 ECharts TimeSeriesChart 实现日志趋势图表
     - 迁移 InfrastructureMonitor 基础设施监控面板
