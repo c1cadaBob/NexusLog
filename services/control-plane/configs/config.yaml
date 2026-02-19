@@ -1,0 +1,69 @@
+# Control Plane 服务配置
+# change_level: none | normal | cab
+
+server:
+  http_port: 8080
+  grpc_port: 9090
+  change_level: normal
+  hot_reload: true
+  read_timeout: 10s
+  write_timeout: 10s
+  shutdown_timeout: 10s
+
+database:
+  postgresql:
+    host: localhost
+    port: 5432
+    dbname: nexuslog
+    sslmode: require
+    max_open_conns: 25
+    max_idle_conns: 5
+    change_level: cab
+    hot_reload: partial
+    restart_params:
+      - max_connections
+      - shared_buffers
+
+cache:
+  redis:
+    addr: localhost:6379
+    db: 0
+    pool_size: 10
+    change_level: cab
+    hot_reload: partial
+
+search:
+  elasticsearch:
+    addresses:
+      - http://localhost:9200
+    change_level: cab
+    hot_reload: true
+    restart_params:
+      - cluster.routing
+      - discovery
+
+messaging:
+  kafka:
+    brokers:
+      - localhost:9092
+    change_level: cab
+    hot_reload: partial
+
+components:
+  health_worker:
+    change_level: none
+    hot_reload: true
+
+  prometheus:
+    change_level: none
+    hot_reload: true
+
+  grafana:
+    change_level: none
+    hot_reload: true
+
+logging:
+  level: info
+  format: json
+  change_level: none
+  hot_reload: true
