@@ -1,0 +1,85 @@
+# ============================================================
+# Prometheus 配置模板
+# NexusLog 可观测性平台
+# ============================================================
+
+# 全局配置
+global:
+  # 抓取间隔：每 15 秒从目标拉取一次指标
+  scrape_interval: 15s
+  # 评估间隔：每 15 秒评估一次告警规则
+  evaluation_interval: 15s
+  # 抓取超时时间
+  scrape_timeout: 10s
+
+# 告警规则文件路径
+rule_files:
+  - "rules/*.yml"
+
+# Alertmanager 配置
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            # Alertmanager 服务地址
+            - "alertmanager:9093"
+
+# 抓取目标配置
+scrape_configs:
+  # Prometheus 自身监控
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # NexusLog Control Plane 服务
+  - job_name: "control-plane"
+    metrics_path: "/metrics"
+    file_sd_configs:
+      - files:
+          - "targets/control-plane.yml"
+        # 目标文件刷新间隔
+        refresh_interval: 30s
+
+  # NexusLog API 服务
+  - job_name: "api-service"
+    metrics_path: "/metrics"
+    file_sd_configs:
+      - files:
+          - "targets/api-service.yml"
+        refresh_interval: 30s
+
+  # 采集代理（Collector Agent）
+  - job_name: "collector-agent"
+    metrics_path: "/metrics"
+    file_sd_configs:
+      - files:
+          - "targets/collector-agent.yml"
+        refresh_interval: 30s
+
+  # Kafka 集群监控（通过 JMX Exporter）
+  - job_name: "kafka"
+    file_sd_configs:
+      - files:
+          - "targets/kafka.yml"
+        refresh_interval: 60s
+
+  # Elasticsearch 集群监控
+  - job_name: "elasticsearch"
+    file_sd_configs:
+      - files:
+          - "targets/elasticsearch.yml"
+        refresh_interval: 60s
+
+  # OpenTelemetry Collector 监控
+  - job_name: "otel-collector"
+    file_sd_configs:
+      - files:
+          - "targets/otel-collector.yml"
+        refresh_interval: 30s
+
+  # Node Exporter（主机指标）
+  - job_name: "node-exporter"
+    file_sd_configs:
+      - files:
+          - "targets/node-exporter.yml"
+        refresh_interval: 60s

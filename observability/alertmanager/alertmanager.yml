@@ -1,0 +1,94 @@
+# ============================================================
+# Alertmanager 配置模板
+# NexusLog 可观测性平台
+# ============================================================
+
+# 全局配置
+global:
+  # 告警恢复等待时间：告警触发后，等待此时间未再次触发则标记为已恢复
+  resolve_timeout: 5m
+
+  # SMTP 邮件配置（按需启用）
+  # smtp_smarthost: "smtp.example.com:587"
+  # smtp_from: "alertmanager@nexuslog.io"
+  # smtp_auth_username: "alertmanager@nexuslog.io"
+  # smtp_auth_password: ""
+  # smtp_require_tls: true
+
+# 通知模板路径
+templates:
+  - "templates/*.tmpl"
+
+# 路由树：定义告警的分发规则
+route:
+  # 用于分组的标签，相同标签值的告警会被合并为一组发送
+  group_by: ["alertname", "cluster", "service"]
+  # 分组等待时间：收到第一条告警后等待此时间，收集同组其他告警
+  group_wait: 30s
+  # 分组发送间隔：同一组告警的重复通知间隔
+  group_interval: 5m
+  # 重复通知间隔：已发送的告警在此时间后再次发送
+  repeat_interval: 4h
+  # 默认接收者
+  receiver: "default-receiver"
+
+  # 子路由规则
+  routes:
+    # 严重告警（P0/P1）：立即通知值班人员
+    - match:
+        severity: critical
+      receiver: "critical-receiver"
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # 警告级别告警
+    - match:
+        severity: warning
+      receiver: "warning-receiver"
+      repeat_interval: 8h
+
+    # 基础设施相关告警
+    - match_re:
+        service: "kafka|elasticsearch|redis|postgresql"
+      receiver: "infra-receiver"
+      group_by: ["alertname", "service", "instance"]
+
+# 告警抑制规则：当高优先级告警触发时，抑制低优先级的同类告警
+inhibit_rules:
+  - source_match:
+      severity: "critical"
+    target_match:
+      severity: "warning"
+    # 当这些标签相同时，抑制目标告警
+    equal: ["alertname", "cluster", "service"]
+
+# 接收者配置
+receivers:
+  # 默认接收者
+  - name: "default-receiver"
+    # Webhook 通知（可对接钉钉、飞书、企业微信等）
+    webhook_configs:
+      - url: "http://notification-service:8080/api/v1/alerts/default"
+        send_resolved: true
+
+  # 严重告警接收者
+  - name: "critical-receiver"
+    webhook_configs:
+      - url: "http://notification-service:8080/api/v1/alerts/critical"
+        send_resolved: true
+    # 邮件通知（按需启用）
+    # email_configs:
+    #   - to: "oncall@nexuslog.io"
+    #     send_resolved: true
+
+  # 警告级别接收者
+  - name: "warning-receiver"
+    webhook_configs:
+      - url: "http://notification-service:8080/api/v1/alerts/warning"
+        send_resolved: true
+
+  # 基础设施告警接收者
+  - name: "infra-receiver"
+    webhook_configs:
+      - url: "http://notification-service:8080/api/v1/alerts/infra"
+        send_resolved: true
