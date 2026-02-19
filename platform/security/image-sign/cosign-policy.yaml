@@ -1,0 +1,32 @@
+# NexusLog 镜像签名策略
+# 使用 Cosign 对容器镜像进行签名和验证
+
+# 签名配置
+signing:
+  # 签名密钥类型
+  keyType: kms
+  # KMS 密钥引用（生产环境使用 KMS 托管密钥）
+  kmsKeyRef: "awskms:///arn:aws:kms:cn-hangzhou:123456789:key/example-key-id"
+  # 签名算法
+  algorithm: ECDSA_P256
+
+# 验证策略
+verification:
+  # 是否强制验证
+  enforced: true
+  # 允许的签名者
+  authorities:
+    - name: nexuslog-ci
+      keyRef: "cosign.pub"
+  # 需要验证的镜像仓库
+  images:
+    - "registry.nexuslog.io/nexuslog-*"
+
+# 准入控制
+admission:
+  # 拒绝未签名镜像
+  rejectUnsigned: true
+  # 白名单命名空间（不强制签名验证）
+  exemptNamespaces:
+    - kube-system
+    - argocd

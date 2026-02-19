@@ -1,0 +1,34 @@
+# NexusLog Istio VirtualService - API
+# API 服务流量路由和灰度发布
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: nexuslog-api
+  namespace: nexuslog-gateway
+spec:
+  hosts:
+    - "api.nexuslog.example.com"
+  gateways:
+    - nexuslog-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /api/v1/
+      route:
+        - destination:
+            host: nexuslog-control-plane.nexuslog-control-plane.svc.cluster.local
+            port:
+              number: 8080
+            subset: stable
+          weight: 100
+        - destination:
+            host: nexuslog-control-plane.nexuslog-control-plane.svc.cluster.local
+            port:
+              number: 8080
+            subset: canary
+          weight: 0
+      timeout: 30s
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+        retryOn: 5xx,reset,connect-failure

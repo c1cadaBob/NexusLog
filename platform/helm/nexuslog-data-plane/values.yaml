@@ -1,0 +1,30 @@
+# NexusLog Data Plane - Helm Values
+replicaCount: 2
+
+image:
+  repository: nexuslog/data-services
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+config:
+  elasticsearch:
+    hosts:
+      - http://elasticsearch.nexuslog-storage.svc.cluster.local:9200
+  kafka:
+    brokers:
+      - kafka.nexuslog-stream.svc.cluster.local:9092
+
+# change_level: normal
+changeLevel: normal

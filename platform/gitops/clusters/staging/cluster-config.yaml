@@ -1,0 +1,17 @@
+# NexusLog GitOps - Staging 集群配置
+# 预发布环境集群参数
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-config
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/env: staging
+data:
+  cluster.name: nexuslog-staging
+  cluster.env: staging
+  cluster.region: cn-hangzhou
+  log.level: info
+  replicas.default: "2"
+  resources.profile: standard

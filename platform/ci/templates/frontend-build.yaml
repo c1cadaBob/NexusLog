@@ -1,0 +1,34 @@
+# NexusLog CI 模板 - 前端构建
+# 可复用的前端构建流水线模板
+steps:
+  install:
+    name: Install Dependencies
+    image: node:20-alpine
+    commands:
+      - corepack enable
+      - pnpm install --frozen-lockfile
+
+  lint:
+    name: Lint
+    image: node:20-alpine
+    commands:
+      - pnpm --filter frontend-console lint
+
+  test:
+    name: Unit Test
+    image: node:20-alpine
+    commands:
+      - pnpm --filter frontend-console test -- --run
+
+  build:
+    name: Build
+    image: node:20-alpine
+    commands:
+      - pnpm --filter frontend-console build
+
+  docker:
+    name: Docker Build & Push
+    image: docker:latest
+    commands:
+      - docker build -t ${REGISTRY}/nexuslog-frontend:${TAG} apps/frontend-console/
+      - docker push ${REGISTRY}/nexuslog-frontend:${TAG}

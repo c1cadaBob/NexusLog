@@ -1,0 +1,50 @@
+# NexusLog Observability - Helm Values
+
+prometheus:
+  replicas: 1
+  image:
+    repository: prom/prometheus
+    tag: "v2.48.0"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  storage:
+    size: 50Gi
+  retention: 15d
+
+alertmanager:
+  replicas: 1
+  image:
+    repository: prom/alertmanager
+    tag: "v0.27.0"
+
+grafana:
+  replicas: 1
+  image:
+    repository: grafana/grafana
+    tag: "10.2.0"
+  service:
+    type: ClusterIP
+    port: 3000
+
+jaeger:
+  image:
+    repository: jaegertracing/all-in-one
+    tag: "1.50"
+
+otelCollector:
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.90.0"
+
+loki:
+  image:
+    repository: grafana/loki
+    tag: "2.9.0"
+
+# change_level: none
+changeLevel: none

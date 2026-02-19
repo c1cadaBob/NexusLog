@@ -1,0 +1,12 @@
+apiVersion: v2
+name: nexuslog-data-plane
+description: NexusLog 数据面服务 - 查询/审计/导出 API
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - nexuslog
+  - data-plane
+  - query
+maintainers:
+  - name: NexusLog Team

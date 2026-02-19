@@ -1,0 +1,12 @@
+apiVersion: v2
+name: nexuslog-gateway
+description: NexusLog API 网关 - 基于 OpenResty 的流量入口
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - nexuslog
+  - gateway
+  - openresty
+maintainers:
+  - name: NexusLog Team

@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nexuslog-iam-system
+  namespace: argocd
+spec:
+  project: nexuslog
+  source:
+    repoURL: "https://github.com/nexuslog/nexuslog.git"
+    targetRevision: main
+    path: iam
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: nexuslog-iam
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

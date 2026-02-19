@@ -1,0 +1,12 @@
+apiVersion: v2
+name: nexuslog-control-plane
+description: NexusLog 控制面服务 - Go Gin + gRPC 微服务
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - nexuslog
+  - control-plane
+  - grpc
+maintainers:
+  - name: NexusLog Team

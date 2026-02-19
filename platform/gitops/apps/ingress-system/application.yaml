@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nexuslog-ingress-system
+  namespace: argocd
+spec:
+  project: nexuslog
+  source:
+    repoURL: "https://github.com/nexuslog/nexuslog.git"
+    targetRevision: main
+    path: platform/helm/nexuslog-gateway
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: nexuslog-gateway
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

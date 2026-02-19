@@ -1,0 +1,13 @@
+apiVersion: v2
+name: nexuslog-observability
+description: NexusLog 可观测性 - Prometheus、Grafana、Jaeger、OTel、Loki
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - nexuslog
+  - observability
+  - prometheus
+  - grafana
+maintainers:
+  - name: NexusLog Team

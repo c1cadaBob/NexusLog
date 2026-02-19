@@ -1,0 +1,30 @@
+# NexusLog Istio VirtualService - 前端
+# 前端控制台流量路由
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: nexuslog-frontend
+  namespace: nexuslog-gateway
+spec:
+  hosts:
+    - "nexuslog.example.com"
+  gateways:
+    - nexuslog-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /api/
+      route:
+        - destination:
+            host: nexuslog-gateway.nexuslog-gateway.svc.cluster.local
+            port:
+              number: 80
+      timeout: 30s
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+    - route:
+        - destination:
+            host: nexuslog-frontend.nexuslog-gateway.svc.cluster.local
+            port:
+              number: 80

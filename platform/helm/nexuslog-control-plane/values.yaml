@@ -1,0 +1,33 @@
+# NexusLog Control Plane - Helm Values
+replicaCount: 2
+
+image:
+  repository: nexuslog/control-plane
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+  grpcPort: 9090
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+config:
+  logLevel: info
+  database:
+    host: postgresql.nexuslog-storage.svc.cluster.local
+    port: 5432
+    name: nexuslog
+  redis:
+    host: redis.nexuslog-storage.svc.cluster.local
+    port: 6379
+
+# change_level: normal
+changeLevel: normal

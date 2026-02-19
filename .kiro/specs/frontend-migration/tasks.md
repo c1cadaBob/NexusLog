@@ -414,35 +414,35 @@
     - 创建 `gateway/openresty/Dockerfile`
     - _需求: 14.1, 14.2, 14.3_
 
-- [ ] 23. IAM 安全体系配置
-  - [ ] 23.1 创建 Keycloak 配置
+- [x] 23. IAM 安全体系配置
+  - [x] 23.1 创建 Keycloak 配置
     - 创建 `iam/keycloak/realms/`（含基础 Realm 导入配置 JSON）
     - 创建 `iam/keycloak/clients/`、`iam/keycloak/roles/`、`iam/keycloak/mappers/`
     - _需求: 15.1_
 
-  - [ ] 23.2 创建 OPA 策略配置
+  - [x] 23.2 创建 OPA 策略配置
     - 创建 `iam/opa/policies/`（含基础 RBAC 策略 Rego 文件）
     - 创建 `iam/opa/bundles/`、`iam/opa/tests/`
     - _需求: 15.2_
 
-  - [ ] 23.3 创建 Vault 策略配置
+  - [x] 23.3 创建 Vault 策略配置
     - 创建 `iam/vault/policies/`（含策略模板）
     - 创建 `iam/vault/auth/`、`iam/vault/engines/`
     - _需求: 15.3_
 
-- [ ] 24. 消息传输、契约和存储配置
-  - [ ] 24.1 创建消息传输配置
+- [x] 24. 消息传输、契约和存储配置
+  - [x] 24.1 创建消息传输配置
     - 创建 `messaging/kafka/topics/`、`messaging/kafka/quotas/`、`messaging/kafka/broker-config/`
     - 创建 `messaging/schema-registry/config/`、`messaging/schema-registry/compatibility-rules/`
     - 创建 `messaging/dlq-retry/retry-policies/`、`messaging/dlq-retry/consumer-config/`
     - _需求: 16.1, 16.2, 16.3_
 
-  - [ ] 24.2 创建契约定义配置
+  - [x] 24.2 创建契约定义配置
     - 创建 `contracts/schema-contracts/avro/`、`contracts/schema-contracts/protobuf/`、`contracts/schema-contracts/jsonschema/`
     - 创建 `contracts/schema-contracts/compatibility/`、`contracts/schema-contracts/tests/`
     - _需求: 16.4_
 
-  - [ ] 24.3 创建存储层配置
+  - [x] 24.3 创建存储层配置
     - 创建 `storage/elasticsearch/`（index-templates/、ilm-policies/、ingest-pipelines/、snapshots/）
     - 创建 `storage/postgresql/`（migrations/、seeds/、rls-policies/、patroni/、etcd/、pgbouncer/）
     - 创建 `storage/redis/`（cluster-config/、lua-scripts/）
@@ -450,8 +450,8 @@
     - 创建 `storage/glacier/`（archive-policies/）
     - _需求: 17.1, 17.2, 17.3, 17.4, 17.5_
 
-- [ ] 25. 采集代理和流计算配置
-  - [ ] 25.1 创建 Collector Agent 结构
+- [x] 25. 采集代理和流计算配置
+  - [x] 25.1 创建 Collector Agent 结构
     - 创建 `agents/collector-agent/cmd/agent/`
     - 创建 `agents/collector-agent/internal/`（collector/、pipeline/、checkpoint/、retry/）
     - 创建 `agents/collector-agent/plugins/`（grpc/、wasm/）
@@ -459,34 +459,34 @@
     - 创建 `agents/collector-agent/Dockerfile`、`agents/collector-agent/go.mod`
     - _需求: 21.1_
 
-  - [ ] 25.2 创建 Flink 流计算配置
+  - [x] 25.2 创建 Flink 流计算配置
     - 创建 `stream/flink/jobs/`（sql/、cep/）
     - 创建 `stream/flink/udf/`、`stream/flink/libs/`、`stream/flink/savepoints/`
     - 创建 `stream/flink/configs/`、`stream/flink/tests/`
     - _需求: 21.2_
 
-- [ ] 26. 可观测性配置
-  - [ ] 26.1 创建 Prometheus 和 Alertmanager 配置
+- [x] 26. 可观测性配置
+  - [x] 26.1 创建 Prometheus 和 Alertmanager 配置
     - 创建 `observability/prometheus/prometheus.yml`（服务发现、告警规则路径）
     - 创建 `observability/prometheus/rules/`、`observability/prometheus/targets/`
     - 创建 `observability/alertmanager/alertmanager.yml`（告警路由、通知渠道）
     - 创建 `observability/alertmanager/templates/`
     - _需求: 18.1, 18.2_
 
-  - [ ] 26.2 创建 Grafana、Jaeger、OTel、Loki 配置
+  - [x] 26.2 创建 Grafana、Jaeger、OTel、Loki 配置
     - 创建 `observability/grafana/dashboards/`、`observability/grafana/datasources/`
     - 创建 `observability/jaeger/config/`
     - 创建 `observability/otel-collector/config/`
     - 创建 `observability/loki/config/`
     - _需求: 18.3, 18.4, 18.5, 18.6_
 
-- [ ] 27. 平台治理与部署配置
-  - [ ] 27.1 创建 Kubernetes 基础配置
+- [x] 27. 平台治理与部署配置
+  - [x] 27.1 创建 Kubernetes 基础配置
     - 创建 `platform/kubernetes/base/`、`platform/kubernetes/namespaces/`、`platform/kubernetes/rbac/`
     - 创建 `platform/kubernetes/network-policies/`、`platform/kubernetes/storageclasses/`
     - _需求: 19.1_
 
-  - [ ] 27.2 创建 Helm Charts
+  - [x] 27.2 创建 Helm Charts
     - 创建 `platform/helm/nexuslog-gateway/`（Chart.yaml、values.yaml、templates/）
     - 创建 `platform/helm/nexuslog-control-plane/`
     - 创建 `platform/helm/nexuslog-data-plane/`
@@ -494,13 +494,13 @@
     - 创建 `platform/helm/nexuslog-observability/`
     - _需求: 19.2_
 
-  - [ ] 27.3 创建 GitOps 配置
+  - [x] 27.3 创建 GitOps 配置
     - 创建 `platform/gitops/argocd/projects/`、`platform/gitops/argocd/applicationsets/`
     - 创建 `platform/gitops/apps/`（ingress-system/、iam-system/、control-plane/、data-plane/、storage-system/、observability/）
     - 创建 `platform/gitops/clusters/`（dev/、staging/、prod/）
     - _需求: 19.3_
 
-  - [ ] 27.4 创建 CI、安全扫描和 Istio 配置
+  - [x] 27.4 创建 CI、安全扫描和 Istio 配置
     - 创建 `platform/ci/templates/`、`platform/ci/scripts/`
     - 创建 `platform/security/trivy/`、`platform/security/sast/`、`platform/security/image-sign/`
     - 创建 `platform/istio/gateways/`、`platform/istio/virtualservices/`、`platform/istio/destinationrules/`

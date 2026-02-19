@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nexuslog-storage-system
+  namespace: argocd
+spec:
+  project: nexuslog
+  source:
+    repoURL: "https://github.com/nexuslog/nexuslog.git"
+    targetRevision: main
+    path: platform/helm/nexuslog-storage
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: nexuslog-storage
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

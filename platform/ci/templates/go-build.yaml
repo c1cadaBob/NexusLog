@@ -1,0 +1,34 @@
+# NexusLog CI 模板 - Go 服务构建
+# 可复用的 Go 服务构建流水线模板
+steps:
+  lint:
+    name: Go Lint
+    image: golangci/golangci-lint:latest
+    commands:
+      - golangci-lint run ./...
+
+  test:
+    name: Go Test
+    image: golang:1.22
+    commands:
+      - go test -v -race -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out
+
+  build:
+    name: Go Build
+    image: golang:1.22
+    commands:
+      - CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app ./cmd/${SERVICE_NAME}/
+
+  docker:
+    name: Docker Build & Push
+    image: docker:latest
+    commands:
+      - docker build -t ${REGISTRY}/${IMAGE_NAME}:${TAG} .
+      - docker push ${REGISTRY}/${IMAGE_NAME}:${TAG}
+
+  scan:
+    name: Trivy Scan
+    image: aquasec/trivy:latest
+    commands:
+      - trivy image --severity HIGH,CRITICAL ${REGISTRY}/${IMAGE_NAME}:${TAG}

@@ -1,0 +1,40 @@
+# NexusLog SAST 静态应用安全测试配置
+# 代码级别的安全漏洞检测
+
+# Go 安全扫描 (gosec)
+gosec:
+  enabled: true
+  severity: medium
+  confidence: medium
+  excludeRules:
+    - G104  # 未检查的错误（部分场景可接受）
+  includeRules: []
+  scanPaths:
+    - services/
+    - agents/
+
+# TypeScript/JavaScript 安全扫描
+eslint-security:
+  enabled: true
+  plugins:
+    - "@typescript-eslint"
+    - "security"
+  rules:
+    no-eval: error
+    security/detect-object-injection: warn
+    security/detect-non-literal-regexp: warn
+    security/detect-unsafe-regex: error
+  scanPaths:
+    - apps/frontend-console/src/
+
+# 密钥泄露检测
+secret-detection:
+  enabled: true
+  patterns:
+    - "password\\s*=\\s*['\"][^'\"]+['\"]"
+    - "api[_-]?key\\s*=\\s*['\"][^'\"]+['\"]"
+    - "secret\\s*=\\s*['\"][^'\"]+['\"]"
+  excludePaths:
+    - "**/*_test.*"
+    - "**/testdata/**"
+    - "**/*.example"

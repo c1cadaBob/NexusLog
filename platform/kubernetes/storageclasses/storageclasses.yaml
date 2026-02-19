@@ -1,0 +1,53 @@
+# NexusLog StorageClasses
+# 定义不同性能等级的存储类，供各组件按需使用
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nexuslog-ssd
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+parameters:
+  type: ssd
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nexuslog-hdd
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+parameters:
+  type: hdd
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nexuslog-elasticsearch
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    app.kubernetes.io/component: elasticsearch
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+parameters:
+  type: ssd
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nexuslog-postgresql
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    app.kubernetes.io/component: postgresql
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+parameters:
+  type: ssd

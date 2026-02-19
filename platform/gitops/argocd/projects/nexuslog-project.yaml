@@ -1,0 +1,41 @@
+# NexusLog Argo CD AppProject
+# 定义项目级别的资源访问和部署策略
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: nexuslog
+  namespace: argocd
+spec:
+  description: NexusLog 日志管理平台
+  sourceRepos:
+    - "https://github.com/nexuslog/nexuslog.git"
+  destinations:
+    - namespace: "nexuslog-*"
+      server: "https://kubernetes.default.svc"
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: storage.k8s.io
+      kind: StorageClass
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+  roles:
+    - name: admin
+      description: NexusLog 管理员
+      policies:
+        - p, proj:nexuslog:admin, applications, *, nexuslog/*, allow
+      groups:
+        - nexuslog-admins
+    - name: viewer
+      description: NexusLog 只读用户
+      policies:
+        - p, proj:nexuslog:viewer, applications, get, nexuslog/*, allow
+      groups:
+        - nexuslog-viewers

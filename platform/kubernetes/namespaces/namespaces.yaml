@@ -1,0 +1,65 @@
+# NexusLog Kubernetes Namespaces
+# 定义各域的命名空间，实现资源隔离
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexuslog-gateway
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/domain: gateway
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/domain: control-plane
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexuslog-data-plane
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/domain: data-plane
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexuslog-storage
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/domain: storage
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexuslog-observability
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/domain: observability
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexuslog-iam
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/domain: iam
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexuslog-stream
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/domain: stream
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexuslog-agents
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/domain: agents

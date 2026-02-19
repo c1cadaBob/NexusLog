@@ -1,0 +1,30 @@
+# NexusLog Istio Gateway
+# 定义入口网关，接收外部流量
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: nexuslog-gateway
+  namespace: nexuslog-gateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "nexuslog.example.com"
+        - "api.nexuslog.example.com"
+      tls:
+        httpsRedirect: true
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      hosts:
+        - "nexuslog.example.com"
+        - "api.nexuslog.example.com"
+      tls:
+        mode: SIMPLE
+        credentialName: nexuslog-tls-cert

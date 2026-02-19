@@ -1,0 +1,39 @@
+# NexusLog Trivy 安全扫描配置
+# 容器镜像和文件系统漏洞扫描
+severity:
+  - CRITICAL
+  - HIGH
+
+# 扫描目标
+scan:
+  # 镜像扫描
+  image:
+    enabled: true
+    ignoreUnfixed: true
+    timeout: 10m
+  # 文件系统扫描
+  filesystem:
+    enabled: true
+    scanners:
+      - vuln
+      - secret
+      - misconfig
+
+# 忽略规则
+ignore:
+  # 已知可接受的 CVE
+  cves: []
+  # 忽略的文件路径
+  paths:
+    - "**/*_test.go"
+    - "**/testdata/**"
+
+# 报告格式
+report:
+  format: table
+  output: trivy-report.txt
+
+# CI 集成
+ci:
+  exitCode: 1
+  severity: "HIGH,CRITICAL"

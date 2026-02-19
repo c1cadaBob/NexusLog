@@ -1,0 +1,17 @@
+# NexusLog GitOps - Dev 集群配置
+# 开发环境集群参数
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-config
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/env: dev
+data:
+  cluster.name: nexuslog-dev
+  cluster.env: dev
+  cluster.region: cn-hangzhou
+  log.level: debug
+  replicas.default: "1"
+  resources.profile: minimal
