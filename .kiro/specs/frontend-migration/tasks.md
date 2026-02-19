@@ -306,8 +306,8 @@
     - 迁移 InfrastructureMonitor 基础设施监控面板
     - _需求: 9.1_
 
-- [ ] 16. 日志检索模块迁移
-  - [ ] 16.1 迁移日志检索页面
+- [x] 16. 日志检索模块迁移
+  - [x] 16.1 迁移日志检索页面
     - 迁移 RealtimeSearch 实时搜索页面（Ant Design Table、Input.Search）
     - 迁移 SearchHistory 搜索历史页面
     - 迁移 SavedQueries 保存的查询页面
@@ -315,8 +315,8 @@
     - 创建 `pages/search/index.ts` 统一导出
     - _需求: 9.2_
 
-- [ ] 17. 告警中心模块迁移
-  - [ ] 17.1 迁移告警中心页面
+- [x] 17. 告警中心模块迁移
+  - [x] 17.1 迁移告警中心页面
     - 迁移 AlertList 告警列表页面（Ant Design Table）
     - 迁移 AlertRules 告警规则页面（Ant Design Form）
     - 迁移 NotificationConfig 通知配置页面
@@ -324,8 +324,8 @@
     - 创建 `pages/alerts/index.ts` 统一导出
     - _需求: 9.3_
 
-- [ ] 18. 安全审计模块迁移
-  - [ ] 18.1 迁移安全审计页面
+- [-] 18. 安全审计模块迁移
+  - [x] 18.1 迁移安全审计页面
     - 迁移 UserManagement 用户管理页面（Ant Design Table + Modal）
     - 迁移 RolePermissions 角色权限页面
     - 迁移 AuditLogs 审计日志页面
@@ -333,47 +333,47 @@
     - 创建 `pages/security/index.ts` 统一导出
     - _需求: 9.4_
 
-- [ ] 19. 其余页面模块骨架迁移
-  - [ ] 19.1 迁移日志分析模块页面骨架
+- [x] 19. 其余页面模块骨架迁移
+  - [x] 19.1 迁移日志分析模块页面骨架
     - 创建 AggregateAnalysis、AnomalyDetection、LogClustering 页面骨架
     - 创建 `pages/analysis/index.ts`
-  - [ ] 19.2 迁移采集接入模块页面骨架
+  - [x] 19.2 迁移采集接入模块页面骨架
     - 创建 SourceManagement、AgentManagement、AccessWizard、SourceStatus 页面骨架
     - 创建 `pages/ingestion/index.ts`
-  - [ ] 19.3 迁移解析字段模块页面骨架
+  - [x] 19.3 迁移解析字段模块页面骨架
     - 创建 FieldMapping、ParsingRules、MaskingRules、FieldDictionary 页面骨架
     - 创建 `pages/parsing/index.ts`
-  - [ ] 19.4 迁移索引存储模块页面骨架
+  - [x] 19.4 迁移索引存储模块页面骨架
     - 创建 IndexManagement、LifecyclePolicy、BackupRecovery、CapacityMonitoring 页面骨架
     - 创建 `pages/storage/index.ts`
-  - [ ] 19.5 迁移性能高可用模块页面骨架
+  - [x] 19.5 迁移性能高可用模块页面骨架
     - 创建 PerformanceMonitoring、HealthCheck、AutoScaling、DisasterRecovery 页面骨架
     - 创建 `pages/performance/index.ts`
-  - [ ] 19.6 迁移分布式追踪模块页面骨架
+  - [x] 19.6 迁移分布式追踪模块页面骨架
     - 创建 TraceSearch、TraceAnalysis、ServiceTopology 页面骨架
     - 创建 `pages/tracing/index.ts`
-  - [ ] 19.7 迁移报表中心模块页面骨架
+  - [x] 19.7 迁移报表中心模块页面骨架
     - 创建 ReportManagement、ScheduledTasks、DownloadRecords 页面骨架
     - 创建 `pages/reports/index.ts`
-  - [ ] 19.8 迁移集成平台模块页面骨架
+  - [x] 19.8 迁移集成平台模块页面骨架
     - 创建 ApiDocs、WebhookManagement、SdkDownload、PluginMarket 页面骨架
     - 创建 `pages/integration/index.ts`
-  - [ ] 19.9 迁移成本管理模块页面骨架
+  - [x] 19.9 迁移成本管理模块页面骨架
     - 创建 CostOverview、BudgetAlerts、OptimizationSuggestions 页面骨架
     - 创建 `pages/cost/index.ts`
-  - [ ] 19.10 迁移系统设置模块页面骨架
+  - [x] 19.10 迁移系统设置模块页面骨架
     - 创建 SystemParameters、GlobalConfig、ConfigVersions 页面骨架
     - 创建 `pages/settings/index.ts`
-  - [ ] 19.11 迁移帮助中心模块页面骨架
+  - [x] 19.11 迁移帮助中心模块页面骨架
     - 创建 QuerySyntax、FAQ、TicketPortal 页面骨架
     - 创建 `pages/help/index.ts`
   - _需求: 9.5_
 
-- [ ] 20. 检查点 - 前端页面验证
+- [x] 20. 检查点 - 前端页面验证
   - 确保所有测试通过，如有问题请向用户确认。
 
-- [ ] 21. 后端微服务目录结构搭建
-  - [ ] 21.1 创建 Control Plane 服务结构
+- [x] 21. 后端微服务目录结构搭建
+  - [x] 21.1 创建 Control Plane 服务结构
     - 创建 `services/control-plane/cmd/api/main.go`（Gin + gRPC 入口，含 `/api/v1/health`）
     - 创建 `services/control-plane/internal/` 子目录：app/、domain/、service/、repository/、transport/http/、transport/grpc/
     - 创建 `services/control-plane/api/openapi/`、`services/control-plane/api/proto/`
@@ -383,30 +383,30 @@
     - 创建 `services/control-plane/go.mod`
     - _需求: 13.1, 23.6_
 
-  - [ ] 21.2 创建 Health Worker 服务结构
+  - [x] 21.2 创建 Health Worker 服务结构
     - 创建 `services/health-worker/cmd/worker/main.go`
     - 创建 `services/health-worker/internal/` 子目录：checker/、scheduler/、reporter/
     - 创建 `services/health-worker/configs/`、`services/health-worker/tests/`
     - 创建 `services/health-worker/Dockerfile`、`services/health-worker/go.mod`
     - _需求: 13.2_
 
-  - [ ] 21.3 创建 Data Services 结构
+  - [x] 21.3 创建 Data Services 结构
     - 创建 `services/data-services/query-api/`、`services/data-services/audit-api/`、`services/data-services/export-api/`、`services/data-services/shared/`
     - 创建 `services/data-services/Dockerfile`
     - _需求: 13.3_
 
-  - [ ] 21.4 创建 API Service 结构
+  - [x] 21.4 创建 API Service 结构
     - 创建 `services/api-service/cmd/api/main.go`
     - 创建 `services/api-service/internal/`、`services/api-service/api/openapi/`、`services/api-service/configs/`
     - 创建 `services/api-service/Dockerfile`、`services/api-service/go.mod`
     - _需求: 13.4_
 
-  - [ ] 21.5 更新 go.work 文件
+  - [x] 21.5 更新 go.work 文件
     - 将所有 Go 服务模块（control-plane、health-worker、api-service、collector-agent）纳入工作区
     - _需求: 13.5_
 
-- [ ] 22. API 网关配置
-  - [ ] 22.1 创建 OpenResty 网关配置
+- [x] 22. API 网关配置
+  - [x] 22.1 创建 OpenResty 网关配置
     - 创建 `gateway/openresty/nginx.conf`（基础反向代理配置）
     - 创建 `gateway/openresty/conf.d/` 目录
     - 创建 `gateway/openresty/lua/`（含 auth_check.lua、rate_limit.lua、logging.lua 模板）

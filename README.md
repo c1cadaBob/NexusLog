@@ -6,106 +6,389 @@
 
 NexusLog 是一个面向企业的统一日志管理平台，覆盖日志采集、传输、存储、检索、分析、告警、审计的完整生命周期。项目采用 Monorepo 组织，前端控制台与多个 Go 微服务、API 网关、安全体系等共存于同一仓库，通过 pnpm workspace + Go workspace 实现多语言协同开发。
 
-## 技术栈
+## 技术栈总览（严格生产版）
 
-| 层级 | 技术选型 | 版本 |
-|------|----------|------|
-| 前端框架 | React + TypeScript | React 19 / TS 5.7 |
-| UI 组件库 | Ant Design | 5.22+ |
-| 图表 | Apache ECharts | 5.5+ |
-| 状态管理 | Zustand | 5.x |
-| 构建工具 | Vite | 6.x |
-| 测试 | Vitest + fast-check | Vitest 3.2 / fast-check 3.23 |
-| API 网关 | OpenResty (Nginx + Lua) | 1.25+ |
-| 微服务 | Go (Gin + gRPC) | Go 1.22+ |
-| 消息队列 | Kafka | 3.7+ |
-| 流计算 | Flink (SQL + CEP) | 1.19+ |
-| 搜索存储 | Elasticsearch | 8.13+ |
-| 关系数据库 | PostgreSQL + Patroni | PG 16+ |
-| 缓存 | Redis Cluster | 7.2+ |
-| 对象存储 | MinIO / S3 | — |
-| 身份认证 | Keycloak | 24+ |
-| 策略控制 | OPA | 0.6x+ |
-| 密钥管理 | Vault | 1.15+ |
-| 容器编排 | Kubernetes + Helm | K8s 1.28+ |
-| GitOps | Argo CD | 2.1x+ |
-| 监控 | Prometheus + Grafana + Alertmanager | — |
-| 链路追踪 | Jaeger + OTel Collector | — |
-| 包管理 | pnpm (前端) / Go workspace (后端) | pnpm 9.x |
+| 层级 | 技术选型 | 版本 | 审批级别 | 配置策略 | 生效时间 | 阶段 |
+|------|----------|------|----------|----------|----------|------|
+| 前端层 | React + TS + AntD | React19/TS5.x | 常规 | 远程配置热更；其余发版 | 发布窗口 | MVP |
+| 可视化 | ECharts | 5.x | 无需审批 | 图表配置热更 | 秒级 | MVP |
+| 前端状态管理 | Zustand | 4.x | 无需审批 | 运行时热更新 | 秒级 | MVP |
+| 前端构建 | Vite + pnpm | 6.x | 无需审批 | - | - | MVP |
+| 前端测试 | Vitest + fast-check | - | 无需审批 | - | - | MVP |
+| 控制面服务 | Go (Gin)+gRPC | Go 1.22+ | 常规 | 参数热更；镜像滚动 | 分钟级 | MVP |
+| API层 | Go (Gin) | Go 1.22+ | 常规 | 开关热更；版本滚动 | 分钟级 | MVP |
+| 健康检测层 | Go health-worker | Go 1.22+ | 无需审批 | 目标/阈值热更 | 分钟级 | MVP |
+| 容器编排 | Kubernetes | 1.28+ | CAB | 声明式变更+滚动 | 发布窗口 | MVP |
+| CI/CD | GitHub Actions | - | 常规 | Pipeline 即代码 | 分钟级 | MVP |
+| 入口层/API网关 | OpenResty (Nginx+Lua) | 1.25+ | CAB | 热更新优先；核心参数滚动 | 分钟级 | P1 |
+| 身份认证 | Keycloak | 24+ | CAB | Realm/策略热更；SPI重启 | 分钟级 | P1 |
+| 策略控制 | OPA | 0.6x+ | CAB | Policy Bundle 热更新 | 秒级 | P1 |
+| 密钥管理 | Vault | 1.15+ | CAB | Secret热更；后端变更重启 | 分钟级 | P1 |
+| 采集层 | Go Agent + 插件 | Go 1.22+ | 常规 | 规则热更；插件升级重启 | 分钟级 | P1 |
+| 消息传输层 | Kafka | 3.7+ | CAB | 动态配置+核心参数重启 | 发布窗口 | P1 |
+| 消息治理 | Schema Registry | 2.5+/7.x+ | CAB | Schema/兼容策略热更 | 分钟级 | P1 |
+| 实时计算层 | Flink (SQL+CEP) | 1.19+ | CAB | 参数热更；作业 Savepoint 发布 | 发布窗口 | P1 |
+| 检索存储 | Elasticsearch | 8.13+ | CAB | ILM热更；节点参数重启 | 发布窗口 | P1 |
+| 元数据DB | PostgreSQL | 16+ | CAB | 业务配置热生效；核心参数重启 | 发布窗口 | P1 |
+| PG高可用 | Patroni + etcd | 稳定版 | CAB | 拓扑变更维护窗口 | 发布窗口 | P1 |
+| 连接池 | PgBouncer | 1.2x+ | 常规 | reload优先 | 分钟级 | P1 |
+| 缓存层 | Redis Cluster | 7.2+ | CAB | TTL热更；拓扑变更重启 | 分钟级 | P1 |
+| 冷存储 | MinIO/S3 | 稳定版 | 常规 | 生命周期策略热更 | 分钟级 | P1 |
+| 指标监控 | Prometheus | 2.48+ | 无需审批 | 规则/目标 reload | 分钟级 | P1 |
+| 告警中心 | Alertmanager | 0.27+ | 无需审批 | 配置热重载 | 秒级 | P1 |
+| 可视化监控 | Grafana | 10.2+ | 无需审批 | Dashboard/规则热更 | 秒级 | P1 |
+| 链路追踪 | Jaeger + OTel Collector | Jaeger1.50+/OTel0.9x+ | 常规 | 采样热更；结构变更滚动 | 分钟级 | P1 |
+| 日志聚合 | Loki | 稳定版 | 常规 | 配置热更 | 分钟级 | P1 |
+| GitOps | Argo CD | 2.1x+ | 常规 | Git为准，防配置漂移 | 发布窗口 | P1 |
+| 包管理 | Helm | 3.13+ | 常规 | YAML主通道 | 发布窗口 | P1 |
+| 安全扫描 | Trivy + SAST | 稳定版 | 无需审批 | 规则库热更 | 分钟级 | P1 |
+| Node.js层(可选) | NestJS (BFF) | Node 20 LTS | 常规 | 配置热更；升级重启 | 分钟级 | P1 |
+| 制品仓库 | Harbor | 2.10+ | 常规 | 策略热更 | 分钟级 | P1 |
+| ML(可选) | Python+sklearn+PyTorch+ONNX+MLflow | Py3.11+ | 常规 | 模型热切换；服务滚动 | 分钟级 | P2 |
+| NLP(可选) | LLM API + 规则引擎 | - | 常规 | Prompt/规则热更 | 秒级 | P2 |
+| 向量检索(可选) | pgvector | 0.6+ | CAB | 索引分阶段；扩展升级窗口 | 发布窗口 | P2 |
+| 边缘计算(可选) | MQTT 5.0 + SQLite/BoltDB | - | 常规 | 规则热更；分批升级 | 分钟级 | P2 |
+| 服务网格(可选) | Istio | 稳定版 | CAB | 流量策略热更 | 分钟级 | P2 |
 
-## 目录结构
+## 系统架构
+
+### 整体分层架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        用户层 (Users)                            │
+│  浏览器 / CLI / 边缘节点 / 第三方系统                              │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    入口层 (Gateway)                               │
+│  OpenResty (Nginx+Lua) — JWT校验 / 限流 / 路由 / 日志            │
+│  [P1] Istio Sidecar — mTLS / 流量管理                           │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    应用层 (Apps)                                  │
+│  ┌─────────────────┐  ┌──────────────┐                          │
+│  │ Frontend Console│  │ BFF Service  │ (可选, NestJS)            │
+│  │ React19+AntD    │  │ Node 20 LTS  │                          │
+│  └─────────────────┘  └──────────────┘                          │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    服务层 (Services)                              │
+│  ┌──────────────┐ ┌──────────────┐ ┌────────────┐ ┌──────────┐ │
+│  │ Control Plane│ │ API Service  │ │Data Services│ │Health    │ │
+│  │ Go Gin+gRPC  │ │ Go Gin       │ │query/audit/ │ │Worker    │ │
+│  │              │ │              │ │export       │ │Go        │ │
+│  └──────────────┘ └──────────────┘ └────────────┘ └──────────┘ │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    安全层 (IAM)                                   │
+│  Keycloak (认证) + OPA (授权) + Vault (密钥)                     │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    数据层 (Data Pipeline)                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────────────┐      │
+│  │Collector │→ │  Kafka   │→ │ Flink (SQL+CEP)          │      │
+│  │Agent     │  │+ Schema  │  │ 实时聚合 / 告警匹配       │      │
+│  └──────────┘  │Registry  │  └──────────────────────────┘      │
+│                └──────────┘                                     │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    存储层 (Storage)                               │
+│  ┌──────────────┐ ┌──────────────┐ ┌────────┐ ┌──────────────┐ │
+│  │Elasticsearch │ │ PostgreSQL   │ │ Redis  │ │ MinIO/S3     │ │
+│  │(热/温/冷)    │ │+Patroni+etcd │ │Cluster │ │ (冷存储)     │ │
+│  └──────────────┘ └──────────────┘ └────────┘ └──────────────┘ │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    可观测性层 (Observability)                     │
+│  Prometheus + Alertmanager + Grafana + Jaeger + OTel + Loki     │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    平台层 (Platform)                              │
+│  Kubernetes + Helm + Argo CD + [P2] Istio                       │
+│  Terraform + Ansible (IaC)                                      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Monorepo 项目结构
 
 ```
 NexusLog/
-├── apps/                        # 应用层
-│   └── frontend-console/        # 前端控制台 (React 19 + TS + AntD + ECharts + Zustand)
-│       ├── src/
-│       │   ├── components/      # 组件 (charts/ common/ layout/ auth/ search/)
-│       │   ├── pages/           # 页面 (15 个功能模块，50+ 页面)
-│       │   ├── stores/          # Zustand Store (auth, theme, notification, cache, offline)
-│       │   ├── hooks/           # 自定义 Hooks (25+)
-│       │   ├── services/        # API 服务层 + WebSocket + 监控
-│       │   ├── routes/          # 路由配置 (HashRouter + 懒加载)
-│       │   ├── types/           # TypeScript 类型定义
-│       │   ├── utils/           # 工具函数
-│       │   ├── constants/       # 常量定义
-│       │   └── config/          # 运行时配置 + Ant Design 主题
-│       ├── public/config/       # 运行时配置文件 (app-config.json)
-│       ├── vite.config.ts       # Vite 构建配置 (代码分割 + 压缩)
-│       ├── vitest.config.ts     # 测试配置
-│       └── Dockerfile           # 多阶段构建 (pnpm → build → nginx)
-│
-├── services/                    # 微服务层
-│   ├── control-plane/           # 控制面服务 (Go Gin + gRPC, /api/v1/health)
-│   ├── health-worker/           # 健康检测服务
-│   ├── data-services/           # 数据服务集合 (query-api, audit-api, export-api)
-│   └── api-service/             # API 服务
-│
-├── gateway/                     # API 网关
-│   └── openresty/               # OpenResty 配置
-│       ├── nginx.conf           # 反向代理 + 路由 + WebSocket
-│       ├── lua/                 # Lua 脚本 (认证校验, 限流, 日志)
-│       ├── conf.d/              # 扩展配置
-│       ├── tenants/             # 租户配置
-│       ├── policies/            # 策略配置
-│       ├── tests/               # 网关测试
-│       └── Dockerfile
-│
-├── configs/                     # 公共配置 (环境隔离)
-│   ├── common/                  # 通用配置
-│   ├── dev/                     # 开发环境
-│   ├── staging/                 # 预发布环境
-│   └── prod/                    # 生产环境
-│
+├── README.md
+├── LICENSE
+├── CHANGELOG.md
+├── .gitignore
+├── .editorconfig
+├── Makefile                     # 统一构建/测试命令入口
+├── go.work                      # Go 多模块工作区
+├── package.json                 # pnpm workspace 配置
 ├── docs/                        # 项目文档
-│   ├── architecture/            # 架构文档 (系统上下文, 逻辑架构, 部署, 数据流, 安全)
+│   ├── architecture/            # 架构文档（系统上下文、逻辑架构、部署架构、数据流、安全架构）
 │   ├── adr/                     # 架构决策记录
-│   ├── runbooks/                # 运维手册 (Kafka 延迟, ES 写入拒绝, 回滚)
-│   ├── oncall/                  # 值班手册
-│   ├── security/                # 安全文档
-│   └── sla-slo/                 # SLA/SLO 定义
-│
+│   ├── runbooks/                # 运维手册
+│   ├── oncall/
+│   ├── security/
+│   └── sla-slo/
+├── configs/                     # 公共配置（环境隔离）
+│   ├── common/
+│   ├── dev/
+│   ├── staging/
+│   └── prod/
+├── apps/                        # 应用层
+│   ├── frontend-console/        # 前端控制台（React 19 + TS + AntD + ECharts + Zustand）
+│   │   ├── src/
+│   │   │   ├── components/      # 组件
+│   │   │   │   ├── charts/      # ECharts 图表组件
+│   │   │   │   ├── common/      # 通用组件（基于 Ant Design 封装）
+│   │   │   │   ├── layout/      # 布局组件（Layout, Sidebar, Header）
+│   │   │   │   └── auth/        # 认证组件
+│   │   │   ├── pages/           # 页面（按模块分目录）
+│   │   │   ├── stores/          # Zustand Store
+│   │   │   ├── hooks/           # 自定义 Hooks
+│   │   │   ├── services/        # API 服务层
+│   │   │   ├── types/           # TypeScript 类型定义
+│   │   │   ├── utils/           # 工具函数
+│   │   │   ├── constants/       # 常量定义
+│   │   │   ├── config/          # 运行时配置
+│   │   │   ├── App.tsx
+│   │   │   └── main.tsx
+│   │   ├── public/
+│   │   │   └── config/
+│   │   │       └── app-config.json
+│   │   ├── tests/
+│   │   ├── index.html
+│   │   ├── vite.config.ts
+│   │   ├── tsconfig.json
+│   │   ├── package.json
+│   │   └── Dockerfile
+│   └── bff-service/             # BFF 层（NestJS，可选）
+│       ├── src/
+│       ├── test/
+│       ├── package.json
+│       └── Dockerfile
+├── gateway/                     # API 网关
+│   └── openresty/
+│       ├── nginx.conf
+│       ├── conf.d/
+│       ├── lua/
+│       ├── tenants/
+│       ├── policies/
+│       ├── tests/
+│       └── Dockerfile
+├── iam/                         # 身份认证与授权
+│   ├── keycloak/
+│   │   ├── realms/
+│   │   ├── clients/
+│   │   ├── roles/
+│   │   └── mappers/
+│   ├── opa/
+│   │   ├── policies/
+│   │   ├── bundles/
+│   │   └── tests/
+│   └── vault/
+│       ├── policies/
+│       ├── auth/
+│       └── engines/
+├── services/                    # 微服务层
+│   ├── control-plane/           # 控制面服务（Go Gin + gRPC）
+│   │   ├── cmd/api/
+│   │   ├── internal/
+│   │   │   ├── app/
+│   │   │   ├── domain/
+│   │   │   ├── service/
+│   │   │   ├── repository/
+│   │   │   └── transport/
+│   │   │       ├── http/
+│   │   │       └── grpc/
+│   │   ├── api/
+│   │   │   ├── openapi/
+│   │   │   └── proto/
+│   │   ├── configs/
+│   │   ├── tests/
+│   │   └── Dockerfile
+│   ├── health-worker/           # 健康检测服务
+│   │   ├── cmd/worker/
+│   │   ├── internal/
+│   │   │   ├── checker/
+│   │   │   ├── scheduler/
+│   │   │   └── reporter/
+│   │   ├── configs/
+│   │   ├── tests/
+│   │   └── Dockerfile
+│   ├── data-services/           # 数据服务集合
+│   │   ├── query-api/
+│   │   ├── audit-api/
+│   │   ├── export-api/
+│   │   ├── shared/
+│   │   └── Dockerfile
+│   └── api-service/             # API 服务
+│       ├── cmd/api/
+│       ├── internal/
+│       ├── api/openapi/
+│       ├── configs/
+│       └── Dockerfile
+├── agents/                      # 采集代理
+│   └── collector-agent/
+│       ├── cmd/agent/
+│       ├── internal/
+│       │   ├── collector/
+│       │   ├── pipeline/
+│       │   ├── checkpoint/
+│       │   └── retry/
+│       ├── plugins/
+│       │   ├── grpc/
+│       │   └── wasm/
+│       ├── configs/
+│       ├── tests/
+│       └── Dockerfile
+├── stream/                      # 流计算
+│   └── flink/
+│       ├── jobs/
+│       │   ├── sql/
+│       │   └── cep/
+│       ├── udf/
+│       ├── libs/
+│       ├── savepoints/
+│       ├── configs/
+│       └── tests/
+├── messaging/                   # 消息传输
+│   ├── kafka/
+│   │   ├── topics/
+│   │   ├── quotas/
+│   │   └── broker-config/
+│   ├── schema-registry/
+│   │   ├── config/
+│   │   └── compatibility-rules/
+│   └── dlq-retry/
+│       ├── retry-policies/
+│       └── consumer-config/
+├── contracts/                   # 契约定义
+│   └── schema-contracts/
+│       ├── avro/
+│       ├── protobuf/
+│       ├── jsonschema/
+│       ├── compatibility/
+│       └── tests/
+├── storage/                     # 存储配置
+│   ├── elasticsearch/
+│   │   ├── index-templates/
+│   │   ├── ilm-policies/
+│   │   ├── ingest-pipelines/
+│   │   └── snapshots/
+│   ├── postgresql/
+│   │   ├── migrations/
+│   │   ├── seeds/
+│   │   ├── rls-policies/
+│   │   ├── patroni/
+│   │   ├── etcd/
+│   │   └── pgbouncer/
+│   ├── redis/
+│   │   ├── cluster-config/
+│   │   └── lua-scripts/
+│   ├── minio/
+│   │   ├── buckets/
+│   │   └── lifecycle/
+│   └── glacier/
+│       └── archive-policies/
+├── observability/               # 可观测性
+│   ├── prometheus/
+│   │   ├── prometheus.yml
+│   │   ├── rules/
+│   │   └── targets/
+│   ├── alertmanager/
+│   │   ├── alertmanager.yml
+│   │   └── templates/
+│   ├── grafana/
+│   │   ├── dashboards/
+│   │   └── datasources/
+│   ├── jaeger/
+│   │   └── config/
+│   ├── otel-collector/
+│   │   └── config/
+│   └── loki/
+│       └── config/
+├── ml/                          # 机器学习（可选）
+│   ├── training/
+│   ├── inference/
+│   ├── models/
+│   ├── mlflow/
+│   └── nlp/
+│       ├── prompts/
+│       └── rules/
+├── edge/                        # 边缘计算（可选）
+│   ├── mqtt/
+│   ├── sqlite/
+│   └── boltdb/
+├── platform/                    # 平台治理
+│   ├── kubernetes/
+│   │   ├── base/
+│   │   ├── namespaces/
+│   │   ├── rbac/
+│   │   ├── network-policies/
+│   │   └── storageclasses/
+│   ├── helm/
+│   │   ├── nexuslog-gateway/
+│   │   ├── nexuslog-control-plane/
+│   │   ├── nexuslog-data-plane/
+│   │   ├── nexuslog-storage/
+│   │   └── nexuslog-observability/
+│   ├── gitops/
+│   │   ├── argocd/
+│   │   │   ├── projects/
+│   │   │   └── applicationsets/
+│   │   ├── apps/
+│   │   │   ├── ingress-system/
+│   │   │   ├── iam-system/
+│   │   │   ├── control-plane/
+│   │   │   ├── data-plane/
+│   │   │   ├── storage-system/
+│   │   │   └── observability/
+│   │   └── clusters/
+│   │       ├── dev/
+│   │       ├── staging/
+│   │       └── prod/
+│   ├── ci/
+│   │   ├── templates/
+│   │   └── scripts/
+│   ├── security/
+│   │   ├── trivy/
+│   │   ├── sast/
+│   │   └── image-sign/
+│   └── istio/
+│       ├── gateways/
+│       ├── virtualservices/
+│       └── destinationrules/
+├── infra/                       # 基础设施即代码
+│   ├── terraform/
+│   │   ├── modules/
+│   │   └── envs/
+│   │       ├── dev/
+│   │       ├── staging/
+│   │       └── prod/
+│   └── ansible/
+│       ├── inventories/
+│       └── roles/
 ├── scripts/                     # 脚本工具
-│   ├── bootstrap.sh             # 项目初始化
-│   ├── lint.sh                  # 代码检查
-│   ├── test.sh                  # 测试运行
-│   ├── build.sh                 # 构建
-│   ├── release.sh               # 发布
-│   └── rollback.sh              # 回滚
-│
-├── tests/                       # 集成 / E2E / 性能 / 混沌测试
+│   ├── bootstrap.sh
+│   ├── lint.sh
+│   ├── test.sh
+│   ├── build.sh
+│   ├── release.sh
+│   └── rollback.sh
+├── tests/                       # 集成/E2E/性能/混沌测试
 │   ├── e2e/
 │   ├── integration/
 │   ├── performance/
 │   └── chaos/
-│
-├── go.work                      # Go 多模块工作区
-├── package.json                 # pnpm workspace 配置
-├── pnpm-workspace.yaml          # pnpm workspace 定义
-├── Makefile                     # 统一构建/测试命令入口
-├── .editorconfig                # 编辑器配置
-├── CHANGELOG.md                 # 变更日志
-└── LICENSE                      # MIT 许可证
+└── .github/
+    └── workflows/               # CI/CD 流水线
 ```
 
 ### 待搭建目录（按路线图推进）

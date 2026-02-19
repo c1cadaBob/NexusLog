@@ -59,57 +59,57 @@
     - 创建 `observability/alertmanager/alertmanager.yml`（带中文注释的 Alertmanager 配置模板）
     - _需求: 7.1, 7.2_
 
-- [-] 8. 检查点 - 确认核心基础设施目录已创建
+- [x] 8. 检查点 - 确认核心基础设施目录已创建
   - 确保所有测试通过，如有问题请向用户确认。
 
-- [ ] 9. 创建 ML 和边缘计算目录结构（可选模块）
+- [x] 9. 创建 ML 和边缘计算目录结构（可选模块）
   - 创建 `ml/` 下的 `training/`、`inference/`、`models/`、`mlflow/`、`nlp/prompts/`、`nlp/rules/` 目录及 `.gitkeep`
   - 创建 `edge/` 下的 `mqtt/`、`sqlite/`、`boltdb/` 目录及 `.gitkeep`
   - _需求: 8.1, 8.2_
 
-- [ ] 10. 创建平台治理目录结构
-  - [ ] 10.1 创建 Kubernetes 和 Helm 目录
+- [x] 10. 创建平台治理目录结构
+  - [x] 10.1 创建 Kubernetes 和 Helm 目录
     - 创建 `platform/kubernetes/` 下的 `base/`、`namespaces/`、`rbac/`、`network-policies/`、`storageclasses/` 目录及 `.gitkeep`
     - 创建 `platform/helm/` 下的 `nexuslog-gateway/`、`nexuslog-control-plane/`、`nexuslog-data-plane/`、`nexuslog-storage/`、`nexuslog-observability/` 目录及 `.gitkeep`
     - _需求: 9.1, 9.2_
-  - [ ] 10.2 创建 GitOps 目录
+  - [x] 10.2 创建 GitOps 目录
     - 创建 `platform/gitops/argocd/projects/`、`platform/gitops/argocd/applicationsets/` 目录及 `.gitkeep`
     - 创建 `platform/gitops/apps/` 下的 `ingress-system/`、`iam-system/`、`control-plane/`、`data-plane/`、`storage-system/`、`observability/` 目录及 `.gitkeep`
     - 创建 `platform/gitops/clusters/` 下的 `dev/`、`staging/`、`prod/` 目录及 `.gitkeep`
     - _需求: 9.3, 9.4_
-  - [ ] 10.3 创建 CI、安全和 Istio 目录
+  - [x] 10.3 创建 CI、安全和 Istio 目录
     - 创建 `platform/ci/templates/`、`platform/ci/scripts/` 目录及 `.gitkeep`
     - 创建 `platform/security/trivy/`、`platform/security/sast/`、`platform/security/image-sign/` 目录及 `.gitkeep`
     - 创建 `platform/istio/gateways/`、`platform/istio/virtualservices/`、`platform/istio/destinationrules/` 目录及 `.gitkeep`
     - _需求: 9.5, 9.6, 9.7_
 
-- [ ] 11. 创建基础设施即代码和 CI/CD 目录结构
+- [x] 11. 创建基础设施即代码和 CI/CD 目录结构
   - 创建 `infra/terraform/modules/`、`infra/terraform/envs/dev/`、`infra/terraform/envs/staging/`、`infra/terraform/envs/prod/` 目录及 `.gitkeep`
   - 创建 `infra/ansible/inventories/`、`infra/ansible/roles/` 目录及 `.gitkeep`
   - 创建 `.github/workflows/` 目录及 `.gitkeep`
   - _需求: 10.1, 10.2, 11.1_
 
-- [ ] 12. 创建 BFF 服务目录结构和代码骨架
+- [x] 12. 创建 BFF 服务目录结构和代码骨架
   - 创建 `apps/bff-service/src/`、`apps/bff-service/test/` 目录及 `.gitkeep`
   - 创建 `apps/bff-service/package.json`（NestJS 基础配置）
   - 创建 `apps/bff-service/Dockerfile`（Node.js 多阶段构建模板）
   - _需求: 12.1, 12.2_
 
-- [ ] 13. 补全现有服务内部目录结构
-  - [ ] 13.1 补全 control-plane 服务
+- [x] 13. 补全现有服务内部目录结构
+  - [x] 13.1 补全 control-plane 服务
     - 在 `services/control-plane/internal/transport/` 下创建 `http/`、`grpc/` 目录及 `.gitkeep`
     - 确保 `services/control-plane/api/openapi/`、`services/control-plane/api/proto/` 包含 `.gitkeep`
     - _需求: 13.1, 13.2_
-  - [ ] 13.2 补全 health-worker 服务
+  - [x] 13.2 补全 health-worker 服务
     - 确保 `services/health-worker/internal/checker/`、`services/health-worker/internal/scheduler/`、`services/health-worker/internal/reporter/` 包含 `.gitkeep`
     - _需求: 13.3_
-  - [ ] 13.3 补全 data-services 各子服务
+  - [x] 13.3 补全 data-services 各子服务
     - 在 `services/data-services/audit-api/` 下创建 `cmd/`、`internal/`、`configs/` 目录及 `.gitkeep`
     - 在 `services/data-services/export-api/` 下创建 `cmd/`、`internal/`、`configs/` 目录及 `.gitkeep`
     - 在 `services/data-services/query-api/` 下创建 `cmd/`、`internal/`、`configs/` 目录及 `.gitkeep`
     - _需求: 13.4_
 
-- [ ] 14. 最终检查点 - 验证目录结构完整性
+- [x] 14. 最终检查点 - 验证目录结构完整性
   - 确保所有测试通过，如有问题请向用户确认。
 
 ## 备注
