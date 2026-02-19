@@ -2,6 +2,13 @@
 # NexusLog 告警规则
 # Prometheus 告警规则定义
 # ============================================================
+# change_level: none（无需审批）
+# hot_reload: true
+# reload_method: 修改规则文件后，对 Prometheus 执行 reload 即可加载
+# reload_command: curl -X POST http://localhost:9090/-/reload
+# 生效时间: 分钟级（取决于 evaluation_interval，默认 15s）
+# 说明: 新增/修改/删除告警规则后无需重启 Prometheus，reload 后自动生效
+# ============================================================
 
 groups:
   # 服务可用性告警

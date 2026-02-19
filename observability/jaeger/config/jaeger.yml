@@ -2,6 +2,16 @@
 # Jaeger 链路追踪配置
 # NexusLog 可观测性平台
 # ============================================================
+# change_level: normal（常规审批）
+# hot_reload: partial（采样策略支持热更新，结构变更需滚动重启）
+# 热更新范围:
+#   - sampling（采样策略）: 支持热更新，通过远程采样 API 动态下发
+#     reload_method: Jaeger Collector 内置远程采样服务，客户端定期拉取
+#     生效时间: 分钟级
+#   - collector/storage/query: 需滚动重启
+#     生效时间: 发布窗口
+# 说明: 采样率调整优先使用热更新，避免重启导致 trace 数据丢失
+# ============================================================
 
 # Collector 配置
 collector:
@@ -39,8 +49,13 @@ query:
   # 最大查询时间范围
   max-clock-skew-adjustment: 5s
 
-# 采样策略
+# 采样策略（支持热更新）
+# 通过远程采样服务动态下发，客户端定期拉取最新策略
 sampling:
+  # 远程采样服务配置
+  sampling_server_url: "http://jaeger-collector:5778/sampling"
+  # 客户端拉取间隔
+  sampling_refresh_interval: 60s
   # 默认采样策略
   default_strategy:
     type: probabilistic

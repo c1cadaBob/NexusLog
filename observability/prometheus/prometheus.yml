@@ -2,6 +2,16 @@
 # Prometheus 配置模板
 # NexusLog 可观测性平台
 # ============================================================
+# change_level: none（无需审批）
+# hot_reload: true
+# reload_method: HTTP POST /-/reload 或 SIGHUP 信号
+# reload_command: curl -X POST http://localhost:9090/-/reload
+# 启动参数: --web.enable-lifecycle（启用 /-/reload 端点）
+#           --config.file=/etc/prometheus/prometheus.yml
+# 生效时间: 分钟级
+# 说明: 规则文件和目标文件变更后，通过 reload 即可生效，无需重启
+#       file_sd_configs 的目标文件会按 refresh_interval 自动发现
+# ============================================================
 
 # 全局配置
 global:

@@ -1,0 +1,20 @@
+# ============================================================
+# Loki 运行时热更新配置
+# 此文件由 Loki runtime_config 机制自动监听，修改后秒级生效
+# ============================================================
+# change_level: none（无需审批）
+# hot_reload: true
+# reload_method: Loki 按 period（10s）自动扫描此文件变更
+# 生效时间: 秒级
+# 说明: 此文件中的配置会覆盖 loki.yml 中 limits_config 的对应值
+#       适用于运行时调整速率限制、保留期等参数
+# ============================================================
+
+# 按租户覆盖限制配置（热更新生效）
+overrides:
+  # 默认租户（单租户模式下为 "fake"）
+  # fake:
+  #   ingestion_rate_mb: 32
+  #   ingestion_burst_size_mb: 64
+  #   max_entries_limit_per_query: 10000
+  #   retention_period: 336h

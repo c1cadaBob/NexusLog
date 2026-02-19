@@ -2,6 +2,17 @@
 # OpenTelemetry Collector 配置
 # NexusLog 可观测性平台
 # ============================================================
+# change_level: normal（常规审批）
+# hot_reload: partial（参数热更；管道结构变更需滚动重启）
+# 热更新范围:
+#   - processors 参数（batch size、memory limit 等）: 部分支持热更新
+#   - exporters 端点地址: 需滚动重启
+#   - pipelines 结构变更: 需滚动重启
+# reload_method: OTel Collector 支持 --config 文件监听（需启用 confmap provider）
+# reload_command: 发送 SIGHUP 信号触发配置重载
+# 生效时间: 分钟级（热更新参数）/ 发布窗口（结构变更）
+# 说明: 日常参数调优优先使用热更新，管道拓扑变更走滚动发布
+# ============================================================
 
 receivers:
   # OTLP 接收器（gRPC + HTTP）
@@ -80,6 +91,9 @@ extensions:
 
 service:
   extensions: [health_check, zpages]
+  # 配置热更新：启用 file provider 的 watch 机制
+  # 启动参数需添加: --config=file:/etc/otel/otel-collector.yml?watch=true
+  # 修改配置文件后 Collector 自动检测并重载
   pipelines:
     # 链路追踪管道
     traces:

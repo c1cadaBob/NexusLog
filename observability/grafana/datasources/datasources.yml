@@ -2,6 +2,13 @@
 # Grafana 数据源配置（Provisioning）
 # NexusLog 可观测性平台
 # ============================================================
+# change_level: none（无需审批）
+# hot_reload: true
+# reload_method: Grafana Provisioning 自动监听文件变更，或通过 API 重载
+# reload_command: curl -X POST http://localhost:3000/api/admin/provisioning/datasources/reload
+# 生效时间: 秒级
+# 说明: 数据源配置文件变更后 Grafana 自动检测并重载，无需重启
+# ============================================================
 
 apiVersion: 1
 

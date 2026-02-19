@@ -2,6 +2,18 @@
 # Loki 日志聚合配置
 # NexusLog 可观测性平台
 # ============================================================
+# change_level: none（无需审批）
+# hot_reload: partial
+# 热更新范围:
+#   - limits_config（速率限制、保留期等）: 支持运行时 API 热更新
+#     reload_method: Loki 租户级别限制可通过 runtime_config 文件热更新
+#     reload_command: 修改 runtime-config.yml 后 Loki 自动检测
+#     生效时间: 秒级
+#   - schema_config / storage_config: 需滚动重启
+#     生效时间: 发布窗口
+# 说明: 日常运维（调整速率限制、保留期）优先使用热更新
+#       存储结构变更走发布窗口滚动重启
+# ============================================================
 
 auth_enabled: false
 
@@ -57,3 +69,8 @@ compactor:
 
 analytics:
   reporting_enabled: false
+
+# 运行时配置热更新（独立文件，Loki 自动监听变更）
+runtime_config:
+  file: /loki/config/runtime-config.yml
+  period: 10s
