@@ -11,23 +11,20 @@ import { Row, Col, Card, Typography, Space, Button, Select, Badge, Progress, Tag
 import { 
   FileTextOutlined, 
   AlertOutlined, 
-  CloudServerOutlined,
   ThunderboltOutlined,
   ReloadOutlined,
   WifiOutlined,
   DisconnectOutlined,
-  CheckCircleOutlined,
   ExclamationCircleOutlined,
-  CloseCircleOutlined,
   DatabaseOutlined,
-  HddOutlined,
-  ApiOutlined,
-  ClusterOutlined,
+  SafetyCertificateOutlined,
+  DashboardOutlined,
 } from '@ant-design/icons';
 import { StatCard } from '@/components/common';
-import { TimeSeriesChart, PieChart, BarChart } from '@/components/charts';
+import { TimeSeriesChart, PieChart, BarChart, BaseChart } from '@/components/charts';
 import { useDashboardData, REFRESH_INTERVAL_OPTIONS } from '@/hooks/useDashboardData';
 import type { TimeSeriesDataPoint, TimeSeriesConfig, PieDataItem, BarDataItem } from '@/components/charts';
+import type { EChartsOption } from 'echarts';
 
 const { Title, Text } = Typography;
 
@@ -88,147 +85,176 @@ function generateServiceErrorData(): BarDataItem[] {
 }
 
 // ============================================================================
-// 基础设施监控组件
+// 基础设施监控组件（增强版）
 // ============================================================================
 
-interface InfrastructureNodeProps {
-  name: string;
-  icon: React.ReactNode;
-  status: 'healthy' | 'warning' | 'critical';
-  metrics: {
-    label: string;
-    value: number;
-    unit: string;
-    threshold?: number;
-  }[];
-}
-
 /**
- * 基础设施节点组件
- */
-const InfrastructureNode: React.FC<InfrastructureNodeProps> = ({ 
-  name, 
-  icon, 
-  status, 
-  metrics 
-}) => {
-  const statusConfig = {
-    healthy: { color: '#52c41a', text: '健康', icon: <CheckCircleOutlined /> },
-    warning: { color: '#faad14', text: '警告', icon: <ExclamationCircleOutlined /> },
-    critical: { color: '#ff4d4f', text: '异常', icon: <CloseCircleOutlined /> },
-  };
-
-  const config = statusConfig[status];
-
-  return (
-    <Card 
-      size="small" 
-      style={{ height: '100%' }}
-      styles={{ body: { padding: 12 } }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ 
-          fontSize: 20, 
-          marginRight: 8,
-          color: config.color,
-        }}>
-          {icon}
-        </div>
-        <div style={{ flex: 1 }}>
-          <Text strong style={{ fontSize: 13 }}>{name}</Text>
-        </div>
-        <Tooltip title={config.text}>
-          <Tag 
-            color={status === 'healthy' ? 'success' : status === 'warning' ? 'warning' : 'error'}
-            style={{ margin: 0 }}
-          >
-            {config.icon}
-          </Tag>
-        </Tooltip>
-      </div>
-      
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
-        {metrics.map((metric, index) => {
-          const percent = metric.threshold 
-            ? Math.min((metric.value / metric.threshold) * 100, 100)
-            : metric.value;
-          const strokeColor = percent > 90 ? '#ff4d4f' : percent > 70 ? '#faad14' : '#52c41a';
-          
-          return (
-            <div key={index}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>{metric.label}</Text>
-                <Text style={{ fontSize: 12 }}>{metric.value}{metric.unit}</Text>
-              </div>
-              <Progress 
-                percent={percent} 
-                size="small" 
-                showInfo={false}
-                strokeColor={strokeColor}
-              />
-            </div>
-          );
-        })}
-      </Space>
-    </Card>
-  );
-};
-
-/**
- * 基础设施监控面板
+ * 基础设施监控面板 - 增强版
+ * 包含 CPU 仪表盘、内存使用、连接数统计、带宽流量
  */
 const InfrastructureMonitor: React.FC = () => {
-  const infrastructureData: InfrastructureNodeProps[] = [
-    {
-      name: 'Elasticsearch 集群',
-      icon: <DatabaseOutlined />,
-      status: 'healthy',
-      metrics: [
-        { label: 'CPU 使用率', value: 45, unit: '%', threshold: 100 },
-        { label: '内存使用率', value: 68, unit: '%', threshold: 100 },
-        { label: '磁盘使用率', value: 72, unit: '%', threshold: 100 },
-      ],
-    },
-    {
-      name: 'Kafka 集群',
-      icon: <ClusterOutlined />,
-      status: 'healthy',
-      metrics: [
-        { label: '消息积压', value: 1250, unit: '', threshold: 10000 },
-        { label: '分区数', value: 128, unit: '', threshold: 200 },
-        { label: '副本同步率', value: 99.8, unit: '%', threshold: 100 },
-      ],
-    },
-    {
-      name: 'API 网关',
-      icon: <ApiOutlined />,
-      status: 'warning',
-      metrics: [
-        { label: 'QPS', value: 24500, unit: '', threshold: 30000 },
-        { label: '平均延迟', value: 45, unit: 'ms', threshold: 100 },
-        { label: '错误率', value: 0.12, unit: '%', threshold: 1 },
-      ],
-    },
-    {
-      name: '存储服务',
-      icon: <HddOutlined />,
-      status: 'healthy',
-      metrics: [
-        { label: '已用空间', value: 2.4, unit: 'TB', threshold: 5 },
-        { label: 'IOPS', value: 8500, unit: '', threshold: 15000 },
-        { label: '吞吐量', value: 450, unit: 'MB/s', threshold: 800 },
-      ],
-    },
-  ];
+  // CPU 仪表盘 ECharts 配置
+  const cpuGaugeOption = useMemo<EChartsOption>(() => ({
+    series: [{
+      type: 'gauge',
+      startAngle: 180,
+      endAngle: 0,
+      min: 0,
+      max: 100,
+      radius: '100%',
+      center: ['50%', '80%'],
+      pointer: { show: true, length: '60%', width: 4, itemStyle: { color: '#1677ff' } },
+      axisLine: {
+        lineStyle: {
+          width: 12,
+          color: [[0.3, '#52c41a'], [0.7, '#faad14'], [1, '#ff4d4f']],
+        },
+      },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      axisLabel: { show: false },
+      detail: {
+        valueAnimation: true,
+        formatter: '{value}%',
+        fontSize: 18,
+        fontWeight: 'bold',
+        offsetCenter: [0, '-10%'],
+      },
+      data: [{ value: 42 }],
+    }],
+  }), []);
+
+  // 带宽迷你折线图配置
+  const bandwidthOption = useMemo<EChartsOption>(() => ({
+    grid: { left: 0, right: 0, top: 5, bottom: 0 },
+    xAxis: { type: 'category', show: false, data: ['1', '2', '3', '4', '5', '6', '7'] },
+    yAxis: { type: 'value', show: false },
+    series: [
+      { type: 'line', data: [100, 150, 120, 200, 180, 250, 300], smooth: true, symbol: 'none', lineStyle: { width: 2, color: '#1677ff' }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(22,119,255,0.3)' }, { offset: 1, color: 'rgba(22,119,255,0)' }] } } },
+      { type: 'line', data: [200, 250, 300, 220, 350, 400, 300], smooth: true, symbol: 'none', lineStyle: { width: 2, color: '#52c41a' }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(82,196,26,0.3)' }, { offset: 1, color: 'rgba(82,196,26,0)' }] } } },
+    ],
+  }), []);
 
   return (
-    <Row gutter={[12, 12]}>
-      {infrastructureData.map((node, index) => (
-        <Col xs={24} sm={12} lg={6} key={index}>
-          <InfrastructureNode {...node} />
+    <Card
+      title={
+        <Space>
+          <DashboardOutlined style={{ color: '#722ed1' }} />
+          <span>系统基础设施监控</span>
+          <Tag color="success" style={{ marginLeft: 8 }}>系统健康</Tag>
+          <Tag>Cluster Node-01</Tag>
+        </Space>
+      }
+    >
+      <Row gutter={[24, 16]}>
+        {/* CPU 负载 */}
+        <Col xs={24} sm={12} lg={6}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>负载 (CPU Load)</Text>
+              <Text strong>42%</Text>
+            </div>
+            <BaseChart option={cpuGaugeOption} height={120} />
+            <Text type="secondary" style={{ fontSize: 11 }}>8 vCPUs</Text>
+            <Row gutter={4} style={{ marginTop: 8 }}>
+              {[85, 60, 30, 42].map((v, i) => (
+                <Col span={6} key={i}>
+                  <div style={{ height: 16, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${v}%`, background: '#1677ff', borderRadius: 4 }} />
+                  </div>
+                </Col>
+              ))}
+            </Row>
+          </div>
         </Col>
-      ))}
-    </Row>
+
+        {/* 内存 */}
+        <Col xs={24} sm={12} lg={6}>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>内存 (Memory)</Text>
+              <Text strong style={{ fontSize: 13 }}>12.4 GB <Text type="secondary" style={{ fontSize: 11 }}>/ 16 GB</Text></Text>
+            </div>
+            <Progress
+              percent={78}
+              strokeColor={{ from: '#52c41a', to: '#13c2c2' }}
+              showInfo={false}
+              style={{ marginBottom: 8 }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>已使用: 78%</Text>
+              <Text type="secondary" style={{ fontSize: 11 }}>可用: 3.6 GB</Text>
+            </div>
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Text type="secondary" style={{ fontSize: 11 }}>缓存 (Cache)</Text>
+                <Text style={{ fontSize: 11 }}>4.2 GB</Text>
+              </div>
+              <Progress percent={26} size="small" showInfo={false} strokeColor="#1677ff" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Text type="secondary" style={{ fontSize: 11 }}>Swap</Text>
+                <Text style={{ fontSize: 11 }}>0.8 GB</Text>
+              </div>
+              <Progress percent={10} size="small" showInfo={false} strokeColor="#faad14" />
+            </div>
+          </div>
+        </Col>
+
+        {/* 连接数 */}
+        <Col xs={24} sm={12} lg={6}>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>传输连接数</Text>
+              <Tag color="success" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>实时</Tag>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong style={{ fontSize: 28, lineHeight: 1 }}>8,492</Text>
+              <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>活跃连接</Text>
+            </div>
+            <Row gutter={8}>
+              <Col span={8}>
+                <Card size="small" styles={{ body: { padding: 8, textAlign: 'center' } }}>
+                  <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>TCP</Text>
+                  <Text strong style={{ fontSize: 13 }}>8.1k</Text>
+                </Card>
+              </Col>
+              <Col span={8}>
+                <Card size="small" styles={{ body: { padding: 8, textAlign: 'center' } }}>
+                  <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>UDP</Text>
+                  <Text strong style={{ fontSize: 13 }}>372</Text>
+                </Card>
+              </Col>
+              <Col span={8}>
+                <Card size="small" styles={{ body: { padding: 8, textAlign: 'center' } }}>
+                  <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>HTTP</Text>
+                  <Text strong style={{ fontSize: 13 }}>1.2k</Text>
+                </Card>
+              </Col>
+            </Row>
+          </div>
+        </Col>
+
+        {/* 带宽流量 */}
+        <Col xs={24} sm={12} lg={6}>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>带宽与流量统计</Text>
+              <Space size={8}>
+                <Space size={4}><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1677ff' }} /><Text style={{ fontSize: 10 }}>In</Text></Space>
+                <Space size={4}><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#52c41a' }} /><Text style={{ fontSize: 10 }}>Out</Text></Space>
+              </Space>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <Text style={{ fontSize: 11 }}>450 Mbps</Text>
+              <Text style={{ fontSize: 11 }}>1.2 Gbps</Text>
+            </div>
+            <BaseChart option={bandwidthOption} height={100} />
+          </div>
+        </Col>
+      </Row>
+    </Card>
   );
 };
 
@@ -328,9 +354,9 @@ export const DashboardPage: React.FC = () => {
         </Space>
       </div>
       
-      {/* KPI 卡片 */}
+      {/* KPI 卡片 - 6列布局 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={4}>
           <StatCard
             title="今日日志量"
             value={1234567}
@@ -338,7 +364,17 @@ export const DashboardPage: React.FC = () => {
             trend={{ value: '+12.5%', type: 'up', label: '较昨日' }}
           />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={4}>
+          <StatCard
+            title="错误率"
+            value={2.3}
+            prefix={<ExclamationCircleOutlined />}
+            suffix="%"
+            trend={{ value: '-0.5%', type: 'down', label: '较昨日' }}
+            color="danger"
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={4}>
           <StatCard
             title="活跃告警"
             value={23}
@@ -347,20 +383,30 @@ export const DashboardPage: React.FC = () => {
             color="warning"
           />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={4}>
           <StatCard
-            title="数据源"
-            value={156}
-            prefix={<CloudServerOutlined />}
-            suffix="个"
+            title="写入 QPS"
+            value={24500}
+            prefix={<ThunderboltOutlined />}
+            trend={{ value: '+8.2%', type: 'up', label: '较昨日' }}
+            color="success"
           />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={4}>
           <StatCard
-            title="查询延迟"
-            value={45}
-            prefix={<ThunderboltOutlined />}
-            suffix="ms"
+            title="存储使用率"
+            value={72.4}
+            prefix={<DatabaseOutlined />}
+            suffix="%"
+            color="info"
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={4}>
+          <StatCard
+            title="采集成功率"
+            value={99.8}
+            prefix={<SafetyCertificateOutlined />}
+            suffix="%"
             color="success"
           />
         </Col>
@@ -501,9 +547,7 @@ export const DashboardPage: React.FC = () => {
       </Row>
 
       {/* 基础设施监控 */}
-      <Card title="基础设施监控">
-        <InfrastructureMonitor />
-      </Card>
+      <InfrastructureMonitor />
     </div>
   );
 };
