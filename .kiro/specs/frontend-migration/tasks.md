@@ -518,8 +518,8 @@
     - 创建 `edge/mqtt/`、`edge/sqlite/`、`edge/boltdb/`
     - _需求: 1.1_
 
-- [ ] 29. 变更管理规范文档
-  - [ ] 29.1 创建变更管理规范文档
+- [x] 29. 变更管理规范文档
+  - [x] 29.1 创建变更管理规范文档
     - 创建 `docs/change-management.md`
     - 包含三级审批体系定义（none/normal/cab）
     - 包含 CAB 判定规则表（7 条硬规则）
@@ -528,40 +528,40 @@
     - 包含变更单模板（字段级），含风险评分自动计算规则、CAB 自动路由逻辑
     - _需求: 23.1, 23.2, 23.3, 23.4, 23.5_
 
-  - [ ] 29.2 创建技术栈总览文档
+  - [x] 29.2 创建技术栈总览文档
     - 创建 `docs/tech-stack.md`
     - _需求: 23.6_
 
-- [ ] 30. CI/CD 和 GitOps 配置
-  - [ ] 30.1 创建 GitHub Actions 工作流
+- [x] 30. CI/CD 和 GitOps 配置
+  - [x] 30.1 创建 GitHub Actions 工作流
     - 创建 `.github/workflows/frontend-ci.yml`（前端构建测试流水线）
     - 创建 `.github/workflows/backend-ci.yml`（后端构建测试流水线）
     - 创建 `.github/workflows/docker-build.yml`（镜像构建推送 + Trivy 安全扫描）
     - _需求: 24.1, 24.3_
 
-  - [ ] 30.2 创建 Argo CD 配置模板
+  - [x] 30.2 创建 Argo CD 配置模板
     - 创建 `platform/gitops/argocd/applicationsets/` 下的应用配置
     - _需求: 24.2_
 
-- [ ] 31. 配置热更新机制
-  - [ ] 31.1 实现前端运行时配置热更新
+- [x] 31. 配置热更新机制
+  - [x] 31.1 实现前端运行时配置热更新
     - 完善 `src/config/appConfig.ts` 配置加载逻辑
     - _需求: 22.1, 22.3_
 
-  - [ ] 31.2 编写配置热更新 round-trip 属性测试
+  - [x] 31.2 编写配置热更新 round-trip 属性测试
     - **Property 16: 配置热更新 round-trip**
     - **Validates: Requirements 22.3**
 
-  - [ ] 31.3 创建后端配置 file watcher 接口
+  - [x] 31.3 创建后端配置 file watcher 接口
     - 在 Control Plane 配置模块中预留 file watcher 接口定义
     - _需求: 22.2_
 
-- [ ] 32. 环境目录一致性验证
-  - [ ] 32.1 编写环境目录结构一致性属性测试
+- [x] 32. 环境目录一致性验证
+  - [x] 32.1 编写环境目录结构一致性属性测试
     - **Property 1: 环境目录结构一致性**
     - **Validates: Requirements 1.6**
 
-- [ ] 33. 最终检查点 - 全项目验证
+- [x] 33. 最终检查点 - 全项目验证
   - 确保所有测试通过，如有问题请向用户确认。
 
 ## 说明
