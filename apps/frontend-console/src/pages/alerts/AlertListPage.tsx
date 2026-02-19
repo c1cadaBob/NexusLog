@@ -11,7 +11,7 @@
  * @requirements 9.3
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Card,
   Table,
@@ -31,7 +31,6 @@ import {
 import {
   SearchOutlined,
   ReloadOutlined,
-  CheckCircleOutlined,
   ExclamationCircleOutlined,
   WarningOutlined,
   StopOutlined,
