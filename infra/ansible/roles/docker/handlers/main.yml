@@ -1,0 +1,6 @@
+# NexusLog - Docker 角色 handlers
+---
+- name: 重启 Docker
+  service:
+    name: docker
+    state: restarted

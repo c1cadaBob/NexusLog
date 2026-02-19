@@ -1,0 +1,4 @@
+# NexusLog - Docker 角色默认变量
+---
+docker_registry_mirrors: []
+docker_insecure_registries: []

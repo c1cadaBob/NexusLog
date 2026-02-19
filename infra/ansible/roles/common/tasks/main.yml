@@ -1,0 +1,62 @@
+# NexusLog - 通用基础配置角色
+---
+- name: 设置主机名
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: 更新系统软件包
+  apt:
+    update_cache: yes
+    upgrade: safe
+  when: ansible_os_family == "Debian"
+
+- name: 安装基础工具
+  apt:
+    name:
+      - curl
+      - wget
+      - vim
+      - htop
+      - net-tools
+      - jq
+      - unzip
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: 配置时区
+  timezone:
+    name: Asia/Shanghai
+
+- name: 配置 NTP 时间同步
+  apt:
+    name: chrony
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: 启动 chrony 服务
+  service:
+    name: chrony
+    state: started
+    enabled: yes
+
+- name: 配置系统内核参数
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: yes
+    reload: yes
+  loop:
+    - { key: "vm.max_map_count", value: "262144" }
+    - { key: "net.core.somaxconn", value: "65535" }
+    - { key: "net.ipv4.tcp_max_syn_backlog", value: "65535" }
+    - { key: "fs.file-max", value: "1000000" }
+
+- name: 配置文件描述符限制
+  pam_limits:
+    domain: "*"
+    limit_type: "{{ item.type }}"
+    limit_item: nofile
+    value: "{{ item.value }}"
+  loop:
+    - { type: "soft", value: "65536" }
+    - { type: "hard", value: "131072" }

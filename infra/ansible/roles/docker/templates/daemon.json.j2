@@ -1,0 +1,17 @@
+{
+  "storage-driver": "overlay2",
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m",
+    "max-file": "3"
+  },
+  "default-ulimits": {
+    "nofile": {
+      "Name": "nofile",
+      "Hard": 131072,
+      "Soft": 65536
+    }
+  },
+  "registry-mirrors": {{ docker_registry_mirrors | default([]) | to_json }},
+  "insecure-registries": {{ docker_insecure_registries | default([]) | to_json }}
+}

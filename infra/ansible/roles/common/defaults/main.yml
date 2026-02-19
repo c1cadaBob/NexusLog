@@ -1,0 +1,10 @@
+# NexusLog - 通用角色默认变量
+---
+timezone: Asia/Shanghai
+ntp_enabled: true
+
+# 系统内核参数
+sysctl_params:
+  vm.max_map_count: 262144
+  net.core.somaxconn: 65535
+  fs.file-max: 1000000

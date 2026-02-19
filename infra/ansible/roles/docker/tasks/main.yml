@@ -1,0 +1,53 @@
+# NexusLog - Docker 安装与配置角色
+---
+- name: 安装 Docker 依赖
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: 添加 Docker GPG 密钥
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: 添加 Docker APT 仓库
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: 安装 Docker CE
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: 配置 Docker daemon
+  template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+  notify: 重启 Docker
+
+- name: 启动 Docker 服务
+  service:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: 将部署用户加入 docker 组
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes

@@ -506,14 +506,14 @@
     - 创建 `platform/istio/gateways/`、`platform/istio/virtualservices/`、`platform/istio/destinationrules/`
     - _需求: 19.4, 19.5, 19.6_
 
-- [ ] 28. 基础设施即代码和可选域
-  - [ ] 28.1 创建 Terraform 和 Ansible 配置
+- [x] 28. 基础设施即代码和可选域
+  - [x] 28.1 创建 Terraform 和 Ansible 配置
     - 创建 `infra/terraform/modules/`
     - 创建 `infra/terraform/envs/`（dev/、staging/、prod/）
     - 创建 `infra/ansible/inventories/`、`infra/ansible/roles/`
     - _需求: 20.1, 20.2_
 
-  - [ ] 28.2 创建可选域目录结构
+  - [x] 28.2 创建可选域目录结构
     - 创建 `ml/training/`、`ml/inference/`、`ml/models/`、`ml/mlflow/`、`ml/nlp/`（prompts/、rules/）
     - 创建 `edge/mqtt/`、`edge/sqlite/`、`edge/boltdb/`
     - _需求: 1.1_
