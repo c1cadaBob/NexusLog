@@ -1,0 +1,11 @@
+# ============================================================
+# Control Plane 服务发现目标
+# Prometheus file_sd_configs 格式
+# ============================================================
+
+- targets:
+    - "control-plane:8080"
+  labels:
+    service: "control-plane"
+    env: "dev"
+    cluster: "nexuslog-dev"

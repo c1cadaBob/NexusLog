@@ -1,0 +1,11 @@
+# ============================================================
+# Node Exporter 服务发现目标（主机指标）
+# Prometheus file_sd_configs 格式
+# ============================================================
+
+- targets:
+    - "node-exporter:9100"
+  labels:
+    service: "node-exporter"
+    env: "dev"
+    cluster: "nexuslog-dev"

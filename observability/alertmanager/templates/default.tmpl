@@ -1,0 +1,26 @@
+{{/* ============================================================ */}}
+{{/* NexusLog Alertmanager 通知模板 */}}
+{{/* ============================================================ */}}
+
+{{/* 告警标题模板 */}}
+{{ define "nexuslog.title" }}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .GroupLabels.SortedPairs.Values | join " " }}
+{{ end }}
+
+{{/* 告警详情模板 */}}
+{{ define "nexuslog.text" }}
+{{ range .Alerts }}
+---
+**告警名称**: {{ .Labels.alertname }}
+**严重级别**: {{ .Labels.severity }}
+**状态**: {{ .Status }}
+**服务**: {{ .Labels.service | default "未知" }}
+**实例**: {{ .Labels.instance | default "未知" }}
+
+**摘要**: {{ .Annotations.summary }}
+**详情**: {{ .Annotations.description }}
+
+**触发时间**: {{ .StartsAt.Local.Format "2006-01-02 15:04:05" }}
+{{ if .EndsAt.IsZero }}{{ else }}**恢复时间**: {{ .EndsAt.Local.Format "2006-01-02 15:04:05" }}{{ end }}
+{{ end }}
+{{ end }}

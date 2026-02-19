@@ -1,0 +1,142 @@
+# ============================================================
+# NexusLog 告警规则
+# Prometheus 告警规则定义
+# ============================================================
+
+groups:
+  # 服务可用性告警
+  - name: nexuslog_service_availability
+    rules:
+      # 服务实例宕机
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "服务实例 {{ $labels.instance }} 不可用"
+          description: "{{ $labels.job }} 的实例 {{ $labels.instance }} 已宕机超过 1 分钟。"
+
+      # API 请求错误率过高
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (job, service)
+            /
+            sum(rate(http_requests_total[5m])) by (job, service)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} 错误率超过 5%"
+          description: "服务 {{ $labels.service }} 的 5xx 错误率在过去 5 分钟内超过 5%，当前值: {{ $value | humanizePercentage }}"
+
+      # API 请求延迟过高
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job, service))
+          > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} P99 延迟超过 2 秒"
+          description: "服务 {{ $labels.service }} 的 P99 延迟在过去 5 分钟内超过 2 秒，当前值: {{ $value | humanizeDuration }}"
+
+  # 基础设施告警
+  - name: nexuslog_infrastructure
+    rules:
+      # Kafka 消费延迟过高
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumer_group_lag > 10000
+        for: 10m
+        labels:
+          severity: warning
+          service: kafka
+        annotations:
+          summary: "Kafka 消费组 {{ $labels.group }} 延迟过高"
+          description: "消费组 {{ $labels.group }} 在 topic {{ $labels.topic }} 上的延迟超过 10000，当前值: {{ $value }}"
+
+      # Elasticsearch 集群健康状态异常
+      - alert: ElasticsearchClusterRed
+        expr: elasticsearch_cluster_health_status{color="red"} == 1
+        for: 2m
+        labels:
+          severity: critical
+          service: elasticsearch
+        annotations:
+          summary: "Elasticsearch 集群状态为 RED"
+          description: "Elasticsearch 集群 {{ $labels.cluster }} 健康状态为 RED，存在不可用的主分片。"
+
+      # Elasticsearch 写入拒绝
+      - alert: ElasticsearchWriteRejected
+        expr: rate(elasticsearch_thread_pool_rejected_count{name="write"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+        annotations:
+          summary: "Elasticsearch 写入线程池出现拒绝"
+          description: "Elasticsearch 节点 {{ $labels.instance }} 的写入线程池在过去 5 分钟内出现拒绝请求。"
+
+      # Redis 内存使用率过高
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "Redis 内存使用率超过 85%"
+          description: "Redis 实例 {{ $labels.instance }} 内存使用率超过 85%，当前值: {{ $value | humanizePercentage }}"
+
+      # PostgreSQL 连接数接近上限
+      - alert: PostgreSQLConnectionsHigh
+        expr: |
+          sum(pg_stat_activity_count) by (instance)
+          /
+          sum(pg_settings_max_connections) by (instance)
+          > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: postgresql
+        annotations:
+          summary: "PostgreSQL 连接数超过 80%"
+          description: "PostgreSQL 实例 {{ $labels.instance }} 的连接数占比超过 80%。"
+
+  # 节点资源告警
+  - name: nexuslog_node_resources
+    rules:
+      # CPU 使用率过高
+      - alert: NodeCPUHigh
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "节点 {{ $labels.instance }} CPU 使用率超过 85%"
+          description: "节点 CPU 使用率在过去 10 分钟内持续超过 85%。"
+
+      # 磁盘空间不足
+      - alert: NodeDiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}
+          / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "节点 {{ $labels.instance }} 磁盘剩余空间不足 15%"
+          description: "挂载点 {{ $labels.mountpoint }} 的可用空间不足 15%。"
+
+      # 内存使用率过高
+      - alert: NodeMemoryHigh
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "节点 {{ $labels.instance }} 内存使用率超过 90%"
+          description: "节点内存使用率在过去 5 分钟内持续超过 90%。"

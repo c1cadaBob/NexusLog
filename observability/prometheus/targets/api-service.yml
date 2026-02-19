@@ -1,0 +1,11 @@
+# ============================================================
+# API Service 服务发现目标
+# Prometheus file_sd_configs 格式
+# ============================================================
+
+- targets:
+    - "api-service:8080"
+  labels:
+    service: "api-service"
+    env: "dev"
+    cluster: "nexuslog-dev"

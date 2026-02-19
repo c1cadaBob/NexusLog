@@ -1,0 +1,58 @@
+# ============================================================
+# Jaeger 链路追踪配置
+# NexusLog 可观测性平台
+# ============================================================
+
+# Collector 配置
+collector:
+  # gRPC 端口（接收 OTel Collector 上报的 trace 数据）
+  grpc-port: 14250
+  # HTTP 端口
+  http-port: 14268
+  # Zipkin 兼容端口
+  zipkin:
+    http-port: 9411
+  # 队列大小
+  queue-size: 2000
+  num-workers: 50
+
+# 存储后端配置
+storage:
+  type: elasticsearch
+  elasticsearch:
+    server-urls: http://elasticsearch:9200
+    index-prefix: nexuslog-jaeger
+    # 索引生命周期
+    index-date-separator: "-"
+    # Span 存储索引
+    num-shards: 3
+    num-replicas: 1
+    # 索引清理（天）
+    max-span-age: 168h
+
+# Query 服务配置
+query:
+  # UI 端口
+  http-port: 16686
+  # 静态文件路径
+  static-files: /go/bin/jaeger-ui
+  # 最大查询时间范围
+  max-clock-skew-adjustment: 5s
+
+# 采样策略
+sampling:
+  # 默认采样策略
+  default_strategy:
+    type: probabilistic
+    param: 0.1
+  # 按服务自定义采样率
+  per_service_strategies:
+    - service: "control-plane"
+      type: probabilistic
+      param: 0.5
+    - service: "api-service"
+      type: probabilistic
+      param: 0.3
+    - service: "collector-agent"
+      type: probabilistic
+      param: 0.1

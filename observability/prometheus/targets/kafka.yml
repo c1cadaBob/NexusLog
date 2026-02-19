@@ -1,0 +1,13 @@
+# ============================================================
+# Kafka 集群服务发现目标（JMX Exporter）
+# Prometheus file_sd_configs 格式
+# ============================================================
+
+- targets:
+    - "kafka-broker-0:9308"
+    - "kafka-broker-1:9308"
+    - "kafka-broker-2:9308"
+  labels:
+    service: "kafka"
+    env: "dev"
+    cluster: "nexuslog-dev"

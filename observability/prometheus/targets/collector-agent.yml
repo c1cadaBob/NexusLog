@@ -1,0 +1,11 @@
+# ============================================================
+# Collector Agent 服务发现目标
+# Prometheus file_sd_configs 格式
+# ============================================================
+
+- targets:
+    - "collector-agent:9100"
+  labels:
+    service: "collector-agent"
+    env: "dev"
+    cluster: "nexuslog-dev"

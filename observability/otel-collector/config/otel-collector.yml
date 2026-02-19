@@ -1,0 +1,106 @@
+# ============================================================
+# OpenTelemetry Collector 配置
+# NexusLog 可观测性平台
+# ============================================================
+
+receivers:
+  # OTLP 接收器（gRPC + HTTP）
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+  # Prometheus 接收器（抓取自身指标）
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: "otel-collector"
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["localhost:8888"]
+
+processors:
+  # 批量处理器（减少网络开销）
+  batch:
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+    timeout: 5s
+
+  # 内存限制器（防止 OOM）
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # 资源属性处理器（添加公共标签）
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: "dev"
+        action: upsert
+      - key: service.namespace
+        value: "nexuslog"
+        action: upsert
+
+exporters:
+  # Jaeger 导出器（链路追踪）
+  otlp/jaeger:
+    endpoint: "jaeger-collector:4317"
+    tls:
+      insecure: true
+
+  # Prometheus 导出器（指标）
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "nexuslog"
+
+  # Loki 导出器（日志）
+  loki:
+    endpoint: "http://loki:3100/loki/api/v1/push"
+    default_labels_enabled:
+      exporter: true
+      job: true
+      instance: true
+      level: true
+
+  # 调试导出器（开发环境）
+  debug:
+    verbosity: basic
+
+extensions:
+  # 健康检查
+  health_check:
+    endpoint: "0.0.0.0:13133"
+
+  # zPages 调试页面
+  zpages:
+    endpoint: "0.0.0.0:55679"
+
+service:
+  extensions: [health_check, zpages]
+  pipelines:
+    # 链路追踪管道
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp/jaeger]
+
+    # 指标管道
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheus]
+
+    # 日志管道
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [loki]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: "0.0.0.0:8888"

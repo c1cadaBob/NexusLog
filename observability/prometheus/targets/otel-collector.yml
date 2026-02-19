@@ -1,0 +1,11 @@
+# ============================================================
+# OpenTelemetry Collector 服务发现目标
+# Prometheus file_sd_configs 格式
+# ============================================================
+
+- targets:
+    - "otel-collector:8888"
+  labels:
+    service: "otel-collector"
+    env: "dev"
+    cluster: "nexuslog-dev"

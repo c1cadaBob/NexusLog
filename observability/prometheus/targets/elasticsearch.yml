@@ -1,0 +1,11 @@
+# ============================================================
+# Elasticsearch 集群服务发现目标
+# Prometheus file_sd_configs 格式
+# ============================================================
+
+- targets:
+    - "elasticsearch-exporter:9114"
+  labels:
+    service: "elasticsearch"
+    env: "dev"
+    cluster: "nexuslog-dev"
