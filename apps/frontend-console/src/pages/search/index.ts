@@ -5,3 +5,6 @@
 export { RealtimeSearchPage } from './RealtimeSearchPage';
 export { SearchHistoryPage } from './SearchHistoryPage';
 export { SavedQueriesPage } from './SavedQueriesPage';
+
+// 重新导出 QueryBuilder 组件
+export { QueryBuilder } from '@/components/search';
