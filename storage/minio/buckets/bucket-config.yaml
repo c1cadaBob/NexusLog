@@ -1,0 +1,48 @@
+# NexusLog MinIO Bucket 配置
+# change_level: normal
+# 生效时间: 分钟级
+
+buckets:
+  # 日志归档存储
+  - name: nexuslog-log-archive
+    versioning: false
+    object_locking: false
+    quota:
+      type: hard
+      size: 1TB
+    tags:
+      environment: production
+      purpose: log-archive
+
+  # Elasticsearch 快照存储
+  - name: nexuslog-es-snapshots
+    versioning: true
+    object_locking: false
+    quota:
+      type: hard
+      size: 500GB
+    tags:
+      environment: production
+      purpose: es-snapshots
+
+  # 报表导出存储
+  - name: nexuslog-exports
+    versioning: false
+    object_locking: false
+    quota:
+      type: hard
+      size: 100GB
+    tags:
+      environment: production
+      purpose: report-exports
+
+  # 配置备份存储
+  - name: nexuslog-config-backup
+    versioning: true
+    object_locking: true
+    quota:
+      type: hard
+      size: 10GB
+    tags:
+      environment: production
+      purpose: config-backup

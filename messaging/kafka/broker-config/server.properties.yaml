@@ -1,0 +1,46 @@
+# NexusLog Kafka Broker 配置模板
+# change_level: cab
+# 生效时间: 发布窗口（核心参数需重启）
+
+broker:
+  # 基础配置
+  num.network.threads: 8
+  num.io.threads: 16
+  socket.send.buffer.bytes: 102400
+  socket.receive.buffer.bytes: 102400
+  socket.request.max.bytes: 104857600  # 100MB
+
+  # 日志存储
+  log.dirs: /var/kafka/data
+  num.partitions: 6
+  num.recovery.threads.per.data.dir: 2
+  log.retention.hours: 168  # 7 天
+  log.retention.bytes: -1
+  log.segment.bytes: 1073741824  # 1GB
+  log.retention.check.interval.ms: 300000
+
+  # 副本配置
+  default.replication.factor: 3
+  min.insync.replicas: 2
+  unclean.leader.election.enable: false
+  auto.leader.rebalance.enable: true
+
+  # 压缩
+  compression.type: lz4
+  log.message.timestamp.type: CreateTime
+
+  # ZooKeeper / KRaft
+  # 推荐使用 KRaft 模式（Kafka 3.7+）
+  process.roles: broker,controller
+  controller.quorum.voters: "1@kafka-0:9093,2@kafka-1:9093,3@kafka-2:9093"
+
+  # 安全配置
+  listeners: PLAINTEXT://:9092,CONTROLLER://:9093
+  inter.broker.listener.name: PLAINTEXT
+  # 生产环境应启用 SASL_SSL
+  # listeners: SASL_SSL://:9092,CONTROLLER://:9093
+  # security.inter.broker.protocol: SASL_SSL
+  # sasl.mechanism.inter.broker.protocol: SCRAM-SHA-512
+
+  # 监控
+  metric.reporters: io.confluent.metrics.reporter.ConfluentMetricsReporter

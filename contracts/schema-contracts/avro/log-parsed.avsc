@@ -1,0 +1,90 @@
+{
+  "type": "record",
+  "name": "LogParsed",
+  "namespace": "com.nexuslog.contracts",
+  "doc": "解析后的结构化日志 Schema",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "doc": "日志唯一标识（UUID）"
+    },
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "日志原始时间戳（毫秒）"
+    },
+    {
+      "name": "ingested_at",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "日志入库时间戳（毫秒）"
+    },
+    {
+      "name": "level",
+      "type": {
+        "type": "enum",
+        "name": "LogLevel",
+        "symbols": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
+      },
+      "doc": "日志级别"
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "doc": "日志来源标识"
+    },
+    {
+      "name": "service",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "服务名称"
+    },
+    {
+      "name": "message",
+      "type": "string",
+      "doc": "日志消息内容"
+    },
+    {
+      "name": "fields",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "解析后的结构化字段"
+    },
+    {
+      "name": "tags",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "日志标签"
+    },
+    {
+      "name": "trace_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "分布式追踪 ID"
+    },
+    {
+      "name": "span_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "分布式追踪 Span ID"
+    },
+    {
+      "name": "tenant_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "租户 ID"
+    }
+  ]
+}

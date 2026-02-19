@@ -1,0 +1,49 @@
+# NexusLog MinIO 生命周期策略
+# change_level: normal
+# 生效时间: 分钟级（生命周期策略热更）
+
+lifecycle_rules:
+  # 日志归档 - 90 天后转冷存储，365 天后删除
+  nexuslog-log-archive:
+    - id: archive-to-cold
+      status: Enabled
+      filter:
+        prefix: ""
+      transition:
+        days: 90
+        storage_class: GLACIER
+    - id: expire-old-archives
+      status: Enabled
+      filter:
+        prefix: ""
+      expiration:
+        days: 365
+
+  # ES 快照 - 30 天后删除
+  nexuslog-es-snapshots:
+    - id: expire-old-snapshots
+      status: Enabled
+      filter:
+        prefix: ""
+      expiration:
+        days: 30
+
+  # 报表导出 - 7 天后删除
+  nexuslog-exports:
+    - id: expire-exports
+      status: Enabled
+      filter:
+        prefix: ""
+      expiration:
+        days: 7
+
+  # 配置备份 - 保留 90 天，非当前版本 30 天后删除
+  nexuslog-config-backup:
+    - id: expire-old-configs
+      status: Enabled
+      filter:
+        prefix: ""
+      expiration:
+        days: 90
+      noncurrent_version_expiration:
+        noncurrent_days: 30

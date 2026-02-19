@@ -1,0 +1,31 @@
+# NexusLog Schema Registry 配置模板
+# change_level: cab
+# 生效时间: 分钟级（Schema/兼容策略热更）
+
+schema_registry:
+  # 监听配置
+  listeners: http://0.0.0.0:8081
+  host.name: schema-registry
+
+  # Kafka 连接
+  kafkastore.bootstrap.servers: kafka-0:9092,kafka-1:9092,kafka-2:9092
+  kafkastore.topic: _schemas
+  kafkastore.topic.replication.factor: 3
+
+  # Schema 兼容性默认策略
+  schema.compatibility.level: BACKWARD
+
+  # 支持的 Schema 类型
+  schema.providers:
+    - AVRO
+    - PROTOBUF
+    - JSON
+
+  # 安全配置（生产环境启用）
+  # authentication.method: BASIC
+  # authentication.roles: admin,developer,readonly
+  # ssl.keystore.location: /etc/schema-registry/secrets/keystore.jks
+  # ssl.truststore.location: /etc/schema-registry/secrets/truststore.jks
+
+  # 监控
+  jmx.port: 9102

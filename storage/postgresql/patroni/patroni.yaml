@@ -1,0 +1,53 @@
+# NexusLog Patroni 高可用配置模板
+# change_level: cab
+# 生效时间: 发布窗口（拓扑变更维护窗口）
+
+scope: nexuslog-pg-cluster
+name: pg-node-1
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: pg-node-1:8008
+
+etcd3:
+  hosts:
+    - etcd-0:2379
+    - etcd-1:2379
+    - etcd-2:2379
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576  # 1MB
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        max_connections: 200
+        shared_buffers: 4GB
+        effective_cache_size: 12GB
+        work_mem: 64MB
+        maintenance_work_mem: 512MB
+        wal_level: replica
+        max_wal_senders: 5
+        max_replication_slots: 5
+        hot_standby: "on"
+        wal_log_hints: "on"
+        archive_mode: "on"
+        archive_command: "test ! -f /archive/%f && cp %p /archive/%f"
+
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: pg-node-1:5432
+  data_dir: /var/lib/postgresql/data
+  authentication:
+    replication:
+      username: replicator
+    superuser:
+      username: postgres

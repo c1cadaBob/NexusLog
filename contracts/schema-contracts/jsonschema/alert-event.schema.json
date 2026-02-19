@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexuslog.io/schemas/alert-event",
+  "title": "AlertEvent",
+  "description": "告警事件 JSON Schema",
+  "type": "object",
+  "required": ["id", "rule_id", "rule_name", "severity", "status", "triggered_at", "message"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "告警事件唯一标识"
+    },
+    "rule_id": {
+      "type": "string",
+      "description": "触发告警的规则 ID"
+    },
+    "rule_name": {
+      "type": "string",
+      "description": "告警规则名称"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["INFO", "WARNING", "CRITICAL", "EMERGENCY"],
+      "description": "告警严重级别"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["FIRING", "RESOLVED", "SILENCED", "ACKNOWLEDGED"],
+      "description": "告警状态"
+    },
+    "triggered_at": {
+      "type": "integer",
+      "description": "告警触发时间戳（毫秒）"
+    },
+    "message": {
+      "type": "string",
+      "description": "告警描述信息"
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "告警标签"
+    },
+    "source_logs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "触发告警的日志 ID 列表"
+    },
+    "tenant_id": {
+      "type": ["string", "null"],
+      "description": "租户 ID"
+    }
+  },
+  "additionalProperties": false
+}

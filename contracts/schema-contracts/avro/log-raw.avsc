@@ -1,0 +1,60 @@
+{
+  "type": "record",
+  "name": "LogRaw",
+  "namespace": "com.nexuslog.contracts",
+  "doc": "原始日志消息 Schema - 采集代理发送的未解析日志",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "doc": "日志唯一标识（UUID）"
+    },
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "日志采集时间戳（毫秒）"
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "doc": "日志来源标识（主机名/容器ID）"
+    },
+    {
+      "name": "source_type",
+      "type": {
+        "type": "enum",
+        "name": "SourceType",
+        "symbols": ["FILE", "SYSLOG", "DOCKER", "KUBERNETES", "JOURNALD", "HTTP", "GRPC"]
+      },
+      "doc": "日志来源类型"
+    },
+    {
+      "name": "content",
+      "type": "string",
+      "doc": "原始日志内容"
+    },
+    {
+      "name": "tags",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "日志标签（键值对）"
+    },
+    {
+      "name": "agent_id",
+      "type": "string",
+      "doc": "采集代理 ID"
+    },
+    {
+      "name": "tenant_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "租户 ID（多租户场景）"
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+# NexusLog Kafka Topics 配置
+# change_level: cab
+# 生效时间: 发布窗口
+
+topics:
+  # 日志采集主题 - 接收来自 Collector Agent 的原始日志
+  - name: nexuslog.logs.raw
+    partitions: 12
+    replication_factor: 3
+    retention_ms: 604800000  # 7 天
+    cleanup_policy: delete
+    compression_type: lz4
+    config:
+      max.message.bytes: 10485760  # 10MB
+      min.insync.replicas: 2
+      segment.bytes: 1073741824   # 1GB
+
+  # 解析后的结构化日志
+  - name: nexuslog.logs.parsed
+    partitions: 12
+    replication_factor: 3
+    retention_ms: 259200000  # 3 天
+    cleanup_policy: delete
+    compression_type: lz4
+    config:
+      min.insync.replicas: 2
+
+  # 告警事件主题
+  - name: nexuslog.alerts.events
+    partitions: 6
+    replication_factor: 3
+    retention_ms: 604800000  # 7 天
+    cleanup_policy: delete
+    compression_type: snappy
+    config:
+      min.insync.replicas: 2
+
+  # 告警通知主题
+  - name: nexuslog.alerts.notifications
+    partitions: 3
+    replication_factor: 3
+    retention_ms: 259200000  # 3 天
+    cleanup_policy: delete
+    config:
+      min.insync.replicas: 2
+
+  # 审计日志主题
+  - name: nexuslog.audit.logs
+    partitions: 6
+    replication_factor: 3
+    retention_ms: 2592000000  # 30 天
+    cleanup_policy: delete
+    compression_type: snappy
+    config:
+      min.insync.replicas: 2
+
+  # 死信队列主题
+  - name: nexuslog.dlq.logs
+    partitions: 3
+    replication_factor: 3
+    retention_ms: 2592000000  # 30 天
+    cleanup_policy: delete
+    config:
+      min.insync.replicas: 2
+
+  # 指标聚合主题
+  - name: nexuslog.metrics.aggregated
+    partitions: 6
+    replication_factor: 3
+    retention_ms: 86400000  # 1 天
+    cleanup_policy: delete
+    compression_type: lz4
+    config:
+      min.insync.replicas: 2

@@ -1,0 +1,46 @@
+{
+  "_comment": "NexusLog 日志索引模板 | change_level: cab | 生效时间: 发布窗口",
+  "index_patterns": ["nexuslog-logs-*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "number_of_shards": 3,
+      "number_of_replicas": 1,
+      "refresh_interval": "5s",
+      "codec": "best_compression",
+      "index.lifecycle.name": "nexuslog-logs-ilm",
+      "index.lifecycle.rollover_alias": "nexuslog-logs",
+      "analysis": {
+        "analyzer": {
+          "log_analyzer": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase", "stop"]
+          }
+        }
+      }
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "ingested_at": { "type": "date" },
+        "level": { "type": "keyword" },
+        "source": { "type": "keyword" },
+        "service": { "type": "keyword" },
+        "message": {
+          "type": "text",
+          "analyzer": "log_analyzer",
+          "fields": {
+            "keyword": { "type": "keyword", "ignore_above": 512 }
+          }
+        },
+        "fields": { "type": "object", "dynamic": true },
+        "tags": { "type": "object", "dynamic": true },
+        "trace_id": { "type": "keyword" },
+        "span_id": { "type": "keyword" },
+        "tenant_id": { "type": "keyword" },
+        "agent_id": { "type": "keyword" }
+      }
+    }
+  }
+}

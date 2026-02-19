@@ -1,0 +1,42 @@
+# NexusLog 冷存储归档策略
+# change_level: normal
+# 生效时间: 分钟级
+
+archive_policies:
+  # 日志数据归档策略
+  log-archive:
+    description: "日志数据从热存储归档到冷存储"
+    source: elasticsearch
+    trigger:
+      type: age_based
+      min_age_days: 90
+    destination:
+      storage_class: GLACIER
+      bucket: nexuslog-log-archive
+      path_template: "logs/{year}/{month}/{day}/{index_name}"
+      compression: gzip
+    retention:
+      min_days: 365
+      max_days: 1825  # 5 年
+    restore:
+      tier: Standard  # Standard: 3-5 小时, Expedited: 1-5 分钟
+      expiry_days: 7
+
+  # 审计日志归档策略（合规要求保留更久）
+  audit-archive:
+    description: "审计日志归档，满足合规要求"
+    source: elasticsearch
+    trigger:
+      type: age_based
+      min_age_days: 30
+    destination:
+      storage_class: DEEP_ARCHIVE
+      bucket: nexuslog-log-archive
+      path_template: "audit/{year}/{month}/{index_name}"
+      compression: gzip
+    retention:
+      min_days: 2555  # 7 年
+      max_days: 3650  # 10 年
+    restore:
+      tier: Standard  # 12 小时
+      expiry_days: 30

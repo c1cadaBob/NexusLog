@@ -1,0 +1,69 @@
+# NexusLog 死信队列重试策略
+# change_level: normal
+# 生效时间: 分钟级（热更新）
+
+retry_policies:
+  # 日志解析失败重试
+  log-parsing:
+    source_topic: nexuslog.logs.raw
+    dlq_topic: nexuslog.dlq.logs
+    max_retries: 3
+    backoff:
+      type: exponential
+      initial_delay_ms: 1000
+      max_delay_ms: 60000
+      multiplier: 2.0
+    retry_conditions:
+      - error_type: PARSING_ERROR
+        retryable: true
+      - error_type: SCHEMA_VALIDATION_ERROR
+        retryable: false  # 直接进入 DLQ
+      - error_type: TRANSIENT_ERROR
+        retryable: true
+
+  # 告警通知发送失败重试
+  alert-notification:
+    source_topic: nexuslog.alerts.notifications
+    dlq_topic: nexuslog.dlq.logs
+    max_retries: 5
+    backoff:
+      type: exponential
+      initial_delay_ms: 2000
+      max_delay_ms: 300000  # 5 分钟
+      multiplier: 2.0
+    retry_conditions:
+      - error_type: NETWORK_ERROR
+        retryable: true
+      - error_type: RATE_LIMIT
+        retryable: true
+      - error_type: INVALID_RECIPIENT
+        retryable: false
+
+  # ES 写入失败重试
+  es-sink:
+    source_topic: nexuslog.logs.parsed
+    dlq_topic: nexuslog.dlq.logs
+    max_retries: 5
+    backoff:
+      type: exponential
+      initial_delay_ms: 5000
+      max_delay_ms: 600000  # 10 分钟
+      multiplier: 2.0
+    retry_conditions:
+      - error_type: ES_WRITE_REJECT
+        retryable: true
+      - error_type: ES_TIMEOUT
+        retryable: true
+      - error_type: ES_MAPPING_ERROR
+        retryable: false
+
+# DLQ 处理策略
+dlq_handling:
+  # DLQ 消息保留时间
+  retention_days: 30
+  # 告警阈值：DLQ 消息堆积超过此数量触发告警
+  alert_threshold: 1000
+  # 自动清理策略
+  auto_purge:
+    enabled: true
+    max_age_days: 30

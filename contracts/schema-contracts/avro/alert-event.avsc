@@ -1,0 +1,78 @@
+{
+  "type": "record",
+  "name": "AlertEvent",
+  "namespace": "com.nexuslog.contracts",
+  "doc": "告警事件 Schema",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "doc": "告警事件唯一标识"
+    },
+    {
+      "name": "rule_id",
+      "type": "string",
+      "doc": "触发告警的规则 ID"
+    },
+    {
+      "name": "rule_name",
+      "type": "string",
+      "doc": "告警规则名称"
+    },
+    {
+      "name": "severity",
+      "type": {
+        "type": "enum",
+        "name": "AlertSeverity",
+        "symbols": ["INFO", "WARNING", "CRITICAL", "EMERGENCY"]
+      },
+      "doc": "告警严重级别"
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "AlertStatus",
+        "symbols": ["FIRING", "RESOLVED", "SILENCED", "ACKNOWLEDGED"]
+      },
+      "doc": "告警状态"
+    },
+    {
+      "name": "triggered_at",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "告警触发时间"
+    },
+    {
+      "name": "message",
+      "type": "string",
+      "doc": "告警描述信息"
+    },
+    {
+      "name": "labels",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "告警标签"
+    },
+    {
+      "name": "source_logs",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "触发告警的日志 ID 列表"
+    },
+    {
+      "name": "tenant_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "租户 ID"
+    }
+  ]
+}

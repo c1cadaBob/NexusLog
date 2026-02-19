@@ -1,0 +1,26 @@
+{
+  "_comment": "NexusLog Elasticsearch 快照策略 | change_level: normal | 生效时间: 分钟级",
+  "name": "nexuslog-snapshot-policy",
+  "schedule": "0 0 2 * * ?",
+  "repository": "nexuslog-snapshots",
+  "config": {
+    "indices": ["nexuslog-logs-*", "nexuslog-alerts-*", "nexuslog-audit-*"],
+    "ignore_unavailable": true,
+    "include_global_state": false,
+    "partial": false
+  },
+  "retention": {
+    "expire_after": "30d",
+    "min_count": 7,
+    "max_count": 30
+  },
+  "repository_config": {
+    "type": "s3",
+    "settings": {
+      "bucket": "nexuslog-es-snapshots",
+      "base_path": "elasticsearch/snapshots",
+      "compress": true,
+      "chunk_size": "1gb"
+    }
+  }
+}

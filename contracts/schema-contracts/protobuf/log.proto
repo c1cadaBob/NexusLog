@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package nexuslog.contracts;
+
+option go_package = "github.com/nexuslog/contracts/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// 日志来源类型
+enum SourceType {
+  SOURCE_TYPE_UNSPECIFIED = 0;
+  SOURCE_TYPE_FILE = 1;
+  SOURCE_TYPE_SYSLOG = 2;
+  SOURCE_TYPE_DOCKER = 3;
+  SOURCE_TYPE_KUBERNETES = 4;
+  SOURCE_TYPE_JOURNALD = 5;
+  SOURCE_TYPE_HTTP = 6;
+  SOURCE_TYPE_GRPC = 7;
+}
+
+// 日志级别
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_TRACE = 1;
+  LOG_LEVEL_DEBUG = 2;
+  LOG_LEVEL_INFO = 3;
+  LOG_LEVEL_WARN = 4;
+  LOG_LEVEL_ERROR = 5;
+  LOG_LEVEL_FATAL = 6;
+}
+
+// 原始日志消息
+message LogRaw {
+  string id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string source = 3;
+  SourceType source_type = 4;
+  string content = 5;
+  map<string, string> tags = 6;
+  string agent_id = 7;
+  optional string tenant_id = 8;
+}
+
+// 解析后的结构化日志
+message LogParsed {
+  string id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  google.protobuf.Timestamp ingested_at = 3;
+  LogLevel level = 4;
+  string source = 5;
+  optional string service = 6;
+  string message = 7;
+  map<string, string> fields = 8;
+  map<string, string> tags = 9;
+  optional string trace_id = 10;
+  optional string span_id = 11;
+  optional string tenant_id = 12;
+}
+
+// 日志批量传输消息
+message LogBatch {
+  repeated LogRaw logs = 1;
+  string agent_id = 2;
+  int64 sequence_number = 3;
+}

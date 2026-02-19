@@ -1,0 +1,64 @@
+# NexusLog Kafka Consumer Group 配置
+# change_level: normal
+# 生效时间: 分钟级
+
+consumer_groups:
+  # Flink 流计算消费组
+  flink-log-processor:
+    topics:
+      - nexuslog.logs.raw
+    auto_offset_reset: earliest
+    enable_auto_commit: false  # Flink 自行管理 offset
+    max_poll_records: 1000
+    max_poll_interval_ms: 300000
+    session_timeout_ms: 30000
+    heartbeat_interval_ms: 10000
+    fetch_min_bytes: 1048576  # 1MB
+    fetch_max_wait_ms: 500
+
+  # Elasticsearch Sink 消费组
+  es-log-sink:
+    topics:
+      - nexuslog.logs.parsed
+    auto_offset_reset: earliest
+    enable_auto_commit: false
+    max_poll_records: 500
+    max_poll_interval_ms: 600000
+    session_timeout_ms: 30000
+    heartbeat_interval_ms: 10000
+    fetch_min_bytes: 524288  # 512KB
+    fetch_max_wait_ms: 1000
+
+  # 告警引擎消费组
+  alert-engine:
+    topics:
+      - nexuslog.alerts.events
+    auto_offset_reset: latest
+    enable_auto_commit: true
+    auto_commit_interval_ms: 5000
+    max_poll_records: 100
+    max_poll_interval_ms: 60000
+    session_timeout_ms: 15000
+    heartbeat_interval_ms: 5000
+
+  # 审计日志消费组
+  audit-log-writer:
+    topics:
+      - nexuslog.audit.logs
+    auto_offset_reset: earliest
+    enable_auto_commit: false
+    max_poll_records: 200
+    max_poll_interval_ms: 120000
+    session_timeout_ms: 30000
+    heartbeat_interval_ms: 10000
+
+  # DLQ 重试消费组
+  dlq-retry-processor:
+    topics:
+      - nexuslog.dlq.logs
+    auto_offset_reset: earliest
+    enable_auto_commit: false
+    max_poll_records: 50
+    max_poll_interval_ms: 600000
+    session_timeout_ms: 30000
+    heartbeat_interval_ms: 10000

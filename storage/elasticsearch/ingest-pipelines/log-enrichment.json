@@ -1,0 +1,57 @@
+{
+  "_comment": "NexusLog 日志 Ingest Pipeline - 日志富化处理 | change_level: normal | 生效时间: 分钟级",
+  "description": "日志入库前的富化处理管道：时间戳解析、GeoIP、User-Agent 解析",
+  "processors": [
+    {
+      "date": {
+        "field": "timestamp",
+        "target_field": "@timestamp",
+        "formats": ["UNIX_MS", "ISO8601", "yyyy-MM-dd HH:mm:ss"],
+        "ignore_failure": true
+      }
+    },
+    {
+      "set": {
+        "field": "ingested_at",
+        "value": "{{{_ingest.timestamp}}}"
+      }
+    },
+    {
+      "grok": {
+        "field": "message",
+        "patterns": [
+          "%{LOGLEVEL:level} %{GREEDYDATA:log_message}"
+        ],
+        "ignore_failure": true
+      }
+    },
+    {
+      "lowercase": {
+        "field": "level",
+        "ignore_failure": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "client_ip",
+        "target_field": "geo",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    },
+    {
+      "remove": {
+        "field": ["_temp"],
+        "ignore_missing": true
+      }
+    }
+  ],
+  "on_failure": [
+    {
+      "set": {
+        "field": "_ingest.pipeline_error",
+        "value": "{{ _ingest.on_failure_message }}"
+      }
+    }
+  ]
+}

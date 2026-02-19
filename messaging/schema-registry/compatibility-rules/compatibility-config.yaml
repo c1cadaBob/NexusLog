@@ -1,0 +1,43 @@
+# NexusLog Schema Registry 兼容性规则
+# change_level: cab
+# 生效时间: 分钟级（热更新）
+
+# 全局默认兼容性级别
+global:
+  compatibility: BACKWARD
+
+# 按 Subject 的兼容性规则
+subjects:
+  # 原始日志 - 允许向前兼容（新增字段）
+  nexuslog.logs.raw-value:
+    compatibility: BACKWARD
+    description: "原始日志 Schema，仅允许新增可选字段"
+
+  # 解析后日志 - 严格向后兼容
+  nexuslog.logs.parsed-value:
+    compatibility: BACKWARD_TRANSITIVE
+    description: "解析后日志 Schema，所有历史版本向后兼容"
+
+  # 告警事件 - 完全兼容
+  nexuslog.alerts.events-value:
+    compatibility: FULL
+    description: "告警事件 Schema，同时向前向后兼容"
+
+  # 审计日志 - 严格完全兼容
+  nexuslog.audit.logs-value:
+    compatibility: FULL_TRANSITIVE
+    description: "审计日志 Schema，所有历史版本完全兼容"
+
+  # 指标聚合 - 允许向前兼容
+  nexuslog.metrics.aggregated-value:
+    compatibility: BACKWARD
+    description: "指标聚合 Schema，仅允许新增可选字段"
+
+# 兼容性级别说明:
+# BACKWARD: 新 Schema 可读取旧数据（可新增可选字段、删除字段）
+# BACKWARD_TRANSITIVE: 所有历史版本向后兼容
+# FORWARD: 旧 Schema 可读取新数据（可删除可选字段、新增字段）
+# FORWARD_TRANSITIVE: 所有历史版本向前兼容
+# FULL: 同时向前向后兼容
+# FULL_TRANSITIVE: 所有历史版本完全兼容
+# NONE: 不检查兼容性（不推荐）

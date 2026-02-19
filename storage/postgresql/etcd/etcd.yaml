@@ -1,0 +1,32 @@
+# NexusLog etcd 配置模板（Patroni DCS 后端）
+# change_level: cab
+# 生效时间: 发布窗口
+
+# 集群配置
+name: etcd-0
+data-dir: /var/lib/etcd/data
+
+# 客户端通信
+listen-client-urls: http://0.0.0.0:2379
+advertise-client-urls: http://etcd-0:2379
+
+# 集群通信
+listen-peer-urls: http://0.0.0.0:2380
+initial-advertise-peer-urls: http://etcd-0:2380
+
+# 集群初始化
+initial-cluster: etcd-0=http://etcd-0:2380,etcd-1=http://etcd-1:2380,etcd-2=http://etcd-2:2380
+initial-cluster-state: new
+initial-cluster-token: nexuslog-etcd-cluster
+
+# 快照和压缩
+auto-compaction-mode: periodic
+auto-compaction-retention: "1h"
+snapshot-count: 10000
+
+# 安全配置（生产环境启用 TLS）
+# client-transport-security:
+#   cert-file: /etc/etcd/ssl/server.crt
+#   key-file: /etc/etcd/ssl/server.key
+#   trusted-ca-file: /etc/etcd/ssl/ca.crt
+#   client-cert-auth: true

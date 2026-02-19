@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package nexuslog.contracts;
+
+option go_package = "github.com/nexuslog/contracts/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// 告警严重级别
+enum AlertSeverity {
+  ALERT_SEVERITY_UNSPECIFIED = 0;
+  ALERT_SEVERITY_INFO = 1;
+  ALERT_SEVERITY_WARNING = 2;
+  ALERT_SEVERITY_CRITICAL = 3;
+  ALERT_SEVERITY_EMERGENCY = 4;
+}
+
+// 告警状态
+enum AlertStatus {
+  ALERT_STATUS_UNSPECIFIED = 0;
+  ALERT_STATUS_FIRING = 1;
+  ALERT_STATUS_RESOLVED = 2;
+  ALERT_STATUS_SILENCED = 3;
+  ALERT_STATUS_ACKNOWLEDGED = 4;
+}
+
+// 告警事件
+message AlertEvent {
+  string id = 1;
+  string rule_id = 2;
+  string rule_name = 3;
+  AlertSeverity severity = 4;
+  AlertStatus status = 5;
+  google.protobuf.Timestamp triggered_at = 6;
+  string message = 7;
+  map<string, string> labels = 8;
+  repeated string source_logs = 9;
+  optional string tenant_id = 10;
+}

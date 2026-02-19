@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexuslog.io/schemas/log-raw",
+  "title": "LogRaw",
+  "description": "原始日志消息 JSON Schema",
+  "type": "object",
+  "required": ["id", "timestamp", "source", "source_type", "content", "agent_id"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "日志唯一标识"
+    },
+    "timestamp": {
+      "type": "integer",
+      "description": "日志采集时间戳（毫秒）"
+    },
+    "source": {
+      "type": "string",
+      "description": "日志来源标识"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["FILE", "SYSLOG", "DOCKER", "KUBERNETES", "JOURNALD", "HTTP", "GRPC"],
+      "description": "日志来源类型"
+    },
+    "content": {
+      "type": "string",
+      "description": "原始日志内容"
+    },
+    "tags": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "日志标签"
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "采集代理 ID"
+    },
+    "tenant_id": {
+      "type": ["string", "null"],
+      "description": "租户 ID"
+    }
+  },
+  "additionalProperties": false
+}

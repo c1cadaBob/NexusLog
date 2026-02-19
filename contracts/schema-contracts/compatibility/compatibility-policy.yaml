@@ -1,0 +1,49 @@
+# NexusLog Schema 契约兼容性策略
+# change_level: cab
+# 生效时间: 分钟级
+
+# 兼容性检查规则
+compatibility_policy:
+  # 默认兼容性级别
+  default_level: BACKWARD
+
+  # 按 Schema 类型的兼容性规则
+  rules:
+    avro:
+      # Avro Schema 演进规则
+      allowed_changes:
+        - add_optional_field       # 新增带默认值的可选字段
+        - add_enum_symbol_at_end   # 在枚举末尾新增值
+      forbidden_changes:
+        - remove_required_field    # 禁止删除必填字段
+        - change_field_type        # 禁止修改字段类型
+        - rename_field             # 禁止重命名字段
+        - reorder_enum_symbols     # 禁止重排枚举值
+
+    protobuf:
+      # Protobuf Schema 演进规则
+      allowed_changes:
+        - add_optional_field       # 新增 optional 字段
+        - add_enum_value           # 新增枚举值
+        - add_rpc_method           # 新增 RPC 方法
+      forbidden_changes:
+        - change_field_number      # 禁止修改字段编号
+        - change_field_type        # 禁止修改字段类型
+        - remove_field             # 禁止删除字段
+        - reuse_field_number       # 禁止复用已删除的字段编号
+
+    jsonschema:
+      # JSON Schema 演进规则
+      allowed_changes:
+        - add_optional_property    # 新增非 required 属性
+        - relax_validation         # 放宽验证规则
+      forbidden_changes:
+        - add_required_property    # 禁止新增 required 属性
+        - narrow_type              # 禁止收窄类型范围
+        - remove_property          # 禁止删除属性
+
+  # CI 集成配置
+  ci_check:
+    enabled: true
+    fail_on_incompatible: true
+    report_format: json
