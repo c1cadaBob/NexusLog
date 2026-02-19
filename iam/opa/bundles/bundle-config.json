@@ -1,0 +1,33 @@
+{
+  "bundles": {
+    "nexuslog-authz": {
+      "service": "nexuslog-bundle-server",
+      "resource": "/bundles/nexuslog-authz.tar.gz",
+      "persist": true,
+      "polling": {
+        "min_delay_seconds": 10,
+        "max_delay_seconds": 30
+      },
+      "signing": {
+        "keyid": "nexuslog-bundle-key"
+      }
+    }
+  },
+  "services": {
+    "nexuslog-bundle-server": {
+      "url": "${OPA_BUNDLE_SERVER_URL}",
+      "credentials": {
+        "bearer": {
+          "token": "${OPA_BUNDLE_TOKEN}"
+        }
+      }
+    }
+  },
+  "decision_logs": {
+    "service": "nexuslog-bundle-server",
+    "reporting": {
+      "min_delay_seconds": 60,
+      "max_delay_seconds": 300
+    }
+  }
+}

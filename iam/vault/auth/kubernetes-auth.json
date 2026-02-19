@@ -1,0 +1,43 @@
+{
+  "_comment": "Vault Kubernetes 认证方法配置模板",
+  "auth_method": "kubernetes",
+  "config": {
+    "kubernetes_host": "${KUBERNETES_HOST}",
+    "kubernetes_ca_cert": "${KUBERNETES_CA_CERT}",
+    "token_reviewer_jwt": "${TOKEN_REVIEWER_JWT}"
+  },
+  "roles": [
+    {
+      "name": "nexuslog-control-plane",
+      "bound_service_account_names": ["control-plane"],
+      "bound_service_account_namespaces": ["nexuslog"],
+      "policies": ["nexuslog-app"],
+      "ttl": "1h",
+      "max_ttl": "24h"
+    },
+    {
+      "name": "nexuslog-api-service",
+      "bound_service_account_names": ["api-service"],
+      "bound_service_account_namespaces": ["nexuslog"],
+      "policies": ["nexuslog-app"],
+      "ttl": "1h",
+      "max_ttl": "24h"
+    },
+    {
+      "name": "nexuslog-health-worker",
+      "bound_service_account_names": ["health-worker"],
+      "bound_service_account_namespaces": ["nexuslog"],
+      "policies": ["nexuslog-app"],
+      "ttl": "1h",
+      "max_ttl": "24h"
+    },
+    {
+      "name": "nexuslog-collector-agent",
+      "bound_service_account_names": ["collector-agent"],
+      "bound_service_account_namespaces": ["nexuslog"],
+      "policies": ["nexuslog-app"],
+      "ttl": "1h",
+      "max_ttl": "24h"
+    }
+  ]
+}

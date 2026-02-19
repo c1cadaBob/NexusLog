@@ -1,0 +1,27 @@
+{
+  "clientId": "nexuslog-api",
+  "name": "NexusLog API Service",
+  "description": "NexusLog 后端 API 服务客户端（机密客户端）",
+  "enabled": true,
+  "publicClient": false,
+  "directAccessGrantsEnabled": false,
+  "serviceAccountsEnabled": true,
+  "authorizationServicesEnabled": true,
+  "protocol": "openid-connect",
+  "secret": "${API_CLIENT_SECRET}",
+  "redirectUris": [],
+  "webOrigins": [],
+  "defaultClientScopes": [
+    "profile",
+    "email",
+    "roles"
+  ],
+  "attributes": {
+    "access.token.lifespan": "600"
+  },
+  "authorizationSettings": {
+    "allowRemoteResourceManagement": true,
+    "policyEnforcementMode": "ENFORCING",
+    "decisionStrategy": "UNANIMOUS"
+  }
+}

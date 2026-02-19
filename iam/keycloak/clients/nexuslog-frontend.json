@@ -1,0 +1,34 @@
+{
+  "clientId": "nexuslog-frontend",
+  "name": "NexusLog Frontend Console",
+  "description": "NexusLog 前端控制台客户端",
+  "enabled": true,
+  "publicClient": true,
+  "directAccessGrantsEnabled": false,
+  "standardFlowEnabled": true,
+  "implicitFlowEnabled": false,
+  "protocol": "openid-connect",
+  "rootUrl": "${FRONTEND_URL}",
+  "baseUrl": "/",
+  "redirectUris": [
+    "${FRONTEND_URL}/*"
+  ],
+  "webOrigins": [
+    "${FRONTEND_URL}"
+  ],
+  "defaultClientScopes": [
+    "profile",
+    "email",
+    "roles",
+    "web-origins"
+  ],
+  "optionalClientScopes": [
+    "offline_access"
+  ],
+  "attributes": {
+    "pkce.code.challenge.method": "S256",
+    "post.logout.redirect.uris": "${FRONTEND_URL}/*",
+    "access.token.lifespan": "300",
+    "client.session.idle.timeout": "1800"
+  }
+}
