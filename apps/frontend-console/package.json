@@ -6,6 +6,7 @@
   "description": "NexusLog 前端控制台 - React 19 + Ant Design + ECharts",
   "scripts": {
     "dev": "vite",
+    "start": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",

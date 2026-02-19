@@ -16,6 +16,7 @@
   ],
   "scripts": {
     "bootstrap": "./scripts/bootstrap.sh",
+    "dev:frontend": "npm run dev --prefix apps/frontend-console",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "build": "pnpm -r build",
