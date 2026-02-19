@@ -1,0 +1,77 @@
+# NexusLog Flink 集群配置
+
+# JobManager 配置
+jobmanager:
+  rpc:
+    address: flink-jobmanager
+    port: 6123
+  memory:
+    process:
+      size: 2048m
+  execution:
+    failover-strategy: region
+
+# TaskManager 配置
+taskmanager:
+  numberOfTaskSlots: 4
+  memory:
+    process:
+      size: 4096m
+    managed:
+      fraction: 0.4
+
+# 高可用配置
+high-availability:
+  type: zookeeper
+  zookeeper:
+    quorum: zookeeper:2181
+  storageDir: hdfs:///flink/ha
+
+# Checkpoint 配置
+execution:
+  checkpointing:
+    interval: 60000
+    mode: EXACTLY_ONCE
+    timeout: 600000
+    min-pause: 500
+    max-concurrent: 1
+  
+state:
+  backend: rocksdb
+  checkpoints:
+    dir: hdfs:///flink/checkpoints
+  savepoints:
+    dir: hdfs:///flink/savepoints
+  backend:
+    incremental: true
+
+# Restart 策略
+restart-strategy:
+  type: exponential-delay
+  exponential-delay:
+    initial-backoff: 1s
+    max-backoff: 60s
+    backoff-multiplier: 2.0
+    reset-backoff-threshold: 120s
+
+# Kafka Connector 默认配置
+kafka:
+  default:
+    properties:
+      bootstrap.servers: kafka:9092
+      group.id: nexuslog-flink
+      auto.offset.reset: latest
+      enable.auto.commit: false
+
+# 指标上报
+metrics:
+  reporters:
+    prometheus:
+      factory:
+        class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+      port: 9249
+
+# Web UI
+rest:
+  port: 8081
+  address: 0.0.0.0
