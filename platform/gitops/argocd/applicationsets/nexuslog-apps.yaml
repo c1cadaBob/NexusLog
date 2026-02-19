@@ -1,45 +1,71 @@
-# NexusLog Argo CD ApplicationSet
-# 使用 ApplicationSet 统一管理多环境部署
+# NexusLog Argo CD ApplicationSet - 后端服务与基础设施
+# 使用 Matrix Generator 实现多组件 × 多环境的组合部署
+# 同步波次（sync-wave）控制部署顺序：存储 → 控制面 → 数据面 → 网关 → 可观测性
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: nexuslog-services
   namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    app.kubernetes.io/managed-by: argocd
 spec:
   generators:
     - matrix:
         generators:
           - list:
               elements:
-                - component: gateway
-                  namespace: nexuslog-gateway
-                  chartPath: platform/helm/nexuslog-gateway
-                - component: control-plane
-                  namespace: nexuslog-control-plane
-                  chartPath: platform/helm/nexuslog-control-plane
-                - component: data-plane
-                  namespace: nexuslog-data-plane
-                  chartPath: platform/helm/nexuslog-data-plane
                 - component: storage
                   namespace: nexuslog-storage
                   chartPath: platform/helm/nexuslog-storage
+                  syncWave: "1"
+                  changeLevel: cab
+                - component: control-plane
+                  namespace: nexuslog-control-plane
+                  chartPath: platform/helm/nexuslog-control-plane
+                  syncWave: "2"
+                  changeLevel: normal
+                - component: data-plane
+                  namespace: nexuslog-data-plane
+                  chartPath: platform/helm/nexuslog-data-plane
+                  syncWave: "3"
+                  changeLevel: normal
+                - component: gateway
+                  namespace: nexuslog-gateway
+                  chartPath: platform/helm/nexuslog-gateway
+                  syncWave: "4"
+                  changeLevel: cab
                 - component: observability
                   namespace: nexuslog-observability
                   chartPath: platform/helm/nexuslog-observability
+                  syncWave: "5"
+                  changeLevel: none
           - list:
               elements:
                 - env: dev
                   cluster: dev-cluster
                   revision: develop
+                  autoSync: "true"
                 - env: staging
                   cluster: staging-cluster
                   revision: release/*
+                  autoSync: "true"
                 - env: prod
                   cluster: prod-cluster
                   revision: main
+                  autoSync: "false"
   template:
     metadata:
       name: "nexuslog-{{component}}-{{env}}"
+      labels:
+        app.kubernetes.io/part-of: nexuslog
+        nexuslog.io/component: "{{component}}"
+        nexuslog.io/env: "{{env}}"
+        nexuslog.io/change-level: "{{changeLevel}}"
+      annotations:
+        argocd.argoproj.io/sync-wave: "{{syncWave}}"
+        notifications.argoproj.io/subscribe.on-sync-succeeded.slack: nexuslog-deploy
+        notifications.argoproj.io/subscribe.on-sync-failed.slack: nexuslog-alerts
     spec:
       project: nexuslog
       source:
@@ -59,3 +85,16 @@ spec:
           selfHeal: true
         syncOptions:
           - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+        retry:
+          limit: 3
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas

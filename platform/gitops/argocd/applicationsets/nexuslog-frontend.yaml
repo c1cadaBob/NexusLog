@@ -1,0 +1,66 @@
+# NexusLog Argo CD ApplicationSet - 前端控制台
+# 前端使用独立的 ApplicationSet，因为构建产物和部署方式与后端 Helm Chart 不同
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: nexuslog-frontend
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    app.kubernetes.io/managed-by: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - env: dev
+            cluster: dev-cluster
+            revision: develop
+            replicas: "1"
+          - env: staging
+            cluster: staging-cluster
+            revision: release/*
+            replicas: "2"
+          - env: prod
+            cluster: prod-cluster
+            revision: main
+            replicas: "3"
+  template:
+    metadata:
+      name: "nexuslog-frontend-{{env}}"
+      labels:
+        app.kubernetes.io/part-of: nexuslog
+        nexuslog.io/component: frontend
+        nexuslog.io/env: "{{env}}"
+        nexuslog.io/change-level: normal
+      annotations:
+        # 前端在网关之后部署
+        argocd.argoproj.io/sync-wave: "6"
+        notifications.argoproj.io/subscribe.on-sync-succeeded.slack: nexuslog-deploy
+        notifications.argoproj.io/subscribe.on-sync-failed.slack: nexuslog-alerts
+    spec:
+      project: nexuslog
+      source:
+        repoURL: "https://github.com/nexuslog/nexuslog.git"
+        targetRevision: "{{revision}}"
+        path: apps/frontend-console/deploy/k8s
+        kustomize:
+          images:
+            - "ghcr.io/nexuslog/nexuslog-frontend:{{revision}}"
+          commonAnnotations:
+            nexuslog.io/env: "{{env}}"
+      destination:
+        server: "https://kubernetes.default.svc"
+        namespace: nexuslog-frontend
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 3
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m

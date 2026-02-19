@@ -1,0 +1,58 @@
+# NexusLog Argo CD ApplicationSet - IAM 安全体系
+# Keycloak + OPA + Vault 统一管理，变更级别为 CAB
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: nexuslog-iam
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    app.kubernetes.io/managed-by: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - env: dev
+            cluster: dev-cluster
+            revision: develop
+          - env: staging
+            cluster: staging-cluster
+            revision: release/*
+          - env: prod
+            cluster: prod-cluster
+            revision: main
+  template:
+    metadata:
+      name: "nexuslog-iam-{{env}}"
+      labels:
+        app.kubernetes.io/part-of: nexuslog
+        nexuslog.io/component: iam
+        nexuslog.io/env: "{{env}}"
+        nexuslog.io/change-level: cab
+      annotations:
+        # IAM 在存储之后、控制面之前部署
+        argocd.argoproj.io/sync-wave: "1"
+        notifications.argoproj.io/subscribe.on-sync-succeeded.slack: nexuslog-deploy
+        notifications.argoproj.io/subscribe.on-sync-failed.slack: nexuslog-alerts
+    spec:
+      project: nexuslog
+      source:
+        repoURL: "https://github.com/nexuslog/nexuslog.git"
+        targetRevision: "{{revision}}"
+        path: platform/gitops/apps/iam-system
+      destination:
+        server: "https://kubernetes.default.svc"
+        namespace: nexuslog-iam
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 2
+          backoff:
+            duration: 60s
+            factor: 2
+            maxDuration: 10m

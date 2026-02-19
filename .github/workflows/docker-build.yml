@@ -1,0 +1,156 @@
+# NexusLog Docker 镜像构建推送 + Trivy 安全扫描
+# 触发条件：main/release 分支推送或手动触发
+name: Docker Build & Security Scan
+
+on:
+  push:
+    branches: [main, 'release/**']
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      service:
+        description: '要构建的服务'
+        required: true
+        type: choice
+        options:
+          - all
+          - frontend
+          - control-plane
+          - health-worker
+          - api-service
+          - collector-agent
+          - gateway
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/nexuslog
+
+jobs:
+  detect-changes:
+    name: 检测变更
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set-matrix.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: 确定构建目标
+        id: set-matrix
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.service }}" = "all" ]; then
+              echo 'services=["frontend","control-plane","health-worker","api-service","collector-agent","gateway"]' >> $GITHUB_OUTPUT
+            else
+              echo 'services=["${{ inputs.service }}"]' >> $GITHUB_OUTPUT
+            fi
+          else
+            SERVICES="[]"
+            # 检测各服务目录变更
+            if git diff --name-only HEAD~1 HEAD | grep -q '^apps/frontend-console/'; then
+              SERVICES=$(echo "$SERVICES" | jq '. + ["frontend"]')
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q '^services/control-plane/'; then
+              SERVICES=$(echo "$SERVICES" | jq '. + ["control-plane"]')
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q '^services/health-worker/'; then
+              SERVICES=$(echo "$SERVICES" | jq '. + ["health-worker"]')
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q '^services/api-service/'; then
+              SERVICES=$(echo "$SERVICES" | jq '. + ["api-service"]')
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q '^agents/collector-agent/'; then
+              SERVICES=$(echo "$SERVICES" | jq '. + ["collector-agent"]')
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q '^gateway/openresty/'; then
+              SERVICES=$(echo "$SERVICES" | jq '. + ["gateway"]')
+            fi
+            echo "services=$(echo $SERVICES | jq -c .)" >> $GITHUB_OUTPUT
+          fi
+
+  build-and-scan:
+    name: 构建 ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.services != '[]'
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+      fail-fast: false
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 确定 Dockerfile 路径
+        id: dockerfile
+        run: |
+          case "${{ matrix.service }}" in
+            frontend)
+              echo "path=apps/frontend-console/Dockerfile" >> $GITHUB_OUTPUT
+              echo "context=apps/frontend-console" >> $GITHUB_OUTPUT
+              ;;
+            control-plane|health-worker|api-service)
+              echo "path=services/${{ matrix.service }}/Dockerfile" >> $GITHUB_OUTPUT
+              echo "context=services/${{ matrix.service }}" >> $GITHUB_OUTPUT
+              ;;
+            collector-agent)
+              echo "path=agents/collector-agent/Dockerfile" >> $GITHUB_OUTPUT
+              echo "context=agents/collector-agent" >> $GITHUB_OUTPUT
+              ;;
+            gateway)
+              echo "path=gateway/openresty/Dockerfile" >> $GITHUB_OUTPUT
+              echo "context=gateway/openresty" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: 生成镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=
+
+      - name: 登录容器仓库
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.dockerfile.outputs.context }}
+          file: ${{ steps.dockerfile.outputs.path }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy 漏洞扫描
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:sha-${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+
+      - name: 上传 Trivy 扫描结果
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
