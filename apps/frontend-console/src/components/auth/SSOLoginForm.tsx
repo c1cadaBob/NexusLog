@@ -1,146 +1,70 @@
-/**
- * SSOLoginForm 组件
- * 
- * 基于 Ant Design Form 的企业 SSO 单点登录表单
- * 
- * @requirements 3.5, 9.4
- */
+import React, { useState } from 'react';
+import { Form, Input, Button } from 'antd';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Form, Input, Button, Alert, Typography, Space } from 'antd';
-import { GlobalOutlined, ArrowLeftOutlined, LoginOutlined, LoadingOutlined } from '@ant-design/icons';
-import type { InputRef } from 'antd';
-
-const { Title, Text } = Typography;
-
-/**
- * SSOLoginForm 组件属性
- */
-export interface SSOLoginFormProps {
-  /** 返回普通登录回调 */
+interface SSOLoginFormProps {
   onBack: () => void;
-  /** 是否禁用 */
   disabled?: boolean;
 }
 
-/**
- * 企业 SSO 登录表单组件
- * 
- * 允许用户输入企业域名进行单点登录
- */
-export const SSOLoginForm: React.FC<SSOLoginFormProps> = ({ onBack, disabled }) => {
-  const [domain, setDomain] = useState('');
-  const [error, setError] = useState<string | null>(null);
+const SSOLoginForm: React.FC<SSOLoginFormProps> = ({ onBack, disabled }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const domainRef = useRef<InputRef>(null);
+  const [form] = Form.useForm();
 
-  useEffect(() => {
-    domainRef.current?.focus();
-  }, []);
-
-  const handleSubmit = async () => {
-    const trimmedDomain = domain.trim();
-    if (!trimmedDomain) {
-      setError('请输入企业域名');
-      return;
-    }
-
+  const handleFinish = async (values: { domain: string }) => {
     setIsSubmitting(true);
-    setError(null);
-
     try {
-      // 模拟 SSO 重定向逻辑
-      const ssoUrl = `/api/auth/sso?domain=${encodeURIComponent(trimmedDomain)}`;
+      const ssoUrl = `/api/auth/sso?domain=${encodeURIComponent(values.domain.trim())}`;
       window.location.href = ssoUrl;
     } catch {
-      setError('SSO 认证失败，请检查域名是否正确');
       setIsSubmitting(false);
     }
   };
 
-  const isDisabled = disabled || isSubmitting;
-
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      {/* 标题 */}
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ 
-          display: 'inline-flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          width: 48,
-          height: 48,
-          borderRadius: 8,
-          backgroundColor: 'rgba(19, 91, 236, 0.1)',
-          marginBottom: 12,
-        }}>
-          <GlobalOutlined style={{ fontSize: 24, color: '#135bec' }} />
+    <div className="space-y-4">
+      <div className="text-center mb-4">
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-blue-500/20 mb-3">
+          <span className="material-symbols-outlined text-blue-400 text-2xl">business</span>
         </div>
-        <Title level={4} style={{ margin: 0 }}>企业 SSO 登录</Title>
-        <Text type="secondary">输入您的企业域名以使用单点登录</Text>
+        <h2 className="text-lg font-semibold">企业 SSO 登录</h2>
+        <p className="text-sm opacity-60 mt-1">输入您的企业域名以使用单点登录</p>
       </div>
 
-      <Form layout="vertical" onFinish={handleSubmit}>
-        {/* 错误提示 */}
-        {error && (
-          <Form.Item>
-            <Alert
-              message={error}
-              type="error"
-              showIcon
-              closable
-              onClose={() => setError(null)}
-            />
-          </Form.Item>
-        )}
-
-        {/* 企业域名输入 */}
-        <Form.Item label="企业域名">
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={handleFinish}
+        disabled={disabled || isSubmitting}
+        requiredMark={false}
+        size="large"
+        className="[&_.ant-form-item]:!mb-4"
+      >
+        <Form.Item
+          name="domain"
+          label="企业域名"
+          rules={[{ required: true, message: '请输入企业域名' }]}
+        >
           <Input
-            ref={domainRef}
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
+            prefix={<span className="material-symbols-outlined text-base opacity-50">domain</span>}
             placeholder="例如：company.com"
-            prefix={<GlobalOutlined />}
-            disabled={isDisabled}
-            size="large"
+            autoComplete="organization"
           />
         </Form.Item>
 
-        {/* 支持的协议提示 */}
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          支持 SAML 2.0 和 OAuth 2.0/OIDC 协议
-        </Text>
+        <p className="text-xs opacity-40 mb-3">支持 SAML 2.0 和 OAuth 2.0/OIDC 协议</p>
 
-        {/* 提交按钮 */}
-        <Form.Item style={{ marginTop: 16 }}>
-          <Button
-            type="primary"
-            htmlType="submit"
-            disabled={isDisabled}
-            loading={isSubmitting}
-            icon={isSubmitting ? <LoadingOutlined /> : <LoginOutlined />}
-            block
-            size="large"
-          >
+        <Form.Item className="!mb-2">
+          <Button type="primary" htmlType="submit" block loading={isSubmitting}>
             {isSubmitting ? '正在跳转...' : '继续'}
           </Button>
         </Form.Item>
 
-        {/* 返回按钮 */}
-        <Form.Item style={{ marginBottom: 0 }}>
-          <Button
-            type="default"
-            onClick={onBack}
-            disabled={isDisabled}
-            icon={<ArrowLeftOutlined />}
-            block
-          >
-            返回普通登录
-          </Button>
-        </Form.Item>
+        <Button block onClick={onBack} disabled={isSubmitting}>
+          <span className="material-symbols-outlined text-base mr-1">arrow_back</span>
+          返回普通登录
+        </Button>
       </Form>
-    </Space>
+    </div>
   );
 };
 

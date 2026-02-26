@@ -1,649 +1,189 @@
-/**
- * 菜单配置常量
- * 
- * 定义侧边栏导航菜单结构，包含 15 个路由模块
- */
-
-import type { MenuProps } from 'antd';
-
-/**
- * 菜单项类型
- */
-export type MenuItem = Required<MenuProps>['items'][number];
-
-/**
- * 菜单配置项接口
- */
-export interface MenuConfig {
-  key: string;
-  label: string;
-  labelEn: string;
-  icon?: string;
-  path?: string;
-  children?: MenuConfig[];
-  hidden?: boolean;
-}
+import type { MenuSection } from '../types/navigation';
 
 /**
  * 侧边栏菜单配置
- * 
- * 包含 15 个路由模块 + Dashboard 首页
+ * 7 个分组、15 个一级菜单、所有子菜单项
+ * 图标使用 Google Material Symbols 名称
  */
-export const menuConfig: MenuConfig[] = [
-  // Dashboard 首页
+export const MENU_SECTIONS: MenuSection[] = [
   {
-    key: 'dashboard',
-    label: '仪表盘',
-    labelEn: 'Dashboard',
-    icon: 'DashboardOutlined',
-    path: '/dashboard',
+    title: '监控与检索',
+    items: [
+      { icon: 'dashboard', label: '概览', path: '/' },
+    ],
   },
-  
-  // 1. 日志检索模块
   {
-    key: 'search',
-    label: '日志检索',
-    labelEn: 'Log Search',
-    icon: 'SearchOutlined',
-    children: [
+    title: '日志检索',
+    items: [
       {
-        key: 'search-realtime',
-        label: '实时搜索',
-        labelEn: 'Realtime Search',
-        path: '/search/realtime',
+        icon: 'manage_search',
+        label: '日志检索',
+        children: [
+          { icon: 'search', label: '实时检索', path: '/search/realtime' },
+          { icon: 'history', label: '查询历史', path: '/search/history' },
+          { icon: 'bookmark', label: '收藏查询', path: '/search/saved' },
+        ],
       },
       {
-        key: 'search-history',
-        label: '搜索历史',
-        labelEn: 'Search History',
-        path: '/search/history',
+        icon: 'analytics',
+        label: '日志分析',
+        children: [
+          { icon: 'bar_chart', label: '聚合分析', path: '/analysis/aggregate' },
+          { icon: 'monitoring', label: '异常检测', path: '/analysis/anomaly' },
+          { icon: 'hub', label: '聚类分析', path: '/analysis/clustering' },
+        ],
       },
       {
-        key: 'search-saved',
-        label: '保存的查询',
-        labelEn: 'Saved Queries',
-        path: '/search/saved',
+        icon: 'notifications_active',
+        label: '告警中心',
+        children: [
+          { icon: 'list', label: '告警列表', path: '/alerts/list' },
+          { icon: 'rule', label: '告警规则', path: '/alerts/rules' },
+          { icon: 'forward_to_inbox', label: '通知配置', path: '/alerts/notifications' },
+          { icon: 'do_not_disturb_on', label: '静默策略', path: '/alerts/silence' },
+        ],
+      },
+      {
+        icon: 'assignment',
+        label: '事件管理',
+        children: [
+          { icon: 'local_fire_department', label: '事件列表', path: '/incidents/list' },
+          { icon: 'timeline', label: '全流程时间线', path: '/incidents/timeline' },
+          { icon: 'biotech', label: '根因分析', path: '/incidents/analysis' },
+          { icon: 'timer', label: 'SLA 监控', path: '/incidents/sla' },
+          { icon: 'archive', label: '归档管理', path: '/incidents/archive' },
+        ],
       },
     ],
   },
-  
-  // 2. 日志分析模块
   {
-    key: 'analysis',
-    label: '日志分析',
-    labelEn: 'Log Analysis',
-    icon: 'LineChartOutlined',
-    children: [
+    title: '数据接入',
+    items: [
       {
-        key: 'analysis-aggregate',
-        label: '聚合分析',
-        labelEn: 'Aggregate Analysis',
-        path: '/analysis/aggregate',
+        icon: 'input',
+        label: '采集与接入',
+        children: [
+          { icon: 'dns', label: '采集源管理', path: '/ingestion/sources' },
+          { icon: 'smart_toy', label: 'Agent 管理', path: '/ingestion/agents' },
+          { icon: 'assistant_navigation', label: '接入向导', path: '/ingestion/wizard' },
+          { icon: 'monitor_heart', label: '数据源状态', path: '/ingestion/status' },
+        ],
       },
       {
-        key: 'analysis-anomaly',
-        label: '异常检测',
-        labelEn: 'Anomaly Detection',
-        path: '/analysis/anomaly',
-      },
-      {
-        key: 'analysis-clustering',
-        label: '日志聚类',
-        labelEn: 'Log Clustering',
-        path: '/analysis/clustering',
+        icon: 'schema',
+        label: '解析与字段',
+        children: [
+          { icon: 'swap_horiz', label: '字段映射', path: '/parsing/mapping' },
+          { icon: 'code', label: '解析规则', path: '/parsing/rules' },
+          { icon: 'visibility_off', label: '脱敏规则', path: '/parsing/masking' },
+          { icon: 'menu_book', label: '字段字典', path: '/parsing/dictionary' },
+        ],
       },
     ],
   },
-  
-  // 3. 告警中心模块
   {
-    key: 'alerts',
-    label: '告警中心',
-    labelEn: 'Alert Center',
-    icon: 'AlertOutlined',
-    children: [
+    title: '存储与性能',
+    items: [
       {
-        key: 'alerts-list',
-        label: '告警列表',
-        labelEn: 'Alert List',
-        path: '/alerts/list',
+        icon: 'storage',
+        label: '索引与存储',
+        children: [
+          { icon: 'table_chart', label: '索引管理', path: '/storage/indices' },
+          { icon: 'update', label: '生命周期 ILM', path: '/storage/ilm' },
+          { icon: 'backup', label: '备份与恢复', path: '/storage/backup' },
+          { icon: 'hard_drive', label: '容量监控', path: '/storage/capacity' },
+        ],
       },
       {
-        key: 'alerts-rules',
-        label: '告警规则',
-        labelEn: 'Alert Rules',
-        path: '/alerts/rules',
-      },
-      {
-        key: 'alerts-notification',
-        label: '通知配置',
-        labelEn: 'Notification Config',
-        path: '/alerts/notification',
-      },
-      {
-        key: 'alerts-silence',
-        label: '静默策略',
-        labelEn: 'Silence Policy',
-        path: '/alerts/silence',
+        icon: 'speed',
+        label: '性能与高可用',
+        children: [
+          { icon: 'trending_up', label: '性能监控', path: '/performance/monitoring' },
+          { icon: 'health_and_safety', label: '健康检查', path: '/performance/health' },
+          { icon: 'open_with', label: '扩缩容策略', path: '/performance/scaling' },
+          { icon: 'sync_alt', label: '灾备状态', path: '/performance/dr' },
+        ],
       },
     ],
   },
-  
-  // 4. 采集接入模块
   {
-    key: 'ingestion',
-    label: '采集接入',
-    labelEn: 'Data Ingestion',
-    icon: 'CloudUploadOutlined',
-    children: [
+    title: '可观测性扩展',
+    items: [
       {
-        key: 'ingestion-sources',
-        label: '数据源管理',
-        labelEn: 'Source Management',
-        path: '/ingestion/sources',
+        icon: 'hub',
+        label: '分布式追踪',
+        children: [
+          { icon: 'travel_explore', label: 'Trace 搜索', path: '/tracing/search' },
+          { icon: 'account_tree', label: '调用链分析', path: '/tracing/analysis' },
+          { icon: 'device_hub', label: '服务拓扑', path: '/tracing/topology' },
+        ],
       },
       {
-        key: 'ingestion-agents',
-        label: 'Agent 管理',
-        labelEn: 'Agent Management',
-        path: '/ingestion/agents',
-      },
-      {
-        key: 'ingestion-wizard',
-        label: '接入向导',
-        labelEn: 'Access Wizard',
-        path: '/ingestion/wizard',
-      },
-      {
-        key: 'ingestion-status',
-        label: '数据源状态',
-        labelEn: 'Source Status',
-        path: '/ingestion/status',
+        icon: 'bar_chart',
+        label: '报表中心',
+        children: [
+          { icon: 'description', label: '报表管理', path: '/reports/management' },
+          { icon: 'schedule', label: '定时任务', path: '/reports/scheduled' },
+          { icon: 'download', label: '下载记录', path: '/reports/downloads' },
+        ],
       },
     ],
   },
-  
-  // 5. 解析字段模块
   {
-    key: 'parsing',
-    label: '解析字段',
-    labelEn: 'Field Parsing',
-    icon: 'PartitionOutlined',
-    children: [
+    title: '平台与管理',
+    items: [
       {
-        key: 'parsing-mapping',
-        label: '字段映射',
-        labelEn: 'Field Mapping',
-        path: '/parsing/mapping',
+        icon: 'admin_panel_settings',
+        label: '安全与审计',
+        children: [
+          { icon: 'people', label: '用户管理', path: '/security/users' },
+          { icon: 'shield', label: '角色权限', path: '/security/roles' },
+          { icon: 'receipt_long', label: '审计日志', path: '/security/audit' },
+          { icon: 'policy', label: '登录策略', path: '/security/login-policy' },
+        ],
       },
       {
-        key: 'parsing-rules',
-        label: '解析规则',
-        labelEn: 'Parsing Rules',
-        path: '/parsing/rules',
-      },
-      {
-        key: 'parsing-masking',
-        label: '脱敏规则',
-        labelEn: 'Masking Rules',
-        path: '/parsing/masking',
-      },
-      {
-        key: 'parsing-dictionary',
-        label: '字段字典',
-        labelEn: 'Field Dictionary',
-        path: '/parsing/dictionary',
+        icon: 'extension',
+        label: '集成与开放平台',
+        children: [
+          { icon: 'api', label: 'API 文档', path: '/integration/api' },
+          { icon: 'webhook', label: 'Webhook', path: '/integration/webhook' },
+          { icon: 'developer_mode', label: 'SDK 下载', path: '/integration/sdk' },
+          { icon: 'store', label: '插件市场', path: '/integration/plugins' },
+        ],
       },
     ],
   },
-  
-  // 6. 索引存储模块
   {
-    key: 'storage',
-    label: '索引存储',
-    labelEn: 'Index Storage',
-    icon: 'DatabaseOutlined',
-    children: [
+    title: '系统配置',
+    items: [
       {
-        key: 'storage-index',
-        label: '索引管理',
-        labelEn: 'Index Management',
-        path: '/storage/index',
+        icon: 'savings',
+        label: '成本管理',
+        children: [
+          { icon: 'pie_chart', label: '成本概览', path: '/cost/overview' },
+          { icon: 'price_check', label: '预算告警', path: '/cost/budgets' },
+          { icon: 'lightbulb', label: '优化建议', path: '/cost/optimization' },
+        ],
       },
       {
-        key: 'storage-lifecycle',
-        label: '生命周期策略',
-        labelEn: 'Lifecycle Policy',
-        path: '/storage/lifecycle',
+        icon: 'settings',
+        label: '系统设置',
+        children: [
+          { icon: 'tune', label: '系统参数', path: '/settings/parameters' },
+          { icon: 'toggle_on', label: '全局配置', path: '/settings/global' },
+          { icon: 'history', label: '配置版本', path: '/settings/versions' },
+        ],
       },
       {
-        key: 'storage-backup',
-        label: '备份恢复',
-        labelEn: 'Backup Recovery',
-        path: '/storage/backup',
-      },
-      {
-        key: 'storage-capacity',
-        label: '容量监控',
-        labelEn: 'Capacity Monitoring',
-        path: '/storage/capacity',
-      },
-    ],
-  },
-  
-  // 7. 性能高可用模块
-  {
-    key: 'performance',
-    label: '性能高可用',
-    labelEn: 'Performance & HA',
-    icon: 'ThunderboltOutlined',
-    children: [
-      {
-        key: 'performance-monitoring',
-        label: '性能监控',
-        labelEn: 'Performance Monitoring',
-        path: '/performance/monitoring',
-      },
-      {
-        key: 'performance-health',
-        label: '健康检查',
-        labelEn: 'Health Check',
-        path: '/performance/health',
-      },
-      {
-        key: 'performance-scaling',
-        label: '自动扩缩容',
-        labelEn: 'Auto Scaling',
-        path: '/performance/scaling',
-      },
-      {
-        key: 'performance-disaster',
-        label: '灾备管理',
-        labelEn: 'Disaster Recovery',
-        path: '/performance/disaster',
-      },
-    ],
-  },
-  
-  // 8. 分布式追踪模块
-  {
-    key: 'tracing',
-    label: '分布式追踪',
-    labelEn: 'Distributed Tracing',
-    icon: 'ApartmentOutlined',
-    children: [
-      {
-        key: 'tracing-search',
-        label: '链路搜索',
-        labelEn: 'Trace Search',
-        path: '/tracing/search',
-      },
-      {
-        key: 'tracing-analysis',
-        label: '链路分析',
-        labelEn: 'Trace Analysis',
-        path: '/tracing/analysis',
-      },
-      {
-        key: 'tracing-topology',
-        label: '服务拓扑',
-        labelEn: 'Service Topology',
-        path: '/tracing/topology',
-      },
-    ],
-  },
-  
-  // 9. 报表中心模块
-  {
-    key: 'reports',
-    label: '报表中心',
-    labelEn: 'Report Center',
-    icon: 'FileTextOutlined',
-    children: [
-      {
-        key: 'reports-management',
-        label: '报表管理',
-        labelEn: 'Report Management',
-        path: '/reports/management',
-      },
-      {
-        key: 'reports-scheduled',
-        label: '定时任务',
-        labelEn: 'Scheduled Tasks',
-        path: '/reports/scheduled',
-      },
-      {
-        key: 'reports-downloads',
-        label: '下载记录',
-        labelEn: 'Download Records',
-        path: '/reports/downloads',
-      },
-    ],
-  },
-  
-  // 10. 安全审计模块
-  {
-    key: 'security',
-    label: '安全审计',
-    labelEn: 'Security Audit',
-    icon: 'SafetyOutlined',
-    children: [
-      {
-        key: 'security-users',
-        label: '用户管理',
-        labelEn: 'User Management',
-        path: '/security/users',
-      },
-      {
-        key: 'security-roles',
-        label: '角色权限',
-        labelEn: 'Role Permissions',
-        path: '/security/roles',
-      },
-      {
-        key: 'security-audit',
-        label: '审计日志',
-        labelEn: 'Audit Logs',
-        path: '/security/audit',
-      },
-      {
-        key: 'security-login',
-        label: '登录策略',
-        labelEn: 'Login Policy',
-        path: '/security/login',
-      },
-    ],
-  },
-  
-  // 11. 集成平台模块
-  {
-    key: 'integration',
-    label: '集成平台',
-    labelEn: 'Integration Platform',
-    icon: 'ApiOutlined',
-    children: [
-      {
-        key: 'integration-api',
-        label: 'API 文档',
-        labelEn: 'API Docs',
-        path: '/integration/api',
-      },
-      {
-        key: 'integration-webhook',
-        label: 'Webhook 管理',
-        labelEn: 'Webhook Management',
-        path: '/integration/webhook',
-      },
-      {
-        key: 'integration-sdk',
-        label: 'SDK 下载',
-        labelEn: 'SDK Download',
-        path: '/integration/sdk',
-      },
-      {
-        key: 'integration-plugins',
-        label: '插件市场',
-        labelEn: 'Plugin Market',
-        path: '/integration/plugins',
-      },
-    ],
-  },
-  
-  // 12. 成本管理模块
-  {
-    key: 'cost',
-    label: '成本管理',
-    labelEn: 'Cost Management',
-    icon: 'DollarOutlined',
-    children: [
-      {
-        key: 'cost-overview',
-        label: '成本概览',
-        labelEn: 'Cost Overview',
-        path: '/cost/overview',
-      },
-      {
-        key: 'cost-budget',
-        label: '预算告警',
-        labelEn: 'Budget Alerts',
-        path: '/cost/budget',
-      },
-      {
-        key: 'cost-optimization',
-        label: '优化建议',
-        labelEn: 'Optimization Suggestions',
-        path: '/cost/optimization',
-      },
-    ],
-  },
-  
-  // 13. 系统设置模块
-  {
-    key: 'settings',
-    label: '系统设置',
-    labelEn: 'System Settings',
-    icon: 'SettingOutlined',
-    children: [
-      {
-        key: 'settings-parameters',
-        label: '系统参数',
-        labelEn: 'System Parameters',
-        path: '/settings/parameters',
-      },
-      {
-        key: 'settings-global',
-        label: '全局配置',
-        labelEn: 'Global Config',
-        path: '/settings/global',
-      },
-      {
-        key: 'settings-versions',
-        label: '配置版本',
-        labelEn: 'Config Versions',
-        path: '/settings/versions',
-      },
-    ],
-  },
-  
-  // 14. 帮助中心模块
-  {
-    key: 'help',
-    label: '帮助中心',
-    labelEn: 'Help Center',
-    icon: 'QuestionCircleOutlined',
-    children: [
-      {
-        key: 'help-syntax',
-        label: '查询语法',
-        labelEn: 'Query Syntax',
-        path: '/help/syntax',
-      },
-      {
-        key: 'help-faq',
-        label: '常见问题',
-        labelEn: 'FAQ',
-        path: '/help/faq',
-      },
-      {
-        key: 'help-ticket',
-        label: '工单入口',
-        labelEn: 'Ticket Portal',
-        path: '/help/ticket',
+        icon: 'help_outline',
+        label: '帮助中心',
+        children: [
+          { icon: 'terminal', label: '查询语法', path: '/help/syntax' },
+          { icon: 'quiz', label: 'FAQ', path: '/help/faq' },
+          { icon: 'confirmation_number', label: '工单入口', path: '/help/tickets' },
+        ],
       },
     ],
   },
 ];
-
-/**
- * 认证模块菜单配置（不在侧边栏显示）
- */
-export const authMenuConfig: MenuConfig[] = [
-  {
-    key: 'auth',
-    label: '认证',
-    labelEn: 'Authentication',
-    hidden: true,
-    children: [
-      {
-        key: 'auth-login',
-        label: '登录',
-        labelEn: 'Login',
-        path: '/login',
-      },
-      {
-        key: 'auth-register',
-        label: '注册',
-        labelEn: 'Register',
-        path: '/register',
-      },
-      {
-        key: 'auth-forgot-password',
-        label: '忘记密码',
-        labelEn: 'Forgot Password',
-        path: '/forgot-password',
-      },
-      {
-        key: 'auth-sso',
-        label: 'SSO 登录',
-        labelEn: 'SSO Login',
-        path: '/sso',
-      },
-    ],
-  },
-];
-
-/**
- * 所有路由模块名称列表（用于属性测试验证）
- */
-export const ROUTE_MODULES = [
-  'dashboard',
-  'search',
-  'analysis',
-  'alerts',
-  'ingestion',
-  'parsing',
-  'storage',
-  'performance',
-  'tracing',
-  'reports',
-  'security',
-  'integration',
-  'cost',
-  'settings',
-  'help',
-  'auth',
-] as const;
-
-export type RouteModule = typeof ROUTE_MODULES[number];
-
-/**
- * 公开路由路径列表（无需认证）
- */
-export const PUBLIC_ROUTES = [
-  '/login',
-  '/register',
-  '/forgot-password',
-  '/sso',
-] as const;
-
-/**
- * 默认首页路径
- */
-export const DEFAULT_ROUTE = '/dashboard';
-
-/**
- * 404 回退路径
- */
-export const FALLBACK_ROUTE = '/dashboard';
-
-/**
- * 根据路径获取菜单项 key
- * 
- * @param path - 路由路径
- * @returns 菜单项 key，如果未找到则返回 undefined
- */
-export function getMenuKeyByPath(path: string): string | undefined {
-  const findKey = (items: MenuConfig[]): string | undefined => {
-    for (const item of items) {
-      if (item.path === path) {
-        return item.key;
-      }
-      if (item.children) {
-        const found = findKey(item.children);
-        if (found) return found;
-      }
-    }
-    return undefined;
-  };
-  
-  return findKey([...menuConfig, ...authMenuConfig]);
-}
-
-/**
- * 根据路径获取父级菜单 key 列表（用于展开菜单）
- * 
- * @param path - 路由路径
- * @returns 父级菜单 key 列表
- */
-export function getParentKeys(path: string): string[] {
-  const parents: string[] = [];
-  
-  const findParents = (items: MenuConfig[], parentKey?: string): boolean => {
-    for (const item of items) {
-      if (item.path === path) {
-        if (parentKey) parents.push(parentKey);
-        return true;
-      }
-      if (item.children) {
-        if (findParents(item.children, item.key)) {
-          if (parentKey) parents.push(parentKey);
-          return true;
-        }
-      }
-    }
-    return false;
-  };
-  
-  findParents(menuConfig);
-  return parents.reverse();
-}
-
-/**
- * 检查路径是否为公开路由
- * 
- * @param path - 路由路径
- * @returns 是否为公开路由
- */
-export function isPublicRoute(path: string): boolean {
-  return PUBLIC_ROUTES.some(route => path.startsWith(route));
-}
-
-/**
- * 获取面包屑导航数据
- * 
- * @param path - 当前路由路径
- * @returns 面包屑项数组
- */
-export function getBreadcrumbs(path: string): Array<{ key: string; label: string; path?: string }> {
-  const breadcrumbs: Array<{ key: string; label: string; path?: string }> = [];
-  
-  const findBreadcrumbs = (items: MenuConfig[]): boolean => {
-    for (const item of items) {
-      if (item.path === path) {
-        breadcrumbs.push({ key: item.key, label: item.label, path: item.path });
-        return true;
-      }
-      if (item.children) {
-        if (findBreadcrumbs(item.children)) {
-          breadcrumbs.unshift({ key: item.key, label: item.label, path: item.path });
-          return true;
-        }
-      }
-    }
-    return false;
-  };
-  
-  findBreadcrumbs(menuConfig);
-  return breadcrumbs;
-}
-

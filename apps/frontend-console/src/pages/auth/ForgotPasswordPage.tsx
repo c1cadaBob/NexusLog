@@ -1,72 +1,77 @@
-/**
- * ForgotPasswordPage 忘记密码页面
- * 
- * 基于 Ant Design 的忘记密码页面
- * 
- * @requirements 3.5, 9.4
- */
-
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Typography } from 'antd';
-import { BarChartOutlined } from '@ant-design/icons';
-import { useThemeStore } from '@/stores/useThemeStore';
-import { ForgotPasswordForm } from '@/components/auth';
+import ForgotPasswordForm from '../../components/auth/ForgotPasswordForm';
 
-const { Title, Text } = Typography;
-
-/**
- * 忘记密码页面组件
- */
-export const ForgotPasswordPage: React.FC = () => {
+const ForgotPasswordPage: React.FC = () => {
   const navigate = useNavigate();
-  const { isDark } = useThemeStore();
+
+  useEffect(() => {
+    document.title = '忘记密码 - NexusLog';
+  }, []);
 
   const handleBack = () => {
     navigate('/login');
   };
 
-  const cardStyle: React.CSSProperties = {
-    maxWidth: 420,
-    width: '100%',
-    borderRadius: 12,
-  };
-
-  const containerStyle: React.CSSProperties = {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    background: isDark 
-      ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
-      : 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
-  };
-
   return (
-    <div style={containerStyle}>
-      <Card style={cardStyle} bordered={false}>
-        {/* 品牌标识 */}
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 48,
-            height: 48,
-            borderRadius: 12,
-            backgroundColor: 'rgba(19, 91, 236, 0.1)',
-            marginBottom: 12,
-          }}>
-            <BarChartOutlined style={{ fontSize: 24, color: '#135bec' }} />
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: '#0f172a' }}>
+      {/* 背景装饰 */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div
+          className="absolute rounded-full blur-3xl"
+          style={{
+            top: '-50%', left: '-50%', width: '100%', height: '100%',
+            background: 'radial-gradient(circle, rgba(19,91,236,0.2) 0%, transparent 70%)',
+          }}
+        />
+        <div
+          className="absolute rounded-full blur-3xl"
+          style={{
+            bottom: '-50%', right: '-50%', width: '100%', height: '100%',
+            background: 'radial-gradient(circle, rgba(139,92,246,0.1) 0%, transparent 70%)',
+          }}
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            opacity: 0.05,
+            backgroundImage: 'radial-gradient(circle, #ffffff 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}
+        />
+      </div>
+
+      {/* 卡片 */}
+      <div className="relative w-full max-w-[420px] z-10">
+        <div className="h-1 rounded-t-xl" style={{ background: 'linear-gradient(to right, #135bec, #8b5cf6, #135bec)' }} />
+
+        <div
+          className="rounded-b-xl p-8 shadow-2xl"
+          style={{
+            background: 'rgba(30,41,59,0.9)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid #334155',
+            borderTop: 'none',
+          }}
+        >
+          {/* 品牌标识 */}
+          <div className="text-center mb-6">
+            <div
+              className="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-3"
+              style={{ background: 'rgba(19,91,236,0.2)' }}
+            >
+              <span className="material-symbols-outlined text-2xl" style={{ color: '#135bec' }}>analytics</span>
+            </div>
+            <h1 className="text-lg font-bold text-white">NexusLog</h1>
           </div>
-          <Title level={4} style={{ margin: 0 }}>NexusLog</Title>
-          <Text type="secondary">重置您的密码</Text>
+
+          <ForgotPasswordForm onBack={handleBack} />
         </div>
 
-        {/* 忘记密码表单 */}
-        <ForgotPasswordForm onBack={handleBack} />
-      </Card>
+        <p className="text-center text-xs mt-4" style={{ color: '#64748b' }}>
+          如果您没有收到邮件，请检查垃圾邮件文件夹
+        </p>
+      </div>
     </div>
   );
 };

@@ -1,0 +1,184 @@
+@import "tailwindcss";
+
+/* ===== 自定义滚动条 ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* ===== 动画关键帧 ===== */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ===== 无障碍焦点样式 ===== */
+*:focus-visible {
+  outline: 2px solid #135bec;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ===== prefers-reduced-motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ===== 高对比度模式 ===== */
+@media (prefers-contrast: high) {
+  :root {
+    --border-contrast: 2px solid;
+  }
+  .ant-card, .ant-table, .ant-modal {
+    border-width: 2px;
+  }
+}
+
+/* ===== 密度模式 CSS 变量 ===== */
+:root {
+  --density-padding: 16px;
+  --density-gap: 16px;
+  --density-font-size: 14px;
+}
+.density-compact {
+  --density-padding: 8px;
+  --density-gap: 8px;
+  --density-font-size: 13px;
+}
+.density-comfortable {
+  --density-padding: 16px;
+  --density-gap: 16px;
+  --density-font-size: 14px;
+}
+.density-spacious {
+  --density-padding: 24px;
+  --density-gap: 24px;
+  --density-font-size: 15px;
+}
+
+/* ===== 移动端安全区域 ===== */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* ===== 触摸优化 ===== */
+@media (pointer: coarse) {
+  button, a, [role="button"] {
+    touch-action: manipulation;
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ===== 跳过导航链接 ===== */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: #135bec;
+  color: #ffffff;
+  border-radius: 4px;
+  font-size: 14px;
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: 16px;
+}
+
+/* ===== Material Symbols 图标基础样式 ===== */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+
+/* ===== 浏览器自动填充背景色覆盖（深色主题） ===== */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+textarea:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #1e293b inset !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  caret-color: #f8fafc !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* ===== 全局基础样式 ===== */
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ===== 分页 quickJumper 输入框深色模式修复 ===== */
+.ant-pagination .ant-pagination-options-quick-jumper input {
+  background-color: #334155;
+  border-color: #475569;
+  color: #f8fafc;
+}
+.ant-pagination .ant-pagination-options-quick-jumper input:hover {
+  border-color: #135bec;
+}
+.ant-pagination .ant-pagination-options-quick-jumper input:focus {
+  border-color: #135bec;
+  box-shadow: 0 0 0 2px rgba(19, 91, 236, 0.2);
+}
+
+/* ===== 分页 Select 下拉框深色模式修复 ===== */
+.ant-pagination .ant-select-selector {
+  background-color: #334155 !important;
+  border-color: #475569 !important;
+  color: #f8fafc !important;
+}
+.ant-pagination .ant-select-selector:hover {
+  border-color: #135bec !important;
+}
