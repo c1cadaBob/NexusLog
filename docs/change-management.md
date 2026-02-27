@@ -149,6 +149,8 @@
 
 ## 6. 变更单模板
 
+可直接使用独立模板文件：`docs/change-request-template.yaml`（适用于 CI 校验和审批系统自动解析）。
+
 ### 6.1 变更单字段定义
 
 ```yaml

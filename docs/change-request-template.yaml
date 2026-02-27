@@ -1,0 +1,92 @@
+# NexusLog 变更单模板（独立文件版）
+# 用途：可直接复制为实际变更单并在 CI/审批系统中解析
+
+change_request:
+  basic:
+    id: "CR-YYYYMMDD-NNN"
+    title: ""
+    description: ""
+    requester: ""
+    owner: ""
+    created_at: ""
+
+  scope:
+    affected_components: []
+    affected_environments: []
+    change_type: "" # config/deploy/schema/infra/security
+    planned_window: ""
+
+  risk_assessment:
+    # 5 维风险评分：每项 0-3 分
+    scores:
+      blast_radius: 0
+      business_criticality: 0
+      change_complexity: 0
+      rollback_capability: 0
+      observability: 0
+    risk_total: 0
+    cab_hard_rules_triggered: [] # R1..R7
+
+  approval:
+    change_level: "" # none / normal / cab（自动判定）
+    approvers: [] # 自动路由结果
+    observation_period: "" # 15m / 30m / 60m（自动填充）
+
+  execution:
+    precheck: []
+    execution_steps: []
+    verification_steps: []
+    rollback_plan: ""
+    rollback_estimated_time: ""
+
+  post_release:
+    oncall_sre: ""
+    incident_channel: ""
+    post_change_checklist: []
+    review_due_at: ""
+
+automation_rules:
+  risk_scoring:
+    formula: "risk_total = blast_radius + business_criticality + change_complexity + rollback_capability + observability"
+    dimension_range: "[0,3]"
+    total_range: "[0,15]"
+    invalid_score_policy: "任一维超出范围则驳回"
+
+  cab_auto_routing:
+    hard_rules:
+      R1: "涉及认证鉴权链路"
+      R2: "涉及数据存储引擎或集群拓扑"
+      R3: "涉及网络入口与全局流量总闸"
+      R4: "涉及密钥/证书/加密算法/Vault策略"
+      R5: "涉及不可逆数据变更"
+      R6: "涉及跨区域/跨机房主链路切换"
+      R7: "无法在5分钟内可验证回滚"
+    decision_logic:
+      - "IF cab_hard_rules_triggered 非空 -> change_level=cab"
+      - "ELSE IF risk_total >= 11 -> change_level=cab"
+      - "ELSE IF risk_total >= 6 -> change_level=normal"
+      - "ELSE -> change_level=none"
+    approver_mapping:
+      none: ["值班负责人（备案）"]
+      normal: ["技术负责人", "模块Owner"]
+      cab: ["研发负责人", "运维负责人", "安全负责人", "业务负责人"]
+    observation_mapping:
+      none: "15 分钟"
+      normal: "30 分钟"
+      cab: "60 分钟"
+
+  non_window_release_rules:
+    allowed_cases:
+      - id: NWR1
+        condition: "紧急安全修复（CVE >= 9.0 或已被利用）"
+        required_approvals: ["安全负责人"]
+      - id: NWR2
+        condition: "P0级故障修复（核心服务不可用）"
+        required_approvals: ["值班负责人", "技术负责人"]
+      - id: NWR3
+        condition: "数据泄露止血"
+        required_approvals: ["安全负责人", "业务负责人"]
+    mandatory_requirements:
+      - "至少一名 SRE 在线护航"
+      - "回滚方案已验证可执行"
+      - "变更后24小时内补交变更单与复盘报告"
