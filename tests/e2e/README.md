@@ -1,0 +1,19 @@
+# NexusLog E2E Tests (Playwright)
+
+本目录用于维护 NexusLog 前端端到端测试。
+
+## 目录说明
+
+- `playwright.config.js`: Playwright 主配置
+- `tests/smoke.spec.js`: 基础用例模板
+
+## 快速开始
+
+```bash
+cd tests/e2e
+pnpm install
+npx playwright install --with-deps chromium
+E2E_BASE_URL=http://127.0.0.1:4173 pnpm test
+```
+
+> `E2E_BASE_URL` 默认为 `http://127.0.0.1:4173`，可按环境覆盖。

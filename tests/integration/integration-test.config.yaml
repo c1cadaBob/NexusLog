@@ -1,0 +1,9 @@
+# NexusLog 集成测试框架配置
+framework: docker-compose
+compose_file: tests/integration/docker-compose.test.yml
+startup_timeout_seconds: 120
+health_checks:
+  - service: postgres
+    probe: "SELECT 1"
+  - service: redis
+    probe: "PING"

@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: nexuslog_test
+      POSTGRES_USER: nexuslog
+      POSTGRES_PASSWORD: nexuslog
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexuslog -d nexuslog_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "15432:5432"
+
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "16379:6379"
+
+networks:
+  default:
+    name: nexuslog-integration-test

@@ -8,12 +8,14 @@ on:
     paths:
       - 'services/**'
       - 'agents/**'
+      - 'tests/integration/**'
       - 'go.work'
   pull_request:
     branches: [main, develop]
     paths:
       - 'services/**'
       - 'agents/**'
+      - 'tests/integration/**'
       - 'go.work'
 
 concurrency:
@@ -33,6 +35,7 @@ jobs:
       api-service: ${{ steps.changes.outputs.api-service }}
       data-services: ${{ steps.changes.outputs.data-services }}
       collector-agent: ${{ steps.changes.outputs.collector-agent }}
+      integration: ${{ steps.changes.outputs.integration }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -49,6 +52,8 @@ jobs:
               - 'services/data-services/**'
             collector-agent:
               - 'agents/collector-agent/**'
+            integration:
+              - 'tests/integration/**'
 
   lint:
     name: Go Lint
@@ -67,6 +72,17 @@ jobs:
           version: latest
           args: --timeout=5m
           working-directory: .
+
+  integration-tests:
+    name: 集成测试
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint]
+    if: needs.detect-changes.outputs.integration == 'true' || github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 启动依赖并运行集成测试
+        run: bash tests/integration/run.sh
 
   test-control-plane:
     name: 测试 Control Plane
