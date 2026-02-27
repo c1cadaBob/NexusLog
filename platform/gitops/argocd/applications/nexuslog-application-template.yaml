@@ -1,0 +1,31 @@
+# NexusLog Argo CD Application 模板
+# 用途：为单个组件创建标准 Application，适用于手工引导或排障场景
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nexuslog-<component>-<env>
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexuslog
+    nexuslog.io/component: "<component>"
+    nexuslog.io/env: "<env>"
+spec:
+  project: nexuslog
+  source:
+    repoURL: https://github.com/nexuslog/nexuslog.git
+    targetRevision: main
+    path: platform/helm/nexuslog-<component>
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-<env>.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nexuslog-<component>
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

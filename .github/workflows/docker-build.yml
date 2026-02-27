@@ -25,8 +25,10 @@ on:
           - gateway
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository_owner }}/nexuslog
+  GHCR_REGISTRY: ghcr.io
+  GHCR_IMAGE_PREFIX: ${{ github.repository_owner }}/nexuslog
+  HARBOR_REGISTRY: ${{ secrets.HARBOR_REGISTRY }}
+  HARBOR_PROJECT: ${{ secrets.HARBOR_PROJECT }}
 
 jobs:
   detect-changes:
@@ -128,22 +130,57 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}
+          images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_PREFIX }}-${{ matrix.service }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=
+            type=sha,format=long,prefix=sha-
 
-      - name: 登录容器仓库
+      - name: 生成 Harbor 镜像标签
+        id: meta_harbor
+        if: ${{ env.HARBOR_REGISTRY != '' && env.HARBOR_PROJECT != '' }}
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/nexuslog-${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long,prefix=sha-
+
+      - name: 登录 GHCR 容器仓库
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 登录 Harbor 容器仓库
+        if: ${{ env.HARBOR_REGISTRY != '' && secrets.HARBOR_USERNAME != '' && secrets.HARBOR_PASSWORD != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: 汇总推送标签
+        id: merged_tags
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          {
+            echo "tags<<EOF"
+            echo "${{ steps.meta.outputs.tags }}"
+            if [ -n "${{ env.HARBOR_REGISTRY }}" ] && [ -n "${{ env.HARBOR_PROJECT }}" ] && [ -n "$HARBOR_USERNAME" ] && [ -n "$HARBOR_PASSWORD" ]; then
+              echo "${{ steps.meta_harbor.outputs.tags }}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: 构建并推送镜像
         uses: docker/build-push-action@v6
@@ -151,7 +188,7 @@ jobs:
           context: ${{ steps.dockerfile.outputs.context }}
           file: ${{ steps.dockerfile.outputs.path }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.merged_tags.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -159,7 +196,7 @@ jobs:
       - name: Trivy 漏洞扫描
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:sha-${{ github.sha }}
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_PREFIX }}-${{ matrix.service }}:sha-${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'HIGH,CRITICAL'

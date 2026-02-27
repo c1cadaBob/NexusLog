@@ -241,16 +241,16 @@
     - 创建 `infra/ansible/roles/`（server-init、security-hardening）
     - _需求: 16_
 
-- [ ] 16. GitOps 和 Helm Charts
-  - [ ] 16.1 创建 Argo CD 配置
+- [x] 16. GitOps 和 Helm Charts
+  - [x] 16.1 创建 Argo CD 配置
     - 创建 `platform/gitops/argocd/` Application 配置模板
     - 创建 `platform/gitops/apps/` 各系统应用定义
     - 创建 `platform/gitops/clusters/` 集群配置（dev/staging/prod）
     - _需求: 17_
-  - [ ] 16.2 创建 Helm Charts
+  - [x] 16.2 创建 Helm Charts
     - 创建 `platform/helm/` 下的 Charts：nexuslog-gateway、nexuslog-control-plane、nexuslog-data-plane、nexuslog-storage、nexuslog-observability
     - _需求: 17_
-  - [ ] 16.3 集成 Harbor 制品仓库
+  - [x] 16.3 集成 Harbor 制品仓库
     - 在 CI 流水线中添加 Harbor 推送步骤
     - _需求: 17_
 
