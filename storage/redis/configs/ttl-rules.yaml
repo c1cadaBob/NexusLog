@@ -1,0 +1,24 @@
+# NexusLog Redis TTL 规则
+# change_level: normal
+# 生效时间: 分钟级（热更新）
+
+ttl_rules:
+  session_seconds: 3600
+  api_cache_seconds: 300
+  dashboard_seconds: 60
+  permissions_seconds: 600
+  alert_rules_seconds: 300
+
+# 过期策略建议
+strategy:
+  key_prefixes:
+    - prefix: "sess:"
+      ttl_field: session_seconds
+    - prefix: "api:"
+      ttl_field: api_cache_seconds
+    - prefix: "dash:"
+      ttl_field: dashboard_seconds
+    - prefix: "perm:"
+      ttl_field: permissions_seconds
+    - prefix: "alert:"
+      ttl_field: alert_rules_seconds
