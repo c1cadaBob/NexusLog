@@ -1,0 +1,21 @@
+{
+    "_comment": "示例租户配置 - 可作为新租户配置的参考模板",
+    "change_level": "cab",
+    "tenant_id": "example-tenant",
+    "display_name": "示例租户",
+    "enabled": true,
+    "rate_limit": {
+        "rate": 1000,
+        "window": 60
+    },
+    "allowed_apis": ["v1", "control", "data"],
+    "max_body_size": "100m",
+    "features": {
+        "export": true,
+        "audit": true,
+        "realtime_query": true
+    },
+    "custom_headers": {
+        "X-Custom-Tag": "example"
+    }
+}

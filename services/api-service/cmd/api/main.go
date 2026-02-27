@@ -18,7 +18,16 @@ func main() {
 	router := gin.Default()
 	router.Use(gin.Recovery())
 
-	// Health check
+	// 健康检查端点（Kubernetes 探针使用）
+	router.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "healthy",
+			"service": "api-service",
+			"time":    time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
+	// API 版本化健康检查端点
 	router.GET("/api/v1/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "healthy",

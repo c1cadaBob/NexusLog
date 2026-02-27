@@ -4,5 +4,9 @@ use (
 	./services/control-plane
 	./services/health-worker
 	./services/api-service
+	./services/data-services/shared
+	./services/data-services/query-api
+	./services/data-services/audit-api
+	./services/data-services/export-api
 	./agents/collector-agent
 )

@@ -21,4 +21,6 @@ WORKDIR /app
 COPY --from=builder /bin/health-worker .
 COPY configs/ ./configs/
 
+EXPOSE 8081
+
 ENTRYPOINT ["./health-worker"]

@@ -1,0 +1,47 @@
+# NexusLog Schema 契约兼容性 CI 校验
+# 当 contracts/schema-contracts/ 下的文件变更时自动触发
+
+name: Schema Contract Check
+
+on:
+  push:
+    paths:
+      - 'contracts/schema-contracts/**'
+  pull_request:
+    paths:
+      - 'contracts/schema-contracts/**'
+
+jobs:
+  validate-schemas:
+    name: 校验 Schema 契约
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 运行 Schema 校验
+        run: |
+          chmod +x contracts/schema-contracts/tests/validate-schemas.sh
+          bash contracts/schema-contracts/tests/validate-schemas.sh
+
+      - name: 验证 Avro Schema JSON 格式
+        run: |
+          echo "验证所有 Avro Schema 文件为合法 JSON..."
+          for f in contracts/schema-contracts/avro/*.avsc; do
+            python3 -m json.tool "$f" > /dev/null
+            echo "  ✓ $(basename $f)"
+          done
+
+      - name: 验证 JSON Schema 格式
+        run: |
+          echo "验证所有 JSON Schema 文件为合法 JSON..."
+          for f in contracts/schema-contracts/jsonschema/*.schema.json; do
+            python3 -m json.tool "$f" > /dev/null
+            echo "  ✓ $(basename $f)"
+          done

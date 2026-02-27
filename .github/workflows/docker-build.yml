@@ -18,6 +18,9 @@ on:
           - control-plane
           - health-worker
           - api-service
+          - query-api
+          - audit-api
+          - export-api
           - collector-agent
           - gateway
 
@@ -41,7 +44,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if [ "${{ inputs.service }}" = "all" ]; then
-              echo 'services=["frontend","control-plane","health-worker","api-service","collector-agent","gateway"]' >> $GITHUB_OUTPUT
+              echo 'services=["frontend","control-plane","health-worker","api-service","query-api","audit-api","export-api","collector-agent","gateway"]' >> $GITHUB_OUTPUT
             else
               echo 'services=["${{ inputs.service }}"]' >> $GITHUB_OUTPUT
             fi
@@ -59,6 +62,15 @@ jobs:
             fi
             if git diff --name-only HEAD~1 HEAD | grep -q '^services/api-service/'; then
               SERVICES=$(echo "$SERVICES" | jq '. + ["api-service"]')
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q '^services/data-services/query-api/\|^services/data-services/shared/'; then
+              SERVICES=$(echo "$SERVICES" | jq '. + ["query-api"]')
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q '^services/data-services/audit-api/\|^services/data-services/shared/'; then
+              SERVICES=$(echo "$SERVICES" | jq '. + ["audit-api"]')
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q '^services/data-services/export-api/\|^services/data-services/shared/'; then
+              SERVICES=$(echo "$SERVICES" | jq '. + ["export-api"]')
             fi
             if git diff --name-only HEAD~1 HEAD | grep -q '^agents/collector-agent/'; then
               SERVICES=$(echo "$SERVICES" | jq '. + ["collector-agent"]')
@@ -97,6 +109,10 @@ jobs:
             control-plane|health-worker|api-service)
               echo "path=services/${{ matrix.service }}/Dockerfile" >> $GITHUB_OUTPUT
               echo "context=services/${{ matrix.service }}" >> $GITHUB_OUTPUT
+              ;;
+            query-api|audit-api|export-api)
+              echo "path=services/data-services/${{ matrix.service }}/Dockerfile" >> $GITHUB_OUTPUT
+              echo "context=services/data-services" >> $GITHUB_OUTPUT
               ;;
             collector-agent)
               echo "path=agents/collector-agent/Dockerfile" >> $GITHUB_OUTPUT

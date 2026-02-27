@@ -1,0 +1,76 @@
+{
+  "type": "record",
+  "name": "AuditLog",
+  "namespace": "com.nexuslog.contracts",
+  "doc": "审计日志 Schema - 记录系统操作审计事件",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "doc": "审计日志唯一标识（UUID）"
+    },
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "事件发生时间戳（毫秒）"
+    },
+    {
+      "name": "actor",
+      "type": "string",
+      "doc": "操作者标识（用户ID/服务名）"
+    },
+    {
+      "name": "action",
+      "type": {
+        "type": "enum",
+        "name": "AuditAction",
+        "symbols": ["CREATE", "READ", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "EXPORT", "CONFIG_CHANGE"]
+      },
+      "doc": "操作类型"
+    },
+    {
+      "name": "resource_type",
+      "type": "string",
+      "doc": "操作资源类型（如 log_query, alert_rule, user）"
+    },
+    {
+      "name": "resource_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "操作资源 ID"
+    },
+    {
+      "name": "result",
+      "type": {
+        "type": "enum",
+        "name": "AuditResult",
+        "symbols": ["SUCCESS", "FAILURE", "DENIED"]
+      },
+      "doc": "操作结果"
+    },
+    {
+      "name": "details",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "操作详情（键值对）"
+    },
+    {
+      "name": "ip_address",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "操作者 IP 地址"
+    },
+    {
+      "name": "tenant_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "租户 ID"
+    }
+  ]
+}

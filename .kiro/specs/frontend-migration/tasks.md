@@ -243,7 +243,7 @@
     - 包含面包屑导航、用户信息下拉、主题切换按钮
     - _需求: 4.1_
 
-- [-] 12. 认证组件和 Ant Design 主题配置
+- [x] 12. 认证组件和 Ant Design 主题配置
   - [x] 12.1 迁移 ProtectedRoute 组件
     - 从 useAuthStore 获取认证状态，未认证重定向到 /login
     - _需求: 3.5_
@@ -265,7 +265,7 @@
     - **Property 6: 主题切换一致性**
     - **Validates: Requirements 5.3, 6.5**
 
-- [-] 13. 路由结构和应用入口迁移
+- [x] 13. 路由结构和应用入口迁移
   - [x] 13.1 创建 App.tsx 应用入口
     - 配置 HashRouter
     - 配置 Ant Design ConfigProvider（主题、语言）
@@ -324,7 +324,7 @@
     - 创建 `pages/alerts/index.ts` 统一导出
     - _需求: 9.3_
 
-- [-] 18. 安全审计模块迁移
+- [x] 18. 安全审计模块迁移
   - [x] 18.1 迁移安全审计页面
     - 迁移 UserManagement 用户管理页面（Ant Design Table + Modal）
     - 迁移 RolePermissions 角色权限页面

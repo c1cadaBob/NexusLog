@@ -1,7 +1,9 @@
 {
   "_comment": "NexusLog 日志索引模板 | change_level: cab | 生效时间: 发布窗口",
+  "_description": "定义日志数据的字段映射、分片策略和索引设置。涉及分片策略变更时需 CAB 审批。",
   "index_patterns": ["nexuslog-logs-*"],
   "priority": 200,
+  "data_stream": {},
   "template": {
     "settings": {
       "number_of_shards": 3,
@@ -10,6 +12,8 @@
       "codec": "best_compression",
       "index.lifecycle.name": "nexuslog-logs-ilm",
       "index.lifecycle.rollover_alias": "nexuslog-logs",
+      "index.default_pipeline": "log-enrichment",
+      "index.routing.allocation.require.data": "hot",
       "analysis": {
         "analyzer": {
           "log_analyzer": {
@@ -21,26 +25,95 @@
       }
     },
     "mappings": {
+      "dynamic": "strict",
       "properties": {
-        "@timestamp": { "type": "date" },
-        "ingested_at": { "type": "date" },
-        "level": { "type": "keyword" },
-        "source": { "type": "keyword" },
-        "service": { "type": "keyword" },
+        "@timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "ingested_at": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "level": {
+          "type": "keyword",
+          "doc_values": true
+        },
         "message": {
           "type": "text",
           "analyzer": "log_analyzer",
           "fields": {
-            "keyword": { "type": "keyword", "ignore_above": 512 }
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 1024
+            }
           }
         },
-        "fields": { "type": "object", "dynamic": true },
-        "tags": { "type": "object", "dynamic": true },
-        "trace_id": { "type": "keyword" },
-        "span_id": { "type": "keyword" },
-        "tenant_id": { "type": "keyword" },
-        "agent_id": { "type": "keyword" }
+        "service": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "source": {
+          "type": "keyword"
+        },
+        "trace_id": {
+          "type": "keyword"
+        },
+        "span_id": {
+          "type": "keyword"
+        },
+        "tenant_id": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "agent_id": {
+          "type": "keyword"
+        },
+        "host": {
+          "properties": {
+            "name": { "type": "keyword" },
+            "ip": { "type": "ip" }
+          }
+        },
+        "error": {
+          "properties": {
+            "type": { "type": "keyword" },
+            "message": { "type": "text" },
+            "stack_trace": {
+              "type": "text",
+              "index": false
+            }
+          }
+        },
+        "http": {
+          "properties": {
+            "method": { "type": "keyword" },
+            "status_code": { "type": "short" },
+            "url": { "type": "keyword" },
+            "response_time_ms": { "type": "integer" }
+          }
+        },
+        "tags": {
+          "type": "keyword"
+        },
+        "metadata": {
+          "type": "object",
+          "dynamic": true
+        },
+        "geo": {
+          "properties": {
+            "country_name": { "type": "keyword" },
+            "city_name": { "type": "keyword" },
+            "location": { "type": "geo_point" }
+          }
+        }
       }
     }
+  },
+  "_meta": {
+    "description": "NexusLog 日志数据索引模板",
+    "version": "1.0.0",
+    "change_level": "cab",
+    "managed_by": "nexuslog-platform"
   }
 }

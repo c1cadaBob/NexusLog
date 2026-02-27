@@ -1,47 +1,73 @@
 {
-  "_comment": "NexusLog 日志 Ingest Pipeline - 日志富化处理 | change_level: normal | 生效时间: 分钟级",
-  "description": "日志入库前的富化处理管道：时间戳解析、GeoIP、User-Agent 解析",
+  "_comment": "NexusLog 日志预处理管道 - 入库前的富化处理 | change_level: normal | 生效时间: 分钟级",
+  "_description": "日志数据写入 Elasticsearch 前的预处理管道，包含时间戳解析、日志级别标准化、GeoIP 解析和字段清理。",
+  "description": "NexusLog 日志入库预处理：时间戳解析、级别标准化、GeoIP 解析、字段清理",
   "processors": [
     {
+      "_comment": "解析原始时间戳字段，支持多种格式",
       "date": {
         "field": "timestamp",
         "target_field": "@timestamp",
-        "formats": ["UNIX_MS", "ISO8601", "yyyy-MM-dd HH:mm:ss"],
+        "formats": ["UNIX_MS", "ISO8601", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSSZ"],
         "ignore_failure": true
       }
     },
     {
+      "_comment": "记录数据入库时间，用于监控采集延迟",
       "set": {
         "field": "ingested_at",
         "value": "{{{_ingest.timestamp}}}"
       }
     },
     {
+      "_comment": "从 message 字段提取日志级别（如果 level 字段缺失）",
       "grok": {
         "field": "message",
         "patterns": [
-          "%{LOGLEVEL:level} %{GREEDYDATA:log_message}"
+          "\\[?%{LOGLEVEL:_temp.extracted_level}\\]?\\s+%{GREEDYDATA:_temp.log_body}"
         ],
-        "ignore_failure": true
+        "ignore_failure": true,
+        "if": "ctx.level == null || ctx.level == ''"
       }
     },
     {
+      "_comment": "使用提取的级别填充 level 字段",
+      "set": {
+        "field": "level",
+        "value": "{{{_temp.extracted_level}}}",
+        "if": "ctx._temp?.extracted_level != null",
+        "override": false
+      }
+    },
+    {
+      "_comment": "标准化日志级别为小写",
       "lowercase": {
         "field": "level",
         "ignore_failure": true
       }
     },
     {
+      "_comment": "GeoIP 解析客户端 IP 地址",
       "geoip": {
-        "field": "client_ip",
+        "field": "host.ip",
         "target_field": "geo",
         "ignore_missing": true,
         "ignore_failure": true
       }
     },
     {
+      "_comment": "设置默认日志级别（如果仍然缺失）",
+      "set": {
+        "field": "level",
+        "value": "info",
+        "if": "ctx.level == null || ctx.level == ''",
+        "override": false
+      }
+    },
+    {
+      "_comment": "清理临时字段",
       "remove": {
-        "field": ["_temp"],
+        "field": ["_temp", "timestamp"],
         "ignore_missing": true
       }
     }
@@ -52,6 +78,18 @@
         "field": "_ingest.pipeline_error",
         "value": "{{ _ingest.on_failure_message }}"
       }
+    },
+    {
+      "set": {
+        "field": "_ingest.failed_processor",
+        "value": "{{ _ingest.on_failure_processor_type }}"
+      }
     }
-  ]
+  ],
+  "_meta": {
+    "description": "NexusLog 日志预处理管道",
+    "version": "1.0.0",
+    "change_level": "normal",
+    "managed_by": "nexuslog-platform"
+  }
 }

@@ -31,6 +31,7 @@ jobs:
       control-plane: ${{ steps.changes.outputs.control-plane }}
       health-worker: ${{ steps.changes.outputs.health-worker }}
       api-service: ${{ steps.changes.outputs.api-service }}
+      data-services: ${{ steps.changes.outputs.data-services }}
       collector-agent: ${{ steps.changes.outputs.collector-agent }}
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +45,8 @@ jobs:
               - 'services/health-worker/**'
             api-service:
               - 'services/api-service/**'
+            data-services:
+              - 'services/data-services/**'
             collector-agent:
               - 'agents/collector-agent/**'
 
@@ -127,6 +130,31 @@ jobs:
       - name: 构建
         run: CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/api-service ./cmd/api/
         working-directory: services/api-service
+
+  test-data-services:
+    name: 测试 Data Services
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint]
+    if: needs.detect-changes.outputs.data-services == 'true' || github.event_name == 'push'
+    strategy:
+      matrix:
+        service: [query-api, audit-api, export-api]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: 运行测试
+        run: go test -v -race -coverprofile=coverage.out ./...
+        working-directory: services/data-services/${{ matrix.service }}
+
+      - name: 构建
+        run: CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/${{ matrix.service }} ./cmd/api/
+        working-directory: services/data-services/${{ matrix.service }}
 
   test-collector-agent:
     name: 测试 Collector Agent

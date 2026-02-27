@@ -8,6 +8,12 @@ resources:
   - ../rbac/
   - ../network-policies/
   - ../storageclasses/
+  # 应用服务
+  - frontend-console.yaml
+  - control-plane.yaml
+  - api-service.yaml
+  - health-worker.yaml
+  - data-services.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: nexuslog

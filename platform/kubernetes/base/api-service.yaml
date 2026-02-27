@@ -1,0 +1,105 @@
+# API Service - Deployment + Service + ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-service-config
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: api-service
+    app.kubernetes.io/part-of: nexuslog
+data:
+  config.yaml: |
+    server:
+      http_port: 8080
+      read_timeout: 10s
+      write_timeout: 10s
+      shutdown_timeout: 10s
+    database:
+      elasticsearch:
+        addresses:
+          - http://elasticsearch.nexuslog-storage.svc.cluster.local:9200
+      postgresql:
+        host: postgres.nexuslog-storage.svc.cluster.local
+        port: 5432
+        dbname: nexuslog
+        sslmode: require
+    cache:
+      redis:
+        addr: redis.nexuslog-storage.svc.cluster.local:6379
+        db: 0
+    logging:
+      level: info
+      format: json
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-service
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: api-service
+    app.kubernetes.io/part-of: nexuslog
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-service
+        app.kubernetes.io/part-of: nexuslog
+    spec:
+      serviceAccountName: nexuslog-api-service
+      containers:
+        - name: api-service
+          image: nexuslog/api-service:latest
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /app/configs
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: api-service-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: api-service
+    app.kubernetes.io/part-of: nexuslog
+spec:
+  selector:
+    app.kubernetes.io/name: api-service
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  type: ClusterIP

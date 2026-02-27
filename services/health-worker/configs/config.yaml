@@ -1,0 +1,32 @@
+# Health Worker 服务配置
+# change_level: none | normal | cab
+
+server:
+  http_port: 8081
+  change_level: none
+  hot_reload: true
+  read_timeout: 10s
+  write_timeout: 10s
+  shutdown_timeout: 10s
+
+scheduler:
+  check_interval: 30s
+  change_level: none
+  hot_reload: true
+
+checker:
+  timeout: 5s
+  targets: []
+  change_level: none
+  hot_reload: true
+
+reporter:
+  output: log
+  change_level: none
+  hot_reload: true
+
+logging:
+  level: info
+  format: json
+  change_level: none
+  hot_reload: true

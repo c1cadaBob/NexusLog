@@ -1,0 +1,92 @@
+# ============================================================================
+# NexusLog Elasticsearch 配置模板
+# change_level: cab（涉及集群拓扑或分片策略时需 CAB 审批）
+# 生效时间: 发布窗口（核心参数需重启节点）
+# ============================================================================
+
+# --------------------------------------------------------------------------
+# 集群配置
+# change_level: cab（集群名称变更影响全局）
+# --------------------------------------------------------------------------
+cluster.name: nexuslog-es
+cluster.initial_master_nodes:
+  - nexuslog-es-master-0
+  - nexuslog-es-master-1
+  - nexuslog-es-master-2
+
+# --------------------------------------------------------------------------
+# 节点配置
+# change_level: cab（节点角色变更影响集群拓扑）
+# --------------------------------------------------------------------------
+node.name: ${HOSTNAME}
+node.roles: ["master", "data_hot", "data_warm", "data_cold", "ingest"]
+node.attr.data: hot
+
+# --------------------------------------------------------------------------
+# 路径配置
+# change_level: normal
+# --------------------------------------------------------------------------
+path.data: /usr/share/elasticsearch/data
+path.logs: /usr/share/elasticsearch/logs
+path.repo:
+  - /usr/share/elasticsearch/snapshots
+
+# --------------------------------------------------------------------------
+# 网络配置
+# change_level: cab（端口变更影响服务发现）
+# --------------------------------------------------------------------------
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# --------------------------------------------------------------------------
+# 发现配置
+# change_level: cab（发现配置变更影响集群组建）
+# --------------------------------------------------------------------------
+discovery.seed_hosts:
+  - nexuslog-es-master-0
+  - nexuslog-es-master-1
+  - nexuslog-es-master-2
+
+# --------------------------------------------------------------------------
+# 安全配置（Elasticsearch 8.x 默认启用）
+# change_level: cab（安全配置变更影响认证链路）
+# --------------------------------------------------------------------------
+xpack.security.enabled: true
+xpack.security.enrollment.enabled: true
+xpack.security.http.ssl:
+  enabled: true
+  keystore.path: certs/http.p12
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: certificate
+  keystore.path: certs/transport.p12
+  truststore.path: certs/transport.p12
+
+# --------------------------------------------------------------------------
+# ILM 配置
+# change_level: cab（ILM 策略变更影响数据生命周期）
+# --------------------------------------------------------------------------
+xpack.ilm.enabled: true
+
+# --------------------------------------------------------------------------
+# 快照仓库配置
+# change_level: normal
+# --------------------------------------------------------------------------
+xpack.searchable.snapshot.shared_cache.size: 5gb
+
+# --------------------------------------------------------------------------
+# 性能调优
+# change_level: normal（参数调优不影响集群拓扑）
+# --------------------------------------------------------------------------
+indices.memory.index_buffer_size: 20%
+indices.queries.cache.size: 15%
+thread_pool.write.queue_size: 1000
+thread_pool.search.queue_size: 2000
+
+# --------------------------------------------------------------------------
+# 监控配置
+# change_level: none（监控配置可热更新）
+# --------------------------------------------------------------------------
+xpack.monitoring.collection.enabled: true
+xpack.monitoring.elasticsearch.collection.enabled: true

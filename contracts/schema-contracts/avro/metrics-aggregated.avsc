@@ -1,0 +1,51 @@
+{
+  "type": "record",
+  "name": "MetricsAggregated",
+  "namespace": "com.nexuslog.contracts",
+  "doc": "聚合指标 Schema - Flink 流计算输出的聚合结果",
+  "fields": [
+    {
+      "name": "window_start",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "聚合窗口开始时间"
+    },
+    {
+      "name": "window_end",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "聚合窗口结束时间"
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "doc": "日志来源"
+    },
+    {
+      "name": "level",
+      "type": "string",
+      "doc": "日志级别"
+    },
+    {
+      "name": "log_count",
+      "type": "long",
+      "doc": "日志条数"
+    },
+    {
+      "name": "error_rate",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "错误率（0.0-1.0）"
+    },
+    {
+      "name": "tenant_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "租户 ID"
+    }
+  ]
+}

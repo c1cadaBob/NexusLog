@@ -1,0 +1,16 @@
+{
+    "_comment": "默认租户配置模板 - 新租户未配置时使用此默认值",
+    "change_level": "cab",
+    "enabled": true,
+    "rate_limit": {
+        "rate": 500,
+        "window": 60
+    },
+    "allowed_apis": ["v1", "control", "data"],
+    "max_body_size": "50m",
+    "features": {
+        "export": true,
+        "audit": true,
+        "realtime_query": true
+    }
+}

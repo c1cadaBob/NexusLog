@@ -1,0 +1,42 @@
+# API Service 服务配置
+# change_level: none | normal | cab
+
+server:
+  http_port: 8080
+  change_level: normal
+  hot_reload: true
+  read_timeout: 10s
+  write_timeout: 10s
+  shutdown_timeout: 10s
+
+database:
+  elasticsearch:
+    addresses:
+      - http://localhost:9200
+    change_level: cab
+    hot_reload: true
+    restart_params:
+      - cluster.routing
+  postgresql:
+    host: localhost
+    port: 5432
+    dbname: nexuslog
+    sslmode: require
+    max_open_conns: 25
+    max_idle_conns: 5
+    change_level: cab
+    hot_reload: partial
+
+cache:
+  redis:
+    addr: localhost:6379
+    db: 0
+    pool_size: 10
+    change_level: cab
+    hot_reload: partial
+
+logging:
+  level: info
+  format: json
+  change_level: none
+  hot_reload: true

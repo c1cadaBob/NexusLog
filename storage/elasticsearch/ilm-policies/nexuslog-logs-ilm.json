@@ -1,13 +1,16 @@
 {
-  "_comment": "NexusLog 日志 ILM 生命周期策略 | change_level: cab（ILM 热更新） | 生效时间: 分钟级",
+  "_comment": "NexusLog 日志 ILM 生命周期策略 | change_level: cab | 生效时间: 分钟级（ILM 热更新）",
+  "_description": "实现日志数据的热→温→冷→删除四阶段生命周期管理。涉及阶段时间或分片策略变更时需 CAB 审批。",
   "policy": {
     "phases": {
       "hot": {
+        "_comment": "热阶段：写入优先，达到条件后自动 rollover",
         "min_age": "0ms",
         "actions": {
           "rollover": {
             "max_primary_shard_size": "50gb",
-            "max_age": "1d"
+            "max_age": "1d",
+            "max_docs": 100000000
           },
           "set_priority": {
             "priority": 100
@@ -15,8 +18,10 @@
         }
       },
       "warm": {
+        "_comment": "温阶段：只读，force merge 减少段数，shrink 减少分片数",
         "min_age": "3d",
         "actions": {
+          "readonly": {},
           "shrink": {
             "number_of_shards": 1
           },
@@ -27,6 +32,7 @@
             "priority": 50
           },
           "allocate": {
+            "number_of_replicas": 0,
             "require": {
               "data": "warm"
             }
@@ -34,25 +40,40 @@
         }
       },
       "cold": {
+        "_comment": "冷阶段：searchable snapshot，最小化存储成本",
         "min_age": "30d",
         "actions": {
           "set_priority": {
             "priority": 0
           },
+          "searchable_snapshot": {
+            "snapshot_repository": "nexuslog-snapshots",
+            "force_merge_index": true
+          },
           "allocate": {
+            "number_of_replicas": 0,
             "require": {
               "data": "cold"
             }
-          },
-          "freeze": {}
+          }
         }
       },
       "delete": {
+        "_comment": "删除阶段：超过保留期后自动删除",
         "min_age": "90d",
         "actions": {
+          "wait_for_snapshot": {
+            "policy": "nexuslog-snapshot-policy"
+          },
           "delete": {}
         }
       }
     }
+  },
+  "_meta": {
+    "description": "NexusLog 日志数据生命周期策略",
+    "version": "1.0.0",
+    "change_level": "cab",
+    "managed_by": "nexuslog-platform"
   }
 }

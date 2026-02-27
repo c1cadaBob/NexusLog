@@ -1,0 +1,89 @@
+# 前端控制台 - Deployment + Service + ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-console-config
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: frontend-console
+    app.kubernetes.io/part-of: nexuslog
+data:
+  app-config.json: |
+    {
+      "apiBaseUrl": "/api",
+      "appTitle": "NexusLog Console",
+      "version": "0.2.0"
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-console
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: frontend-console
+    app.kubernetes.io/part-of: nexuslog
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend-console
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend-console
+        app.kubernetes.io/part-of: nexuslog
+    spec:
+      serviceAccountName: nexuslog-control-plane
+      containers:
+        - name: frontend-console
+          image: nexuslog/frontend-console:latest
+          ports:
+            - containerPort: 80
+              name: http
+          volumeMounts:
+            - name: runtime-config
+              mountPath: /usr/share/nginx/html/config
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: runtime-config
+          configMap:
+            name: frontend-console-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-console
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: frontend-console
+    app.kubernetes.io/part-of: nexuslog
+spec:
+  selector:
+    app.kubernetes.io/name: frontend-console
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  type: ClusterIP

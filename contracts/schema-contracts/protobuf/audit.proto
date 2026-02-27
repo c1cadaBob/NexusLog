@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package nexuslog.contracts;
+
+option go_package = "github.com/nexuslog/contracts/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// 审计操作类型
+enum AuditAction {
+  AUDIT_ACTION_UNSPECIFIED = 0;
+  AUDIT_ACTION_CREATE = 1;
+  AUDIT_ACTION_READ = 2;
+  AUDIT_ACTION_UPDATE = 3;
+  AUDIT_ACTION_DELETE = 4;
+  AUDIT_ACTION_LOGIN = 5;
+  AUDIT_ACTION_LOGOUT = 6;
+  AUDIT_ACTION_EXPORT = 7;
+  AUDIT_ACTION_CONFIG_CHANGE = 8;
+}
+
+// 审计结果
+enum AuditResult {
+  AUDIT_RESULT_UNSPECIFIED = 0;
+  AUDIT_RESULT_SUCCESS = 1;
+  AUDIT_RESULT_FAILURE = 2;
+  AUDIT_RESULT_DENIED = 3;
+}
+
+// 审计日志消息
+message AuditLog {
+  string id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string actor = 3;
+  AuditAction action = 4;
+  string resource_type = 5;
+  optional string resource_id = 6;
+  AuditResult result = 7;
+  map<string, string> details = 8;
+  optional string ip_address = 9;
+  optional string tenant_id = 10;
+}

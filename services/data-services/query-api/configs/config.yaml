@@ -1,0 +1,50 @@
+# query-api 服务配置
+# change_level: none | normal | cab
+
+server:
+  http_port: 8082
+  change_level: none
+  hot_reload: true
+  read_timeout: 10s
+  write_timeout: 10s
+  shutdown_timeout: 10s
+
+database:
+  elasticsearch:
+    addresses:
+      - http://localhost:9200
+    index_prefix: nexuslog-
+    change_level: cab
+    hot_reload: partial
+    restart_params:
+      - cluster.routing
+  postgresql:
+    host: localhost
+    port: 5432
+    dbname: nexuslog
+    sslmode: require
+    max_open_conns: 15
+    max_idle_conns: 5
+    change_level: cab
+    hot_reload: partial
+
+cache:
+  redis:
+    addr: localhost:6379
+    db: 1
+    pool_size: 10
+    change_level: cab
+    hot_reload: partial
+
+query:
+  max_results: 10000
+  default_page_size: 50
+  timeout: 30s
+  change_level: none
+  hot_reload: true
+
+logging:
+  level: info
+  format: json
+  change_level: none
+  hot_reload: true

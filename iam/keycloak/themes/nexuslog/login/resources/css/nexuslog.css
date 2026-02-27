@@ -1,0 +1,31 @@
+/* NexusLog 自定义登录页样式 */
+/* 覆盖 Keycloak 默认主题的品牌颜色和布局 */
+
+:root {
+  --nexuslog-primary: #1677ff;
+  --nexuslog-bg: #f5f5f5;
+  --nexuslog-text: #333333;
+}
+
+/* 登录页背景 */
+.login-pf body {
+  background-color: var(--nexuslog-bg);
+}
+
+/* 登录卡片样式 */
+#kc-login {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 主按钮颜色 */
+#kc-login .btn-primary {
+  background-color: var(--nexuslog-primary);
+  border-color: var(--nexuslog-primary);
+}
+
+/* 页面标题 */
+#kc-header-wrapper {
+  color: var(--nexuslog-text);
+  font-weight: 600;
+}

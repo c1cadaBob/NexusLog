@@ -1,0 +1,22 @@
+{
+    "_comment": "全局流量策略 - 修改此文件需要 CAB 审批",
+    "change_level": "cab",
+    "global_rate_limit": {
+        "enabled": true,
+        "rate": 10000,
+        "window": 60
+    },
+    "circuit_breaker": {
+        "enabled": false,
+        "error_threshold": 50,
+        "window": 30,
+        "recovery_timeout": 60
+    },
+    "cors": {
+        "enabled": true,
+        "allowed_origins": ["*"],
+        "allowed_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        "allowed_headers": ["Authorization", "Content-Type", "X-Tenant-ID", "X-Request-ID"],
+        "max_age": 86400
+    }
+}

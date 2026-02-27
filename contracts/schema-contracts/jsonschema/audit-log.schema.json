@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexuslog.io/schemas/audit-log",
+  "title": "AuditLog",
+  "description": "审计日志 JSON Schema",
+  "type": "object",
+  "required": ["id", "timestamp", "actor", "action", "resource_type", "result"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "审计日志唯一标识"
+    },
+    "timestamp": {
+      "type": "integer",
+      "description": "事件发生时间戳（毫秒）"
+    },
+    "actor": {
+      "type": "string",
+      "description": "操作者标识"
+    },
+    "action": {
+      "type": "string",
+      "enum": ["CREATE", "READ", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "EXPORT", "CONFIG_CHANGE"],
+      "description": "操作类型"
+    },
+    "resource_type": {
+      "type": "string",
+      "description": "操作资源类型"
+    },
+    "resource_id": {
+      "type": ["string", "null"],
+      "description": "操作资源 ID"
+    },
+    "result": {
+      "type": "string",
+      "enum": ["SUCCESS", "FAILURE", "DENIED"],
+      "description": "操作结果"
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "操作详情"
+    },
+    "ip_address": {
+      "type": ["string", "null"],
+      "description": "操作者 IP 地址"
+    },
+    "tenant_id": {
+      "type": ["string", "null"],
+      "description": "租户 ID"
+    }
+  },
+  "additionalProperties": false
+}

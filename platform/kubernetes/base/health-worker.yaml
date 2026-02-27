@@ -1,0 +1,93 @@
+# Health Worker 服务 - Deployment + Service + ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: health-worker-config
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: health-worker
+    app.kubernetes.io/part-of: nexuslog
+data:
+  config.yaml: |
+    server:
+      http_port: 8081
+    cache:
+      redis:
+        addr: redis.nexuslog-storage.svc.cluster.local:6379
+        db: 0
+    logging:
+      level: info
+      format: json
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-worker
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: health-worker
+    app.kubernetes.io/part-of: nexuslog
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: health-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: health-worker
+        app.kubernetes.io/part-of: nexuslog
+    spec:
+      serviceAccountName: nexuslog-health-worker
+      containers:
+        - name: health-worker
+          image: nexuslog/health-worker:latest
+          ports:
+            - containerPort: 8081
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /app/configs
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: health-worker-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: health-worker
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: health-worker
+    app.kubernetes.io/part-of: nexuslog
+spec:
+  selector:
+    app.kubernetes.io/name: health-worker
+  ports:
+    - port: 8081
+      targetPort: http
+      protocol: TCP
+      name: http
+  type: ClusterIP
