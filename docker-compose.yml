@@ -17,6 +17,7 @@ services:
       - ./apps/frontend-console/public/config:/usr/share/nginx/html/config:ro
     depends_on:
       - api-service
+      - bff-service
     networks:
       - nexuslog-net
     restart: unless-stopped
@@ -71,6 +72,31 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  bff-service:
+    build:
+      context: ./apps/bff-service
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      - BFF_PORT=3000
+      - CONTROL_PLANE_BASE_URL=http://control-plane:8080
+      - API_SERVICE_BASE_URL=http://api-service:8080
+      - DATA_QUERY_BASE_URL=http://query-api:8082
+      - DATA_AUDIT_BASE_URL=http://audit-api:8083
+      - DATA_EXPORT_BASE_URL=http://export-api:8084
+      - BFF_REQUEST_TIMEOUT_MS=2500
+      - BFF_CACHE_TTL_MS=10000
+    depends_on:
+      - control-plane
+      - api-service
+      - query-api
+      - audit-api
+      - export-api
     networks:
       - nexuslog-net
     restart: unless-stopped

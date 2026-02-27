@@ -1,0 +1,107 @@
+# BFF Service (NestJS) - Deployment + Service + ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bff-service-config
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: bff-service
+    app.kubernetes.io/part-of: nexuslog
+data:
+  config.yaml: |
+    server:
+      port: 3000
+    upstreams:
+      control_plane_base_url: http://control-plane.nexuslog-control-plane.svc.cluster.local:8080
+      api_service_base_url: http://api-service.nexuslog-control-plane.svc.cluster.local:8080
+      data_query_base_url: http://query-api.nexuslog-control-plane.svc.cluster.local:8082
+      data_audit_base_url: http://audit-api.nexuslog-control-plane.svc.cluster.local:8083
+      data_export_base_url: http://export-api.nexuslog-control-plane.svc.cluster.local:8084
+    cache:
+      ttl_ms: 10000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bff-service
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: bff-service
+    app.kubernetes.io/part-of: nexuslog
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bff-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bff-service
+        app.kubernetes.io/part-of: nexuslog
+    spec:
+      serviceAccountName: nexuslog-control-plane
+      containers:
+        - name: bff-service
+          image: nexuslog/bff-service:latest
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: BFF_PORT
+              value: "3000"
+            - name: CONTROL_PLANE_BASE_URL
+              value: "http://control-plane.nexuslog-control-plane.svc.cluster.local:8080"
+            - name: API_SERVICE_BASE_URL
+              value: "http://api-service.nexuslog-control-plane.svc.cluster.local:8080"
+            - name: DATA_QUERY_BASE_URL
+              value: "http://query-api.nexuslog-control-plane.svc.cluster.local:8082"
+            - name: DATA_AUDIT_BASE_URL
+              value: "http://audit-api.nexuslog-control-plane.svc.cluster.local:8083"
+            - name: DATA_EXPORT_BASE_URL
+              value: "http://export-api.nexuslog-control-plane.svc.cluster.local:8084"
+          volumeMounts:
+            - name: config
+              mountPath: /app/configs
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: bff-service-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bff-service
+  namespace: nexuslog-control-plane
+  labels:
+    app.kubernetes.io/name: bff-service
+    app.kubernetes.io/part-of: nexuslog
+spec:
+  selector:
+    app.kubernetes.io/name: bff-service
+  ports:
+    - port: 3000
+      targetPort: http
+      protocol: TCP
+      name: http
+  type: ClusterIP

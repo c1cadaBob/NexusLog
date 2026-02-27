@@ -254,12 +254,12 @@
     - 在 CI 流水线中添加 Harbor 推送步骤
     - _需求: 17_
 
-- [ ] 17. BFF 服务层（可选）
-  - [ ] 17.1 创建 BFF Service 项目结构
+- [x] 17. BFF 服务层（可选）
+  - [x] 17.1 创建 BFF Service 项目结构
     - 创建 `apps/bff-service/` 目录：src/、configs/、tests/、Dockerfile、package.json
     - 安装 NestJS + Node 20 LTS 依赖
     - _需求: 18_
-  - [ ] 17.2 实现 BFF 聚合逻辑
+  - [x] 17.2 实现 BFF 聚合逻辑
     - 实现 API 聚合（Control Plane + API Service + Data Services）
     - 实现请求缓存和数据转换
     - 配置 Gateway 路由到 BFF

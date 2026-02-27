@@ -9,11 +9,12 @@ WORKDIR /app
 
 # 安装依赖（利用 Docker 缓存层）
 COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts
+RUN if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts; fi
 
 # 复制源码并构建
 COPY . .
 RUN npm run build
+RUN npm prune --omit=dev
 
 # --- 阶段二：运行 ---
 FROM node:20-alpine
@@ -26,6 +27,7 @@ WORKDIR /app
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/configs ./configs
 
 # 非 root 用户运行
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup

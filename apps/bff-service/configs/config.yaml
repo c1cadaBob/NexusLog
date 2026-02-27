@@ -1,0 +1,19 @@
+# NexusLog BFF 配置模板
+# change_level: normal
+# 生效时间: 分钟级（配置热更）
+
+server:
+  port: 3000
+
+upstreams:
+  control_plane_base_url: "http://control-plane:8080"
+  api_service_base_url: "http://api-service:8080"
+  data_query_base_url: "http://query-api:8082"
+  data_audit_base_url: "http://audit-api:8083"
+  data_export_base_url: "http://export-api:8084"
+
+cache:
+  ttl_ms: 10000
+
+http:
+  request_timeout_ms: 2500

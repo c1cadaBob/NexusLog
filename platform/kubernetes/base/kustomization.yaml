@@ -12,6 +12,7 @@ resources:
   - frontend-console.yaml
   - control-plane.yaml
   - api-service.yaml
+  - bff-service.yaml
   - health-worker.yaml
   - data-services.yaml
 
