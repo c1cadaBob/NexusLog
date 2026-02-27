@@ -1,0 +1,47 @@
+---
+# NexusLog - server-init 基础初始化
+
+- name: 设置主机名
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: 更新 Debian 软件包索引
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: 安装基础软件包
+  ansible.builtin.apt:
+    name: "{{ server_init_base_packages }}"
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: 设置系统时区
+  ansible.builtin.timezone:
+    name: "{{ server_init_timezone }}"
+
+- name: 启用并启动 chrony
+  ansible.builtin.service:
+    name: chrony
+    state: started
+    enabled: yes
+  when: ansible_os_family == "Debian"
+
+- name: 配置基础内核参数
+  ansible.builtin.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: yes
+    reload: yes
+  loop: "{{ server_init_sysctl | dict2items }}"
+
+- name: 配置文件描述符限制
+  pam_limits:
+    domain: "*"
+    limit_type: "{{ item.limit_type }}"
+    limit_item: nofile
+    value: "{{ item.value }}"
+  loop:
+    - { limit_type: "soft", value: "65536" }
+    - { limit_type: "hard", value: "131072" }

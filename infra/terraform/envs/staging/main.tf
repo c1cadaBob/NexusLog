@@ -29,8 +29,8 @@ locals {
   }
 }
 
-module "networking" {
-  source      = "../../modules/networking"
+module "network" {
+  source      = "../../modules/network"
   environment = local.environment
   vpc_cidr    = "10.20.0.0/16"
   tags        = local.tags

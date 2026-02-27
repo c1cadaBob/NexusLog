@@ -1,0 +1,10 @@
+---
+- name: 重启 SSH 服务
+  ansible.builtin.service:
+    name: "{{ security_ssh_service_name }}"
+    state: restarted
+  failed_when: false
+
+- name: 重新加载 sysctl
+  ansible.builtin.command: sysctl --system
+  changed_when: true

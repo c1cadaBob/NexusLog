@@ -5,17 +5,18 @@
   hosts: all
   become: yes
   roles:
-    - common
+    - server-init
+    - security-hardening
     - docker
 
 - name: Kubernetes 集群初始化
   hosts: k8s_masters:k8s_workers
   become: yes
   roles:
-    - common
+    - server-init
 
 - name: 存储节点配置
   hosts: storage
   become: yes
   roles:
-    - common
+    - server-init

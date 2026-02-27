@@ -231,12 +231,12 @@
     - 在 CI 流水线中添加 Trivy 镜像扫描步骤
     - _需求: 15_
 
-- [ ] 15. 基础设施即代码
-  - [ ] 15.1 创建 Terraform 模块结构
+- [x] 15. 基础设施即代码
+  - [x] 15.1 创建 Terraform 模块结构
     - 创建 `infra/terraform/modules/`（kubernetes、network、storage 模块）
     - 创建 `infra/terraform/envs/`（dev/、staging/、prod/）
     - _需求: 16_
-  - [ ] 15.2 创建 Ansible 角色结构
+  - [x] 15.2 创建 Ansible 角色结构
     - 创建 `infra/ansible/inventories/`（dev、staging、prod）
     - 创建 `infra/ansible/roles/`（server-init、security-hardening）
     - _需求: 16_

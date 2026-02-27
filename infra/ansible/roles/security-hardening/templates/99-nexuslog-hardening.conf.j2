@@ -1,0 +1,4 @@
+# NexusLog security hardening sysctl
+{% for key, value in security_sysctl.items() %}
+{{ key }} = {{ value }}
+{% endfor %}

@@ -1,0 +1,16 @@
+---
+# NexusLog - security-hardening 角色默认变量
+
+security_ssh_service_name: "ssh"
+security_permit_root_login: "no"
+security_password_authentication: "no"
+
+security_sysctl:
+  net.ipv4.ip_forward: "0"
+  net.ipv4.conf.all.accept_redirects: "0"
+  net.ipv4.conf.default.accept_redirects: "0"
+  net.ipv4.conf.all.send_redirects: "0"
+  net.ipv4.conf.default.send_redirects: "0"
+  net.ipv4.conf.all.rp_filter: "1"
+  net.ipv4.conf.default.rp_filter: "1"
+  net.ipv4.tcp_syncookies: "1"
