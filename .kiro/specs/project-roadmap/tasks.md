@@ -35,7 +35,7 @@
     - 包含：项目初始化、技术栈配置、组件迁移、页面迁移、状态管理、路由配置
     - _需求: 2_
 
-- [ ] 2. 后端微服务骨架搭建
+- [x] 2. 后端微服务骨架搭建
   - [x] 2.1 创建 Control Plane 服务骨架
     - 创建 `services/control-plane/` 目录结构：`cmd/api/main.go`、`internal/`（app/domain/service/repository/transport/）、`api/`（openapi/proto/）、`configs/`、`tests/`
     - 创建 `Dockerfile`（多阶段构建）

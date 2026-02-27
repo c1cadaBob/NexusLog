@@ -391,21 +391,26 @@ NexusLog/
     └── workflows/               # CI/CD 流水线
 ```
 
-### 待搭建目录（按路线图推进）
+### 路线图进度（截至 2026-02-27）
 
-| 目录 | 用途 | 状态 |
-|------|------|------|
-| `iam/` | 身份认证与授权 (Keycloak + OPA + Vault) | 待搭建 |
-| `agents/` | 采集代理 (Go Collector Agent) | 待搭建 |
-| `stream/` | 流计算 (Flink SQL + CEP) | 待搭建 |
-| `messaging/` | 消息传输 (Kafka + Schema Registry) | 待搭建 |
-| `contracts/` | 契约定义 (Avro / Protobuf / JSON Schema) | 待搭建 |
-| `storage/` | 存储配置 (ES + PG + Redis + MinIO) | 待搭建 |
-| `observability/` | 可观测性 (Prometheus + Grafana + Jaeger) | 待搭建 |
-| `platform/` | 平台治理 (K8s + Helm + GitOps + Istio) | 待搭建 |
-| `infra/` | 基础设施即代码 (Terraform + Ansible) | 待搭建 |
-| `ml/` | 机器学习 (可选) | 待搭建 |
-| `edge/` | 边缘计算 (可选) | 待搭建 |
+- 已完成：18 / 24（MVP 与 P1 阶段任务已完成）
+- 待开始：6 / 24（任务 19-24：ML/NLP、边缘计算、高级治理、性能与混沌、安全扫描、文档体系完善）
+
+### 模块建设状态（按路线图）
+
+| 目录 | 用途 | 当前状态 |
+|------|------|----------|
+| `iam/` | 身份认证与授权 (Keycloak + OPA + Vault) | 已完成（P1-8） |
+| `agents/` | 采集代理 (Go Collector Agent) | 已完成（P1-9） |
+| `stream/` | 流计算 (Flink SQL + CEP) | 已完成（P1-10） |
+| `messaging/` | 消息传输 (Kafka + Schema Registry) | 已完成（P1-10） |
+| `contracts/` | 契约定义 (Avro / Protobuf / JSON Schema) | 已完成（P1-10） |
+| `storage/` | 存储配置 (ES + PG + Redis + MinIO) | 已完成（P1-11） |
+| `observability/` | 可观测性 (Prometheus + Grafana + Jaeger) | 已完成（P1-12） |
+| `platform/` | 平台治理 (K8s + Helm + GitOps + Istio) | P1 核心完成；高级治理待 P2（任务 21） |
+| `infra/` | 基础设施即代码 (Terraform + Ansible) | 已完成（P1-15） |
+| `ml/` | 机器学习与 NLP (可选) | P2 规划中（任务 19，已建立目录骨架） |
+| `edge/` | 边缘计算 (可选) | P2 规划中（任务 20，已建立目录骨架） |
 
 ## 快速开始
 
