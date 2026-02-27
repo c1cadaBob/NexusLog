@@ -191,16 +191,16 @@
     - 创建 `storage/minio/` 配置（存储桶、生命周期策略）
     - _需求: 12_
 
-- [ ] 12. 可观测性体系配置
-  - [ ] 12.1 配置 Prometheus 和 Alertmanager
+- [x] 12. 可观测性体系配置
+  - [x] 12.1 配置 Prometheus 和 Alertmanager
     - 创建 `observability/prometheus/` 配置（服务发现、抓取规则）
     - 创建 `observability/alertmanager/` 配置（告警路由、通知渠道）
     - _需求: 13_
-  - [ ] 12.2 配置 Grafana Dashboard
+  - [x] 12.2 配置 Grafana Dashboard
     - 创建 `observability/grafana/` 配置
     - 定义系统概览、各服务详情、存储层监控面板
     - _需求: 13_
-  - [ ] 12.3 配置链路追踪和日志聚合
+  - [x] 12.3 配置链路追踪和日志聚合
     - 创建 `observability/jaeger/` 和 `observability/otel-collector/` 配置
     - 创建 `observability/loki/` 配置
     - _需求: 13_
