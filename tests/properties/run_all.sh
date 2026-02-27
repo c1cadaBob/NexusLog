@@ -1,6 +1,6 @@
 #!/bin/bash
-# MVP 阶段属性测试统一入口
-# 运行 CP-1、CP-4、CP-6 全部属性测试
+# NexusLog 属性测试统一入口
+# 运行 CP-1、CP-4、CP-6、CP-8、CP-9、CP-10
 
 set -e
 
@@ -35,12 +35,15 @@ run_test() {
 }
 
 echo ""
-echo "🧪 NexusLog MVP 阶段属性测试"
+echo "🧪 NexusLog 全量属性测试（MVP + P1）"
 echo ""
 
 run_test "test_cp1_monorepo_structure.sh" "CP-1: Monorepo 结构完整性"
 run_test "test_cp4_env_config_symmetry.sh" "CP-4: 环境配置对称性"
 run_test "test_cp6_go_service_structure.sh" "CP-6: Go 服务目录规范性"
+run_test "test_cp8_ci_pipeline_coverage.sh" "CP-8: CI 流水线覆盖性"
+run_test "test_cp9_change_level_completeness.sh" "CP-9: 变更级别标注完整性"
+run_test "test_cp10_schema_compatibility.sh" "CP-10: Schema 契约兼容性"
 
 echo "════════════════════════════════════════"
 echo "📊 属性测试汇总: $PASSED/$TOTAL 通过"
