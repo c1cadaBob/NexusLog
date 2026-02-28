@@ -12,7 +12,7 @@
   - `query-api` / `audit-api` / `export-api` 有业务路径，但返回“待实现”占位。
   - `bff-service` 已有 `GET /api/v1/bff/overview` 聚合健康探针。
 - 数据模型现状：
-  - 实际迁移（可执行）：`6` 张表（`tenants/users/roles/user_roles/alert_rules/audit_logs`）。
+  - 实际迁移（可执行）：`6` 张表（`obs.tenant/users/roles/user_roles/alert_rules/audit_logs`）。
   - 文档模型（V1 基线）：`78` 张表，外加 V6/V8/V9/V10/V11 增量表。
 
 ## 2. 模块覆盖矩阵
@@ -78,4 +78,3 @@
 ## 6. 一句话结论
 
 当前项目是“前端高保真原型 + 后端骨架 + 数据模型双轨并存”状态。要进入可交付阶段，核心是先统一数据真相源，再按模块逐条打通页面、接口和数据表闭环。
-

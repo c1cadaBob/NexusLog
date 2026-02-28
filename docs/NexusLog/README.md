@@ -15,25 +15,28 @@
 1. `process/01-project-development-strategy-and-phase-split.md`
 2. `process/02-end-to-end-development-workflow.md`
 3. `process/03-frontend-api-data-coverage-matrix.md`
-4. `database/01-flyway-v2-v5-migrations.md`
-5. `database/02-flyway-compatibility-and-v6-sla.md`
-6. `database/03-v7-rls-multitenancy.md`
-7. `database/04-v8-immutable-audit.md`
-8. `database/05-v9-audit-verify-export.md`
-9. `database/06-v10-partition-retention-and-worker-runbook.md`
-10. `database/07-v11-retry-dead-letter-observability.md`
-11. `monitoring/01-worker-implementation-and-metrics.md`
-12. `monitoring/02-prometheus-alert-rules-and-grafana-dashboard.md`
-13. `monitoring/03-alertmanager-routing-template.md`
-14. `monitoring/04-hot-reload-guidelines.md`
-15. `monitoring/05-monitoring-rollback-runbook.md`
-16. `delivery-security/01-deploy-script-hot-reload-and-auto-rollback.md`
-17. `delivery-security/02-versioned-deploy-and-rollback.md`
-18. `delivery-security/03-github-actions-auto-deploy-and-rollback.md`
-19. `delivery-security/04-production-approval-and-auto-rollback.md`
-20. `delivery-security/05-sudoers-and-ssh-hardening.md`
-21. `delivery-security/06-hot-reload-first-deploy-strategy.md`
-22. `delivery-security/07-monitoring-release-workflow-final.md`
+4. `process/04-frontend-pages-functional-workflow-dataflow.md`
+5. `process/05-next-priority-development-plan.md`
+6. `database/01-flyway-v2-v5-migrations.md`
+7. `database/02-flyway-compatibility-and-v6-sla.md`
+8. `database/03-v7-rls-multitenancy.md`
+9. `database/04-v8-immutable-audit.md`
+10. `database/05-v9-audit-verify-export.md`
+11. `database/06-v10-partition-retention-and-worker-runbook.md`
+12. `database/07-v11-retry-dead-letter-observability.md`
+13. `database/08-schema-gap-and-extension-plan.md`
+14. `monitoring/01-worker-implementation-and-metrics.md`
+15. `monitoring/02-prometheus-alert-rules-and-grafana-dashboard.md`
+16. `monitoring/03-alertmanager-routing-template.md`
+17. `monitoring/04-hot-reload-guidelines.md`
+18. `monitoring/05-monitoring-rollback-runbook.md`
+19. `delivery-security/01-deploy-script-hot-reload-and-auto-rollback.md`
+20. `delivery-security/02-versioned-deploy-and-rollback.md`
+21. `delivery-security/03-github-actions-auto-deploy-and-rollback.md`
+22. `delivery-security/04-production-approval-and-auto-rollback.md`
+23. `delivery-security/05-sudoers-and-ssh-hardening.md`
+24. `delivery-security/06-hot-reload-first-deploy-strategy.md`
+25. `delivery-security/07-monitoring-release-workflow-final.md`
 
 ## 重命名映射（旧 -> 新）
 

@@ -5,9 +5,10 @@
 -- 启用扩展
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE SCHEMA IF NOT EXISTS obs;
 
 -- 租户表
-CREATE TABLE IF NOT EXISTS tenants (
+CREATE TABLE IF NOT EXISTS obs.tenant (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL UNIQUE,
     display_name VARCHAR(255) NOT NULL,
@@ -20,7 +21,7 @@ CREATE TABLE IF NOT EXISTS tenants (
 -- 用户表
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID REFERENCES tenants(id),
+    tenant_id UUID REFERENCES obs.tenant(id),
     username VARCHAR(128) NOT NULL,
     email VARCHAR(255) NOT NULL,
     display_name VARCHAR(255),
@@ -35,7 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- 角色表
 CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID REFERENCES tenants(id),
+    tenant_id UUID REFERENCES obs.tenant(id),
     name VARCHAR(128) NOT NULL,
     description TEXT,
     permissions JSONB DEFAULT '[]',
@@ -54,7 +55,7 @@ CREATE TABLE IF NOT EXISTS user_roles (
 -- 告警规则表
 CREATE TABLE IF NOT EXISTS alert_rules (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID REFERENCES tenants(id),
+    tenant_id UUID REFERENCES obs.tenant(id),
     name VARCHAR(255) NOT NULL,
     description TEXT,
     condition JSONB NOT NULL,
@@ -69,7 +70,7 @@ CREATE TABLE IF NOT EXISTS alert_rules (
 -- 审计日志表
 CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID REFERENCES tenants(id),
+    tenant_id UUID REFERENCES obs.tenant(id),
     user_id UUID REFERENCES users(id),
     action VARCHAR(128) NOT NULL,
     resource_type VARCHAR(128) NOT NULL,
