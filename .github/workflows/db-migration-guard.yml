@@ -1,0 +1,35 @@
+name: DB Migration Guard
+
+on:
+  push:
+    branches: [main, develop, 'release/**']
+    paths:
+      - 'storage/postgresql/migrations/**'
+      - 'scripts/db-migrate.sh'
+      - 'scripts/check-migration-single-source.sh'
+      - 'Makefile'
+      - 'docs/runbooks/rollback-playbook.md'
+      - '.github/workflows/db-migration-guard.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'storage/postgresql/migrations/**'
+      - 'scripts/db-migrate.sh'
+      - 'scripts/check-migration-single-source.sh'
+      - 'Makefile'
+      - 'docs/runbooks/rollback-playbook.md'
+      - '.github/workflows/db-migration-guard.yml'
+
+jobs:
+  migration-single-source:
+    name: Validate Single Migration Source
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run migration single-source guard
+        run: |
+          chmod +x scripts/check-migration-single-source.sh
+          bash scripts/check-migration-single-source.sh

@@ -5,6 +5,9 @@
 .PHONY: frontend-install frontend-lint frontend-test frontend-build
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push
+.PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
+
+DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 
 # 默认目标
 all: lint test build
@@ -87,6 +90,27 @@ docker-push:
 	@./scripts/build.sh push
 
 # ============================================
+# Database migration
+# ============================================
+
+## 执行数据库迁移 up（可选：STEPS=1）
+db-migrate-up:
+	@$(DB_MIGRATE_SCRIPT) up $(STEPS)
+
+## 执行数据库迁移 down（可选：STEPS=1）
+db-migrate-down:
+	@$(DB_MIGRATE_SCRIPT) down $(STEPS)
+
+## 查看当前数据库迁移版本
+db-migrate-version:
+	@$(DB_MIGRATE_SCRIPT) version
+
+## 创建新的迁移文件（必填：NAME=xxx）
+db-migrate-create:
+	@if [ -z "$(NAME)" ]; then echo "Usage: make db-migrate-create NAME=add_xxx"; exit 1; fi
+	@$(DB_MIGRATE_SCRIPT) create "$(NAME)"
+
+# ============================================
 # 发布
 # ============================================
 
@@ -142,6 +166,12 @@ help:
 	@echo "Docker:"
 	@echo "  make docker-build   - 构建 Docker 镜像"
 	@echo "  make docker-push    - 推送 Docker 镜像"
+	@echo ""
+	@echo "数据库迁移:"
+	@echo "  make db-migrate-up [STEPS=N]      - 执行迁移 up"
+	@echo "  make db-migrate-down [STEPS=N]    - 执行迁移 down"
+	@echo "  make db-migrate-version           - 查看迁移版本"
+	@echo "  make db-migrate-create NAME=xxx   - 创建新迁移"
 	@echo ""
 	@echo "发布:"
 	@echo "  make release        - 发布新版本"
