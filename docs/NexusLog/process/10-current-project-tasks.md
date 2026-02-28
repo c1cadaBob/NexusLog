@@ -1,13 +1,18 @@
-# 当前项目适配任务文档（任务基线）
+# 当前项目适配任务文档（任务基线，细化执行版）
 
-## 1. 概述
+## 1. 文档定位
 
-本任务文档将需求 `R1~R9` 和差异项 `GAP-001~GAP-018` 转化为可执行任务。  
-任务按 `M1 -> M2 -> M3` 编排，按周推进，遵循：
+本文件将需求 `R1~R9` 与差异项 `GAP-001~GAP-018` 转化为可直接执行的任务清单，并细化到：
 
-1. 先清 P0，再处理 P1/P2
-2. 每条任务都要有验证证据
-3. 每周必须具备回滚方案
+1. 具体实施动作（可打勾）。
+2. 明确验收标准（DoD）。
+3. 验收证据与回滚要求。
+
+与其他文档关系：
+
+1. 周排期与人天：`06-m1-m3-weekly-delivery-checklist.md`
+2. 接口契约：`12-current-project-api-interface-design.md`
+3. 差异闭环：`07-document-code-gap-matrix.md`
 
 ## 2. 状态说明
 
@@ -16,152 +21,533 @@
 - `[x]` 已完成
 - `[-]` 阻塞
 
-## 3. 任务清单
+## 3. 任务清单（细化到执行动作 + 验收标准）
 
 ### M1：认证与迁移一致性（Week1~Week2）
 
-- [ ] 1. 统一迁移真相源并完成演练（R1）
-  - [ ] 1.1 确认 `storage/postgresql/migrations` 为唯一迁移入口
-  - [ ] 1.2 执行 `000012`、`000015` 的 `up/down` 演练并归档日志
-  - [ ] 1.3 更新相关文档中“迁移执行态”说明（对应 GAP-015）
-  - 关联差异：GAP-015
+#### 任务 1（R1）：统一迁移真相源并完成演练
 
-- [ ] 2. 实现认证最小闭环 API（R2）
-  - [ ] 2.1 在 `api-service` 实现 `/api/v1/auth/register`、`/login`
-  - [ ] 2.2 实现 `/refresh`、`/logout`、`/password/reset-request`、`/password/reset-confirm`
-  - [ ] 2.3 完成 `user_sessions/password_reset_tokens/login_attempts` 落库逻辑
-  - 关联差异：GAP-001, GAP-008
+责任角色：DBA + BE  
+目标周次：Week1
 
-- [ ] 3. 改造前端认证主路径（R2）
-  - [ ] 3.1 `LoginForm` 从本地状态改为真实接口调用
-  - [ ] 3.2 `ProtectedRoute` 加入 token 失效处理与重定向
-  - [ ] 3.3 `/forgot-password` 对接真实接口
-  - 关联差异：GAP-001
+- [x] 1.1 明确运行时唯一迁移入口为 `storage/postgresql/migrations`
+- [x] 1.2 执行 `000012`、`000015` 的 `up` 演练
+- [x] 1.3 执行 `000015`、`000012` 的 `down` 回滚演练
+- [ ] 1.4 记录迁移命令、执行顺序、执行结果与失败恢复步骤
+- [ ] 1.5 同步更新文档中的“迁移执行态”（文件存在 vs 环境已执行）
 
-- [ ] 4. 修正网关路由与白名单一致性（R3）
-  - [ ] 4.1 统一 `/api/v1/query|audit|export|auth|bff/*` 路由规则
-  - [ ] 4.2 修复 upstream 服务名/端口与 compose 不一致问题
-  - [ ] 4.3 同步白名单为 `password/reset-request` 与 `reset-confirm`
-  - 关联差异：GAP-002, GAP-011, GAP-012
+验收标准（DoD）：
+1. 任一开发环境可通过单一入口完成初始化迁移。
+2. `up/down` 双向演练完整通过，且回滚后可再次 `up` 成功。
+3. 应用在回滚后能够正常启动并通过健康检查。
 
-- [ ] 5. M1 测试与发布门禁（R8）
-  - [ ] 5.1 认证链路自动化：成功/失败各 1 条
-  - [ ] 5.2 网关路由冒烟与统一错误码测试
-  - [ ] 5.3 发布后 30 分钟观察并形成报告
-  - 关联差异：GAP-016
+验收证据：
+1. 迁移执行日志（含 SQL 输出或命令输出）。
+2. 回滚后应用健康检查截图/日志。
+3. 文档更新记录（PR 或 commit）。
+
+执行状态（2026-02-28）：
+1. 已完成：运行时统一入口脚本 `scripts/db-migrate.sh`。
+2. 已完成：Makefile 统一命令 `db-migrate-*` 接入。
+3. 已完成：CI 门禁 `db-migration-guard.yml` 与 `check-migration-single-source.sh`。
+4. 已完成：`000012`、`000015` 的 `up` 实库演练与证据归档（任务 1.2）。
+5. 已完成：`000015`、`000012` 的 `down` 回滚演练（通过 `down 4` 覆盖 `000015~000012`），并已 `up 4` 恢复到 `schema_migrations=15/dirty=false`（任务 1.3）。
+6. 阻塞已解除：`000013` 原始脚本使用保留字 `offset` 导致迁移失败，已修复为 `checkpoint_offset` 并重新演练通过。
+7. 已完成：任务 1.2 二次复核通过（`schema_migrations=15`、`dirty=false`、关键表存在），证据已归档。
+8. 已完成：任务 1.3 核心服务健康检查复跑通过；使用 `.env.mirrors` 的 `GOPROXY=https://goproxy.cn,direct` 完成镜像构建，并通过无端口发布容器验证 `control-plane/api-service/query-api/audit-api/export-api` 的 `/healthz` 均返回 `200`。
+
+证据链接（代码）：
+1. `scripts/db-migrate.sh`
+2. `scripts/check-migration-single-source.sh`
+3. `.github/workflows/db-migration-guard.yml`
+4. `Makefile`（`db-migrate-*` 目标）
+5. `docs/runbooks/rollback-playbook.md`
+6. `docs/NexusLog/process/evidence/task-1.2-migration-up-20260228.log`（首次执行，发现阻塞）
+7. `docs/NexusLog/process/evidence/task-1.2-migration-up-remediation-20260228.log`（修复后通过）
+8. `storage/postgresql/migrations/000013_mvp_ingest_pull_and_incremental_package.up.sql`（阻塞修复）
+9. `docs/NexusLog/process/evidence/task-1.2-migration-up-recheck-20260228.log`（二次复核通过）
+10. `docs/NexusLog/process/evidence/task-1.3-migration-down-rollback-20260228.log`（回滚演练、恢复与健康检查日志）
+
+关联差异：`GAP-015`
+
+#### 任务 2（R2）：实现认证最小闭环 API
+
+责任角色：BE  
+目标周次：Week1~Week2
+
+- [ ] 2.1 实现 `POST /api/v1/auth/register`
+- [ ] 2.2 实现 `POST /api/v1/auth/login`
+- [ ] 2.3 实现 `POST /api/v1/auth/refresh`
+- [ ] 2.4 实现 `POST /api/v1/auth/logout`
+- [ ] 2.5 实现 `POST /api/v1/auth/password/reset-request`
+- [ ] 2.6 实现 `POST /api/v1/auth/password/reset-confirm`
+- [ ] 2.7 统一认证接口响应结构与错误码
+- [ ] 2.8 写入并验证 `user_sessions/password_reset_tokens/login_attempts`
+
+验收标准（DoD）：
+1. 六个接口都可被网关路由并返回统一响应结构。
+2. 登录成功写 `user_sessions`，失败写 `login_attempts`。
+3. refresh 能续期并使旧 token 生命周期符合策略。
+4. logout 后令牌失效，受保护接口不再可访问。
+5. reset token 过期与无效场景返回稳定错误码。
+
+验收证据：
+1. 接口测试报告（成功/失败场景）。
+2. 数据库核验 SQL 结果（会话、重置、登录尝试）。
+3. 错误码对照表与示例响应。
+
+关联差异：`GAP-001`, `GAP-008`
+
+#### 任务 3（R2）：改造前端认证主路径
+
+责任角色：FE  
+目标周次：Week1~Week2
+
+- [ ] 3.1 `LoginForm` 从本地模拟状态改为真实 API 调用
+- [ ] 3.2 `Register` 页面改为真实注册调用并处理错误提示
+- [ ] 3.3 `ProtectedRoute` 增加 token 检查、过期跳转与清理逻辑
+- [ ] 3.4 `/forgot-password` 页面调用 reset-request/reset-confirm
+- [ ] 3.5 去除主路径中的 mock 登录分支（仅保留应急开关）
+
+验收标准（DoD）：
+1. 主链路 `/login -> /` 可在真实接口下成功完成。
+2. token 过期后访问受保护页会自动跳回登录页。
+3. 忘记密码流程可完成，过期 token 场景有可读错误提示。
+
+验收证据：
+1. 前端 E2E 用例结果与录屏。
+2. 浏览器网络请求日志（真实 API 路径）。
+3. 前端异常提示截图（失败场景）。
+
+关联差异：`GAP-001`
+
+#### 任务 4（R3）：修正网关路由与白名单一致性
+
+责任角色：BE + DevOps  
+目标周次：Week1~Week2
+
+- [ ] 4.1 配置 `/api/v1/query/* -> query-api:8082`
+- [ ] 4.2 配置 `/api/v1/audit/* -> audit-api:8083`
+- [ ] 4.3 配置 `/api/v1/export/* -> export-api:8084`
+- [ ] 4.4 保持 `/api/v1/auth/*`、`/api/v1/bff/*` 正常转发
+- [ ] 4.5 将白名单从 `forgot-password` 迁移为 `password/reset-request|reset-confirm`
+- [ ] 4.6 统一鉴权失败错误体（401/403）
+
+验收标准（DoD）：
+1. 五类业务前缀可正确到达目标服务，不出现 502 误路由。
+2. reset 新路径可匿名访问，非白名单接口仍被鉴权保护。
+3. 网关错误码与错误体在各服务场景下保持一致。
+
+验收证据：
+1. 网关配置 diff。
+2. 路由冒烟测试记录。
+3. 401/403 示例响应与 `request_id` 追踪样例。
+
+关联差异：`GAP-002`, `GAP-011`, `GAP-012`
+
+#### 任务 5（R8）：M1 测试与发布门禁
+
+责任角色：QA + DevOps  
+目标周次：Week2
+
+- [ ] 5.1 完成认证链路自动化测试（成功/失败）
+- [ ] 5.2 完成网关路由与鉴权冒烟测试
+- [ ] 5.3 完成 M1 发布前回滚演练（服务与配置）
+- [ ] 5.4 发布后观察 30 分钟并记录关键指标
+
+验收标准（DoD）：
+1. M1 所有 P0 测试通过率达到 100%。
+2. 发布后无 P0/P1 新阻塞缺陷。
+3. 回滚脚本可在非生产环境一次成功执行。
+
+验收证据：
+1. 自动化测试报告。
+2. 发布观察报告（错误率、延迟、登录成功率）。
+3. 回滚演练记录。
+
+关联差异：`GAP-016`
 
 ### M2：接入与可追溯闭环（Week3~Week4）
 
-- [ ] 6. 实现接入控制面接口（R4）
-  - [ ] 6.1 `control-plane` 实现 `pull-sources` 管理接口
-  - [ ] 6.2 实现 `pull-tasks/run` 与 `pull-tasks` 状态查询
-  - [ ] 6.3 实现 `packages`、`receipts`、`dead-letters/replay` 接口
-  - 关联差异：GAP-009
+#### 任务 6（R4）：实现接入控制面接口
 
-- [ ] 7. 实现 Agent 主路径能力（R4）
-  - [ ] 7.1 完成文件增量读取逻辑（替换 TODO）
-  - [ ] 7.2 完成 syslog listener（UDP/TCP）
-  - [ ] 7.3 完成 Kafka 真发送主路径（替换模拟发送）
-  - [ ] 7.4 验证重试与缓存重放
-  - 关联差异：GAP-018
+责任角色：BE  
+目标周次：Week3~Week4
 
-- [ ] 8. 完成接入链路落库与幂等（R4）
-  - [ ] 8.1 打通 `ingest_pull_sources/ingest_pull_tasks`
-  - [ ] 8.2 打通 `agent_incremental_packages/agent_package_files`
-  - [ ] 8.3 打通 `ingest_delivery_receipts/ingest_file_checkpoints/ingest_dead_letters`
-  - [ ] 8.4 验证 `package_no + checksum` 幂等约束
-  - 关联差异：GAP-018
+- [ ] 6.1 实现 `GET/POST/PUT /api/v1/ingest/pull-sources`
+- [ ] 6.2 实现 `POST /api/v1/ingest/pull-tasks/run`
+- [ ] 6.3 实现 `GET /api/v1/ingest/pull-tasks`
+- [ ] 6.4 实现 `GET /api/v1/ingest/packages`
+- [ ] 6.5 实现 `POST /api/v1/ingest/receipts`
+- [ ] 6.6 实现 `POST /api/v1/ingest/dead-letters/replay`
+- [ ] 6.7 对齐请求字段、分页与错误码（按 `12` 文档）
 
-- [ ] 9. 健康检测目标动态化（R8）
-  - [ ] 9.1 `health-worker` 从配置中心或数据库读取目标列表
-  - [ ] 9.2 实现动态刷新与失败兜底
-  - 关联差异：GAP-017
+验收标准（DoD）：
+1. 接口路径、方法、字段与接口设计文档一致。
+2. 拉取任务状态机可从 `pending -> running -> success|failed|canceled` 正常流转。
+3. 回执接口可正确区分 ACK/NACK 并触发后续处理。
 
-- [ ] 10. M2 测试与发布门禁（R8）
-  - [ ] 10.1 拉取任务成功/失败/重试测试
-  - [ ] 10.2 ACK/NACK、死信重放测试
-  - [ ] 10.3 At-least-once 场景验证与链路追踪报告
-  - 关联差异：GAP-016, GAP-018
+验收证据：
+1. 接口自动化测试（含参数校验失败场景）。
+2. 状态流转日志与数据库记录。
+3. OpenAPI 或契约文档更新记录。
+
+关联差异：`GAP-009`
+
+#### 任务 7（R4）：实现 Agent 主路径能力
+
+责任角色：BE  
+目标周次：Week4
+
+- [ ] 7.1 完成文件增量读取（checkpoint 增量扫描）
+- [ ] 7.2 完成 syslog listener（UDP/TCP）
+- [ ] 7.3 完成 Kafka 真发送主路径（替换模拟发送）
+- [ ] 7.4 验证缓存重放与重试退避策略
+- [ ] 7.5 清理主路径 TODO 标记并补最小注释
+
+验收标准（DoD）：
+1. Agent 重启后可从 checkpoint 继续，不重复全量读取。
+2. syslog 输入可进入统一处理 pipeline。
+3. Kafka 发送失败时可重试，达到阈值后进入死信路径。
+
+验收证据：
+1. Agent 集成测试报告。
+2. Kafka topic 到达统计。
+3. 重试与死信日志样例。
+
+关联差异：`GAP-018`
+
+#### 任务 8（R4）：完成接入链路落库与幂等
+
+责任角色：BE + DBA  
+目标周次：Week4
+
+- [ ] 8.1 打通 `ingest_pull_sources/ingest_pull_tasks` 落库
+- [ ] 8.2 打通 `agent_incremental_packages/agent_package_files` 落库
+- [ ] 8.3 打通 `ingest_delivery_receipts/ingest_file_checkpoints/ingest_dead_letters` 落库
+- [ ] 8.4 实施并验证 `package_no + checksum` 幂等规则
+- [ ] 8.5 增加链路追踪字段（如 request_id/task_id/package_id）
+
+验收标准（DoD）：
+1. 包、文件、回执、checkpoint、死信之间可按 ID 全链路追踪。
+2. 重复包提交不会产生重复有效处理记录。
+3. NACK 场景可进入死信并支持 replay 后转为成功。
+
+验收证据：
+1. 全链路 SQL 校验脚本输出。
+2. 幂等测试报告（重复提交场景）。
+3. 死信重放成功样例。
+
+关联差异：`GAP-018`
+
+#### 任务 9（R8）：健康检测目标动态化
+
+责任角色：BE  
+目标周次：Week4
+
+- [ ] 9.1 `health-worker` 支持从配置中心或数据库读取目标列表
+- [ ] 9.2 支持定时刷新目标，不重启进程即可生效
+- [ ] 9.3 增加失败兜底策略（读取失败时保留上一版本）
+- [ ] 9.4 增加最小监控指标（目标数、成功率、失败数）
+
+验收标准（DoD）：
+1. `getTargets()` 不再返回固定空集合。
+2. 新增目标可在刷新周期内被 worker 识别并执行。
+3. 配置读取失败不会导致 worker 全量停摆。
+
+验收证据：
+1. 配置刷新日志。
+2. 目标新增前后执行对比。
+3. 失败兜底场景测试记录。
+
+关联差异：`GAP-017`
+
+#### 任务 10（R8）：M2 测试与发布门禁
+
+责任角色：QA + DevOps  
+目标周次：Week4
+
+- [ ] 10.1 拉取任务成功/失败/重试测试
+- [ ] 10.2 ACK/NACK/死信重放测试
+- [ ] 10.3 at-least-once 语义验证
+- [ ] 10.4 发布前后性能与积压观察（Kafka、任务队列）
+
+验收标准（DoD）：
+1. M2 主链路用例全部通过，失败路径可复现并可补偿。
+2. 无静默丢数场景。
+3. 发布后核心指标无异常飙升。
+
+验收证据：
+1. 测试报告与失败复盘单。
+2. 消息积压与重试指标截图。
+3. 发布观察与回滚预案记录。
+
+关联差异：`GAP-016`, `GAP-018`
 
 ### M3：检索与治理闭环（Week5~Week6）
 
-- [ ] 11. 实现 query-api 真实检索接口（R5）
-  - [ ] 11.1 实现 `POST /api/v1/query/logs`
-  - [ ] 11.2 实现 `GET/DELETE /api/v1/query/history`
-  - [ ] 11.3 实现 `GET/POST/PUT/DELETE /api/v1/query/saved`
-  - 关联差异：GAP-005, GAP-006, GAP-010
+#### 任务 11（R5）：实现 query-api 真实检索接口
 
-- [ ] 12. 完成前端检索模块去 Mock（R5）
-  - [ ] 12.1 `/search/realtime` 去 `MOCK_*` 主路径
-  - [ ] 12.2 `/search/history` 接真实接口
-  - [ ] 12.3 `/search/saved` 接真实接口
-  - 关联差异：GAP-005, GAP-006
+责任角色：BE  
+目标周次：Week5
 
-- [ ] 13. 统一检索接口命名并修正文档（R5/R9）
-  - [ ] 13.1 统一采用 `/api/v1/query/*`
-  - [ ] 13.2 同步更新 `04/05/06/07/08/09/10` 文档
-  - 关联差异：GAP-003
+- [ ] 11.1 实现 `POST /api/v1/query/logs`
+- [ ] 11.2 实现 `GET /api/v1/query/history`
+- [ ] 11.3 实现 `DELETE /api/v1/query/history/{history_id}`
+- [ ] 11.4 实现 `GET/POST/PUT/DELETE /api/v1/query/saved`
+- [ ] 11.5 实现分页、排序、过滤与超时错误码映射
+- [ ] 11.6 写入 `query_histories/saved_queries/saved_query_tags`
 
-- [ ] 14. 实现治理最小闭环 API（R6）
-  - [ ] 14.1 `audit-api` 实现 `GET /api/v1/audit/logs`
-  - [ ] 14.2 `api-service` 实现 `alerts/rules` CRUD
-  - [ ] 14.3 `api-service` 实现 `security/users`、`security/roles` 管理接口
-  - 关联差异：GAP-007, GAP-010
+验收标准（DoD）：
+1. 检索接口支持分页与条件过滤，响应结构与约定一致。
+2. 历史与收藏 CRUD 可完整运行，删除接口路径参数风格统一。
+3. ES 超时场景返回稳定错误码，不暴露内部异常。
 
-- [ ] 15. 完成前端治理模块接入（R6）
-  - [ ] 15.1 `/security/audit` 对接审计查询
-  - [ ] 15.2 `/alerts/rules` 对接规则 CRUD
-  - [ ] 15.3 `/security/users`、`/security/roles` 对接真实接口
-  - 关联差异：GAP-007
+验收证据：
+1. 接口测试报告（成功/失败/超时）。
+2. 元数据表写入校验。
+3. 错误码映射清单。
 
-- [ ] 16. Dashboard 聚合能力对齐（R6/R9）
-  - [ ] 16.1 以 `bff/overview` 为主接入 Dashboard
-  - [ ] 16.2 明确是否保留 `/api/v1/dashboard/overview` 命名并统一文档
-  - 关联差异：GAP-004
+关联差异：`GAP-005`, `GAP-006`, `GAP-010`
 
-- [ ] 17. M3 测试与发布门禁（R8）
-  - [ ] 17.1 检索链路：成功/超时/鉴权失败测试
-  - [ ] 17.2 治理链路：用户角色、告警规则、审计查询测试
-  - [ ] 17.3 端到端：`/login -> / -> /search/realtime` + `/security/*` + `/alerts/rules`
-  - 关联差异：GAP-016
+#### 任务 12（R5）：完成前端检索模块去 Mock
 
-## 4. 文档与治理任务（跨里程碑）
+责任角色：FE  
+目标周次：Week5
 
-- [ ] 18. 修正 README 与本地运行事实一致性（R9）
-  - [ ] 18.1 明确 gateway 在本地 compose 的运行模式说明
-  - [ ] 18.2 修正 frontend `src/services/hooks/utils` 结构描述偏差
-  - 关联差异：GAP-013, GAP-014
+- [ ] 12.1 `/search/realtime` 去除 `MOCK_*` 主路径
+- [ ] 12.2 `/search/history` 对接真实历史接口
+- [ ] 12.3 `/search/saved` 对接真实收藏接口
+- [ ] 12.4 补全空态、错误态、超时态展示
+- [ ] 12.5 增加分页、筛选、刷新交互校验
 
-- [ ] 19. 每周更新差异状态与证据（R9）
-  - [ ] 19.1 更新 `07` 中 `GAP-001~018` 的 `open/in-progress/closed`
-  - [ ] 19.2 补充 PR、测试报告、监控截图链接
-  - [ ] 19.3 未关闭 P0 项时阻断里程碑“完成”标记
-  - 关联差异：GAP-001~GAP-018
+验收标准（DoD）：
+1. 三个检索页面主路径均不依赖本地 mock 数据。
+2. 错误与空态可读，且不出现页面卡死或白屏。
+3. 查询参数变更会触发正确请求并更新结果。
 
-## 5. 验收清单（里程碑级）
+验收证据：
+1. 前端 E2E 测试结果。
+2. 浏览器网络请求记录。
+3. 页面回归截图/录屏。
 
-- [ ] 20. M1 验收
-  - [ ] 20.1 认证全流程可用
-  - [ ] 20.2 网关鉴权与路由一致
-  - [ ] 20.3 迁移单入口且可回滚演练
+关联差异：`GAP-005`, `GAP-006`
 
-- [ ] 21. M2 验收
-  - [ ] 21.1 主动拉取链路可用
-  - [ ] 21.2 增量包 + ACK/NACK + 死信重放可用
-  - [ ] 21.3 接入链路可追溯且满足 at-least-once
+#### 任务 13（R5/R9）：统一检索接口命名并修正文档
 
-- [ ] 22. M3 验收
-  - [ ] 22.1 检索闭环可用且前端去 mock
-  - [ ] 22.2 审计/告警/用户角色闭环可用
-  - [ ] 22.3 关键 P0 差异项全部关闭
+责任角色：BE + FE + Docs  
+目标周次：Week5
 
-## 6. 执行规则
+- [ ] 13.1 统一命名为 `/api/v1/query/*`
+- [ ] 13.2 清理 `/api/v1/search/*` 等历史命名引用
+- [ ] 13.3 同步更新 `04/05/06/07/08/09/10/11/12/13` 文档
+- [ ] 13.4 形成命名冻结记录，避免重复分叉
 
-1. 任何任务标记 `[x]` 前必须附证据（PR、测试、监控、回滚演练）。
-2. 发布任务必须包含回滚动作和触发条件。
-3. 接口与数据表变更必须同步更新 `08/09/10` 文档基线。
+验收标准（DoD）：
+1. 核心文档中检索前缀不再出现冲突命名。
+2. 前后端代码调用路径一致。
+3. 联调环境不再依赖路径兼容分支。
+
+验收证据：
+1. 文档 diff 列表。
+2. 全仓路径扫描结果（命名一致性）。
+3. 联调记录。
+
+关联差异：`GAP-003`
+
+#### 任务 14（R6）：实现治理最小闭环 API
+
+责任角色：BE  
+目标周次：Week6
+
+- [ ] 14.1 `audit-api` 实现 `GET /api/v1/audit/logs`
+- [ ] 14.2 `api-service` 实现 `GET/POST/PUT/DELETE /api/v1/alerts/rules`
+- [ ] 14.3 `api-service` 实现 `GET/POST/PUT /api/v1/security/users`
+- [ ] 14.4 `api-service` 实现 `GET/POST/PUT /api/v1/security/roles`
+- [ ] 14.5 增加管理接口 RBAC 校验与审计记录
+
+验收标准（DoD）：
+1. 审计查询支持用户、资源、时间范围过滤与分页。
+2. 告警规则与用户角色管理接口可稳定 CRUD。
+3. 无权限访问返回统一 403 错误码。
+
+验收证据：
+1. 接口测试报告（含鉴权失败场景）。
+2. `audit_logs/alert_rules/users/roles/user_roles` 表核验。
+3. 审计记录样例。
+
+关联差异：`GAP-007`, `GAP-010`
+
+#### 任务 15（R6）：完成前端治理模块接入
+
+责任角色：FE  
+目标周次：Week6
+
+- [ ] 15.1 `/security/audit` 对接审计查询接口
+- [ ] 15.2 `/alerts/rules` 对接规则 CRUD 接口
+- [ ] 15.3 `/security/users`、`/security/roles` 对接真实接口
+- [ ] 15.4 实现权限不足提示与按钮级禁用
+- [ ] 15.5 完成治理页面最小回归
+
+验收标准（DoD）：
+1. 治理页面均可在真实接口下完成主流程操作。
+2. 权限不足用户无法执行写操作且提示明确。
+3. 页面刷新后数据与后端保持一致。
+
+验收证据：
+1. 页面联调录屏。
+2. E2E 用例结果。
+3. 权限场景测试截图。
+
+关联差异：`GAP-007`
+
+#### 任务 16（R6/R9）：Dashboard 聚合能力对齐
+
+责任角色：BE + FE  
+目标周次：Week6
+
+- [ ] 16.1 统一 Dashboard 使用 `GET /api/v1/bff/overview`
+- [ ] 16.2 补齐聚合字段：服务可用性、告警概览、接入状态、查询概览
+- [ ] 16.3 明确 `/api/v1/dashboard/overview` 是否保留（若保留需仅作兼容）
+- [ ] 16.4 同步文档中的 Dashboard API 命名
+
+验收标准（DoD）：
+1. Dashboard 不再依赖随机数据或常量假数据。
+2. BFF 返回字段满足页面渲染，不再额外拼接 mock。
+3. 命名策略在文档与代码中保持一致。
+
+验收证据：
+1. BFF 响应结构对比。
+2. 页面请求日志与渲染截图。
+3. 文档更新记录。
+
+关联差异：`GAP-004`
+
+#### 任务 17（R8）：M3 测试与发布门禁
+
+责任角色：QA + DevOps  
+目标周次：Week6
+
+- [ ] 17.1 检索链路测试：成功/超时/鉴权失败
+- [ ] 17.2 治理链路测试：用户角色、告警规则、审计查询
+- [ ] 17.3 E2E 主路径：`/login -> / -> /search/realtime`
+- [ ] 17.4 E2E 治理路径：`/security/*` 与 `/alerts/rules`
+- [ ] 17.5 发布后观察与缺陷分级
+
+验收标准（DoD）：
+1. M3 主链路测试全部通过。
+2. 检索与治理场景均有至少 1 条失败用例覆盖。
+3. 发布后无新增 P0 差异项。
+
+验收证据：
+1. 测试报告与缺陷关闭记录。
+2. 发布观察报告。
+3. 回滚演练记录（如触发）。
+
+关联差异：`GAP-016`
+
+### 跨里程碑治理任务（Week1~Week6）
+
+#### 任务 18（R9）：修正 README 与本地运行事实一致性
+
+责任角色：Docs + DevOps + FE  
+目标周次：Week1~Week2
+
+- [ ] 18.1 说明本地 compose 的 gateway 运行模式与联调入口
+- [ ] 18.2 修正前端目录结构描述偏差
+- [ ] 18.3 校对 README、process 索引与当前文档链接有效性
+
+验收标准（DoD）：
+1. 新成员可按 README 完成本地启动与联调。
+2. README 中目录树与仓库实际结构一致。
+3. 索引链接无失效路径。
+
+验收证据：
+1. README diff。
+2. 本地启动验证记录。
+3. 链接检查结果。
+
+关联差异：`GAP-013`, `GAP-014`
+
+#### 任务 19（R9）：每周更新差异状态与证据
+
+责任角色：PM + QA + 各模块负责人  
+目标周次：Week1~Week6（每周固定）
+
+- [ ] 19.1 更新 `07` 中 `GAP-001~018` 状态
+- [ ] 19.2 维护证据链接（PR、测试报告、监控截图）
+- [ ] 19.3 对未关闭 P0 项给出阻塞原因与解法
+- [ ] 19.4 周会输出“关闭项/遗留项/顺延项”清单
+
+验收标准（DoD）：
+1. 每周都有一次状态快照与证据更新。
+2. 所有标记 `closed` 的 GAP 都有可追踪证据。
+3. 未关闭 P0 项不会被误标为里程碑完成。
+
+验收证据：
+1. 周报记录。
+2. GAP 更新提交记录。
+3. 风险与顺延说明。
+
+关联差异：`GAP-001~GAP-018`
+
+## 4. 里程碑级验收任务（任务 20~22）
+
+#### 任务 20：M1 验收
+
+- [ ] 20.1 认证全流程可用（注册/登录/refresh/logout/reset）
+- [ ] 20.2 网关鉴权与路由一致（无路径分叉）
+- [ ] 20.3 迁移单入口且完成回滚演练
+
+M1 验收标准：
+1. 认证接口与前端主路径联调通过。
+2. 网关前缀和 upstream 与 compose 一致。
+3. `000012/000015` 演练完成且可回退。
+
+#### 任务 21：M2 验收
+
+- [ ] 21.1 主动拉取链路可用（配置 -> 任务 -> 状态）
+- [ ] 21.2 增量包 + ACK/NACK + 死信重放可用
+- [ ] 21.3 链路可追溯且满足 at-least-once
+
+M2 验收标准：
+1. 接入控制接口可操作并稳定返回。
+2. 失败场景可补偿，无静默丢失。
+3. 数据表可完整追踪包与任务状态。
+
+#### 任务 22：M3 验收
+
+- [ ] 22.1 检索闭环可用且前端去 mock
+- [ ] 22.2 审计/告警/用户角色闭环可用
+- [ ] 22.3 关键 P0 差异项全部关闭
+
+M3 验收标准：
+1. 检索、治理主路径具备 E2E 通过证据。
+2. 关键管理接口具备鉴权与审计证据。
+3. `GAP` 中所有 P0 项状态为 `closed`。
+
+## 5. 统一执行规则
+
+1. 任一任务标记 `[x]` 前必须附证据链接。
+2. 任一发布任务必须包含回滚动作与触发条件。
+3. 接口与数据表变更必须同步更新 `08/09/10/11/12/13`。
+4. 每周必须完成一次“测试门禁 + 回滚检查 + GAP 更新”。
+
+## 6. 每周更新模板（复制即用）
+
+```md
+### WeekX 任务更新
+- 已完成任务：1, 2, 4
+- 进行中任务：3, 5
+- 阻塞任务：9（阻塞原因：...）
+- 本周验收结论：通过/不通过
+- 风险与顺延：...
+- 证据链接：
+  - 任务1：<PR/日志/截图>
+  - 任务2：<测试报告>
+```
 
 ## 7. 版本记录
 
-- `v1.0`（2026-02-28）：首次生成当前项目适配任务基线，映射 M1~M3 与 GAP 闭环。
-
+- `v1.1`（2026-02-28）：细化任务到执行动作与 DoD，补充每项验收证据要求。
+- `v1.0`（2026-02-28）：首次生成任务基线，映射 M1~M3 与 GAP 闭环。
