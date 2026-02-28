@@ -84,10 +84,17 @@ kubectl rollout undo deployment/api-service -n nexuslog-services
 ### PostgreSQL Schema 回滚
 
 ```bash
-# 使用 migrate 工具回滚
-migrate -path ./storage/postgresql/migrations \
-  -database "postgres://$PG_HOST/nexuslog" down 1
+# 统一入口（推荐）：通过 Makefile 调用 scripts/db-migrate.sh
+export DB_DSN="postgres://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/nexuslog?sslmode=disable"
+make db-migrate-down STEPS=1
+
+# 或直接调用脚本入口
+scripts/db-migrate.sh down 1
 ```
+
+说明：
+- 运行时唯一迁移目录：`storage/postgresql/migrations`
+- 统一迁移命令入口：`scripts/db-migrate.sh`（请勿在仓库内散落原始 `migrate -path ...` 命令）
 
 ### Elasticsearch 索引回滚
 

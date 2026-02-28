@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS ingest_file_checkpoints (
     source_ref VARCHAR(512) NOT NULL,
     file_path TEXT NOT NULL,
     file_inode BIGINT,
-    offset BIGINT NOT NULL DEFAULT 0 CHECK (offset >= 0),
+    checkpoint_offset BIGINT NOT NULL DEFAULT 0 CHECK (checkpoint_offset >= 0),
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (agent_id, source_ref, file_path)

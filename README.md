@@ -461,6 +461,30 @@ make clean                               # 清理构建产物
 make help                                # 查看所有可用命令
 ```
 
+### 数据库迁移（单一入口）
+
+运行时迁移唯一目录：`storage/postgresql/migrations`  
+统一执行入口：`make db-migrate-*`（底层调用 `scripts/db-migrate.sh`）
+
+```bash
+# 设置数据库连接（优先 DB_DSN，兼容 DATABASE_URL）
+export DB_DSN="postgres://nexuslog:nexuslog_dev@localhost:5432/nexuslog?sslmode=disable"
+
+# 查看当前迁移版本
+make db-migrate-version
+
+# 执行迁移
+make db-migrate-up
+
+# 回滚 1 个版本
+make db-migrate-down STEPS=1
+
+# 创建新迁移（只会生成到 storage/postgresql/migrations）
+make db-migrate-create NAME=add_xxx
+```
+
+说明：`docs/NexusLog/database/sql` 下文件属于设计/历史参考，不作为运行时迁移入口。
+
 ### 前端开发
 
 ```bash

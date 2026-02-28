@@ -142,6 +142,7 @@
 1. 单一执行入口：`storage/postgresql/migrations`
 2. 优先复用：`000012~000015`
 3. 可选扩展：`000016_alert_rule_versions`（容量不足可顺延 P1）
+4. 统一执行命令：`make db-migrate-*`（底层脚本：`scripts/db-migrate.sh`）
 
 ## 9. 组织与协作机制
 
