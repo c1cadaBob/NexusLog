@@ -1,0 +1,631 @@
+[2026-03-02T00:19:01+08:00] task 2.10 make command validation start
+
+== make dev-up ==
+🔥 启动 dev 热更新环境...
+ kafka-init Skipped - Image is already being pulled by kafka 
+ control-plane Skipped - Image is already being pulled by audit-api 
+ export-api Skipped - Image is already being pulled by audit-api 
+ collector-agent Skipped - Image is already being pulled by audit-api 
+ kafka Pulling 
+ health-worker Skipped - Image is already being pulled by audit-api 
+ api-service Skipped - Image is already being pulled by audit-api 
+ query-api Skipped - Image is already being pulled by audit-api 
+ bff-service Skipped - Image is already being pulled by frontend-console 
+ frontend-console Pulling 
+ audit-api Pulling 
+ zookeeper Pulling 
+ elasticsearch Pulling 
+ postgres Pulling 
+ redis Pulling 
+ kafka Pulled 
+ audit-api Pulled 
+ redis Pulled 
+ postgres Pulled 
+ zookeeper Pulled 
+ elasticsearch Pulled 
+ frontend-console Pulled 
+ Container nexuslog-redis-1  Running
+ Container nexuslog-health-worker-1  Creating
+ Container nexuslog-zookeeper-1  Creating
+ Container nexuslog-elasticsearch-1  Running
+ Container nexuslog-postgres-1  Running
+ Container nexuslog-query-api-1  Running
+ Container nexuslog-audit-api-1  Running
+ Container nexuslog-export-api-1  Running
+ Container nexuslog-api-service-1  Running
+ Container nexuslog-control-plane-1  Running
+ Container nexuslog-bff-service-1  Running
+ Container nexuslog-frontend-console-1  Creating
+ Container nexuslog-health-worker-1  Created
+ Container nexuslog-zookeeper-1  Created
+ Container nexuslog-kafka-1  Creating
+ Container nexuslog-frontend-console-1  Created
+ Container nexuslog-kafka-1  Created
+ Container nexuslog-kafka-init-1  Creating
+ Container nexuslog-collector-agent-1  Creating
+ Container nexuslog-collector-agent-1  Created
+ Container nexuslog-kafka-init-1  Created
+ Container nexuslog-zookeeper-1  Starting
+ Container nexuslog-elasticsearch-1  Waiting
+ Container nexuslog-postgres-1  Waiting
+ Container nexuslog-postgres-1  Waiting
+ Container nexuslog-postgres-1  Waiting
+ Container nexuslog-postgres-1  Waiting
+ Container nexuslog-redis-1  Waiting
+ Container nexuslog-elasticsearch-1  Waiting
+ Container nexuslog-elasticsearch-1  Waiting
+ Container nexuslog-postgres-1  Waiting
+ Container nexuslog-redis-1  Waiting
+ Container nexuslog-redis-1  Waiting
+ Container nexuslog-zookeeper-1  Started
+ Container nexuslog-zookeeper-1  Waiting
+ Container nexuslog-postgres-1  Healthy
+ Container nexuslog-postgres-1  Healthy
+ Container nexuslog-elasticsearch-1  Healthy
+ Container nexuslog-postgres-1  Healthy
+ Container nexuslog-postgres-1  Healthy
+ Container nexuslog-redis-1  Healthy
+ Container nexuslog-health-worker-1  Starting
+ Container nexuslog-redis-1  Healthy
+ Container nexuslog-elasticsearch-1  Healthy
+ Container nexuslog-redis-1  Healthy
+ Container nexuslog-elasticsearch-1  Healthy
+ Container nexuslog-postgres-1  Healthy
+ Container nexuslog-frontend-console-1  Starting
+ Container nexuslog-health-worker-1  Started
+ Container nexuslog-frontend-console-1  Started
+ Container nexuslog-zookeeper-1  Healthy
+ Container nexuslog-kafka-1  Starting
+ Container nexuslog-kafka-1  Started
+ Container nexuslog-kafka-1  Waiting
+ Container nexuslog-kafka-1  Waiting
+ Container nexuslog-kafka-1  Healthy
+ Container nexuslog-kafka-init-1  Starting
+ Container nexuslog-kafka-1  Healthy
+ Container nexuslog-collector-agent-1  Starting
+ Container nexuslog-kafka-init-1  Started
+ Container nexuslog-collector-agent-1  Started
+✅ dev 环境已启动
+exit_code(make dev-up)=0
+
+== timeout 20s make dev-logs ==
+📜 查看 dev 热更新日志...
+api-service-1       | 
+control-plane-1     | 
+control-plane-1     |   __    _   ___  
+api-service-1       |   __    _   ___  
+api-service-1       |  / /\  | | | |_) 
+api-service-1       | /_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+api-service-1       | 
+api-service-1       | watching .
+api-service-1       | watching api
+api-service-1       | watching api/openapi
+api-service-1       | watching cmd
+export-api-1        | 
+export-api-1        |   __    _   ___  
+api-service-1       | watching cmd/api
+api-service-1       | watching configs
+api-service-1       | watching internal
+api-service-1       | watching internal/config
+api-service-1       | watching internal/handler
+api-service-1       | watching internal/httpx
+api-service-1       | watching internal/model
+api-service-1       | watching internal/repository
+api-service-1       | watching internal/service
+api-service-1       | watching tests
+api-service-1       | watching tests/sql
+api-service-1       | !exclude tmp
+api-service-1       | building...
+api-service-1       | running...
+api-service-1       | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+api-service-1       | 
+api-service-1       | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+api-service-1       |  - using env:	export GIN_MODE=release
+api-service-1       |  - using code:	gin.SetMode(gin.ReleaseMode)
+health-worker-1     | 
+export-api-1        |  / /\  | | | |_) 
+export-api-1        | /_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+export-api-1        | 
+export-api-1        | watching .
+export-api-1        | watching cmd
+export-api-1        | watching cmd/api
+export-api-1        | watching configs
+export-api-1        | watching internal
+export-api-1        | watching internal/handler
+export-api-1        | watching internal/repository
+export-api-1        | watching internal/service
+export-api-1        | watching tests
+export-api-1        | !exclude tmp
+export-api-1        | building...
+export-api-1        | running...
+export-api-1        | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+export-api-1        | 
+export-api-1        | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+export-api-1        |  - using env:	export GIN_MODE=release
+export-api-1        |  - using code:	gin.SetMode(gin.ReleaseMode)
+export-api-1        | 
+export-api-1        | [GIN-debug] GET    /healthz                  --> github.com/nexuslog/data-services/shared/server.Run.HealthHandler.func2 (4 handlers)
+export-api-1        | [GIN-debug] GET    /readyz                   --> github.com/nexuslog/data-services/shared/server.Run.ReadyHandler.func3 (4 handlers)
+export-api-1        | [GIN-debug] POST   /api/v1/export/jobs       --> main.main.func1.1 (4 handlers)
+export-api-1        | 2026/03/01 16:11:07 [export-api] HTTP 服务监听端口 :8084
+frontend-console-1  | ! Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-9.15.0.tgz
+frontend-console-1  | Scope: all 3 workspace projects
+frontend-console-1  | [?25l[36m?[39m [1mThe modules directories will be removed and reinstalled from scratch. Proceed?[22m [2m(Y/n)[22m [2m‣[22m [36mtrue[39m[4D
+frontend-console-1  |    ╭───────────────────────────────────────────────────────────────────╮
+frontend-console-1  |    │                                                                   │
+frontend-console-1  |    │                Update available! 9.15.0 → 10.30.3.                │
+frontend-console-1  |    │   Changelog: https://github.com/pnpm/pnpm/releases/tag/v10.30.3   │
+frontend-console-1  |    │         Run "corepack install -g pnpm@10.30.3" to update.         │
+frontend-console-1  |    │                                                                   │
+frontend-console-1  |    ╰───────────────────────────────────────────────────────────────────╯
+frontend-console-1  | 
+frontend-console-1  | [?25h
+frontend-console-1  | > @nexuslog/frontend-console@0.2.0 dev /workspace/apps/frontend-console
+frontend-console-1  | > vite "--host" "0.0.0.0" "--port" "3000"
+frontend-console-1  | 
+frontend-console-1  | 
+frontend-console-1  |   VITE v6.4.1  ready in 592 ms
+frontend-console-1  | 
+frontend-console-1  |   ➜  Local:   http://localhost:3000/
+frontend-console-1  |   ➜  Network: http://172.29.0.13:3000/
+audit-api-1         | 
+audit-api-1         |   __    _   ___  
+audit-api-1         |  / /\  | | | |_) 
+audit-api-1         | /_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+audit-api-1         | 
+audit-api-1         | watching .
+audit-api-1         | watching cmd
+health-worker-1     |   __    _   ___  
+health-worker-1     |  / /\  | | | |_) 
+health-worker-1     | /_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+health-worker-1     | 
+health-worker-1     | watching .
+health-worker-1     | watching cmd
+health-worker-1     | watching cmd/worker
+health-worker-1     | watching configs
+health-worker-1     | watching internal
+health-worker-1     | watching internal/checker
+health-worker-1     | watching internal/config
+health-worker-1     | watching internal/reporter
+health-worker-1     | watching internal/scheduler
+health-worker-1     | watching tests
+health-worker-1     | !exclude tmp
+health-worker-1     | building...
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+audit-api-1         | watching cmd/api
+audit-api-1         | watching configs
+audit-api-1         | watching internal
+audit-api-1         | watching internal/handler
+audit-api-1         | watching internal/repository
+audit-api-1         | watching internal/service
+audit-api-1         | watching tests
+audit-api-1         | !exclude tmp
+audit-api-1         | building...
+audit-api-1         | running...
+audit-api-1         | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+audit-api-1         | 
+audit-api-1         | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+audit-api-1         |  - using env:	export GIN_MODE=release
+audit-api-1         |  - using code:	gin.SetMode(gin.ReleaseMode)
+audit-api-1         | 
+audit-api-1         | [GIN-debug] GET    /healthz                  --> github.com/nexuslog/data-services/shared/server.Run.HealthHandler.func2 (4 handlers)
+audit-api-1         | [GIN-debug] GET    /readyz                   --> github.com/nexuslog/data-services/shared/server.Run.ReadyHandler.func3 (4 handlers)
+audit-api-1         | [GIN-debug] GET    /api/v1/audit/logs        --> main.main.func1.1 (4 handlers)
+audit-api-1         | 2026/03/01 16:11:07 [audit-api] HTTP 服务监听端口 :8083
+api-service-1       | 
+api-service-1       | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+api-service-1       | [GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+api-service-1       | [GIN-debug] POST   /api/v1/auth/register     --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Register-fm (4 handlers)
+api-service-1       | [GIN-debug] POST   /api/v1/auth/login        --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Login-fm (4 handlers)
+api-service-1       | [GIN-debug] POST   /api/v1/auth/refresh      --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Refresh-fm (4 handlers)
+api-service-1       | [GIN-debug] POST   /api/v1/auth/logout       --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Logout-fm (4 handlers)
+api-service-1       | [GIN-debug] POST   /api/v1/auth/password/reset-request --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetRequest-fm (4 handlers)
+api-service-1       | [GIN-debug] POST   /api/v1/auth/password/reset-confirm --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetConfirm-fm (4 handlers)
+api-service-1       | 2026/03/01 16:11:27 API service listening on :8080
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_15_33_338Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_15_49_526Z-debug-0.log
+bff-service-1       | 
+health-worker-1     | running...
+health-worker-1     | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+health-worker-1     | 
+health-worker-1     | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+health-worker-1     |  - using env:	export GIN_MODE=release
+health-worker-1     |  - using code:	gin.SetMode(gin.ReleaseMode)
+health-worker-1     | 
+health-worker-1     | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+health-worker-1     | [GIN-debug] GET    /readyz                   --> main.main.func2 (4 handlers)
+health-worker-1     | [GIN-debug] GET    /api/v1/health/status     --> main.main.func3 (4 handlers)
+health-worker-1     | 2026/03/01 16:19:11 健康检查调度器已启动，检查间隔: 30s
+health-worker-1     | 2026/03/01 16:19:11 HTTP 服务监听端口 :8081
+query-api-1         | 
+query-api-1         |   __    _   ___  
+query-api-1         |  / /\  | | | |_) 
+query-api-1         | /_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+query-api-1         | 
+query-api-1         | watching .
+query-api-1         | watching cmd
+query-api-1         | watching cmd/api
+query-api-1         | watching configs
+query-api-1         | watching internal
+query-api-1         | watching internal/handler
+query-api-1         | watching internal/repository
+query-api-1         | watching internal/service
+query-api-1         | watching tests
+query-api-1         | !exclude tmp
+query-api-1         | building...
+query-api-1         | running...
+query-api-1         | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+query-api-1         | 
+query-api-1         | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+query-api-1         |  - using env:	export GIN_MODE=release
+query-api-1         |  - using code:	gin.SetMode(gin.ReleaseMode)
+query-api-1         | 
+query-api-1         | [GIN-debug] GET    /healthz                  --> github.com/nexuslog/data-services/shared/server.Run.HealthHandler.func2 (4 handlers)
+query-api-1         | [GIN-debug] GET    /readyz                   --> github.com/nexuslog/data-services/shared/server.Run.ReadyHandler.func3 (4 handlers)
+query-api-1         | [GIN-debug] POST   /api/v1/query/logs        --> main.main.func1.1 (4 handlers)
+query-api-1         | 2026/03/01 16:11:27 [query-api] HTTP 服务监听端口 :8082
+control-plane-1     |  / /\  | | | |_) 
+control-plane-1     | /_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+control-plane-1     | 
+control-plane-1     | watching .
+control-plane-1     | watching api
+control-plane-1     | watching api/openapi
+control-plane-1     | watching api/proto
+control-plane-1     | watching cmd
+control-plane-1     | watching cmd/api
+control-plane-1     | watching configs
+control-plane-1     | watching internal
+control-plane-1     | watching internal/app
+control-plane-1     | watching internal/config
+control-plane-1     | watching internal/domain
+control-plane-1     | watching internal/repository
+control-plane-1     | watching internal/service
+control-plane-1     | watching internal/transport
+control-plane-1     | watching internal/transport/grpc
+control-plane-1     | watching internal/transport/http
+control-plane-1     | watching tests
+control-plane-1     | !exclude tmp
+control-plane-1     | building...
+control-plane-1     | running...
+control-plane-1     | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+control-plane-1     | 
+control-plane-1     | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+control-plane-1     |  - using env:	export GIN_MODE=release
+control-plane-1     |  - using code:	gin.SetMode(gin.ReleaseMode)
+control-plane-1     | 
+control-plane-1     | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+control-plane-1     | [GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+control-plane-1     | 2026/03/01 16:11:27 HTTP server listening on :8080
+control-plane-1     | 2026/03/01 16:11:27 gRPC server listening on :9090
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_16_06_449Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_16_23_816Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_16_40_251Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_17_02_655Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_17_20_430Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_17_37_254Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_17_54_436Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_18_12_031Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_18_29_456Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_18_46_557Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_19_03_330Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_19_18_956Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+collector-agent-1   | 
+collector-agent-1   |   __    _   ___  
+collector-agent-1   |  / /\  | | | |_) 
+collector-agent-1   | /_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+collector-agent-1   | 
+collector-agent-1   | watching .
+collector-agent-1   | watching cmd
+collector-agent-1   | watching cmd/agent
+collector-agent-1   | watching configs
+collector-agent-1   | watching internal
+collector-agent-1   | watching internal/checkpoint
+collector-agent-1   | watching internal/collector
+collector-agent-1   | watching internal/pipeline
+collector-agent-1   | watching internal/retry
+collector-agent-1   | watching plugins
+collector-agent-1   | watching plugins/grpc
+collector-agent-1   | watching plugins/wasm
+collector-agent-1   | watching tests
+collector-agent-1   | !exclude tmp
+collector-agent-1   | building...
+collector-agent-1   | running...
+collector-agent-1   | 2026/03/01 16:19:38 main.go:26: 启动 NexusLog Collector Agent...
+collector-agent-1   | 2026/03/01 16:19:38 main.go:29: 加载配置: /workspace/agents/collector-agent/configs/agent.yaml
+collector-agent-1   | 2026/03/01 16:19:38 main.go:41: Checkpoint 存储已初始化
+collector-agent-1   | 2026/03/01 16:19:38 main.go:50: 插件注册表已初始化
+collector-agent-1   | 2026/03/01 16:19:38 kafka_producer.go:43: Kafka Producer 初始化: brokers=[kafka:9092], topic=nexuslog-raw-logs, compression=snappy
+collector-agent-1   | 2026/03/01 16:19:38 main.go:64: Kafka Producer 已初始化
+collector-agent-1   | 2026/03/01 16:19:38 collector.go:97: 采集器已启动，共 1 个采集源
+collector-agent-1   | 2026/03/01 16:19:38 pipeline.go:80: 管道已启动，4 个 worker
+collector-agent-1   | 2026/03/01 16:19:38 main.go:92: 采集管道已启动
+collector-agent-1   | 2026/03/01 16:19:38 main.go:146: 健康检查 HTTP 服务监听端口 :9091
+bff-service-1       | npm error Cannot read properties of null (reading 'name')
+bff-service-1       | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-01T16_19_35_018Z-debug-0.log
+bff-service-1       | 
+bff-service-1       | > @nexuslog/bff-service@0.1.0 start:dev
+bff-service-1       | > nest start --watch
+bff-service-1       | 
+bff-service-1       | sh: 1: nest: not found
+bff-service-1       | npm error Lifecycle script `start:dev` failed with error:
+bff-service-1       | npm error code 127
+bff-service-1       | npm error path /workspace/apps/bff-service
+bff-service-1       | npm error workspace @nexuslog/bff-service@0.1.0
+bff-service-1       | npm error location /workspace/apps/bff-service
+bff-service-1       | npm error command failed
+bff-service-1       | npm error command sh -c nest start --watch
+[Kbff-service-1 exited with code 0
+canceled
+make: *** [Makefile:131: dev-logs] Terminated
+exit_code(timeout make dev-logs)=124
+
+== make dev-test-smoke ==
+🧪 执行 dev 冒烟检查...
+checking http://localhost:3000
+checking http://localhost:8080/healthz
+checking http://localhost:8085/healthz
+checking http://localhost:8082/healthz
+checking http://localhost:8083/healthz
+checking http://localhost:8084/healthz
+checking http://localhost:8081/healthz
+checking http://localhost:9091/healthz
+checking optional http://localhost:3001/healthz
+curl: (56) Recv failure: Connection reset by peer
+WARN: optional bff health check not ready yet (http://localhost:3001/healthz)
+✅ dev 冒烟检查通过
+exit_code(make dev-test-smoke)=0
+
+== make dev-down ==
+🛑 停止 dev 热更新环境...
+ Container nexuslog-frontend-console-1  Stopping
+ Container nexuslog-kafka-init-1  Stopping
+ Container nexuslog-collector-agent-1  Stopping
+ Container nexuslog-health-worker-1  Stopping
+ Container nexuslog-kafka-init-1  Stopped
+ Container nexuslog-kafka-init-1  Removing
+ Container nexuslog-kafka-init-1  Removed
+ Container nexuslog-collector-agent-1  Stopped
+ Container nexuslog-collector-agent-1  Removing
+ Container nexuslog-collector-agent-1  Removed
+ Container nexuslog-kafka-1  Stopping
+ Container nexuslog-health-worker-1  Stopped
+ Container nexuslog-health-worker-1  Removing
+ Container nexuslog-health-worker-1  Removed
+ Container nexuslog-frontend-console-1  Stopped
+ Container nexuslog-frontend-console-1  Removing
+ Container nexuslog-frontend-console-1  Removed
+ Container nexuslog-bff-service-1  Stopping
+ Container nexuslog-kafka-1  Stopped
+ Container nexuslog-kafka-1  Removing
+ Container nexuslog-kafka-1  Removed
+ Container nexuslog-zookeeper-1  Stopping
+ Container nexuslog-zookeeper-1  Stopped
+ Container nexuslog-zookeeper-1  Removing
+ Container nexuslog-zookeeper-1  Removed
+ Container nexuslog-bff-service-1  Stopped
+ Container nexuslog-bff-service-1  Removing
+ Container nexuslog-bff-service-1  Removed
+ Container nexuslog-export-api-1  Stopping
+ Container nexuslog-api-service-1  Stopping
+ Container nexuslog-query-api-1  Stopping
+ Container nexuslog-control-plane-1  Stopping
+ Container nexuslog-audit-api-1  Stopping
+ Container nexuslog-audit-api-1  Stopped
+ Container nexuslog-audit-api-1  Removing
+ Container nexuslog-audit-api-1  Removed
+ Container nexuslog-export-api-1  Stopped
+ Container nexuslog-export-api-1  Removing
+ Container nexuslog-export-api-1  Removed
+ Container nexuslog-api-service-1  Stopped
+ Container nexuslog-api-service-1  Removing
+ Container nexuslog-api-service-1  Removed
+ Container nexuslog-control-plane-1  Stopped
+ Container nexuslog-control-plane-1  Removing
+ Container nexuslog-control-plane-1  Removed
+ Container nexuslog-redis-1  Stopping
+ Container nexuslog-query-api-1  Stopped
+ Container nexuslog-query-api-1  Removing
+ Container nexuslog-query-api-1  Removed
+ Container nexuslog-postgres-1  Stopping
+ Container nexuslog-elasticsearch-1  Stopping
+ Container nexuslog-postgres-1  Stopped
+ Container nexuslog-postgres-1  Removing
+ Container nexuslog-postgres-1  Removed
+ Container nexuslog-redis-1  Stopped
+ Container nexuslog-redis-1  Removing
+ Container nexuslog-redis-1  Removed
+ Container nexuslog-elasticsearch-1  Stopped
+ Container nexuslog-elasticsearch-1  Removing
+ Container nexuslog-elasticsearch-1  Removed
+ Network nexuslog_nexuslog-net  Removing
+ Network nexuslog_default  Removing
+ Network nexuslog_default  Removed
+ Network nexuslog_nexuslog-net  Removed
+✅ dev 环境已停止
+exit_code(make dev-down)=0
+
+[2026-03-02T00:20:06+08:00] task 2.10 make command validation end

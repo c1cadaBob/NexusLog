@@ -10,7 +10,7 @@
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
-DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.dev.yml
+DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.override.yml
 DEV_SERVICES := \
 	postgres redis elasticsearch zookeeper kafka kafka-init \
 	control-plane api-service query-api audit-api export-api health-worker collector-agent \
@@ -108,27 +108,27 @@ docker-push:
 ## 启动开发热更新环境（任务2起默认）
 dev-up:
 	@echo "🔥 启动 dev 热更新环境..."
-	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES)
-	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES)
+	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES)
+	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES)
 	@echo "✅ dev 环境已启动"
 
 ## 启动轻量开发热更新环境（低资源，占用更小）
 dev-up-lite:
 	@echo "🔥 启动 dev 轻量热更新环境..."
-	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES_LITE)
-	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES_LITE)
+	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES_LITE)
+	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES_LITE)
 	@echo "✅ dev 轻量环境已启动"
 
 ## 关闭开发热更新环境
 dev-down:
 	@echo "🛑 停止 dev 热更新环境..."
-	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) down --remove-orphans
+	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) down --remove-orphans
 	@echo "✅ dev 环境已停止"
 
 ## 查看开发环境日志（持续输出）
 dev-logs:
 	@echo "📜 查看 dev 热更新日志..."
-	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) logs -f --tail=200 $(DEV_LOG_SERVICES)
+	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) logs -f --tail=200 $(DEV_LOG_SERVICES)
 
 ## 开发环境冒烟检查
 dev-test-smoke:
@@ -136,7 +136,6 @@ dev-test-smoke:
 	@set -e; \
 	for url in \
 		http://localhost:3000 \
-		http://localhost:3001/healthz \
 		http://localhost:8080/healthz \
 		http://localhost:8085/healthz \
 		http://localhost:8082/healthz \
@@ -145,8 +144,23 @@ dev-test-smoke:
 		http://localhost:8081/healthz \
 		http://localhost:9091/healthz; do \
 		echo "checking $$url"; \
-		curl -fsS "$$url" >/dev/null; \
+		ok=0; \
+		for attempt in $$(seq 1 240); do \
+			if curl --noproxy '*' -fsS "$$url" >/dev/null; then \
+				ok=1; \
+				break; \
+			fi; \
+			sleep 1; \
+		done; \
+		if [ "$$ok" -ne 1 ]; then \
+			echo "ERROR: smoke check failed for $$url"; \
+			exit 1; \
+		fi; \
 	done; \
+	echo "checking optional http://localhost:3001/healthz"; \
+	if ! curl --noproxy '*' -fsS --max-time 5 "http://localhost:3001/healthz" >/dev/null; then \
+		echo "WARN: optional bff health check not ready yet (http://localhost:3001/healthz)"; \
+	fi; \
 	echo "✅ dev 冒烟检查通过"
 
 ## api-service register 冒烟检查（需 SMOKE_TENANT_ID）

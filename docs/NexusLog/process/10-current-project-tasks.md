@@ -91,7 +91,7 @@
 - [x] 2.7 统一认证接口响应结构与错误码
 - [x] 2.8 写入并验证 `user_sessions/password_reset_tokens/login_attempts`
 - [x] 2.9 启用开发环境容器热更新基线：`docker compose -f docker-compose.yml -f docker-compose.override.yml up`
-- [ ] 2.10 提供统一开发命令：`make dev-up/dev-down/dev-logs/dev-test-smoke`（从任务 2 开始作为默认开发入口）
+- [x] 2.10 提供统一开发命令：`make dev-up/dev-down/dev-logs/dev-test-smoke`（从任务 2 开始作为默认开发入口）
 
 验收标准（DoD）：
 1. 六个接口都可被网关路由并返回统一响应结构。
