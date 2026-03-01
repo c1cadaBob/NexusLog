@@ -58,6 +58,7 @@ func main() {
 	authV1.POST("/register", authHandler.Register)
 	authV1.POST("/login", authHandler.Login)
 	authV1.POST("/refresh", authHandler.Refresh)
+	authV1.POST("/logout", authHandler.Logout)
 
 	server := &http.Server{
 		Addr:              ":" + port,

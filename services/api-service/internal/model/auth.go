@@ -51,6 +51,16 @@ type RefreshResponseData struct {
 	ExpiresIn    int64  `json:"expires_in"`
 }
 
+// LogoutRequest defines request payload for POST /api/v1/auth/logout.
+type LogoutRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// LogoutResponseData defines successful logout response payload.
+type LogoutResponseData struct {
+	LoggedOut bool `json:"logged_out"`
+}
+
 // APIError defines unified API error envelope fields.
 type APIError struct {
 	HTTPStatus int

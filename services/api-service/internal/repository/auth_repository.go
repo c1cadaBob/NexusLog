@@ -305,6 +305,40 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 	return userID, nil
 }
 
+func (r *AuthRepository) RevokeSessionByRefreshToken(ctx context.Context, tenantID uuid.UUID, refreshToken string) error {
+	const q = `
+		UPDATE user_sessions
+		SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+		WHERE tenant_id = $1 AND refresh_token_hash = $2 AND session_status = 'active'
+	`
+
+	result, err := r.db.ExecContext(ctx, q, tenantID, hashToken(refreshToken))
+	if err != nil {
+		return fmt.Errorf("revoke session by refresh token: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read affected rows: %w", err)
+	}
+	if affected == 0 {
+		return ErrInvalidRefreshToken
+	}
+	return nil
+}
+
+func (r *AuthRepository) RevokeActiveSessionsByUserID(ctx context.Context, tenantID, userID uuid.UUID) error {
+	const q = `
+		UPDATE user_sessions
+		SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+		WHERE tenant_id = $1 AND user_id = $2 AND session_status = 'active'
+	`
+	if _, err := r.db.ExecContext(ctx, q, tenantID, userID); err != nil {
+		return fmt.Errorf("revoke active sessions by user id: %w", err)
+	}
+	return nil
+}
+
 func (r *AuthRepository) RecordLoginAttempt(ctx context.Context, input LoginAttemptInput) error {
 	const q = `
 		INSERT INTO login_attempts (

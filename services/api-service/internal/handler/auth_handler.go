@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -94,6 +96,35 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		req,
 		c.ClientIP(),
 		c.Request.UserAgent(),
+	)
+	if apiErr != nil {
+		httpx.Error(c, apiErr)
+		return
+	}
+
+	httpx.Success(c, http.StatusOK, resp)
+}
+
+// Logout handles POST /api/v1/auth/logout.
+func (h *AuthHandler) Logout(c *gin.Context) {
+	var req model.LogoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		httpx.Error(c, &model.APIError{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       "AUTH_LOGOUT_INVALID_ARGUMENT",
+			Message:    "invalid request",
+			Details: map[string]any{
+				"field": "body",
+			},
+		})
+		return
+	}
+
+	resp, apiErr := h.authService.Logout(
+		c.Request.Context(),
+		c.GetHeader("X-Tenant-ID"),
+		c.GetHeader("X-User-ID"),
+		req,
 	)
 	if apiErr != nil {
 		httpx.Error(c, apiErr)

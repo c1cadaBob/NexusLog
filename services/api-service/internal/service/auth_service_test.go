@@ -23,9 +23,13 @@ type mockAuthRepository struct {
 	loginUserErr      error
 	createSessionErr  error
 	rotateErr         error
+	revokeRefreshErr  error
+	revokeByUserErr   error
 	lastLoginAttempt  *repository.LoginAttemptInput
 	sessionCreateCall int
 	rotateCall        int
+	revokeRefreshCall int
+	revokeByUserCall  int
 }
 
 func (m *mockAuthRepository) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -60,6 +64,16 @@ func (m *mockAuthRepository) RotateSessionByRefreshToken(_ context.Context, _ re
 		return uuid.Nil, m.rotateErr
 	}
 	return uuid.New(), nil
+}
+
+func (m *mockAuthRepository) RevokeSessionByRefreshToken(_ context.Context, _ uuid.UUID, _ string) error {
+	m.revokeRefreshCall++
+	return m.revokeRefreshErr
+}
+
+func (m *mockAuthRepository) RevokeActiveSessionsByUserID(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+	m.revokeByUserCall++
+	return m.revokeByUserErr
 }
 
 func (m *mockAuthRepository) RecordLoginAttempt(_ context.Context, input repository.LoginAttemptInput) error {
@@ -283,5 +297,63 @@ func TestRefreshValidationAndRotation(t *testing.T) {
 	_, err = svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-3"}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_REFRESH_INTERNAL_ERROR" {
 		t.Fatalf("expected internal error, got %#v", err)
+	}
+}
+
+func TestLogoutValidationAndSuccess(t *testing.T) {
+	tenantID := uuid.NewString()
+	userID := uuid.NewString()
+
+	repoMock := &mockAuthRepository{tenantExists: true}
+	svc := NewAuthService(repoMock)
+
+	_, err := svc.Logout(context.Background(), "", "", model.LogoutRequest{})
+	if err == nil || err.Code != "AUTH_LOGOUT_TENANT_REQUIRED" {
+		t.Fatalf("expected tenant required, got %#v", err)
+	}
+
+	_, err = svc.Logout(context.Background(), "bad-tenant", "", model.LogoutRequest{})
+	if err == nil || err.Code != "AUTH_LOGOUT_TENANT_INVALID" {
+		t.Fatalf("expected tenant invalid, got %#v", err)
+	}
+
+	repoMock.revokeRefreshErr = repository.ErrInvalidRefreshToken
+	_, err = svc.Logout(context.Background(), tenantID, "", model.LogoutRequest{RefreshToken: "bad-rt"})
+	if err == nil || err.Code != "AUTH_LOGOUT_INVALID_TOKEN" {
+		t.Fatalf("expected invalid token, got %#v", err)
+	}
+
+	repoMock.revokeRefreshErr = nil
+	resp, err := svc.Logout(context.Background(), tenantID, "", model.LogoutRequest{RefreshToken: "rt-ok"})
+	if err != nil || !resp.LoggedOut {
+		t.Fatalf("expected logout success by refresh token, resp=%#v err=%#v", resp, err)
+	}
+	if repoMock.revokeRefreshCall == 0 {
+		t.Fatalf("expected revoke by refresh call")
+	}
+
+	_, err = svc.Logout(context.Background(), tenantID, "", model.LogoutRequest{})
+	if err == nil || err.Code != "AUTH_LOGOUT_INVALID_ARGUMENT" {
+		t.Fatalf("expected invalid argument without refresh/user header, got %#v", err)
+	}
+
+	_, err = svc.Logout(context.Background(), tenantID, "bad-user-id", model.LogoutRequest{})
+	if err == nil || err.Code != "AUTH_LOGOUT_INVALID_ARGUMENT" {
+		t.Fatalf("expected invalid user id argument, got %#v", err)
+	}
+
+	repoMock.revokeByUserErr = nil
+	resp, err = svc.Logout(context.Background(), tenantID, userID, model.LogoutRequest{})
+	if err != nil || !resp.LoggedOut {
+		t.Fatalf("expected logout success by user id, resp=%#v err=%#v", resp, err)
+	}
+	if repoMock.revokeByUserCall == 0 {
+		t.Fatalf("expected revoke by user call")
+	}
+
+	repoMock.revokeByUserErr = errors.New("db failed")
+	_, err = svc.Logout(context.Background(), tenantID, userID, model.LogoutRequest{})
+	if err == nil || err.Code != "AUTH_LOGOUT_INTERNAL_ERROR" {
+		t.Fatalf("expected internal error on revoke by user, got %#v", err)
 	}
 }

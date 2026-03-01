@@ -215,6 +215,66 @@ func TestRefreshIntegration(t *testing.T) {
 	}
 }
 
+func TestLogoutIntegration(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-logout")
+	router := buildRouter(db)
+
+	username := "logout_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+
+	regStatus, regBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    "Password123",
+		Email:       email,
+		DisplayName: "Logout User",
+	})
+	if regStatus != http.StatusCreated || regBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", regStatus, regBody)
+	}
+
+	loginStatus, loginBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: "Password123",
+	})
+	if loginStatus != http.StatusOK || loginBody["code"] != "OK" {
+		t.Fatalf("login setup failed, status=%d body=%#v", loginStatus, loginBody)
+	}
+	loginData, ok := loginBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing login data: %#v", loginBody)
+	}
+	refreshToken, ok := loginData["refresh_token"].(string)
+	if !ok || refreshToken == "" {
+		t.Fatalf("missing refresh token: %#v", loginData)
+	}
+
+	logoutStatus, logoutBody := callLogout(t, router, tenantID, model.LogoutRequest{RefreshToken: refreshToken}, "")
+	if logoutStatus != http.StatusOK || logoutBody["code"] != "OK" {
+		t.Fatalf("logout failed, status=%d body=%#v", logoutStatus, logoutBody)
+	}
+
+	refreshStatus, refreshBody := callRefresh(t, router, tenantID, model.RefreshRequest{RefreshToken: refreshToken})
+	if refreshStatus != http.StatusUnauthorized || refreshBody["code"] != "AUTH_REFRESH_INVALID_TOKEN" {
+		t.Fatalf("expected refresh invalid after logout, status=%d body=%#v", refreshStatus, refreshBody)
+	}
+
+	if !hasSessionStatus(t, ctx, db, tenantID, "revoked") {
+		t.Fatalf("expected revoked session after logout")
+	}
+}
+
 func buildRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -224,6 +284,7 @@ func buildRouter(db *sql.DB) *gin.Engine {
 	r.POST("/api/v1/auth/register", authH.Register)
 	r.POST("/api/v1/auth/login", authH.Login)
 	r.POST("/api/v1/auth/refresh", authH.Refresh)
+	r.POST("/api/v1/auth/logout", authH.Logout)
 	return r
 }
 
@@ -265,6 +326,25 @@ func callRefresh(t *testing.T, r *gin.Engine, tenantID string, payload model.Ref
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewBuffer(raw))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", tenantID)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return resp.Code, body
+}
+
+func callLogout(t *testing.T, r *gin.Engine, tenantID string, payload model.LogoutRequest, userID string) (int, map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
+	if userID != "" {
+		req.Header.Set("X-User-ID", userID)
+	}
 	resp := httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 

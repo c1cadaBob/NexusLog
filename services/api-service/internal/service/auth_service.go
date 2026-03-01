@@ -34,6 +34,8 @@ type authRepository interface {
 	GetLoginUserByUsername(ctx context.Context, tenantID uuid.UUID, username string) (repository.LoginUserRecord, error)
 	CreateUserSession(ctx context.Context, input repository.CreateSessionInput) error
 	RotateSessionByRefreshToken(ctx context.Context, input repository.RotateSessionInput) (uuid.UUID, error)
+	RevokeSessionByRefreshToken(ctx context.Context, tenantID uuid.UUID, refreshToken string) error
+	RevokeActiveSessionsByUserID(ctx context.Context, tenantID, userID uuid.UUID) error
 	RecordLoginAttempt(ctx context.Context, input repository.LoginAttemptInput) error
 }
 
@@ -244,6 +246,50 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 	}, nil
 }
 
+func (s *AuthService) Logout(ctx context.Context, tenantHeader, userIDHeader string, req model.LogoutRequest) (model.LogoutResponseData, *model.APIError) {
+	tenantID, apiErr := parseAndCheckTenant(ctx, s.repo, tenantHeader, "AUTH_LOGOUT")
+	if apiErr != nil {
+		return model.LogoutResponseData{}, apiErr
+	}
+
+	normalizedReq := normalizeLogout(req)
+	if normalizedReq.RefreshToken != "" {
+		if err := s.repo.RevokeSessionByRefreshToken(ctx, tenantID, normalizedReq.RefreshToken); err != nil {
+			if errors.Is(err, repository.ErrInvalidRefreshToken) {
+				return model.LogoutResponseData{}, &model.APIError{
+					HTTPStatus: http.StatusUnauthorized,
+					Code:       "AUTH_LOGOUT_INVALID_TOKEN",
+					Message:    "refresh token invalid or expired",
+				}
+			}
+			return model.LogoutResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       "AUTH_LOGOUT_INTERNAL_ERROR",
+				Message:    "internal error",
+			}
+		}
+		return model.LogoutResponseData{LoggedOut: true}, nil
+	}
+
+	userIDRaw := strings.TrimSpace(userIDHeader)
+	if userIDRaw == "" {
+		return model.LogoutResponseData{}, invalidField("refresh_token", "AUTH_LOGOUT_INVALID_ARGUMENT", "refresh_token or X-User-ID required")
+	}
+	userID, err := uuid.Parse(userIDRaw)
+	if err != nil {
+		return model.LogoutResponseData{}, invalidField("X-User-ID", "AUTH_LOGOUT_INVALID_ARGUMENT", "invalid request")
+	}
+
+	if err := s.repo.RevokeActiveSessionsByUserID(ctx, tenantID, userID); err != nil {
+		return model.LogoutResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_LOGOUT_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+	return model.LogoutResponseData{LoggedOut: true}, nil
+}
+
 func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, currentRefreshToken, newRefreshToken, clientIP, userAgent string) error {
 	jti := uuid.NewString()
 	_, err := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
@@ -388,6 +434,11 @@ func normalizeAndValidateRefresh(req model.RefreshRequest) (model.RefreshRequest
 		return model.RefreshRequest{}, invalidField("refresh_token", "AUTH_REFRESH_INVALID_ARGUMENT", "invalid request")
 	}
 	return req, nil
+}
+
+func normalizeLogout(req model.LogoutRequest) model.LogoutRequest {
+	req.RefreshToken = strings.TrimSpace(req.RefreshToken)
+	return req
 }
 
 func parseAndCheckTenant(ctx context.Context, repo authRepository, tenantHeader, codePrefix string) (uuid.UUID, *model.APIError) {

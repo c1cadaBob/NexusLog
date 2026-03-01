@@ -25,6 +25,7 @@ type handlerRepoMock struct {
 	loginUser    repository.LoginUserRecord
 	loginErr     error
 	rotateErr    error
+	revokeErr    error
 }
 
 func (m *handlerRepoMock) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -54,6 +55,14 @@ func (m *handlerRepoMock) RotateSessionByRefreshToken(_ context.Context, _ repos
 		return uuid.Nil, m.rotateErr
 	}
 	return uuid.New(), nil
+}
+
+func (m *handlerRepoMock) RevokeSessionByRefreshToken(_ context.Context, _ uuid.UUID, _ string) error {
+	return m.revokeErr
+}
+
+func (m *handlerRepoMock) RevokeActiveSessionsByUserID(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+	return m.revokeErr
 }
 
 func (m *handlerRepoMock) RecordLoginAttempt(_ context.Context, _ repository.LoginAttemptInput) error {
@@ -280,5 +289,71 @@ func TestRefreshSuccessEnvelope(t *testing.T) {
 	}
 	if data["access_token"] == "" || data["refresh_token"] == "" {
 		t.Fatalf("missing token fields: %#v", data)
+	}
+}
+
+func TestLogoutInvalidBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	router.POST("/api/v1/auth/logout", h.Logout)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", bytes.NewBufferString("{bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "AUTH_LOGOUT_INVALID_ARGUMENT" {
+		t.Fatalf("unexpected code: %v", body["code"])
+	}
+}
+
+func TestLogoutSuccessEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	mock := &handlerRepoMock{tenantExists: true}
+	h := NewAuthHandler(service.NewAuthService(mock))
+	router.POST("/api/v1/auth/logout", h.Logout)
+
+	payload := model.LogoutRequest{RefreshToken: "rt-valid"}
+	raw, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	req.Header.Set("X-Request-ID", "gw-logout-id")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "OK" || body["message"] != "success" {
+		t.Fatalf("unexpected envelope: %#v", body)
+	}
+	if body["request_id"] != "gw-logout-id" {
+		t.Fatalf("unexpected request_id: %v", body["request_id"])
+	}
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data")
+	}
+	if loggedOut, ok := data["logged_out"].(bool); !ok || !loggedOut {
+		t.Fatalf("expected logged_out=true, got %#v", data["logged_out"])
 	}
 }
