@@ -34,7 +34,7 @@
 - [x] 1.2 执行 `000012`、`000015` 的 `up` 演练
 - [x] 1.3 执行 `000015`、`000012` 的 `down` 回滚演练
 - [x] 1.4 记录迁移命令、执行顺序、执行结果与失败恢复步骤
-- [ ] 1.5 同步更新文档中的“迁移执行态”（文件存在 vs 环境已执行）
+- [x] 1.5 同步更新文档中的“迁移执行态”（文件存在 vs 环境已执行）
 
 验收标准（DoD）：
 1. 任一开发环境可通过单一入口完成初始化迁移。
@@ -56,6 +56,7 @@
 7. 已完成：任务 1.2 二次复核通过（`schema_migrations=15`、`dirty=false`、关键表存在），证据已归档。
 8. 已完成：任务 1.3 核心服务健康检查复跑通过；使用 `.env.mirrors` 的 `GOPROXY=https://goproxy.cn,direct` 完成镜像构建，并通过无端口发布容器验证 `control-plane/api-service/query-api/audit-api/export-api` 的 `/healthz` 均返回 `200`。
 9. 已完成：任务 1.4 已完成，迁移命令顺序、执行结果与失败恢复步骤已形成执行文档并补齐 2026-03-01 重跑证据。
+10. 已完成：任务 1.5 已完成，已同步 `03/07/09/11/17` 文档口径，明确区分“迁移文件存在态”与“环境执行态”，并补齐 2026-03-01 执行态证据。
 
 证据链接（代码）：
 1. `scripts/db-migrate.sh`
@@ -71,6 +72,8 @@
 11. `docs/NexusLog/process/16-task-1.4-migration-execution-record.md`（任务 1.4 执行记录文档）
 12. `docs/NexusLog/process/evidence/task-1.4-migration-command-sequence-20260301.log`（迁移命令顺序与执行结果重跑日志）
 13. `docs/NexusLog/process/evidence/task-1.4-migration-failure-recovery-20260301.log`（失败恢复步骤与可执行参考日志）
+14. `docs/NexusLog/process/17-migration-execution-state-baseline.md`（迁移执行态基线文档，区分文件态/执行态）
+15. `docs/NexusLog/process/evidence/task-1.5-migration-execution-state-sync-20260301.log`（任务 1.5 执行态同步证据）
 
 关联差异：`GAP-015`
 

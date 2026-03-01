@@ -1,0 +1,69 @@
+# Task 1.5 Migration Execution-State Sync Evidence
+Date: 2026-03-01
+Repo: /opt/projects/NexusLog
+
+## Scope
+- Synchronize documentation between migration files existing in repository and execution state in current environment
+- Verify single source directory and execution status
+
+## Step 1: Migration files existing in repository
+
+$ ls -1 storage/postgresql/migrations
+000001_init_schema.down.sql
+000001_init_schema.up.sql
+000012_mvp_auth_session_and_security.down.sql
+000012_mvp_auth_session_and_security.up.sql
+000013_mvp_ingest_pull_and_incremental_package.down.sql
+000013_mvp_ingest_pull_and_incremental_package.up.sql
+000014_mvp_search_query_metadata.down.sql
+000014_mvp_search_query_metadata.up.sql
+000015_runtime_config_dispatch_and_subscription.down.sql
+000015_runtime_config_dispatch_and_subscription.up.sql
+
+## Step 2: Runtime version state
+
+$ make db-migrate-version
+15
+
+$ docker compose exec -T postgres psql -U nexuslog -d nexuslog -c SELECT version, dirty FROM schema_migrations;
+ version | dirty 
+---------+-------
+      15 | f
+(1 row)
+
+
+## Step 3: File-vs-executed key table matrix
+
+$ docker compose exec -T postgres psql -U nexuslog -d nexuslog -c WITH expected(version, table_schema, table_name) AS (VALUES ('000001','obs','tenant'),('000001','public','users'),('000001','public','roles'),('000001','public','user_roles'),('000001','public','alert_rules'),('000001','public','audit_logs'),('000012','public','user_sessions'),('000012','public','password_reset_tokens'),('000012','public','login_attempts'),('000013','public','ingest_pull_sources'),('000013','public','ingest_pull_tasks'),('000013','public','agent_incremental_packages'),('000013','public','agent_package_files'),('000013','public','ingest_delivery_receipts'),('000013','public','ingest_file_checkpoints'),('000013','public','ingest_dead_letters'),('000014','public','query_histories'),('000014','public','saved_queries'),('000014','public','saved_query_tags'),('000015','public','config_namespace'),('000015','public','config_item'),('000015','public','config_version'),('000015','public','config_publish'),('000015','public','runtime_config_subscription'),('000015','public','runtime_config_dispatch_log')) SELECT version AS migration_version, format('%I.%I', table_schema, table_name) AS table_ref, CASE WHEN to_regclass(format('%I.%I', table_schema, table_name)) IS NULL THEN 'missing' ELSE 'exists' END AS execution_state FROM expected ORDER BY migration_version, table_ref;
+ migration_version |             table_ref              | execution_state 
+-------------------+------------------------------------+-----------------
+ 000001            | obs.tenant                         | exists
+ 000001            | public.alert_rules                 | exists
+ 000001            | public.audit_logs                  | exists
+ 000001            | public.roles                       | exists
+ 000001            | public.user_roles                  | exists
+ 000001            | public.users                       | exists
+ 000012            | public.login_attempts              | exists
+ 000012            | public.password_reset_tokens       | exists
+ 000012            | public.user_sessions               | exists
+ 000013            | public.agent_incremental_packages  | exists
+ 000013            | public.agent_package_files         | exists
+ 000013            | public.ingest_dead_letters         | exists
+ 000013            | public.ingest_delivery_receipts    | exists
+ 000013            | public.ingest_file_checkpoints     | exists
+ 000013            | public.ingest_pull_sources         | exists
+ 000013            | public.ingest_pull_tasks           | exists
+ 000014            | public.query_histories             | exists
+ 000014            | public.saved_queries               | exists
+ 000014            | public.saved_query_tags            | exists
+ 000015            | public.config_item                 | exists
+ 000015            | public.config_namespace            | exists
+ 000015            | public.config_publish              | exists
+ 000015            | public.config_version              | exists
+ 000015            | public.runtime_config_dispatch_log | exists
+ 000015            | public.runtime_config_subscription | exists
+(25 rows)
+
+
+## Conclusion
+Task 1.5 evidence confirms repository migration files and runtime execution state are synchronized at schema_migrations=15, dirty=false (2026-03-01).

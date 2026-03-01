@@ -484,6 +484,7 @@ make db-migrate-create NAME=add_xxx
 ```
 
 说明：`docs/NexusLog/database/sql` 下文件属于设计/历史参考，不作为运行时迁移入口。
+执行态基线：见 `docs/NexusLog/process/17-migration-execution-state-baseline.md`（区分“文件存在态”与“环境执行态”）。
 
 ### 前端开发
 

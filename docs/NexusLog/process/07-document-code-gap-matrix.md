@@ -36,7 +36,7 @@
 | GAP-012 | 网关 upstream 应与实际服务名/端口一致（[05] Week1 目标） | `data_services -> data-services:8080`（[nginx.conf] `:93-95`），但 compose 仅定义 `query-api/audit-api/export-api`（[docker-compose.yml] `:120`, `:141`, `:159`）；`upstream.conf` 也使用 `query-api:8080` 等（[upstream.conf] `:7`, `:13`, `:19`） | 服务名与端口映射双重不一致 | 网关转发存在 502/误路由风险 | P0 | Week1 修正 upstream 到真实 service+port，并纳入冒烟门禁 |
 | GAP-013 | README 架构强调 Gateway 入口层（[README.md] `:64-67`） | `docker-compose.yml` 未定义 `gateway` 服务（仅 frontend 与后端服务） | 架构说明与本地运行编排有断层 | 本地联调路径与生产假设不一致 | P1 | 增加 gateway 服务或在 README 说明本地直连模式 |
 | GAP-014 | README 描述前端有 `src/services/hooks/utils`（[README.md] `:154-157`） | 实际 `src` 目录无 `services/hooks/utils`（[apps/frontend-console/src]） | 结构文档过时 | 新成员容易误判工程组织 | P2 | 更新 README 结构树或补建目录并明确用途 |
-| GAP-015 | 03 文档称“实际迁移 6 表”（[03] `:15`） | 仓库迁移目录已存在 `000012~000015`（`storage/postgresql/migrations`） | 文档描述时效性落后于代码仓库 | 数据真相源认知混乱 | P1 | 更新 03 的“基线事实”并标注“已新增未执行/执行态” |
+| GAP-015 | 03 文档曾称“实际迁移 6 表”（旧口径） | 运行时迁移目录已统一并执行到 `schema_migrations=15/dirty=false` | 已通过 1.5 文档同步，区分“文件存在态/环境执行态” | 已解除数据真相源认知混乱风险 | P1 | 已完成：更新 03 基线并新增 17 执行态基线文档（2026-03-01） |
 | GAP-016 | 阶段 6 质量门禁要求“单元+集成+E2E+属性测试”（[02] `:46-50`） | Go 服务与 Agent 目录无 `_test.go` 文件（`services/`、`agents/` 扫描为空）；现有测试集中在前端与 BFF | 质量门禁目标与当前测试资产差距大 | 回归能力不足，变更风险高 | P1 | 按 M1~M3 每周补最小测试：每条链路至少成功/失败各 1 条 |
 | GAP-017 | 05 文档指出 Health Worker 要走动态目标与阈值（[05] `:10`） | `getTargets()` 返回空列表，含 TODO（[scheduler.go] `:67`, `:87-90`） | 健康检查机制未接真实目标源 | 监控闭环不足，Dashboard 健康数据可信度低 | P1 | 增加目标配置来源（DB/配置中心）并实现动态加载 |
 | GAP-018 | 05 文档指出 Agent 关键链路仍有 TODO（[05] `:11`） | 文件采集、syslog、Kafka 发送、gRPC/WASM 插件确有 TODO（[collector.go] `:126`, `:139`; [kafka_producer.go] `:46`, `:71`, `:90`; `plugins/*`） | 文档与代码一致，但属于明确未完成项 | M2 闭环风险集中 | P1 | 按 Week4 优先级落主路径，插件能力可保留渐进实现 |
@@ -47,7 +47,7 @@
 |---|---|
 | “后端骨架/占位”判断与代码一致 | [05] `:8-12` 与 `api/query/audit/export` 入口代码一致 |
 | BFF `overview` 能力已存在 | [bff.controller.ts] `:8-11`、[bff.service.ts] `:62-91` |
-| 迁移扩展方向已落仓库 | `000012~000015` 文件已存在于 `storage/postgresql/migrations` |
+| 迁移文件态与执行态已对齐 | `000001 + 000012~000015` 文件存在，且环境 `schema_migrations=15/dirty=false`（见 17 与 1.5 证据） |
 | 前端运行时配置加载机制已实现 | [runtime-config.ts] `:84-113`（支持 `/config/app-config.json` + fallback） |
 
 ## 5. 建议修复顺序（与 06 文档对齐）
@@ -87,7 +87,7 @@
 | GAP-012 | P0 | M1 | Week1 | BE + DevOps | open | upstream 服务名与端口映射与 compose 一致，冒烟通过 | TBD |
 | GAP-013 | P1 | M1 | Week1~Week2 | DevOps + Docs | open | 本地编排与 README 网关入口说明一致（加服务或加说明） | TBD |
 | GAP-014 | P2 | M1 | Week2 | FE + Docs | open | README 前端目录结构更新为仓库真实结构 | TBD |
-| GAP-015 | P1 | M1 | Week1 | DBA + Docs | open | 03 文档更新迁移基线，区分“文件存在”和“环境执行态” | TBD |
+| GAP-015 | P1 | M1 | Week1 | DBA + Docs | closed | 03/17 文档已区分“文件存在态”和“环境执行态”，并补齐 2026-03-01 证据 | `docs/NexusLog/process/03-frontend-api-data-coverage-matrix.md`；`docs/NexusLog/process/17-migration-execution-state-baseline.md`；`docs/NexusLog/process/evidence/task-1.5-migration-execution-state-sync-20260301.log` |
 | GAP-016 | P1 | M1~M3 | Week1~Week6 | QA + BE + FE | open | 每周链路补齐最小自动化测试（成功/失败各 1） | TBD |
 | GAP-017 | P1 | M2 | Week4 | BE | open | Health Worker 支持动态目标来源，不再返回空目标列表 | TBD |
 | GAP-018 | P1 | M2 | Week4 | BE | open | Agent 主路径 TODO 清零（文件增量/syslog/Kafka）并通过链路验证 | TBD |
