@@ -24,6 +24,7 @@ type handlerRepoMock struct {
 	registerErr  error
 	loginUser    repository.LoginUserRecord
 	loginErr     error
+	rotateErr    error
 }
 
 func (m *handlerRepoMock) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -46,6 +47,13 @@ func (m *handlerRepoMock) GetLoginUserByUsername(_ context.Context, _ uuid.UUID,
 
 func (m *handlerRepoMock) CreateUserSession(_ context.Context, _ repository.CreateSessionInput) error {
 	return nil
+}
+
+func (m *handlerRepoMock) RotateSessionByRefreshToken(_ context.Context, _ repository.RotateSessionInput) (uuid.UUID, error) {
+	if m.rotateErr != nil {
+		return uuid.Nil, m.rotateErr
+	}
+	return uuid.New(), nil
 }
 
 func (m *handlerRepoMock) RecordLoginAttempt(_ context.Context, _ repository.LoginAttemptInput) error {
@@ -196,6 +204,73 @@ func TestLoginSuccessEnvelope(t *testing.T) {
 		t.Fatalf("unexpected envelope: %#v", body)
 	}
 	if body["request_id"] != "gw-login-id" {
+		t.Fatalf("unexpected request_id: %v", body["request_id"])
+	}
+
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data")
+	}
+	if data["access_token"] == "" || data["refresh_token"] == "" {
+		t.Fatalf("missing token fields: %#v", data)
+	}
+}
+
+func TestRefreshInvalidBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	router.POST("/api/v1/auth/refresh", h.Refresh)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewBufferString("{bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "AUTH_REFRESH_INVALID_ARGUMENT" {
+		t.Fatalf("unexpected code: %v", body["code"])
+	}
+}
+
+func TestRefreshSuccessEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	mock := &handlerRepoMock{tenantExists: true}
+	h := NewAuthHandler(service.NewAuthService(mock))
+	router.POST("/api/v1/auth/refresh", h.Refresh)
+
+	payload := model.RefreshRequest{RefreshToken: "rt-valid"}
+	raw, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	req.Header.Set("X-Request-ID", "gw-refresh-id")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "OK" || body["message"] != "success" {
+		t.Fatalf("unexpected envelope: %#v", body)
+	}
+	if body["request_id"] != "gw-refresh-id" {
 		t.Fatalf("unexpected request_id: %v", body["request_id"])
 	}
 

@@ -39,6 +39,18 @@ type LoginResponseData struct {
 	User         LoginUserData `json:"user"`
 }
 
+// RefreshRequest defines request payload for POST /api/v1/auth/refresh.
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// RefreshResponseData defines successful refresh response payload.
+type RefreshResponseData struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int64  `json:"expires_in"`
+}
+
 // APIError defines unified API error envelope fields.
 type APIError struct {
 	HTTPStatus int

@@ -33,6 +33,7 @@ type authRepository interface {
 	RegisterUser(ctx context.Context, input repository.RegisterUserInput) (uuid.UUID, string, error)
 	GetLoginUserByUsername(ctx context.Context, tenantID uuid.UUID, username string) (repository.LoginUserRecord, error)
 	CreateUserSession(ctx context.Context, input repository.CreateSessionInput) error
+	RotateSessionByRefreshToken(ctx context.Context, input repository.RotateSessionInput) (uuid.UUID, error)
 	RecordLoginAttempt(ctx context.Context, input repository.LoginAttemptInput) error
 }
 
@@ -161,61 +162,9 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 		}
 	}
 
-	expiresIn := int64(defaultAccessTTL.Seconds())
-	refreshTTL := defaultRefreshTTL
-	if normalizedReq.RememberMe {
-		refreshTTL = defaultRememberRefresh
-	}
-
-	accessToken, err := newOpaqueToken()
-	if err != nil {
-		return model.LoginResponseData{}, &model.APIError{
-			HTTPStatus: http.StatusInternalServerError,
-			Code:       "AUTH_LOGIN_INTERNAL_ERROR",
-			Message:    "internal error",
-		}
-	}
-
-	refreshToken, err := newOpaqueToken()
-	if err != nil {
-		return model.LoginResponseData{}, &model.APIError{
-			HTTPStatus: http.StatusInternalServerError,
-			Code:       "AUTH_LOGIN_INTERNAL_ERROR",
-			Message:    "internal error",
-		}
-	}
-
-	jti := uuid.NewString()
-	if err := s.repo.CreateUserSession(ctx, repository.CreateSessionInput{
-		TenantID:       tenantID,
-		UserID:         userRec.UserID,
-		RefreshToken:   refreshToken,
-		AccessTokenJTI: jti,
-		ClientIP:       clientIP,
-		UserAgent:      userAgent,
-		ExpiresAt:      time.Now().UTC().Add(refreshTTL),
-	}); err != nil {
-		if errors.Is(err, repository.ErrSessionTokenConflict) {
-			if retryToken, retryErr := newOpaqueToken(); retryErr == nil {
-				refreshToken = retryToken
-				err = s.repo.CreateUserSession(ctx, repository.CreateSessionInput{
-					TenantID:       tenantID,
-					UserID:         userRec.UserID,
-					RefreshToken:   refreshToken,
-					AccessTokenJTI: jti,
-					ClientIP:       clientIP,
-					UserAgent:      userAgent,
-					ExpiresAt:      time.Now().UTC().Add(refreshTTL),
-				})
-			}
-		}
-		if err != nil {
-			return model.LoginResponseData{}, &model.APIError{
-				HTTPStatus: http.StatusInternalServerError,
-				Code:       "AUTH_LOGIN_INTERNAL_ERROR",
-				Message:    "internal error",
-			}
-		}
+	accessToken, refreshToken, loginErr := s.issueSessionTokens(ctx, tenantID, userRec.UserID, defaultRefreshTTLForRemember(normalizedReq.RememberMe), clientIP, userAgent)
+	if loginErr != nil {
+		return model.LoginResponseData{}, loginErr
 	}
 
 	uid := userRec.UserID
@@ -233,7 +182,7 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 	return model.LoginResponseData{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		ExpiresIn:    expiresIn,
+		ExpiresIn:    int64(defaultAccessTTL.Seconds()),
 		User: model.LoginUserData{
 			UserID:      userRec.UserID.String(),
 			Username:    userRec.Username,
@@ -241,6 +190,155 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 			DisplayName: userRec.DisplayName,
 		},
 	}, nil
+}
+
+func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req model.RefreshRequest, clientIP, userAgent string) (model.RefreshResponseData, *model.APIError) {
+	tenantID, apiErr := parseAndCheckTenant(ctx, s.repo, tenantHeader, "AUTH_REFRESH")
+	if apiErr != nil {
+		return model.RefreshResponseData{}, apiErr
+	}
+
+	normalizedReq, apiErr := normalizeAndValidateRefresh(req)
+	if apiErr != nil {
+		return model.RefreshResponseData{}, apiErr
+	}
+
+	accessToken, err := newOpaqueToken()
+	if err != nil {
+		return model.RefreshResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_REFRESH_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	refreshToken, err := newOpaqueToken()
+	if err != nil {
+		return model.RefreshResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_REFRESH_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	rotateErr := s.rotateSession(ctx, tenantID, normalizedReq.RefreshToken, refreshToken, clientIP, userAgent)
+	if rotateErr != nil {
+		if errors.Is(rotateErr, repository.ErrInvalidRefreshToken) {
+			return model.RefreshResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusUnauthorized,
+				Code:       "AUTH_REFRESH_INVALID_TOKEN",
+				Message:    "refresh token invalid or expired",
+			}
+		}
+		return model.RefreshResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_REFRESH_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	return model.RefreshResponseData{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int64(defaultAccessTTL.Seconds()),
+	}, nil
+}
+
+func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, currentRefreshToken, newRefreshToken, clientIP, userAgent string) error {
+	jti := uuid.NewString()
+	_, err := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
+		TenantID:       tenantID,
+		CurrentRefresh: currentRefreshToken,
+		NewRefresh:     newRefreshToken,
+		AccessTokenJTI: jti,
+		ClientIP:       clientIP,
+		UserAgent:      userAgent,
+		ExpiresAt:      time.Now().UTC().Add(defaultRefreshTTL),
+	})
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, repository.ErrSessionTokenConflict) {
+		retryRefresh, retryErr := newOpaqueToken()
+		if retryErr != nil {
+			return err
+		}
+		_, retryRotateErr := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
+			TenantID:       tenantID,
+			CurrentRefresh: currentRefreshToken,
+			NewRefresh:     retryRefresh,
+			AccessTokenJTI: uuid.NewString(),
+			ClientIP:       clientIP,
+			UserAgent:      userAgent,
+			ExpiresAt:      time.Now().UTC().Add(defaultRefreshTTL),
+		})
+		return retryRotateErr
+	}
+
+	return err
+}
+
+func (s *AuthService) issueSessionTokens(ctx context.Context, tenantID, userID uuid.UUID, refreshTTL time.Duration, clientIP, userAgent string) (string, string, *model.APIError) {
+	accessToken, err := newOpaqueToken()
+	if err != nil {
+		return "", "", &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_LOGIN_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	refreshToken, err := newOpaqueToken()
+	if err != nil {
+		return "", "", &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_LOGIN_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	jti := uuid.NewString()
+	if err := s.repo.CreateUserSession(ctx, repository.CreateSessionInput{
+		TenantID:       tenantID,
+		UserID:         userID,
+		RefreshToken:   refreshToken,
+		AccessTokenJTI: jti,
+		ClientIP:       clientIP,
+		UserAgent:      userAgent,
+		ExpiresAt:      time.Now().UTC().Add(refreshTTL),
+	}); err != nil {
+		if errors.Is(err, repository.ErrSessionTokenConflict) {
+			if retryToken, retryErr := newOpaqueToken(); retryErr == nil {
+				refreshToken = retryToken
+				err = s.repo.CreateUserSession(ctx, repository.CreateSessionInput{
+					TenantID:       tenantID,
+					UserID:         userID,
+					RefreshToken:   refreshToken,
+					AccessTokenJTI: jti,
+					ClientIP:       clientIP,
+					UserAgent:      userAgent,
+					ExpiresAt:      time.Now().UTC().Add(refreshTTL),
+				})
+			}
+		}
+		if err != nil {
+			return "", "", &model.APIError{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       "AUTH_LOGIN_INTERNAL_ERROR",
+				Message:    "internal error",
+			}
+		}
+	}
+
+	return accessToken, refreshToken, nil
+}
+
+func defaultRefreshTTLForRemember(remember bool) time.Duration {
+	if remember {
+		return defaultRememberRefresh
+	}
+	return defaultRefreshTTL
 }
 
 func normalizeAndValidate(req model.RegisterRequest) (model.RegisterRequest, *model.APIError) {
@@ -278,6 +376,17 @@ func normalizeAndValidateLogin(req model.LoginRequest) (model.LoginRequest, *mod
 		return model.LoginRequest{}, invalidField("password", "AUTH_LOGIN_INVALID_ARGUMENT", "invalid request")
 	}
 
+	return req, nil
+}
+
+func normalizeAndValidateRefresh(req model.RefreshRequest) (model.RefreshRequest, *model.APIError) {
+	req.RefreshToken = strings.TrimSpace(req.RefreshToken)
+	if req.RefreshToken == "" {
+		return model.RefreshRequest{}, invalidField("refresh_token", "AUTH_REFRESH_INVALID_ARGUMENT", "invalid request")
+	}
+	if len(req.RefreshToken) > 2048 {
+		return model.RefreshRequest{}, invalidField("refresh_token", "AUTH_REFRESH_INVALID_ARGUMENT", "invalid request")
+	}
 	return req, nil
 }
 

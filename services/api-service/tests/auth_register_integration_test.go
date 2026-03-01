@@ -140,6 +140,81 @@ func TestLoginIntegration(t *testing.T) {
 	}
 }
 
+func TestRefreshIntegration(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-refresh")
+	router := buildRouter(db)
+
+	username := "refresh_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+
+	regStatus, regBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    "Password123",
+		Email:       email,
+		DisplayName: "Refresh User",
+	})
+	if regStatus != http.StatusCreated || regBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", regStatus, regBody)
+	}
+
+	loginStatus, loginBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: "Password123",
+	})
+	if loginStatus != http.StatusOK || loginBody["code"] != "OK" {
+		t.Fatalf("login setup failed, status=%d body=%#v", loginStatus, loginBody)
+	}
+
+	loginData, ok := loginBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing login data: %#v", loginBody)
+	}
+	oldRefresh, ok := loginData["refresh_token"].(string)
+	if !ok || oldRefresh == "" {
+		t.Fatalf("missing old refresh token: %#v", loginData)
+	}
+
+	refreshStatus, refreshBody := callRefresh(t, router, tenantID, model.RefreshRequest{RefreshToken: oldRefresh})
+	if refreshStatus != http.StatusOK || refreshBody["code"] != "OK" {
+		t.Fatalf("refresh failed, status=%d body=%#v", refreshStatus, refreshBody)
+	}
+	refreshData, ok := refreshBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing refresh data: %#v", refreshBody)
+	}
+	newRefresh, ok := refreshData["refresh_token"].(string)
+	if !ok || newRefresh == "" {
+		t.Fatalf("missing new refresh token: %#v", refreshData)
+	}
+	if newRefresh == oldRefresh {
+		t.Fatalf("expected rotated refresh token")
+	}
+
+	oldStatus, oldBody := callRefresh(t, router, tenantID, model.RefreshRequest{RefreshToken: oldRefresh})
+	if oldStatus != http.StatusUnauthorized || oldBody["code"] != "AUTH_REFRESH_INVALID_TOKEN" {
+		t.Fatalf("expected old refresh invalid, status=%d body=%#v", oldStatus, oldBody)
+	}
+
+	if !hasSessionStatus(t, ctx, db, tenantID, "active") {
+		t.Fatalf("expected active session after refresh")
+	}
+	if !hasSessionStatus(t, ctx, db, tenantID, "revoked") {
+		t.Fatalf("expected revoked session after rotation")
+	}
+}
+
 func buildRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -148,6 +223,7 @@ func buildRouter(db *sql.DB) *gin.Engine {
 	authH := handler.NewAuthHandler(authSvc)
 	r.POST("/api/v1/auth/register", authH.Register)
 	r.POST("/api/v1/auth/login", authH.Login)
+	r.POST("/api/v1/auth/refresh", authH.Refresh)
 	return r
 }
 
@@ -171,6 +247,22 @@ func callLogin(t *testing.T, r *gin.Engine, tenantID string, payload model.Login
 	t.Helper()
 	raw, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return resp.Code, body
+}
+
+func callRefresh(t *testing.T, r *gin.Engine, tenantID string, payload model.RefreshRequest) (int, map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewBuffer(raw))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", tenantID)
 	resp := httptest.NewRecorder()
@@ -239,6 +331,22 @@ func hasSession(t *testing.T, ctx context.Context, db *sql.DB, tenantID, usernam
 	var exists bool
 	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&exists); err != nil {
 		t.Fatalf("check user_sessions row: %v", err)
+	}
+	return exists
+}
+
+func hasSessionStatus(t *testing.T, ctx context.Context, db *sql.DB, tenantID, status string) bool {
+	t.Helper()
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_sessions
+			WHERE tenant_id = $1::uuid AND session_status = $2
+		)
+	`
+	var exists bool
+	if err := db.QueryRowContext(ctx, q, tenantID, status).Scan(&exists); err != nil {
+		t.Fatalf("check user_sessions status: %v", err)
 	}
 	return exists
 }

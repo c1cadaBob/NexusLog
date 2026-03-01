@@ -19,6 +19,7 @@ var (
 	ErrEmailConflict        = errors.New("email conflict")
 	ErrInvalidCredentials   = errors.New("invalid credentials")
 	ErrSessionTokenConflict = errors.New("session token conflict")
+	ErrInvalidRefreshToken  = errors.New("invalid refresh token")
 )
 
 // RegisterUserInput defines DB input for creating user and credentials.
@@ -46,6 +47,17 @@ type CreateSessionInput struct {
 	TenantID       uuid.UUID
 	UserID         uuid.UUID
 	RefreshToken   string
+	AccessTokenJTI string
+	ClientIP       string
+	UserAgent      string
+	ExpiresAt      time.Time
+}
+
+// RotateSessionInput defines input for rotating refresh token session.
+type RotateSessionInput struct {
+	TenantID       uuid.UUID
+	CurrentRefresh string
+	NewRefresh     string
 	AccessTokenJTI string
 	ClientIP       string
 	UserAgent      string
@@ -205,6 +217,92 @@ func (r *AuthRepository) CreateUserSession(ctx context.Context, input CreateSess
 		return fmt.Errorf("create user session: %w", err)
 	}
 	return nil
+}
+
+func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input RotateSessionInput) (uuid.UUID, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	const selectSessionSQL = `
+		SELECT id, user_id, expires_at, session_status
+		FROM user_sessions
+		WHERE tenant_id = $1 AND refresh_token_hash = $2
+		FOR UPDATE
+	`
+
+	var sessionID uuid.UUID
+	var userID uuid.UUID
+	var expiresAt time.Time
+	var status string
+	if err = tx.QueryRowContext(
+		ctx,
+		selectSessionSQL,
+		input.TenantID,
+		hashToken(input.CurrentRefresh),
+	).Scan(&sessionID, &userID, &expiresAt, &status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return uuid.Nil, ErrInvalidRefreshToken
+		}
+		return uuid.Nil, fmt.Errorf("query refresh session: %w", err)
+	}
+
+	if status != "active" || expiresAt.Before(time.Now().UTC()) {
+		return uuid.Nil, ErrInvalidRefreshToken
+	}
+
+	const revokeOldSQL = `
+		UPDATE user_sessions
+		SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND session_status = 'active'
+	`
+	if _, err = tx.ExecContext(ctx, revokeOldSQL, sessionID); err != nil {
+		return uuid.Nil, fmt.Errorf("revoke old session: %w", err)
+	}
+
+	const insertNewSQL = `
+		INSERT INTO user_sessions (
+			tenant_id,
+			user_id,
+			refresh_token_hash,
+			access_token_jti,
+			session_status,
+			client_ip,
+			user_agent,
+			expires_at,
+			last_seen_at
+		)
+		VALUES ($1, $2, $3, $4, 'active', NULLIF($5, ''), NULLIF($6, ''), $7, NOW())
+	`
+	if _, err = tx.ExecContext(
+		ctx,
+		insertNewSQL,
+		input.TenantID,
+		userID,
+		hashToken(input.NewRefresh),
+		input.AccessTokenJTI,
+		input.ClientIP,
+		input.UserAgent,
+		input.ExpiresAt,
+	); err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			return uuid.Nil, ErrSessionTokenConflict
+		}
+		return uuid.Nil, fmt.Errorf("insert rotated session: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return uuid.Nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return userID, nil
 }
 
 func (r *AuthRepository) RecordLoginAttempt(ctx context.Context, input LoginAttemptInput) error {

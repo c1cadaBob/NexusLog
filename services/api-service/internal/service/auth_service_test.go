@@ -22,8 +22,10 @@ type mockAuthRepository struct {
 	loginUser         repository.LoginUserRecord
 	loginUserErr      error
 	createSessionErr  error
+	rotateErr         error
 	lastLoginAttempt  *repository.LoginAttemptInput
 	sessionCreateCall int
+	rotateCall        int
 }
 
 func (m *mockAuthRepository) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -50,6 +52,14 @@ func (m *mockAuthRepository) GetLoginUserByUsername(_ context.Context, _ uuid.UU
 func (m *mockAuthRepository) CreateUserSession(_ context.Context, _ repository.CreateSessionInput) error {
 	m.sessionCreateCall++
 	return m.createSessionErr
+}
+
+func (m *mockAuthRepository) RotateSessionByRefreshToken(_ context.Context, _ repository.RotateSessionInput) (uuid.UUID, error) {
+	m.rotateCall++
+	if m.rotateErr != nil {
+		return uuid.Nil, m.rotateErr
+	}
+	return uuid.New(), nil
 }
 
 func (m *mockAuthRepository) RecordLoginAttempt(_ context.Context, input repository.LoginAttemptInput) error {
@@ -228,5 +238,50 @@ func TestLoginInvalidCredentialsAndSuccess(t *testing.T) {
 	if err == nil || err.Code != "AUTH_LOGIN_INTERNAL_ERROR" {
 		t.Fatalf("expected internal error on session create, got %#v", err)
 	}
+}
 
+func TestRefreshValidationAndRotation(t *testing.T) {
+	tenantID := uuid.NewString()
+
+	repoMock := &mockAuthRepository{tenantExists: true}
+	svc := NewAuthService(repoMock)
+
+	_, err := svc.Refresh(context.Background(), "", model.RefreshRequest{}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_REFRESH_TENANT_REQUIRED" {
+		t.Fatalf("expected tenant required, got %#v", err)
+	}
+
+	_, err = svc.Refresh(context.Background(), "bad-tenant", model.RefreshRequest{}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_REFRESH_TENANT_INVALID" {
+		t.Fatalf("expected tenant invalid, got %#v", err)
+	}
+
+	_, err = svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: ""}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_REFRESH_INVALID_ARGUMENT" {
+		t.Fatalf("expected invalid argument, got %#v", err)
+	}
+
+	repoMock.rotateErr = repository.ErrInvalidRefreshToken
+	_, err = svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-1"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_REFRESH_INVALID_TOKEN" {
+		t.Fatalf("expected invalid token, got %#v", err)
+	}
+
+	repoMock.rotateErr = nil
+	resp, err := svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-2"}, "127.0.0.1", "ua")
+	if err != nil {
+		t.Fatalf("expected refresh success, got %#v", err)
+	}
+	if resp.AccessToken == "" || resp.RefreshToken == "" || resp.ExpiresIn <= 0 {
+		t.Fatalf("unexpected refresh response: %#v", resp)
+	}
+	if repoMock.rotateCall == 0 {
+		t.Fatalf("expected rotate call")
+	}
+
+	repoMock.rotateErr = errors.New("db failed")
+	_, err = svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-3"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_REFRESH_INTERNAL_ERROR" {
+		t.Fatalf("expected internal error, got %#v", err)
+	}
 }
