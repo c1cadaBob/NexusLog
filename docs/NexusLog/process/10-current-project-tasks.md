@@ -90,7 +90,7 @@
 - [x] 2.6 实现 `POST /api/v1/auth/password/reset-confirm`
 - [x] 2.7 统一认证接口响应结构与错误码
 - [x] 2.8 写入并验证 `user_sessions/password_reset_tokens/login_attempts`
-- [ ] 2.9 启用开发环境容器热更新基线：`docker compose -f docker-compose.yml -f docker-compose.dev.yml up`
+- [x] 2.9 启用开发环境容器热更新基线：`docker compose -f docker-compose.yml -f docker-compose.override.yml up`
 - [ ] 2.10 提供统一开发命令：`make dev-up/dev-down/dev-logs/dev-test-smoke`（从任务 2 开始作为默认开发入口）
 
 验收标准（DoD）：
@@ -656,7 +656,7 @@ M3 验收标准：
 责任角色：DevOps + BE + FE  
 目标周次：Week2~Week6
 
-- [ ] 27.1 定义 `docker-compose.dev.yml` 开发专用编排与服务覆盖范围（Week2 启用）
+- [ ] 27.1 定义 `docker-compose.override.yml` 开发专用编排与服务覆盖范围（Week2 启用）
 - [ ] 27.2 前端容器化 HMR：`pnpm dev --host 0.0.0.0` + 源码挂载
 - [ ] 27.3 Go 服务与 Agent 容器化 Watch：`api/control/query/audit/bff/export/health-worker/collector-agent`
 - [ ] 27.4 约束开发与生产隔离：开发 watch 行为不进入生产发布路径

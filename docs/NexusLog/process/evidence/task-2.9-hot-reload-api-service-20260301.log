@@ -1,0 +1,192 @@
+[2026-03-02T00:00:27+08:00] api-service hot-reload probe (final)
+target file: /opt/projects/NexusLog/services/api-service/cmd/api/main.go
+[before] curl -i --noproxy * http://127.0.0.1:8085/healthz
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Sun, 01 Mar 2026 16:00:27 GMT
+Content-Length: 74
+
+{"service":"api-service","status":"healthy","time":"2026-03-01T16:00:27Z"}
+[logs after change] docker compose logs --tail=160 api-service
+api-service-1  | 
+api-service-1  |   __    _   ___  
+api-service-1  |  / /\  | | | |_) 
+api-service-1  | /_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+api-service-1  | 
+api-service-1  | watching .
+api-service-1  | watching api
+api-service-1  | watching api/openapi
+api-service-1  | watching cmd
+api-service-1  | watching cmd/api
+api-service-1  | watching configs
+api-service-1  | watching internal
+api-service-1  | watching internal/config
+api-service-1  | watching internal/handler
+api-service-1  | watching internal/httpx
+api-service-1  | watching internal/model
+api-service-1  | watching internal/repository
+api-service-1  | watching internal/service
+api-service-1  | watching tests
+api-service-1  | watching tests/sql
+api-service-1  | !exclude tmp
+api-service-1  | building...
+api-service-1  | cmd/api/main.go has changed
+api-service-1  | cmd/api/main.go has changed
+api-service-1  | building...
+api-service-1  | running...
+api-service-1  | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+api-service-1  | 
+api-service-1  | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+api-service-1  |  - using env:	export GIN_MODE=release
+api-service-1  |  - using code:	gin.SetMode(gin.ReleaseMode)
+api-service-1  | 
+api-service-1  | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+api-service-1  | [GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/register     --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Register-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/login        --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Login-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/refresh      --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Refresh-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/logout       --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Logout-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-request --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetRequest-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-confirm --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetConfirm-fm (4 handlers)
+api-service-1  | 2026/03/01 15:58:06 API service listening on :8080
+api-service-1  | running...
+api-service-1  | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+api-service-1  | 
+api-service-1  | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+api-service-1  |  - using env:	export GIN_MODE=release
+api-service-1  |  - using code:	gin.SetMode(gin.ReleaseMode)
+api-service-1  | 
+api-service-1  | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+api-service-1  | [GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/register     --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Register-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/login        --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Login-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/refresh      --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Refresh-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/logout       --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Logout-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-request --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetRequest-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-confirm --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetConfirm-fm (4 handlers)
+api-service-1  | 2026/03/01 15:58:06 API service listening on :8080
+api-service-1  | [GIN] 2026/03/01 - 15:59:35 |[97;42m 200 [0m|       35.79µs |      172.25.0.1 |[97;44m GET     [0m "/healthz"
+api-service-1  | [GIN] 2026/03/01 - 16:00:27 |[97;42m 200 [0m|      34.861µs |      172.25.0.1 |[97;44m GET     [0m "/healthz"
+api-service-1  | cmd/api/main.go has changed
+api-service-1  | building...
+api-service-1  | running...
+api-service-1  | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+api-service-1  | 
+api-service-1  | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+api-service-1  |  - using env:	export GIN_MODE=release
+api-service-1  |  - using code:	gin.SetMode(gin.ReleaseMode)
+api-service-1  | 
+api-service-1  | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+api-service-1  | [GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/register     --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Register-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/login        --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Login-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/refresh      --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Refresh-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/logout       --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Logout-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-request --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetRequest-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-confirm --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetConfirm-fm (4 handlers)
+api-service-1  | 2026/03/01 16:00:29 API service listening on :8080
+
+[logs after restore] docker compose logs --tail=160 api-service
+api-service-1  | 
+api-service-1  |   __    _   ___  
+api-service-1  |  / /\  | | | |_) 
+api-service-1  | /_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+api-service-1  | 
+api-service-1  | watching .
+api-service-1  | watching api
+api-service-1  | watching api/openapi
+api-service-1  | watching cmd
+api-service-1  | watching cmd/api
+api-service-1  | watching configs
+api-service-1  | watching internal
+api-service-1  | watching internal/config
+api-service-1  | watching internal/handler
+api-service-1  | watching internal/httpx
+api-service-1  | watching internal/model
+api-service-1  | watching internal/repository
+api-service-1  | watching internal/service
+api-service-1  | watching tests
+api-service-1  | watching tests/sql
+api-service-1  | !exclude tmp
+api-service-1  | building...
+api-service-1  | cmd/api/main.go has changed
+api-service-1  | cmd/api/main.go has changed
+api-service-1  | building...
+api-service-1  | running...
+api-service-1  | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+api-service-1  | 
+api-service-1  | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+api-service-1  |  - using env:	export GIN_MODE=release
+api-service-1  |  - using code:	gin.SetMode(gin.ReleaseMode)
+api-service-1  | 
+api-service-1  | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+api-service-1  | [GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/register     --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Register-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/login        --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Login-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/refresh      --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Refresh-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/logout       --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Logout-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-request --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetRequest-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-confirm --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetConfirm-fm (4 handlers)
+api-service-1  | 2026/03/01 15:58:06 API service listening on :8080
+api-service-1  | running...
+api-service-1  | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+api-service-1  | 
+api-service-1  | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+api-service-1  |  - using env:	export GIN_MODE=release
+api-service-1  |  - using code:	gin.SetMode(gin.ReleaseMode)
+api-service-1  | 
+api-service-1  | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+api-service-1  | [GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/register     --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Register-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/login        --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Login-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/refresh      --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Refresh-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/logout       --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Logout-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-request --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetRequest-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-confirm --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetConfirm-fm (4 handlers)
+api-service-1  | 2026/03/01 15:58:06 API service listening on :8080
+api-service-1  | [GIN] 2026/03/01 - 15:59:35 |[97;42m 200 [0m|       35.79µs |      172.25.0.1 |[97;44m GET     [0m "/healthz"
+api-service-1  | [GIN] 2026/03/01 - 16:00:27 |[97;42m 200 [0m|      34.861µs |      172.25.0.1 |[97;44m GET     [0m "/healthz"
+api-service-1  | cmd/api/main.go has changed
+api-service-1  | building...
+api-service-1  | running...
+api-service-1  | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+api-service-1  | 
+api-service-1  | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+api-service-1  |  - using env:	export GIN_MODE=release
+api-service-1  |  - using code:	gin.SetMode(gin.ReleaseMode)
+api-service-1  | 
+api-service-1  | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+api-service-1  | [GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/register     --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Register-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/login        --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Login-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/refresh      --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Refresh-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/logout       --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Logout-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-request --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetRequest-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-confirm --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetConfirm-fm (4 handlers)
+api-service-1  | 2026/03/01 16:00:29 API service listening on :8080
+api-service-1  | cmd/api/main.go has changed
+api-service-1  | building...
+api-service-1  | running...
+api-service-1  | [GIN-debug] POST   /api/v1/auth/register     --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Register-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/login        --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Login-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/refresh      --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Refresh-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/logout       --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).Logout-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-request --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetRequest-fm (4 handlers)
+api-service-1  | [GIN-debug] POST   /api/v1/auth/password/reset-confirm --> github.com/nexuslog/api-service/internal/handler.(*AuthHandler).PasswordResetConfirm-fm (4 handlers)
+api-service-1  | [GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+api-service-1  | 
+api-service-1  | [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+api-service-1  |  - using env:	export GIN_MODE=release
+api-service-1  |  - using code:	gin.SetMode(gin.ReleaseMode)
+api-service-1  | 
+api-service-1  | [GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+api-service-1  | [GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+api-service-1  | 2026/03/01 16:00:41 API service listening on :8080
+
+[after] curl -i --noproxy * http://127.0.0.1:8085/healthz
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Sun, 01 Mar 2026 16:00:51 GMT
+Content-Length: 74
+
+{"service":"api-service","status":"healthy","time":"2026-03-01T16:00:51Z"}

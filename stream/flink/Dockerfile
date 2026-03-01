@@ -10,7 +10,7 @@ LABEL description="NexusLog Flink 流计算引擎"
 
 # 安装 Kafka 和 Elasticsearch Connector
 RUN wget -P /opt/flink/lib/ \
-    https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.19/flink-sql-connector-kafka-3.1.0-1.19.jar && \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.2.0-1.19/flink-sql-connector-kafka-3.2.0-1.19.jar && \
     wget -P /opt/flink/lib/ \
     https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-elasticsearch7/3.1.0-1.19/flink-sql-connector-elasticsearch7-3.1.0-1.19.jar && \
     wget -P /opt/flink/lib/ \

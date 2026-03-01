@@ -1,7 +1,9 @@
 # NexusLog 本地开发环境
-# 使用方式: docker compose up -d
-# 停止: docker compose down
-# 清理数据: docker compose down -v
+# 使用方式:
+#   基础启动: set -a && source .env.mirrors && set +a && docker compose -f docker-compose.yml up -d
+#   开发热更新: set -a && source .env.mirrors && set +a && docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+# 停止: set -a && source .env.mirrors && set +a && docker compose -f docker-compose.yml -f docker-compose.override.yml down
+# 清理数据: set -a && source .env.mirrors && set +a && docker compose -f docker-compose.yml -f docker-compose.override.yml down -v
 
 services:
   # ============================================================
@@ -227,7 +229,7 @@ services:
     restart: unless-stopped
 
   vault:
-    image: ${MIRROR_DOCKER_HUB:-docker.io}/hashicorp/vault:1.15
+    image: ${MIRROR_DOCKER_HUB}/hashicorp/vault:1.15
     ports:
       - "8200:8200"
     environment:
@@ -252,7 +254,7 @@ services:
   # 基础设施服务
   # ============================================================
   postgres:
-    image: ${MIRROR_DOCKER_HUB:-docker.io}/postgres:16-alpine
+    image: ${MIRROR_DOCKER_HUB}/postgres:16-alpine
     ports:
       - "5432:5432"
     environment:
@@ -274,7 +276,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: ${MIRROR_DOCKER_HUB:-docker.io}/redis:7.2-alpine
+    image: ${MIRROR_DOCKER_HUB}/redis:7.2-alpine
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -290,7 +292,7 @@ services:
     restart: unless-stopped
 
   elasticsearch:
-    image: ${MIRROR_ELASTIC:-docker.elastic.co}/elasticsearch/elasticsearch:8.13.0
+    image: ${MIRROR_ELASTIC}/elasticsearch/elasticsearch:8.13.0
     ports:
       - "9200:9200"
     environment:
@@ -312,17 +314,18 @@ services:
     restart: unless-stopped
 
   zookeeper:
-    image: ${MIRROR_DOCKER_HUB:-docker.io}/confluentinc/cp-zookeeper:7.6.0
+    image: ${MIRROR_DOCKER_HUB}/confluentinc/cp-zookeeper:7.6.0
     ports:
       - "2181:2181"
     environment:
       - ZOOKEEPER_CLIENT_PORT=2181
       - ZOOKEEPER_TICK_TIME=2000
+      - ZOOKEEPER_4LW_COMMANDS_WHITELIST=srvr,ruok,stat,mntr
     volumes:
       - zk-data:/var/lib/zookeeper/data
       - zk-logs:/var/lib/zookeeper/log
     healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      test: ["CMD-SHELL", "echo srvr | nc localhost 2181 | grep -q Mode"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -331,7 +334,7 @@ services:
     restart: unless-stopped
 
   kafka:
-    image: ${MIRROR_DOCKER_HUB:-docker.io}/confluentinc/cp-kafka:7.6.0
+    image: ${MIRROR_DOCKER_HUB}/confluentinc/cp-kafka:7.6.0
     ports:
       - "9092:9092"
     environment:
@@ -357,7 +360,7 @@ services:
 
   # Kafka Topic 初始化（一次性任务）
   kafka-init:
-    image: ${MIRROR_DOCKER_HUB:-docker.io}/confluentinc/cp-kafka:7.6.0
+    image: ${MIRROR_DOCKER_HUB}/confluentinc/cp-kafka:7.6.0
     entrypoint: ["/bin/bash", "/scripts/init-topics.sh", "kafka:9092"]
     volumes:
       - ./messaging/kafka/scripts:/scripts:ro
@@ -370,9 +373,9 @@ services:
 
   # Schema Registry
   schema-registry:
-    image: ${MIRROR_DOCKER_HUB:-docker.io}/confluentinc/cp-schema-registry:7.6.0
+    image: ${MIRROR_DOCKER_HUB}/confluentinc/cp-schema-registry:7.6.0
     ports:
-      - "8081:8081"
+      - "18081:8081"
     environment:
       - SCHEMA_REGISTRY_HOST_NAME=schema-registry
       - SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS=kafka:9092

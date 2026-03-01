@@ -16,7 +16,7 @@
 | Week | 里程碑 | 本周主题 | 核心输出 | 预计人天 |
 |---|---|---|---|---:|
 | Week1 | M1 | 迁移真相源门禁 + 登录注册主链路开通 | 登录注册 API、网关路由修正、迁移 `000012/000015` 双向验收 | 14 |
-| Week2 | M1 | 认证闭环完成 + 策略热配置化 + 热更新基线启用 | refresh/logout/重置密码 API、前端受保护路由鉴权、`config_*` 生效、`docker-compose.dev.yml + make dev-*` 启用 | 15 |
+| Week2 | M1 | 认证闭环完成 + 策略热配置化 + 热更新基线启用 | refresh/logout/重置密码 API、前端受保护路由鉴权、`config_*` 生效、`docker-compose.override.yml + make dev-*` 启用 | 15 |
 | Week3 | M2 | 远端拉取最小闭环 + Agent 在线基线 | `ingest_pull_sources/tasks` 接口与状态机、Agent 注册/心跳、前端接入源与状态页最小可用 | 16 |
 | Week4 | M2 | Agent 增量包与回执闭环 + 升级治理 | 包、回执、死信、checkpoint 链路可追溯；升级计划/ACK/回滚演练可复用 | 18 |
 | Week5 | M3 | 检索与分析闭环去 Mock | `query-api` 检索 + 分析接口、检索历史与收藏、前端检索/分析主路径替换 mock | 20 |
@@ -50,7 +50,7 @@ Week1 完成定义：
 | 页面 | 忘记密码 + 鉴权路由 | `/forgot-password` 接入真实流程；`ProtectedRoute` 增加 token 有效性校验与失效跳转 | FE | 3 | 页面流程录像；token 失效跳转用例通过 | 回退 FE 版本并关闭新鉴权逻辑 |
 | API | 认证闭环接口 | `POST /api/v1/auth/refresh`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/password/reset-request`、`POST /api/v1/auth/password/reset-confirm` | BE | 5 | 接口契约与集成测试；失效 token 拦截正确 | 逐接口降级到只读/关闭 |
 | API | 登录策略热配置 | 登录策略读取 `config_namespace/config_item/config_version/config_publish`；支持发布后生效 | BE | 2 | 配置发布日志；运行时参数变化可观测 | 回滚 `config_publish` 到上一版本 |
-| 基线 | 启用容器热更新开发入口 | 从任务 2 开始默认使用 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` 与 `make dev-*` 进行开发联调 | DevOps + BE + FE | 1 | `dev-up` 日志；前端与后端各 1 次热更新生效记录 | 关闭 dev 编排，回退到生产式 compose 联调 |
+| 基线 | 启用容器热更新开发入口 | 从任务 2 开始默认使用 `docker compose -f docker-compose.yml -f docker-compose.override.yml up` 与 `make dev-*` 进行开发联调 | DevOps + BE + FE | 1 | `dev-up` 日志；前端与后端各 1 次热更新生效记录 | 关闭 dev 编排，回退到生产式 compose 联调 |
 | 数据表 | 会话与安全落库验证 | `user_sessions/password_reset_tokens/login_attempts/config_*` 落库与查询链路验证 | DBA | 1 | SQL 验证脚本；字段完整性检查 | 执行对应 down 迁移并恢复基线 |
 | 测试 | 认证全链路场景 | 登录成功/失败锁定、refresh 续期、logout 失效、重置成功与过期失败 | QA | 3 | 测试报告；链路追踪与审计日志 | 触发认证开关降级，阻断高风险入口 |
 | 发布 | 策略发布演练 | 热配置发布失败自动回滚演练 | DevOps | 1 | 发布回放记录；回滚成功证据 | 恢复上一配置版本并通知业务 |
@@ -129,7 +129,7 @@ Week5 完成定义：
 | API | BFF 聚合增强 | 保持 `GET /api/v1/bff/overview`，新增业务字段聚合 | BE | 2 | BFF 响应结构对比；缓存命中稳定 | 回退聚合字段，保留健康探针模式 |
 | 数据表 | 复用与可选扩展 | 复用 `audit_logs/alert_rules/users/roles/user_roles`；可选新增 `000016_alert_rule_versions` | DBA | 1 | SQL 验证与变更记录 | 若 `000016` 执行则提供 down 回滚 |
 | 测试 | M3 汇总验收 | 安全治理场景与端到端场景：`/login -> / -> /search/realtime`、`/security/*`、`/alerts/rules` | QA | 3 | M3 测试报告；发布评审结论 | 回切到 M2 稳定标签 |
-| 门禁 | 容器热更新回归 | 验证 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` 与 `make dev-*`；覆盖 frontend/api/control/query/audit/bff/export/health-worker/collector-agent | QA + DevOps | 1 | 热更新冒烟日志；dev/prod 编排隔离检查记录 | 仅关闭 dev 编排，生产编排保持现状 |
+| 门禁 | 容器热更新回归 | 验证 `docker compose -f docker-compose.yml -f docker-compose.override.yml up` 与 `make dev-*`；覆盖 frontend/api/control/query/audit/bff/export/health-worker/collector-agent | QA + DevOps | 1 | 热更新冒烟日志；dev/prod 编排隔离检查记录 | 仅关闭 dev 编排，生产编排保持现状 |
 | 发布 | 里程碑收口 | M3 发布、监控观察、缺陷分级与顺延清单 | DevOps | 1 | 发布后 30 分钟关键指标报告 | 触发应急回滚流程并冻结放量 |
 
 Week6 完成定义：
@@ -177,12 +177,12 @@ Week6 完成定义：
 | bff-service | `/api/v1/bff/overview` | GET | Week6 | 聚合增强（保持兼容） |
 
 开发环境运行契约（dev 专用）：
-1. `docker compose -f docker-compose.yml -f docker-compose.dev.yml up`
+1. `docker compose -f docker-compose.yml -f docker-compose.override.yml up`
 2. `make dev-up`
 3. `make dev-down`
 4. `make dev-logs`
 5. `make dev-test-smoke`
-6. 约束：`docker-compose.dev.yml` 仅用于开发测试，不进入生产发布流水线。
+6. 约束：`docker-compose.override.yml` 仅用于开发测试，不进入生产发布流水线。
 
 ## 5. 数据表变更总表（按迁移编号与业务域）
 

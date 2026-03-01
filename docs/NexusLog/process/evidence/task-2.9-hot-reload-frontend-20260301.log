@@ -1,0 +1,28 @@
+[2026-03-02T00:01:35+08:00] frontend hot-reload probe (final)
+target file: /opt/projects/NexusLog/apps/frontend-console/src/App.tsx
+start_utc: 2026-03-01T16:01:35Z
+[before] curl -I --noproxy * http://127.0.0.1:3000
+HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Content-Type: text/html
+Cache-Control: no-cache
+Etag: W/"585-qlrSKGtxvKmJZ53Rc0mkOxlUWcE"
+Date: Sun, 01 Mar 2026 16:01:35 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+
+[logs after change] docker compose logs --since 2026-03-01T16:01:35Z frontend-console
+frontend-console-1  | 4:01:35 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+
+[2026-03-02T00:01:47+08:00] frontend file restored
+[after] curl -I --noproxy * http://127.0.0.1:3000
+HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Content-Type: text/html
+Cache-Control: no-cache
+Etag: W/"585-rC8X6NefACGfY0a2pGXCD8+0qIc"
+Date: Sun, 01 Mar 2026 16:01:47 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+

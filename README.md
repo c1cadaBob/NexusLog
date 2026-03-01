@@ -421,6 +421,39 @@ NexusLog/
 - Go 1.22+
 - Docker & Docker Compose
 
+### Docker 一键启动（推荐）
+
+```bash
+# 1) 加载并导出镜像源配置
+set -a && source .env.mirrors && set +a
+
+# 2) 启动全部服务
+COMPOSE="docker compose -f docker-compose.yml -f docker-compose.override.yml"
+$COMPOSE pull
+$COMPOSE up -d
+
+# 3) 查看运行状态
+$COMPOSE ps
+```
+
+也可以直接使用默认入口（会自动加载 `docker-compose.override.yml`）：
+
+```bash
+set -a && source .env.mirrors && set +a && docker compose up -d
+set -a && source .env.mirrors && set +a && docker compose ps
+```
+
+如需清理并重建（会删除持久化数据卷）：
+
+```bash
+set -a && source .env.mirrors && set +a
+COMPOSE="docker compose -f docker-compose.yml -f docker-compose.override.yml"
+$COMPOSE down --volumes --remove-orphans
+$COMPOSE pull
+$COMPOSE build
+$COMPOSE up -d
+```
+
 ### 安装依赖
 
 ```bash
