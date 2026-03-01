@@ -101,6 +101,10 @@
 | 429 | `RATE_LIMITED` | 限流 |
 | 500 | `INTERNAL_ERROR` | 未分类系统异常 |
 | 503 | `DOWNSTREAM_UNAVAILABLE` | 下游服务不可用 |
+| 409 | `AGENT_VERSION_CONFLICT` | Agent 版本冲突，当前批次拒绝升级 |
+| 503 | `AGENT_OFFLINE` | Agent 不在线，无法下发任务或升级计划 |
+| 504 | `ANALYSIS_TIMEOUT` | 分析计算超时，未在 SLA 内返回 |
+| 503 | `ANALYSIS_DOWNGRADED` | 分析能力降级，返回降级结果或失败提示 |
 
 ## 4. 网关路由策略（当前态 vs 目标态）
 
@@ -169,6 +173,9 @@
 | `/api/v1/query/saved` | POST | session | `name,query,tags[]` | `saved_query_id` | `saved_queries,saved_query_tags` | M3 |
 | `/api/v1/query/saved/{saved_query_id}` | PUT | session | `name,query,tags[]` | `updated=true` | `saved_queries,saved_query_tags` | M3 |
 | `/api/v1/query/saved/{saved_query_id}` | DELETE | session | - | `deleted=true` | `saved_queries,saved_query_tags` | M3 |
+| `/api/v1/query/analysis/trend` | POST | session | `time_range,dimensions,metrics,filters` | `series[],summary,meta` | `query_histories`（记录分析元数据） | M3 |
+| `/api/v1/query/analysis/anomaly` | POST | session | `time_range,target_metric,window,threshold,filters` | `anomalies[],score,meta` | `query_histories`（记录分析元数据） | M3 |
+| `/api/v1/query/analysis/pattern` | POST | session | `time_range,pattern_type,filters,group_by` | `patterns[],confidence,meta` | `query_histories`（记录分析元数据） | M3 |
 
 兼容说明：
 
@@ -186,6 +193,37 @@
 | 接口 | 方法 | 鉴权 | 请求字段骨架 | 响应字段骨架 | 里程碑 |
 |---|---|---|---|---|---|
 | `/api/v1/bff/overview` | GET | session | `tenant_id(optional)` | `services,alerts,ingest,query_summary` | M3（增强） |
+
+### 5.6 `control-plane`（Agent 生命周期）
+
+| 接口 | 方法 | 鉴权 | 请求字段骨架 | 响应字段骨架 | 关联表 | 里程碑 |
+|---|---|---|---|---|---|---|
+| `/api/v1/agents/register` | POST | session | `agent_name,host,fingerprint,version,capabilities[]` | `agent_id,status,lease_ttl_sec` | `agent_incremental_packages`（复用标识） | M2 扩展 |
+| `/api/v1/agents/heartbeat` | POST | session | `agent_id,version,ip,last_error,resource_usage` | `status,next_heartbeat_sec` | `ingest_delivery_receipts`（复用追踪） | M2 扩展 |
+| `/api/v1/agents` | GET | session | `status,page,page_size,keyword` | `items[]` | `agent_incremental_packages`（复用标识） | M2 扩展 |
+| `/api/v1/agents/{agent_id}/upgrade-plan` | POST | admin | `target_version,batch_id,package_ref,rollout_policy` | `plan_id,status=pending_ack` | `agent_incremental_packages,agent_package_files` | M2 扩展 |
+| `/api/v1/agents/{agent_id}/upgrade-ack` | POST | session | `plan_id,ack_status,reason` | `accepted,agent_status` | `ingest_delivery_receipts,ingest_dead_letters` | M2 扩展 |
+| `/api/v1/agents/{agent_id}/decommission` | POST | admin | `reason,operator,archive` | `decommissioned=true` | `audit_logs`（记录治理事件） | M2 扩展 |
+
+### 5.7 `collector-agent`（远端拉取 API）
+
+说明：
+
+1. 该组接口由远端 Agent 暴露给日志服务器主动调用，不经网关转发。
+2. 鉴权默认使用 API Key，支持双密钥轮换（`active/next`）。
+3. Agent 主路径为“增量采集 + pull/ack”，Kafka 推送仅保留为兼容项（P1）。
+
+鉴权请求头：
+
+1. `X-Agent-Key`（必填）
+2. `X-Key-Id`（建议，标识 active/next）
+3. `X-Request-ID`（可选）
+
+| 接口 | 方法 | 鉴权 | 请求字段骨架 | 响应字段骨架 | 语义 | 里程碑 |
+|---|---|---|---|---|---|---|
+| `/agent/v1/meta` | GET | api-key | - | `agent_id,version,status,sources,capabilities` | 返回 Agent 运行信息与采集范围 | M2 |
+| `/agent/v1/logs/pull` | POST | api-key | `cursor,max_records,max_bytes,timeout_ms` | `batch_id,records[],next_cursor,has_more` | 按游标批次拉取，不提交 checkpoint | M2 |
+| `/agent/v1/logs/ack` | POST | api-key | `batch_id,status(ack/nack),committed_cursor,reason` | `accepted,checkpoint_updated` | 仅 `ack` 成功后提交 checkpoint，`nack` 不推进 | M2 |
 
 ## 6. 关键对象模型（DTO 骨架）
 
@@ -236,6 +274,75 @@
 }
 ```
 
+### 6.4 AgentRegistration
+
+```json
+{
+  "agent_name": "collector-shanghai-01",
+  "host": "10.0.0.15",
+  "fingerprint": "sha256:xxxx",
+  "version": "1.3.0",
+  "capabilities": ["file_incremental", "pull_api", "ack_checkpoint"],
+  "registered_at": "2026-03-01T10:00:00Z"
+}
+```
+
+### 6.5 AgentHeartbeat 与 AgentUpgradePlan
+
+```json
+{
+  "agent_heartbeat": {
+    "agent_id": "uuid",
+    "version": "1.3.0",
+    "last_seen": "2026-03-01T10:02:00Z",
+    "resource_usage": {
+      "cpu_percent": 12.5,
+      "memory_mb": 256
+    },
+    "status": "online"
+  },
+  "agent_upgrade_plan": {
+    "plan_id": "uuid",
+    "agent_id": "uuid",
+    "target_version": "1.4.0",
+    "batch_id": "batch-20260301-a",
+    "rollout_policy": "canary",
+    "ack_status": "pending_ack"
+  }
+}
+```
+
+### 6.6 AnalysisRequest 与 AnalysisResult
+
+```json
+{
+  "analysis_request": {
+    "time_range": {
+      "from": "2026-03-01T08:00:00Z",
+      "to": "2026-03-01T10:00:00Z"
+    },
+    "filters": {
+      "service": ["api-service"],
+      "level": ["ERROR"]
+    },
+    "dimensions": ["service", "host"],
+    "metrics": ["count", "error_rate"]
+  },
+  "analysis_result": {
+    "result_type": "trend",
+    "series": [],
+    "summary": {
+      "total": 1200,
+      "anomaly_points": 3
+    },
+    "meta": {
+      "degraded": false,
+      "request_id": "gw-1700000000-127.0.0.1"
+    }
+  }
+}
+```
+
 ## 7. 接口安全与一致性要求
 
 1. 写接口建议启用 `X-Idempotency-Key`，防止重试导致重复写入。
@@ -273,4 +380,5 @@
 
 ## 11. 版本记录
 
+- `v1.1`（2026-03-01）：补齐 Agent 生命周期与分析接口契约，新增 DTO 骨架与错误码扩展，明确 M2/M3 扩展接口口径。
 - `v1.0`（2026-02-28）：首次形成当前项目 API 接口设计基线，覆盖 M1~M3 所有 P0 接口。

@@ -16,13 +16,13 @@
 | Week | 里程碑 | 本周主题 | 核心输出 | 预计人天 |
 |---|---|---|---|---:|
 | Week1 | M1 | 迁移真相源门禁 + 登录注册主链路开通 | 登录注册 API、网关路由修正、迁移 `000012/000015` 双向验收 | 14 |
-| Week2 | M1 | 认证闭环完成 + 策略热配置化 | refresh/logout/重置密码 API、前端受保护路由鉴权、`config_*` 生效 | 15 |
-| Week3 | M2 | 远端拉取最小闭环 | `ingest_pull_sources/tasks` 接口与状态机、前端接入源与状态页最小可用 | 14 |
-| Week4 | M2 | Agent 增量包与回执闭环 | 包、回执、死信、checkpoint 链路可追溯；Agent 关键 TODO 主路径落地 | 16 |
-| Week5 | M3 | 检索闭环与去 Mock | `query-api` 实查接口、检索历史与收藏接口、前端检索主路径替换 mock | 17 |
-| Week6 | M3 | 审计/告警/用户角色最小闭环 | `audit-api` 查询、`api-service` 安全与告警管理、Dashboard 聚合增强 | 17 |
+| Week2 | M1 | 认证闭环完成 + 策略热配置化 + 热更新基线启用 | refresh/logout/重置密码 API、前端受保护路由鉴权、`config_*` 生效、`docker-compose.dev.yml + make dev-*` 启用 | 15 |
+| Week3 | M2 | 远端拉取最小闭环 + Agent 在线基线 | `ingest_pull_sources/tasks` 接口与状态机、Agent 注册/心跳、前端接入源与状态页最小可用 | 16 |
+| Week4 | M2 | Agent 增量包与回执闭环 + 升级治理 | 包、回执、死信、checkpoint 链路可追溯；升级计划/ACK/回滚演练可复用 | 18 |
+| Week5 | M3 | 检索与分析闭环去 Mock | `query-api` 检索 + 分析接口、检索历史与收藏、前端检索/分析主路径替换 mock | 20 |
+| Week6 | M3 | 治理闭环 + 容器热更新门禁 | `audit-api` 查询、`api-service` 安全与告警管理、Dashboard 聚合增强、dev 热更新回归 | 18 |
 
-总计：`93` 人天。
+总计：`101` 人天。
 
 ## 3. 逐周落地清单（每周一张细化表）
 
@@ -50,6 +50,7 @@ Week1 完成定义：
 | 页面 | 忘记密码 + 鉴权路由 | `/forgot-password` 接入真实流程；`ProtectedRoute` 增加 token 有效性校验与失效跳转 | FE | 3 | 页面流程录像；token 失效跳转用例通过 | 回退 FE 版本并关闭新鉴权逻辑 |
 | API | 认证闭环接口 | `POST /api/v1/auth/refresh`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/password/reset-request`、`POST /api/v1/auth/password/reset-confirm` | BE | 5 | 接口契约与集成测试；失效 token 拦截正确 | 逐接口降级到只读/关闭 |
 | API | 登录策略热配置 | 登录策略读取 `config_namespace/config_item/config_version/config_publish`；支持发布后生效 | BE | 2 | 配置发布日志；运行时参数变化可观测 | 回滚 `config_publish` 到上一版本 |
+| 基线 | 启用容器热更新开发入口 | 从任务 2 开始默认使用 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` 与 `make dev-*` 进行开发联调 | DevOps + BE + FE | 1 | `dev-up` 日志；前端与后端各 1 次热更新生效记录 | 关闭 dev 编排，回退到生产式 compose 联调 |
 | 数据表 | 会话与安全落库验证 | `user_sessions/password_reset_tokens/login_attempts/config_*` 落库与查询链路验证 | DBA | 1 | SQL 验证脚本；字段完整性检查 | 执行对应 down 迁移并恢复基线 |
 | 测试 | 认证全链路场景 | 登录成功/失败锁定、refresh 续期、logout 失效、重置成功与过期失败 | QA | 3 | 测试报告；链路追踪与审计日志 | 触发认证开关降级，阻断高风险入口 |
 | 发布 | 策略发布演练 | 热配置发布失败自动回滚演练 | DevOps | 1 | 发布回放记录；回滚成功证据 | 恢复上一配置版本并通知业务 |
@@ -58,6 +59,7 @@ Week2 完成定义：
 - 认证闭环完成；
 - 受保护 API 可鉴权；
 - 策略可热更新；
+- 容器热更新开发环境已启用，任务 2 起默认使用 `dev` 编排联调；
 - 回滚路径经演练可执行。
 
 ### Week3（M2）
@@ -66,13 +68,16 @@ Week2 完成定义：
 |---|---|---|---|---:|---|---|
 | 页面 | 接入源与任务状态最小可用 | `/ingestion/sources` 支持新增/编辑/启停；`/ingestion/status` 展示拉取任务状态 | FE | 3 | 页面操作录屏；状态刷新成功 | 前端回退到只读视图 |
 | API | 拉取源与任务接口 | `control-plane` 新增 `GET/POST/PUT /api/v1/ingest/pull-sources`、`POST /api/v1/ingest/pull-tasks/run`、`GET /api/v1/ingest/pull-tasks` | BE | 6 | 接口自动化测试；任务状态流转日志 | 关闭任务触发接口，保留查询 |
+| API | Agent 注册与心跳最小接口 | `control-plane` 新增 `POST /api/v1/agents/register`、`POST /api/v1/agents/heartbeat`、`GET /api/v1/agents` | BE | 1 | 在线清单可查询；心跳更新 `last_seen` | 关闭写接口，保留只读列表 |
 | 数据表 | 任务状态机落库 | 启用 `ingest_pull_sources/ingest_pull_tasks`；实现 `pending/running/success/failed/canceled` 状态流转 | DBA | 1 | 状态机 SQL 验证；异常重入验证 | 回退 `000013` 对应对象到前态 |
 | 测试 | 拉取链路验证 | 远端拉取成功、远端不可达失败、任务重试策略验证 | QA | 2 | 用例报告；失败任务可追溯 | 关闭调度器触发并保留手动模式 |
+| 测试 | Agent 在线判定验证 | 注册成功、心跳续期、超时离线与恢复上线场景验证 | QA | 1 | 状态转换测试报告与日志 | 暂停自动离线判定，启用人工标记 |
 | 发布 | 调度最小放量 | 调度器按低频率灰度启用 | DevOps | 1 | 调度负载指标；错误率未劣化 | 降回人工触发任务模式 |
 | 对齐 | 任务契约冻结 | 接口字段与前端提交结构冻结，避免 Week4 返工 | BE + FE | 1 | 契约文档版本号；变更记录 | 回滚到上一契约版本并通知前端 |
 
 Week3 完成定义：
 - 远端拉取配置到任务执行链路打通；
+- 远程 Agent 在线清单可用并可判定离线；
 - 任务状态机稳定落库；
 - 失败任务可观测可定位。
 
@@ -82,13 +87,16 @@ Week3 完成定义：
 |---|---|---|---|---:|---|---|
 | 页面 | Agent 包与回执状态展示 | `/ingestion/agents` 最小展示包状态、ACK/NACK、失败重放入口 | FE | 2 | 页面状态与后端一致；重放按钮可用 | 回退为只读展示，无操作入口 |
 | API | 包与回执控制接口 | `GET /api/v1/ingest/packages`、`POST /api/v1/ingest/receipts`、`POST /api/v1/ingest/dead-letters/replay` | BE | 5 | 接口测试；回执写入与重放结果一致 | 关闭写接口，仅保留查询 |
-| Agent | 主链路能力补全 | 实现真实文件增量读取、syslog listener、Kafka 真发送主路径（保留插件链） | BE | 4 | Agent 集成验证；消息到达统计 | 切回缓存重发模式与降级收集 |
+| API | Agent 升级计划与 ACK 接口 | `POST /api/v1/agents/{agent_id}/upgrade-plan`、`POST /api/v1/agents/{agent_id}/upgrade-ack`、`POST /api/v1/agents/{agent_id}/decommission` | BE | 1 | 升级计划可下发并记录 ACK/NACK | 关闭升级写接口并冻结批次 |
+| Agent | 主链路能力补全 | 实现真实文件增量读取、拉取接口 `GET /agent/v1/meta`、`POST /agent/v1/logs/pull`、`POST /agent/v1/logs/ack`、API Key 鉴权（保留 Kafka 为兼容项） | BE | 4 | Agent 集成验证；pull/ack/鉴权失败用例通过 | 关闭拉取接口写能力并回退为只读健康探针 |
 | 数据表 | 全链路写入验证 | `agent_incremental_packages/agent_package_files/ingest_delivery_receipts/ingest_file_checkpoints/ingest_dead_letters` 连续写入 | DBA | 1 | 包到文件到回执全链路追踪 SQL | 回滚新写入路径到任务模式 |
 | 测试 | at-least-once 场景 | 包重复幂等、ACK 推进 checkpoint、NACK 入死信并重放成功 | QA | 3 | 幂等校验报告；重放报告 | 关闭重放入口并隔离异常数据 |
-| 发布 | 消息链路灰度 | Kafka 发送主路径低流量验证后放量 | DevOps | 1 | 积压指标、重试指标、失败率看板 | 回切到本地缓存暂存模式 |
+| 测试 | 升级成功/失败回滚演练 | 至少一次升级成功与一次失败回滚可复现并有审计日志 | QA | 1 | 演练报告；回滚后状态一致性校验 | 暂停升级入口，保留手工回滚方案 |
+| 发布 | 主动拉取链路灰度 | 服务端定时主动拉取按低频率验证后放量；校验 API Key 轮换窗口 | DevOps | 1 | 拉取成功率、重试率、失败率看板 | 降低拉取频率并回退到手动拉取模式 |
 
 Week4 完成定义：
 - ACK/NACK、重试、断点、死信闭环成立；
+- 远程 Agent 升级计划、ACK 与失败回滚链路可演练；
 - 采集链路满足 at-least-once；
 - 关键失败路径可补偿。
 
@@ -97,7 +105,9 @@ Week4 完成定义：
 | 维度 | 任务项 | 具体范围 | 责任角色 | 估算(人天) | 验收证据 | 回滚动作 |
 |---|---|---|---|---:|---|---|
 | 页面 | 检索去 Mock | `/search/realtime` 替换 `MOCK_*` 主路径；`/search/history`、`/search/saved` 接真实接口 | FE | 4 | 前端请求链路抓包；页面功能回归 | 回退到 mock 开关（仅应急） |
+| 页面 | 分析页面去 Mock | `/analysis/trend`、`/analysis/anomaly`、`/analysis/pattern` 接真实 API，统一空态与错误态 | FE | 1 | 三页主路径请求日志与回归录屏 | 回退分析页到只读态并保留应急开关 |
 | API | 查询接口落地 | `query-api`：`POST /api/v1/query/logs`、`GET/DELETE /api/v1/query/history`、`GET/POST/PUT/DELETE /api/v1/query/saved` | BE | 6 | 接口契约测试；分页与筛选正确 | 关闭写接口并保留只读查询 |
+| API | 分析接口最小闭环 | `query-api`：`POST /api/v1/query/analysis/trend`、`POST /api/v1/query/analysis/anomaly`、`POST /api/v1/query/analysis/pattern` | BE | 2 | 三类分析请求成功/超时/降级测试 | 关闭分析端点并保留检索主链路 |
 | 网关 | 路由与鉴权联调 | 对齐 `/api/v1/query/*` 鉴权与转发规则 | BE | 1 | 网关日志、401/403 错误码一致性 | 恢复上版路由与鉴权脚本 |
 | 数据表 | 查询元数据落库 | 执行 `000014`；`query_histories/saved_queries/saved_query_tags` 启用 | DBA | 1 | DDL 执行记录；CRUD 校验脚本 | 执行 `000014.down.sql` |
 | 缓存 | 热点查询缓存 | Redis 缓存命中、失效策略、降级策略接入 | BE + DevOps | 2 | 命中率指标、超时降级日志 | 关闭缓存读取，直连查询 |
@@ -105,6 +115,7 @@ Week4 完成定义：
 
 Week5 完成定义：
 - 检索主链路完成；
+- 分析 API 与分析页面主路径完成去 mock；
 - 前端检索主路径不再依赖 mock；
 - 历史与收藏查询可稳定使用。
 
@@ -118,10 +129,12 @@ Week5 完成定义：
 | API | BFF 聚合增强 | 保持 `GET /api/v1/bff/overview`，新增业务字段聚合 | BE | 2 | BFF 响应结构对比；缓存命中稳定 | 回退聚合字段，保留健康探针模式 |
 | 数据表 | 复用与可选扩展 | 复用 `audit_logs/alert_rules/users/roles/user_roles`；可选新增 `000016_alert_rule_versions` | DBA | 1 | SQL 验证与变更记录 | 若 `000016` 执行则提供 down 回滚 |
 | 测试 | M3 汇总验收 | 安全治理场景与端到端场景：`/login -> / -> /search/realtime`、`/security/*`、`/alerts/rules` | QA | 3 | M3 测试报告；发布评审结论 | 回切到 M2 稳定标签 |
+| 门禁 | 容器热更新回归 | 验证 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` 与 `make dev-*`；覆盖 frontend/api/control/query/audit/bff/export/health-worker/collector-agent | QA + DevOps | 1 | 热更新冒烟日志；dev/prod 编排隔离检查记录 | 仅关闭 dev 编排，生产编排保持现状 |
 | 发布 | 里程碑收口 | M3 发布、监控观察、缺陷分级与顺延清单 | DevOps | 1 | 发布后 30 分钟关键指标报告 | 触发应急回滚流程并冻结放量 |
 
 Week6 完成定义：
 - 审计/告警/用户角色闭环完成；
+- 开发热更新门禁通过且不影响生产式 compose 路径；
 - M3 验收通过；
 - 顺延项（如 `alert_rule_version`）有明确记录与目标周次。
 
@@ -142,17 +155,34 @@ Week6 完成定义：
 | control-plane | `/api/v1/ingest/pull-sources` | GET/POST/PUT | Week3 | 拉取源管理 |
 | control-plane | `/api/v1/ingest/pull-tasks/run` | POST | Week3 | 触发拉取任务 |
 | control-plane | `/api/v1/ingest/pull-tasks` | GET | Week3 | 查询任务状态 |
+| control-plane | `/api/v1/agents/register` | POST | Week3 | Agent 注册 |
+| control-plane | `/api/v1/agents/heartbeat` | POST | Week3 | Agent 心跳续期 |
+| control-plane | `/api/v1/agents` | GET | Week3 | Agent 在线清单 |
 | control-plane | `/api/v1/ingest/packages` | GET | Week4 | 查询增量包 |
 | control-plane | `/api/v1/ingest/receipts` | POST | Week4 | 写入回执 |
 | control-plane | `/api/v1/ingest/dead-letters/replay` | POST | Week4 | 死信重放 |
+| control-plane | `/api/v1/agents/{agent_id}/upgrade-plan` | POST | Week4 | 下发升级计划 |
+| control-plane | `/api/v1/agents/{agent_id}/upgrade-ack` | POST | Week4 | 升级 ACK 回执 |
+| control-plane | `/api/v1/agents/{agent_id}/decommission` | POST | Week4 | Agent 下线归档 |
 | query-api | `/api/v1/query/logs` | POST | Week5 | 实时检索 |
 | query-api | `/api/v1/query/history` | GET/DELETE | Week5 | 查询历史 |
 | query-api | `/api/v1/query/saved` | GET/POST/PUT/DELETE | Week5 | 收藏查询 |
+| query-api | `/api/v1/query/analysis/trend` | POST | Week5 | 趋势分析 |
+| query-api | `/api/v1/query/analysis/anomaly` | POST | Week5 | 异常分析 |
+| query-api | `/api/v1/query/analysis/pattern` | POST | Week5 | 模式分析 |
 | audit-api | `/api/v1/audit/logs` | GET | Week6 | 审计日志检索 |
 | api-service | `/api/v1/alerts/rules` | GET/POST/PUT/DELETE | Week6 | 告警规则管理 |
 | api-service | `/api/v1/security/users` | GET/POST/PUT | Week6 | 用户管理 |
 | api-service | `/api/v1/security/roles` | GET/POST/PUT | Week6 | 角色管理 |
 | bff-service | `/api/v1/bff/overview` | GET | Week6 | 聚合增强（保持兼容） |
+
+开发环境运行契约（dev 专用）：
+1. `docker compose -f docker-compose.yml -f docker-compose.dev.yml up`
+2. `make dev-up`
+3. `make dev-down`
+4. `make dev-logs`
+5. `make dev-test-smoke`
+6. 约束：`docker-compose.dev.yml` 仅用于开发测试，不进入生产发布流水线。
 
 ## 5. 数据表变更总表（按迁移编号与业务域）
 
@@ -182,8 +212,8 @@ Week6 完成定义：
 | 里程碑 | 验收标准 |
 |---|---|
 | M1 | 认证全流程可用，网关鉴权一致，迁移单一入口可回滚演练。 |
-| M2 | 远端拉取与 Agent 增量包双路径可追溯，ACK/NACK 与死信重放可验证。 |
-| M3 | 检索、审计、告警、用户角色最小业务闭环打通，核心页面移除 mock 主路径。 |
+| M2 | 日志服务器主动拉取与 Agent 增量采集双路径可追溯，ACK/NACK 与死信重放可验证，远程 Agent 生命周期最小闭环可用，且支持预编译二进制+systemd 与 Docker 双安装模式。 |
+| M3 | 检索、分析、审计、告警、用户角色最小业务闭环打通，核心页面移除 mock 主路径。 |
 
 ## 7. 风险与依赖清单（阻塞/降级/回滚）
 
@@ -191,8 +221,11 @@ Week6 完成定义：
 |---|---|---|---|
 | 网关 upstream 与服务端口不一致 | 路由 502 或误转发 | 暂时关闭新增路由，仅保留已验证路径 | 恢复上版 `nginx.conf` 与 `conf.d/upstream.conf` |
 | 认证接口上线后异常率上升 | 登录失败率显著抬升 | 限流 + 灰度回退 + 只保留登录接口 | 回退 api-service 版本与 auth 配置 |
-| 采集链路高峰积压 | Kafka 发送失败或延迟上升 | 开启本地缓存与限速策略 | 停止实时发送，回退到缓存重放模式 |
+| 采集链路高峰积压 | 拉取周期过短或批次过大导致任务积压 | 调整拉取频率与批量大小，按 source 分片调度 | 停止自动调度，回退到手动拉取模式 |
 | 查询链路压力过高 | ES 查询超时增多 | 启用缓存、缩小时间窗口、限制排序字段 | 回退 query-api 新能力到只读基础查询 |
+| Agent 版本漂移 | 升级 ACK 与目标版本不一致 | 分批灰度、冻结高风险批次、限制跨版本通信 | 回退到上一稳定版本并暂停新批次 |
+| API Key 轮换异常 | active/next 切换失败或 key 泄露 | 暂停自动拉取并切换只读健康探针，启用人工应急 | 立即 revoke 旧 key，提升 next key 并重建拉取任务 |
+| 热更新与生产行为差异 | dev watch 正常但生产镜像启动失败 | 强制执行 dev/prod 双路径回归门禁 | 立即关闭 dev 编排入口，保留生产编排 |
 | 迁移执行失败 | DDL 中断或约束冲突 | 暂停放量并锁定变更窗口 | 执行对应 `.down.sql` 回退 |
 | 团队容量不足 | 当周任务无法收口 | 保护 P0 主链路，顺延可选项 | 固定冻结范围，次周补齐 |
 
@@ -211,4 +244,3 @@ Week6 完成定义：
 2. 只做现有页面去 mock 与接口打通，不扩展页面总量。
 3. 所有业务配置优先落 `config_*`，避免长期 YAML 固化。
 4. `000016_alert_rule_versions` 为 Week6 可选项，若顺延必须在周报中给出顺延原因与目标周次。
-
