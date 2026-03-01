@@ -6,7 +6,7 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke api-register-smoke
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke api-register-smoke api-auth-storage-verify
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
@@ -158,6 +158,15 @@ api-register-smoke:
 	@API_BASE_URL="$(API_BASE_URL)" SMOKE_TENANT_ID="$(SMOKE_TENANT_ID)" \
 		./services/api-service/tests/register_smoke.sh
 
+## api-service 认证落库核验（需 TEST_DB_DSN/VERIFY_TENANT_ID/VERIFY_USERNAME）
+api-auth-storage-verify:
+	@if [ -z "$(TEST_DB_DSN)" ] || [ -z "$(VERIFY_TENANT_ID)" ] || [ -z "$(VERIFY_USERNAME)" ]; then \
+		echo "Usage: make api-auth-storage-verify TEST_DB_DSN=<postgres_dsn> VERIFY_TENANT_ID=<tenant_uuid> VERIFY_USERNAME=<username>"; \
+		exit 1; \
+	fi
+	@TEST_DB_DSN="$(TEST_DB_DSN)" VERIFY_TENANT_ID="$(VERIFY_TENANT_ID)" VERIFY_USERNAME="$(VERIFY_USERNAME)" \
+		./services/api-service/tests/verify_auth_storage.sh
+
 # ============================================
 # Database migration
 # ============================================
@@ -243,6 +252,7 @@ help:
 	@echo "  make dev-logs       - 查看 dev 热更新日志"
 	@echo "  make dev-test-smoke - 执行 dev 冒烟检查"
 	@echo "  make api-register-smoke SMOKE_TENANT_ID=<uuid> [API_BASE_URL=http://localhost:8085] - 执行注册接口冒烟"
+	@echo "  make api-auth-storage-verify TEST_DB_DSN=<dsn> VERIFY_TENANT_ID=<uuid> VERIFY_USERNAME=<name> - 执行认证落库核验"
 	@echo ""
 	@echo "数据库迁移:"
 	@echo "  make db-migrate-up [STEPS=N]      - 执行迁移 up"

@@ -434,6 +434,75 @@ func TestPasswordResetConfirmIntegration(t *testing.T) {
 	}
 }
 
+func TestAuthStorageWriteAndVerifyIntegration(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-storage-verify")
+	router := buildRouter(db)
+
+	username := "storage_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+
+	regStatus, regBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    "Password123",
+		Email:       email,
+		DisplayName: "Storage Verify User",
+	})
+	if regStatus != http.StatusCreated || regBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", regStatus, regBody)
+	}
+
+	okStatus, okBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: "Password123",
+	})
+	if okStatus != http.StatusOK || okBody["code"] != "OK" {
+		t.Fatalf("login success setup failed, status=%d body=%#v", okStatus, okBody)
+	}
+
+	failStatus, failBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: "wrong-password",
+	})
+	if failStatus != http.StatusUnauthorized || failBody["code"] != "AUTH_LOGIN_INVALID_CREDENTIALS" {
+		t.Fatalf("failed login setup mismatch, status=%d body=%#v", failStatus, failBody)
+	}
+
+	resetStatus, resetBody := callPasswordResetRequest(t, router, tenantID, model.PasswordResetRequestRequest{
+		EmailOrUsername: username,
+	})
+	if resetStatus != http.StatusOK || resetBody["code"] != "OK" {
+		t.Fatalf("reset-request setup failed, status=%d body=%#v", resetStatus, resetBody)
+	}
+
+	if !hasSessionIntegrity(t, ctx, db, tenantID, username) {
+		t.Fatalf("expected user_sessions integrity checks passed")
+	}
+	if !hasPasswordResetTokenIntegrity(t, ctx, db, tenantID, username) {
+		t.Fatalf("expected password_reset_tokens integrity checks passed")
+	}
+	if !hasLoginAttempt(t, ctx, db, tenantID, username, "success") {
+		t.Fatalf("expected login_attempts success row exists")
+	}
+	if !hasLoginAttempt(t, ctx, db, tenantID, username, "failed") {
+		t.Fatalf("expected login_attempts failed row exists")
+	}
+	if !hasFailedLoginAttemptReason(t, ctx, db, tenantID, username) {
+		t.Fatalf("expected failed login_attempt has non-empty reason")
+	}
+}
+
 func buildRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -608,6 +677,29 @@ func hasSession(t *testing.T, ctx context.Context, db *sql.DB, tenantID, usernam
 	return exists
 }
 
+func hasSessionIntegrity(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) bool {
+	t.Helper()
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_sessions s
+			JOIN users u ON u.id = s.user_id
+			WHERE s.tenant_id = $1::uuid
+			  AND u.username = $2
+			  AND s.refresh_token_hash <> ''
+			  AND COALESCE(s.access_token_jti, '') <> ''
+			  AND s.session_status IN ('active', 'revoked')
+			  AND s.expires_at IS NOT NULL
+			  AND s.expires_at > s.created_at
+		)
+	`
+	var exists bool
+	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&exists); err != nil {
+		t.Fatalf("check user_sessions integrity: %v", err)
+	}
+	return exists
+}
+
 func hasSessionStatus(t *testing.T, ctx context.Context, db *sql.DB, tenantID, status string) bool {
 	t.Helper()
 	const q = `
@@ -640,6 +732,27 @@ func hasPasswordResetToken(t *testing.T, ctx context.Context, db *sql.DB, tenant
 	var exists bool
 	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&exists); err != nil {
 		t.Fatalf("check password_reset_tokens row: %v", err)
+	}
+	return exists
+}
+
+func hasPasswordResetTokenIntegrity(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) bool {
+	t.Helper()
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM password_reset_tokens prt
+			JOIN users u ON u.id = prt.user_id
+			WHERE prt.tenant_id = $1::uuid
+			  AND u.username = $2
+			  AND prt.token_hash <> ''
+			  AND char_length(prt.token_hash) = 64
+			  AND prt.expires_at > prt.created_at
+		)
+	`
+	var exists bool
+	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&exists); err != nil {
+		t.Fatalf("check password_reset_tokens integrity: %v", err)
 	}
 	return exists
 }
@@ -698,6 +811,25 @@ func hasLoginAttempt(t *testing.T, ctx context.Context, db *sql.DB, tenantID, us
 	var exists bool
 	if err := db.QueryRowContext(ctx, q, tenantID, username, result).Scan(&exists); err != nil {
 		t.Fatalf("check login_attempts row: %v", err)
+	}
+	return exists
+}
+
+func hasFailedLoginAttemptReason(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) bool {
+	t.Helper()
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM login_attempts
+			WHERE tenant_id = $1::uuid
+			  AND username = $2
+			  AND result = 'failed'
+			  AND COALESCE(reason, '') <> ''
+		)
+	`
+	var exists bool
+	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&exists); err != nil {
+		t.Fatalf("check login_attempts failed reason: %v", err)
 	}
 	return exists
 }
