@@ -23,6 +23,8 @@ services:
     volumes:
       - ./:/workspace
       - pnpm-store:/root/.local/share/pnpm/store
+    cpus: "0.75"
+    mem_limit: "768m"
 
   bff-service:
     image: ${MIRROR_DOCKER_HUB:-docker.io}/node:20-bullseye
@@ -37,6 +39,8 @@ services:
     volumes:
       - ./:/workspace
       - bff-node-modules:/workspace/apps/bff-service/node_modules
+    cpus: "0.50"
+    mem_limit: "512m"
 
   control-plane:
     image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
@@ -52,6 +56,11 @@ services:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+    environment:
+      - GOMAXPROCS=2
+      - GOMEMLIMIT=512MiB
+    cpus: "0.75"
+    mem_limit: "768m"
 
   api-service:
     image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
@@ -67,6 +76,11 @@ services:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+    environment:
+      - GOMAXPROCS=2
+      - GOMEMLIMIT=512MiB
+    cpus: "0.75"
+    mem_limit: "768m"
 
   query-api:
     image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
@@ -82,6 +96,11 @@ services:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+    environment:
+      - GOMAXPROCS=2
+      - GOMEMLIMIT=512MiB
+    cpus: "0.75"
+    mem_limit: "768m"
 
   audit-api:
     image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
@@ -97,6 +116,11 @@ services:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+    environment:
+      - GOMAXPROCS=2
+      - GOMEMLIMIT=512MiB
+    cpus: "0.75"
+    mem_limit: "768m"
 
   export-api:
     image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
@@ -112,6 +136,11 @@ services:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+    environment:
+      - GOMAXPROCS=2
+      - GOMEMLIMIT=512MiB
+    cpus: "0.75"
+    mem_limit: "768m"
 
   health-worker:
     image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
@@ -127,6 +156,11 @@ services:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+    environment:
+      - GOMAXPROCS=2
+      - GOMEMLIMIT=512MiB
+    cpus: "0.50"
+    mem_limit: "512m"
 
   collector-agent:
     image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
@@ -155,6 +189,41 @@ services:
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
       - collector-agent-data:/var/lib/collector-agent
+    cpus: "0.75"
+    mem_limit: "768m"
+
+  postgres:
+    cpus: "1.00"
+    mem_limit: "1g"
+
+  redis:
+    cpus: "0.50"
+    mem_limit: "512m"
+
+  elasticsearch:
+    cpus: "1.50"
+    mem_limit: "1536m"
+    environment:
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+
+  zookeeper:
+    cpus: "0.50"
+    mem_limit: "512m"
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+      - ZOOKEEPER_HEAP_OPTS=-Xms256m -Xmx256m
+
+  kafka:
+    cpus: "1.00"
+    mem_limit: "1g"
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_HEAP_OPTS=-Xms512m -Xmx512m
 
 volumes:
   pnpm-store:
