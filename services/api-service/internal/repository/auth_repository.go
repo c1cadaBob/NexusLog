@@ -2,18 +2,23 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
 var (
-	ErrUsernameConflict = errors.New("username conflict")
-	ErrEmailConflict    = errors.New("email conflict")
+	ErrUsernameConflict     = errors.New("username conflict")
+	ErrEmailConflict        = errors.New("email conflict")
+	ErrInvalidCredentials   = errors.New("invalid credentials")
+	ErrSessionTokenConflict = errors.New("session token conflict")
 )
 
 // RegisterUserInput defines DB input for creating user and credentials.
@@ -24,6 +29,39 @@ type RegisterUserInput struct {
 	DisplayName  string
 	PasswordHash string
 	PasswordCost int
+}
+
+// LoginUserRecord defines user+credential info required by login.
+type LoginUserRecord struct {
+	UserID       uuid.UUID
+	Username     string
+	Email        string
+	DisplayName  string
+	Status       string
+	PasswordHash string
+}
+
+// CreateSessionInput defines input for creating user session.
+type CreateSessionInput struct {
+	TenantID       uuid.UUID
+	UserID         uuid.UUID
+	RefreshToken   string
+	AccessTokenJTI string
+	ClientIP       string
+	UserAgent      string
+	ExpiresAt      time.Time
+}
+
+// LoginAttemptInput defines input for writing login attempt audit.
+type LoginAttemptInput struct {
+	TenantID  uuid.UUID
+	UserID    *uuid.UUID
+	Username  string
+	Email     string
+	IPAddress string
+	UserAgent string
+	Result    string
+	Reason    string
 }
 
 // AuthRepository handles auth persistence.
@@ -102,6 +140,110 @@ func (r *AuthRepository) RegisterUser(ctx context.Context, input RegisterUserInp
 	return userID, username, nil
 }
 
+func (r *AuthRepository) GetLoginUserByUsername(ctx context.Context, tenantID uuid.UUID, username string) (LoginUserRecord, error) {
+	const q = `
+		SELECT u.id, u.username, u.email, COALESCE(u.display_name, ''), u.status, uc.password_hash
+		FROM users u
+		JOIN user_credentials uc ON uc.user_id = u.id AND uc.tenant_id = u.tenant_id
+		WHERE u.tenant_id = $1 AND u.username = $2
+		LIMIT 1
+	`
+
+	var rec LoginUserRecord
+	if err := r.db.QueryRowContext(ctx, q, tenantID, username).Scan(
+		&rec.UserID,
+		&rec.Username,
+		&rec.Email,
+		&rec.DisplayName,
+		&rec.Status,
+		&rec.PasswordHash,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return LoginUserRecord{}, ErrInvalidCredentials
+		}
+		return LoginUserRecord{}, fmt.Errorf("query login user: %w", err)
+	}
+
+	if rec.Status != "active" {
+		return LoginUserRecord{}, ErrInvalidCredentials
+	}
+	return rec, nil
+}
+
+func (r *AuthRepository) CreateUserSession(ctx context.Context, input CreateSessionInput) error {
+	const q = `
+		INSERT INTO user_sessions (
+			tenant_id,
+			user_id,
+			refresh_token_hash,
+			access_token_jti,
+			session_status,
+			client_ip,
+			user_agent,
+			expires_at,
+			last_seen_at
+		)
+		VALUES ($1, $2, $3, $4, 'active', NULLIF($5, ''), NULLIF($6, ''), $7, NOW())
+	`
+
+	refreshHash := hashToken(input.RefreshToken)
+	if _, err := r.db.ExecContext(
+		ctx,
+		q,
+		input.TenantID,
+		input.UserID,
+		refreshHash,
+		input.AccessTokenJTI,
+		input.ClientIP,
+		input.UserAgent,
+		input.ExpiresAt,
+	); err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			return ErrSessionTokenConflict
+		}
+		return fmt.Errorf("create user session: %w", err)
+	}
+	return nil
+}
+
+func (r *AuthRepository) RecordLoginAttempt(ctx context.Context, input LoginAttemptInput) error {
+	const q = `
+		INSERT INTO login_attempts (
+			tenant_id,
+			user_id,
+			username,
+			email,
+			ip_address,
+			user_agent,
+			result,
+			reason
+		)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, NULLIF($8, ''))
+	`
+
+	var userID any
+	if input.UserID != nil {
+		userID = *input.UserID
+	}
+
+	if _, err := r.db.ExecContext(
+		ctx,
+		q,
+		input.TenantID,
+		userID,
+		input.Username,
+		input.Email,
+		input.IPAddress,
+		input.UserAgent,
+		input.Result,
+		input.Reason,
+	); err != nil {
+		return fmt.Errorf("record login attempt: %w", err)
+	}
+	return nil
+}
+
 func mapConflictError(err error) error {
 	var pqErr *pq.Error
 	if !errors.As(err, &pqErr) {
@@ -119,4 +261,9 @@ func mapConflictError(err error) error {
 		return ErrEmailConflict
 	}
 	return fmt.Errorf("insert user conflict: %w", err)
+}
+
+func hashToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/google/uuid"
 
 	"github.com/nexuslog/api-service/internal/model"
@@ -12,11 +14,16 @@ import (
 )
 
 type mockAuthRepository struct {
-	tenantExists bool
-	checkErr     error
-	registerErr  error
-	userID       uuid.UUID
-	username     string
+	tenantExists      bool
+	checkErr          error
+	registerErr       error
+	userID            uuid.UUID
+	username          string
+	loginUser         repository.LoginUserRecord
+	loginUserErr      error
+	createSessionErr  error
+	lastLoginAttempt  *repository.LoginAttemptInput
+	sessionCreateCall int
 }
 
 func (m *mockAuthRepository) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -31,6 +38,24 @@ func (m *mockAuthRepository) RegisterUser(_ context.Context, _ repository.Regist
 		return uuid.Nil, "", m.registerErr
 	}
 	return m.userID, m.username, nil
+}
+
+func (m *mockAuthRepository) GetLoginUserByUsername(_ context.Context, _ uuid.UUID, _ string) (repository.LoginUserRecord, error) {
+	if m.loginUserErr != nil {
+		return repository.LoginUserRecord{}, m.loginUserErr
+	}
+	return m.loginUser, nil
+}
+
+func (m *mockAuthRepository) CreateUserSession(_ context.Context, _ repository.CreateSessionInput) error {
+	m.sessionCreateCall++
+	return m.createSessionErr
+}
+
+func (m *mockAuthRepository) RecordLoginAttempt(_ context.Context, input repository.LoginAttemptInput) error {
+	cp := input
+	m.lastLoginAttempt = &cp
+	return nil
 }
 
 func TestRegisterValidationAndTenantErrors(t *testing.T) {
@@ -103,4 +128,105 @@ func TestRegisterConflictAndSuccess(t *testing.T) {
 	if resp.UserID != expectedUserID.String() || resp.Username != "valid_user" {
 		t.Fatalf("unexpected success response: %#v", resp)
 	}
+}
+
+func TestLoginValidationAndTenantErrors(t *testing.T) {
+	svc := NewAuthService(&mockAuthRepository{tenantExists: true})
+
+	_, err := svc.Login(context.Background(), "", model.LoginRequest{}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_LOGIN_TENANT_REQUIRED" {
+		t.Fatalf("expected tenant required error, got %#v", err)
+	}
+
+	_, err = svc.Login(context.Background(), "bad-tenant", model.LoginRequest{}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_LOGIN_TENANT_INVALID" {
+		t.Fatalf("expected tenant invalid error, got %#v", err)
+	}
+
+	_, err = svc.Login(context.Background(), uuid.NewString(), model.LoginRequest{Username: "ab", Password: "Password123"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_LOGIN_INVALID_ARGUMENT" {
+		t.Fatalf("expected invalid argument for username, got %#v", err)
+	}
+
+	_, err = svc.Login(context.Background(), uuid.NewString(), model.LoginRequest{Username: "valid_user", Password: ""}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_LOGIN_INVALID_ARGUMENT" {
+		t.Fatalf("expected invalid argument for password, got %#v", err)
+	}
+
+	svc = NewAuthService(&mockAuthRepository{tenantExists: false})
+	_, err = svc.Login(context.Background(), uuid.NewString(), model.LoginRequest{Username: "valid_user", Password: "Password123"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_LOGIN_TENANT_NOT_FOUND" {
+		t.Fatalf("expected tenant not found, got %#v", err)
+	}
+}
+
+func TestLoginInvalidCredentialsAndSuccess(t *testing.T) {
+	tenantID := uuid.NewString()
+	userID := uuid.New()
+
+	hash, hashErr := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.DefaultCost)
+	if hashErr != nil {
+		t.Fatalf("bcrypt hash: %v", hashErr)
+	}
+
+	repoMock := &mockAuthRepository{
+		tenantExists: true,
+		loginUserErr: repository.ErrInvalidCredentials,
+	}
+	svc := NewAuthService(repoMock)
+	_, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "valid_user", Password: "Password123"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_LOGIN_INVALID_CREDENTIALS" {
+		t.Fatalf("expected invalid credentials, got %#v", err)
+	}
+	if repoMock.lastLoginAttempt == nil || repoMock.lastLoginAttempt.Result != "failed" {
+		t.Fatalf("expected failed login attempt record")
+	}
+
+	repoMock = &mockAuthRepository{
+		tenantExists: true,
+		loginUser: repository.LoginUserRecord{
+			UserID:       userID,
+			Username:     "valid_user",
+			Email:        "user@example.com",
+			DisplayName:  "User",
+			Status:       "active",
+			PasswordHash: string(hash),
+		},
+	}
+	svc = NewAuthService(repoMock)
+	resp, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "valid_user", Password: "Password123", RememberMe: true}, "127.0.0.1", "ua")
+	if err != nil {
+		t.Fatalf("expected success, got %#v", err)
+	}
+	if resp.AccessToken == "" || resp.RefreshToken == "" || resp.ExpiresIn <= 0 {
+		t.Fatalf("unexpected token payload: %#v", resp)
+	}
+	if resp.User.UserID != userID.String() || resp.User.Username != "valid_user" {
+		t.Fatalf("unexpected user payload: %#v", resp.User)
+	}
+	if repoMock.sessionCreateCall != 1 {
+		t.Fatalf("expected session create call once, got %d", repoMock.sessionCreateCall)
+	}
+	if repoMock.lastLoginAttempt == nil || repoMock.lastLoginAttempt.Result != "success" {
+		t.Fatalf("expected success login attempt record")
+	}
+
+	repoMock = &mockAuthRepository{
+		tenantExists: true,
+		loginUser: repository.LoginUserRecord{
+			UserID:       userID,
+			Username:     "valid_user",
+			Email:        "user@example.com",
+			DisplayName:  "User",
+			Status:       "active",
+			PasswordHash: string(hash),
+		},
+		createSessionErr: errors.New("session failed"),
+	}
+	svc = NewAuthService(repoMock)
+	_, err = svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "valid_user", Password: "Password123"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_LOGIN_INTERNAL_ERROR" {
+		t.Fatalf("expected internal error on session create, got %#v", err)
+	}
+
 }

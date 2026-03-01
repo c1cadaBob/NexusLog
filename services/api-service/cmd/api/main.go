@@ -56,6 +56,7 @@ func main() {
 	apiV1 := router.Group("/api/v1")
 	authV1 := apiV1.Group("/auth")
 	authV1.POST("/register", authHandler.Register)
+	authV1.POST("/login", authHandler.Login)
 
 	server := &http.Server{
 		Addr:              ":" + port,

@@ -42,3 +42,33 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	httpx.Success(c, http.StatusCreated, resp)
 }
+
+// Login handles POST /api/v1/auth/login.
+func (h *AuthHandler) Login(c *gin.Context) {
+	var req model.LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Error(c, &model.APIError{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       "AUTH_LOGIN_INVALID_ARGUMENT",
+			Message:    "invalid request",
+			Details: map[string]any{
+				"field": "body",
+			},
+		})
+		return
+	}
+
+	resp, apiErr := h.authService.Login(
+		c.Request.Context(),
+		c.GetHeader("X-Tenant-ID"),
+		req,
+		c.ClientIP(),
+		c.Request.UserAgent(),
+	)
+	if apiErr != nil {
+		httpx.Error(c, apiErr)
+		return
+	}
+
+	httpx.Success(c, http.StatusOK, resp)
+}

@@ -75,6 +75,71 @@ func TestRegisterIntegration(t *testing.T) {
 	}
 }
 
+func TestLoginIntegration(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-login")
+	router := buildRouter(db)
+
+	username := "login_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+
+	registerStatus, registerBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    "Password123",
+		Email:       email,
+		DisplayName: "Login User",
+	})
+	if registerStatus != http.StatusCreated || registerBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", registerStatus, registerBody)
+	}
+
+	status, body := callLogin(t, router, tenantID, model.LoginRequest{
+		Username:   username,
+		Password:   "Password123",
+		RememberMe: true,
+	})
+	if status != http.StatusOK || body["code"] != "OK" {
+		t.Fatalf("expected login success, status=%d body=%#v", status, body)
+	}
+
+	if !hasSession(t, ctx, db, tenantID, username) {
+		t.Fatalf("expected user_sessions row exists")
+	}
+	if !hasLoginAttempt(t, ctx, db, tenantID, username, "success") {
+		t.Fatalf("expected successful login_attempt")
+	}
+
+	status, body = callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: "bad-password",
+	})
+	if status != http.StatusUnauthorized || body["code"] != "AUTH_LOGIN_INVALID_CREDENTIALS" {
+		t.Fatalf("expected invalid credentials, status=%d body=%#v", status, body)
+	}
+	if !hasLoginAttempt(t, ctx, db, tenantID, username, "failed") {
+		t.Fatalf("expected failed login_attempt")
+	}
+
+	status, body = callLogin(t, router, uuid.NewString(), model.LoginRequest{
+		Username: username,
+		Password: "Password123",
+	})
+	if status != http.StatusNotFound || body["code"] != "AUTH_LOGIN_TENANT_NOT_FOUND" {
+		t.Fatalf("expected tenant not found on login, status=%d body=%#v", status, body)
+	}
+}
+
 func buildRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -82,6 +147,7 @@ func buildRouter(db *sql.DB) *gin.Engine {
 	authSvc := service.NewAuthService(authRepo)
 	authH := handler.NewAuthHandler(authSvc)
 	r.POST("/api/v1/auth/register", authH.Register)
+	r.POST("/api/v1/auth/login", authH.Login)
 	return r
 }
 
@@ -89,6 +155,22 @@ func callRegister(t *testing.T, r *gin.Engine, tenantID string, payload model.Re
 	t.Helper()
 	raw, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return resp.Code, body
+}
+
+func callLogin(t *testing.T, r *gin.Engine, tenantID string, payload model.LoginRequest) (int, map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBuffer(raw))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", tenantID)
 	resp := httptest.NewRecorder()
@@ -140,6 +222,39 @@ func hasCredential(t *testing.T, ctx context.Context, db *sql.DB, tenantID, user
 	var exists bool
 	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&exists); err != nil {
 		t.Fatalf("check user_credentials row: %v", err)
+	}
+	return exists
+}
+
+func hasSession(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) bool {
+	t.Helper()
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_sessions s
+			JOIN users u ON u.id = s.user_id
+			WHERE s.tenant_id = $1::uuid AND u.username = $2 AND s.refresh_token_hash <> ''
+		)
+	`
+	var exists bool
+	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&exists); err != nil {
+		t.Fatalf("check user_sessions row: %v", err)
+	}
+	return exists
+}
+
+func hasLoginAttempt(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username, result string) bool {
+	t.Helper()
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM login_attempts
+			WHERE tenant_id = $1::uuid AND username = $2 AND result = $3
+		)
+	`
+	var exists bool
+	if err := db.QueryRowContext(ctx, q, tenantID, username, result).Scan(&exists); err != nil {
+		t.Fatalf("check login_attempts row: %v", err)
 	}
 	return exists
 }
