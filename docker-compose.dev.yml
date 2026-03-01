@@ -1,0 +1,164 @@
+# NexusLog development override compose
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# This file is dev-only and should not be used for production deployment.
+
+services:
+  frontend-console:
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/node:20-bullseye
+    working_dir: /workspace
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        corepack enable
+        pnpm install --frozen-lockfile
+        pnpm --dir apps/frontend-console dev --host 0.0.0.0 --port 3000
+    ports:
+      - "3000:3000"
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./:/workspace
+      - pnpm-store:/root/.local/share/pnpm/store
+
+  bff-service:
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/node:20-bullseye
+    working_dir: /workspace
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        cd apps/bff-service
+        npm install
+        npm run start:dev
+    volumes:
+      - ./:/workspace
+      - bff-node-modules:/workspace/apps/bff-service/node_modules
+
+  control-plane:
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
+    working_dir: /workspace/services/control-plane
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        export PATH="$PATH:$(go env GOPATH)/bin"
+        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.61.7
+        air --build.cmd "go build -o /tmp/control-plane ./cmd/api" --build.bin "/tmp/control-plane" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+    volumes:
+      - ./:/workspace
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+
+  api-service:
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
+    working_dir: /workspace/services/api-service
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        export PATH="$PATH:$(go env GOPATH)/bin"
+        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.61.7
+        air --build.cmd "go build -o /tmp/api-service ./cmd/api" --build.bin "/tmp/api-service" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+    volumes:
+      - ./:/workspace
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+
+  query-api:
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
+    working_dir: /workspace/services/data-services/query-api
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        export PATH="$PATH:$(go env GOPATH)/bin"
+        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.61.7
+        air --build.cmd "go build -o /tmp/query-api ./cmd/api" --build.bin "/tmp/query-api" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+    volumes:
+      - ./:/workspace
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+
+  audit-api:
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
+    working_dir: /workspace/services/data-services/audit-api
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        export PATH="$PATH:$(go env GOPATH)/bin"
+        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.61.7
+        air --build.cmd "go build -o /tmp/audit-api ./cmd/api" --build.bin "/tmp/audit-api" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+    volumes:
+      - ./:/workspace
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+
+  export-api:
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
+    working_dir: /workspace/services/data-services/export-api
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        export PATH="$PATH:$(go env GOPATH)/bin"
+        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.61.7
+        air --build.cmd "go build -o /tmp/export-api ./cmd/api" --build.bin "/tmp/export-api" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+    volumes:
+      - ./:/workspace
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+
+  health-worker:
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
+    working_dir: /workspace/services/health-worker
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        export PATH="$PATH:$(go env GOPATH)/bin"
+        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.61.7
+        air --build.cmd "go build -o /tmp/health-worker ./cmd/worker" --build.bin "/tmp/health-worker" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+    volumes:
+      - ./:/workspace
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+
+  collector-agent:
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/golang:1.22-bullseye
+    working_dir: /workspace/agents/collector-agent
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        export PATH="$PATH:$(go env GOPATH)/bin"
+        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.61.7
+        air --build.cmd "go build -o /tmp/collector-agent ./cmd/agent" --build.bin "/tmp/collector-agent" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+    environment:
+      - HTTP_PORT=9091
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=nexuslog-raw-logs
+      - CHECKPOINT_DIR=/var/lib/collector-agent/checkpoints
+      - CACHE_DIR=/var/lib/collector-agent/cache
+      - CONFIG_PATH=/workspace/agents/collector-agent/configs/agent.yaml
+    ports:
+      - "9091:9091"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./:/workspace
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+      - collector-agent-data:/var/lib/collector-agent
+
+volumes:
+  pnpm-store:
+  bff-node-modules:
+  go-pkg-mod:
+  go-build-cache:
+  collector-agent-data:

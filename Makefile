@@ -6,8 +6,16 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
+.PHONY: dev-up dev-down dev-logs dev-test-smoke
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
+MIRROR_ENV_FILE := ./.env.mirrors
+DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.dev.yml
+DEV_SERVICES := \
+	postgres redis elasticsearch zookeeper kafka kafka-init \
+	control-plane api-service query-api audit-api export-api health-worker collector-agent \
+	bff-service frontend-console
+DEV_LOG_SERVICES := frontend-console bff-service control-plane api-service query-api audit-api export-api health-worker collector-agent
 
 # 默认目标
 all: lint test build
@@ -90,6 +98,47 @@ docker-push:
 	@./scripts/build.sh push
 
 # ============================================
+# Dev hot-reload
+# ============================================
+
+## 启动开发热更新环境（任务2起默认）
+dev-up:
+	@echo "🔥 启动 dev 热更新环境..."
+	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES)
+	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES)
+	@echo "✅ dev 环境已启动"
+
+## 关闭开发热更新环境
+dev-down:
+	@echo "🛑 停止 dev 热更新环境..."
+	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) down --remove-orphans
+	@echo "✅ dev 环境已停止"
+
+## 查看开发环境日志（持续输出）
+dev-logs:
+	@echo "📜 查看 dev 热更新日志..."
+	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) logs -f --tail=200 $(DEV_LOG_SERVICES)
+
+## 开发环境冒烟检查
+dev-test-smoke:
+	@echo "🧪 执行 dev 冒烟检查..."
+	@set -e; \
+	for url in \
+		http://localhost:3000 \
+		http://localhost:3001/healthz \
+		http://localhost:8080/healthz \
+		http://localhost:8085/healthz \
+		http://localhost:8082/healthz \
+		http://localhost:8083/healthz \
+		http://localhost:8084/healthz \
+		http://localhost:8081/healthz \
+		http://localhost:9091/healthz; do \
+		echo "checking $$url"; \
+		curl -fsS "$$url" >/dev/null; \
+	done; \
+	echo "✅ dev 冒烟检查通过"
+
+# ============================================
 # Database migration
 # ============================================
 
@@ -166,6 +215,12 @@ help:
 	@echo "Docker:"
 	@echo "  make docker-build   - 构建 Docker 镜像"
 	@echo "  make docker-push    - 推送 Docker 镜像"
+	@echo ""
+	@echo "开发热更新:"
+	@echo "  make dev-up         - 启动 dev 热更新环境"
+	@echo "  make dev-down       - 停止 dev 热更新环境"
+	@echo "  make dev-logs       - 查看 dev 热更新日志"
+	@echo "  make dev-test-smoke - 执行 dev 冒烟检查"
 	@echo ""
 	@echo "数据库迁移:"
 	@echo "  make db-migrate-up [STEPS=N]      - 执行迁移 up"

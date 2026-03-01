@@ -227,7 +227,7 @@ services:
     restart: unless-stopped
 
   vault:
-    image: hashicorp/vault:1.15
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/hashicorp/vault:1.15
     ports:
       - "8200:8200"
     environment:
@@ -252,7 +252,7 @@ services:
   # 基础设施服务
   # ============================================================
   postgres:
-    image: postgres:16-alpine
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/postgres:16-alpine
     ports:
       - "5432:5432"
     environment:
@@ -274,7 +274,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7.2-alpine
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/redis:7.2-alpine
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -290,7 +290,7 @@ services:
     restart: unless-stopped
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    image: ${MIRROR_ELASTIC:-docker.elastic.co}/elasticsearch/elasticsearch:8.13.0
     ports:
       - "9200:9200"
     environment:
@@ -312,7 +312,7 @@ services:
     restart: unless-stopped
 
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/confluentinc/cp-zookeeper:7.6.0
     ports:
       - "2181:2181"
     environment:
@@ -331,7 +331,7 @@ services:
     restart: unless-stopped
 
   kafka:
-    image: confluentinc/cp-kafka:7.6.0
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/confluentinc/cp-kafka:7.6.0
     ports:
       - "9092:9092"
     environment:
@@ -357,7 +357,7 @@ services:
 
   # Kafka Topic 初始化（一次性任务）
   kafka-init:
-    image: confluentinc/cp-kafka:7.6.0
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/confluentinc/cp-kafka:7.6.0
     entrypoint: ["/bin/bash", "/scripts/init-topics.sh", "kafka:9092"]
     volumes:
       - ./messaging/kafka/scripts:/scripts:ro
@@ -370,7 +370,7 @@ services:
 
   # Schema Registry
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.6.0
+    image: ${MIRROR_DOCKER_HUB:-docker.io}/confluentinc/cp-schema-registry:7.6.0
     ports:
       - "8081:8081"
     environment:
