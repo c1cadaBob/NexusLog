@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,21 +44,13 @@ func Success(c *gin.Context, status int, data any) {
 
 // Error writes unified error response.
 func Error(c *gin.Context, apiErr *model.APIError) {
-	if apiErr == nil {
-		apiErr = &model.APIError{
-			HTTPStatus: http.StatusInternalServerError,
-			Code:       "AUTH_REGISTER_INTERNAL_ERROR",
-			Message:    "internal error",
-		}
-	}
+	apiErr = model.NormalizeAPIError(apiErr)
 
 	resp := gin.H{
 		"code":       apiErr.Code,
 		"message":    apiErr.Message,
 		"request_id": RequestID(c),
-	}
-	if len(apiErr.Details) > 0 {
-		resp["details"] = apiErr.Details
+		"details":    apiErr.Details,
 	}
 
 	c.JSON(apiErr.HTTPStatus, resp)

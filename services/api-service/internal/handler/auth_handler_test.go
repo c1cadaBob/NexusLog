@@ -259,6 +259,44 @@ func TestLoginSuccessEnvelope(t *testing.T) {
 	}
 }
 
+func TestLoginErrorEnvelopeIncludesDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	mock := &handlerRepoMock{
+		tenantExists: true,
+		loginErr:     repository.ErrInvalidCredentials,
+	}
+	h := NewAuthHandler(service.NewAuthService(mock))
+	router.POST("/api/v1/auth/login", h.Login)
+
+	payload := model.LoginRequest{
+		Username: "alice",
+		Password: "Password123",
+	}
+	raw, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "AUTH_LOGIN_INVALID_CREDENTIALS" {
+		t.Fatalf("unexpected code: %v", body["code"])
+	}
+	if _, ok := body["details"]; !ok {
+		t.Fatalf("expected details field in error envelope")
+	}
+}
+
 func TestRefreshInvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
