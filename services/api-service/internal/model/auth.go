@@ -71,6 +71,17 @@ type PasswordResetRequestResponseData struct {
 	Accepted bool `json:"accepted"`
 }
 
+// PasswordResetConfirmRequest defines payload for POST /api/v1/auth/password/reset-confirm.
+type PasswordResetConfirmRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
+// PasswordResetConfirmResponseData defines successful reset-confirm response payload.
+type PasswordResetConfirmResponseData struct {
+	Reset bool `json:"reset"`
+}
+
 // APIError defines unified API error envelope fields.
 type APIError struct {
 	HTTPStatus int

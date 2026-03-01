@@ -3,13 +3,16 @@ package tests
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -333,6 +336,104 @@ func TestPasswordResetRequestIntegration(t *testing.T) {
 	}
 }
 
+func TestPasswordResetConfirmIntegration(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-reset-confirm")
+	router := buildRouter(db)
+
+	username := "resetcfm_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+	oldPassword := "Password123"
+	newPassword := "Password456"
+
+	regStatus, regBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    oldPassword,
+		Email:       email,
+		DisplayName: "Reset Confirm User",
+	})
+	if regStatus != http.StatusCreated || regBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", regStatus, regBody)
+	}
+
+	loginStatus, loginBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: oldPassword,
+	})
+	if loginStatus != http.StatusOK || loginBody["code"] != "OK" {
+		t.Fatalf("pre-reset login failed, status=%d body=%#v", loginStatus, loginBody)
+	}
+	loginData, ok := loginBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing login data: %#v", loginBody)
+	}
+	oldRefreshToken, ok := loginData["refresh_token"].(string)
+	if !ok || oldRefreshToken == "" {
+		t.Fatalf("missing refresh token in pre-reset login response: %#v", loginData)
+	}
+
+	rawToken := "reset-token-" + uuid.NewString()
+	insertPasswordResetToken(t, ctx, db, tenantID, username, rawToken, time.Now().UTC().Add(20*time.Minute))
+
+	confirmStatus, confirmBody := callPasswordResetConfirm(t, router, tenantID, model.PasswordResetConfirmRequest{
+		Token:       rawToken,
+		NewPassword: newPassword,
+	})
+	if confirmStatus != http.StatusOK || confirmBody["code"] != "OK" {
+		t.Fatalf("reset-confirm failed, status=%d body=%#v", confirmStatus, confirmBody)
+	}
+	confirmData, ok := confirmBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing reset-confirm data: %#v", confirmBody)
+	}
+	if reset, ok := confirmData["reset"].(bool); !ok || !reset {
+		t.Fatalf("expected reset=true, got %#v", confirmData["reset"])
+	}
+	if !isPasswordResetTokenUsed(t, ctx, db, tenantID, rawToken) {
+		t.Fatalf("expected password reset token marked used")
+	}
+
+	refreshStatus, refreshBody := callRefresh(t, router, tenantID, model.RefreshRequest{RefreshToken: oldRefreshToken})
+	if refreshStatus != http.StatusUnauthorized || refreshBody["code"] != "AUTH_REFRESH_INVALID_TOKEN" {
+		t.Fatalf("expected pre-reset refresh revoked, status=%d body=%#v", refreshStatus, refreshBody)
+	}
+
+	oldLoginStatus, oldLoginBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: oldPassword,
+	})
+	if oldLoginStatus != http.StatusUnauthorized || oldLoginBody["code"] != "AUTH_LOGIN_INVALID_CREDENTIALS" {
+		t.Fatalf("expected old password invalid, status=%d body=%#v", oldLoginStatus, oldLoginBody)
+	}
+
+	newLoginStatus, newLoginBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: newPassword,
+	})
+	if newLoginStatus != http.StatusOK || newLoginBody["code"] != "OK" {
+		t.Fatalf("expected new password login success, status=%d body=%#v", newLoginStatus, newLoginBody)
+	}
+
+	reuseStatus, reuseBody := callPasswordResetConfirm(t, router, tenantID, model.PasswordResetConfirmRequest{
+		Token:       rawToken,
+		NewPassword: "Password789",
+	})
+	if reuseStatus != http.StatusBadRequest || reuseBody["code"] != "AUTH_RESET_CONFIRM_INVALID_TOKEN" {
+		t.Fatalf("expected token reuse invalid, status=%d body=%#v", reuseStatus, reuseBody)
+	}
+}
+
 func buildRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -344,6 +445,7 @@ func buildRouter(db *sql.DB) *gin.Engine {
 	r.POST("/api/v1/auth/refresh", authH.Refresh)
 	r.POST("/api/v1/auth/logout", authH.Logout)
 	r.POST("/api/v1/auth/password/reset-request", authH.PasswordResetRequest)
+	r.POST("/api/v1/auth/password/reset-confirm", authH.PasswordResetConfirm)
 	return r
 }
 
@@ -418,6 +520,22 @@ func callPasswordResetRequest(t *testing.T, r *gin.Engine, tenantID string, payl
 	t.Helper()
 	raw, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-request", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return resp.Code, body
+}
+
+func callPasswordResetConfirm(t *testing.T, r *gin.Engine, tenantID string, payload model.PasswordResetConfirmRequest) (int, map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-confirm", bytes.NewBuffer(raw))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", tenantID)
 	resp := httptest.NewRecorder()
@@ -526,6 +644,48 @@ func hasPasswordResetToken(t *testing.T, ctx context.Context, db *sql.DB, tenant
 	return exists
 }
 
+func insertPasswordResetToken(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username, rawToken string, expiresAt time.Time) {
+	t.Helper()
+	const findUserSQL = `SELECT id FROM users WHERE tenant_id = $1::uuid AND username = $2 LIMIT 1`
+	var userID string
+	if err := db.QueryRowContext(ctx, findUserSQL, tenantID, username).Scan(&userID); err != nil {
+		t.Fatalf("query user id for reset token: %v", err)
+	}
+
+	const insertTokenSQL = `
+		INSERT INTO password_reset_tokens (
+			tenant_id,
+			user_id,
+			token_hash,
+			expires_at,
+			requested_ip,
+			user_agent
+		)
+		VALUES ($1::uuid, $2::uuid, $3, $4, '127.0.0.1', 'integration-test')
+	`
+	if _, err := db.ExecContext(ctx, insertTokenSQL, tenantID, userID, hashResetToken(rawToken), expiresAt); err != nil {
+		t.Fatalf("insert password reset token: %v", err)
+	}
+}
+
+func isPasswordResetTokenUsed(t *testing.T, ctx context.Context, db *sql.DB, tenantID, rawToken string) bool {
+	t.Helper()
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM password_reset_tokens
+			WHERE tenant_id = $1::uuid
+			  AND token_hash = $2
+			  AND used_at IS NOT NULL
+		)
+	`
+	var used bool
+	if err := db.QueryRowContext(ctx, q, tenantID, hashResetToken(rawToken)).Scan(&used); err != nil {
+		t.Fatalf("check password reset token used: %v", err)
+	}
+	return used
+}
+
 func hasLoginAttempt(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username, result string) bool {
 	t.Helper()
 	const q = `
@@ -540,4 +700,9 @@ func hasLoginAttempt(t *testing.T, ctx context.Context, db *sql.DB, tenantID, us
 		t.Fatalf("check login_attempts row: %v", err)
 	}
 	return exists
+}
+
+func hashResetToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }

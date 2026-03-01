@@ -20,6 +20,7 @@ var (
 	ErrInvalidCredentials   = errors.New("invalid credentials")
 	ErrSessionTokenConflict = errors.New("session token conflict")
 	ErrInvalidRefreshToken  = errors.New("invalid refresh token")
+	ErrInvalidResetToken    = errors.New("invalid reset token")
 	ErrUserNotFound         = errors.New("user not found")
 )
 
@@ -250,6 +251,106 @@ func (r *AuthRepository) CreatePasswordResetToken(
 		return fmt.Errorf("create password reset token: %w", err)
 	}
 	return nil
+}
+
+func (r *AuthRepository) ConfirmPasswordReset(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	rawToken string,
+	passwordHash string,
+	passwordCost int,
+) (uuid.UUID, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	const selectResetTokenSQL = `
+		SELECT id, user_id, expires_at, used_at
+		FROM password_reset_tokens
+		WHERE tenant_id = $1 AND token_hash = $2
+		FOR UPDATE
+	`
+
+	var tokenID uuid.UUID
+	var userID uuid.UUID
+	var expiresAt time.Time
+	var usedAt sql.NullTime
+	if err = tx.QueryRowContext(
+		ctx,
+		selectResetTokenSQL,
+		tenantID,
+		hashToken(rawToken),
+	).Scan(&tokenID, &userID, &expiresAt, &usedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return uuid.Nil, ErrInvalidResetToken
+		}
+		return uuid.Nil, fmt.Errorf("query password reset token: %w", err)
+	}
+
+	now := time.Now().UTC()
+	if usedAt.Valid || !expiresAt.After(now) {
+		return uuid.Nil, ErrInvalidResetToken
+	}
+
+	const updateCredentialSQL = `
+		UPDATE user_credentials
+		SET
+			password_hash = $3,
+			password_algo = 'bcrypt',
+			password_cost = $4,
+			password_updated_at = NOW(),
+			updated_at = NOW()
+		WHERE tenant_id = $1 AND user_id = $2
+	`
+	updateResult, err := tx.ExecContext(
+		ctx,
+		updateCredentialSQL,
+		tenantID,
+		userID,
+		passwordHash,
+		passwordCost,
+	)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("update user credentials password: %w", err)
+	}
+
+	updatedRows, err := updateResult.RowsAffected()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("read updated credentials rows: %w", err)
+	}
+	if updatedRows == 0 {
+		return uuid.Nil, fmt.Errorf("update user credentials password: no row updated")
+	}
+
+	const markUsedSQL = `
+		UPDATE password_reset_tokens
+		SET used_at = NOW()
+		WHERE id = $1
+	`
+	if _, err = tx.ExecContext(ctx, markUsedSQL, tokenID); err != nil {
+		return uuid.Nil, fmt.Errorf("mark password reset token used: %w", err)
+	}
+
+	const revokeSessionsSQL = `
+		UPDATE user_sessions
+		SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+		WHERE tenant_id = $1 AND user_id = $2 AND session_status = 'active'
+	`
+	if _, err = tx.ExecContext(ctx, revokeSessionsSQL, tenantID, userID); err != nil {
+		return uuid.Nil, fmt.Errorf("revoke active sessions after password reset: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return uuid.Nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return userID, nil
 }
 
 func (r *AuthRepository) CreateUserSession(ctx context.Context, input CreateSessionInput) error {

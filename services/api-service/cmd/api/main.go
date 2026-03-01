@@ -60,6 +60,7 @@ func main() {
 	authV1.POST("/refresh", authHandler.Refresh)
 	authV1.POST("/logout", authHandler.Logout)
 	authV1.POST("/password/reset-request", authHandler.PasswordResetRequest)
+	authV1.POST("/password/reset-confirm", authHandler.PasswordResetConfirm)
 
 	server := &http.Server{
 		Addr:              ":" + port,

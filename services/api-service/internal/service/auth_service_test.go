@@ -25,6 +25,8 @@ type mockAuthRepository struct {
 	findUser          repository.UserIdentityRecord
 	findUserErr       error
 	createResetErr    error
+	confirmResetErr   error
+	confirmResetUser  uuid.UUID
 	createSessionErr  error
 	rotateErr         error
 	revokeRefreshErr  error
@@ -33,6 +35,7 @@ type mockAuthRepository struct {
 	sessionCreateCall int
 	rotateCall        int
 	createResetCall   int
+	confirmResetCall  int
 	revokeRefreshCall int
 	revokeByUserCall  int
 }
@@ -74,6 +77,23 @@ func (m *mockAuthRepository) CreatePasswordResetToken(
 ) error {
 	m.createResetCall++
 	return m.createResetErr
+}
+
+func (m *mockAuthRepository) ConfirmPasswordReset(
+	_ context.Context,
+	_ uuid.UUID,
+	_ string,
+	_ string,
+	_ int,
+) (uuid.UUID, error) {
+	m.confirmResetCall++
+	if m.confirmResetErr != nil {
+		return uuid.Nil, m.confirmResetErr
+	}
+	if m.confirmResetUser == uuid.Nil {
+		return uuid.New(), nil
+	}
+	return m.confirmResetUser, nil
 }
 
 func (m *mockAuthRepository) CreateUserSession(_ context.Context, _ repository.CreateSessionInput) error {
@@ -435,5 +455,70 @@ func TestPasswordResetRequestValidationAndSuccess(t *testing.T) {
 	_, err = svc.PasswordResetRequest(context.Background(), tenantID, model.PasswordResetRequestRequest{EmailOrUsername: "alice"}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_RESET_REQUEST_INTERNAL_ERROR" {
 		t.Fatalf("expected internal error on token create, got %#v", err)
+	}
+}
+
+func TestPasswordResetConfirmValidationAndSuccess(t *testing.T) {
+	tenantID := uuid.NewString()
+	repoMock := &mockAuthRepository{tenantExists: true}
+	svc := NewAuthService(repoMock)
+
+	_, err := svc.PasswordResetConfirm(context.Background(), "", model.PasswordResetConfirmRequest{})
+	if err == nil || err.Code != "AUTH_RESET_CONFIRM_TENANT_REQUIRED" {
+		t.Fatalf("expected tenant required, got %#v", err)
+	}
+
+	_, err = svc.PasswordResetConfirm(context.Background(), "bad-tenant", model.PasswordResetConfirmRequest{})
+	if err == nil || err.Code != "AUTH_RESET_CONFIRM_TENANT_INVALID" {
+		t.Fatalf("expected tenant invalid, got %#v", err)
+	}
+
+	_, err = svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
+		Token:       "",
+		NewPassword: "Password123",
+	})
+	if err == nil || err.Code != "AUTH_RESET_CONFIRM_INVALID_ARGUMENT" {
+		t.Fatalf("expected invalid argument for token, got %#v", err)
+	}
+
+	_, err = svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
+		Token:       "token-1",
+		NewPassword: "short",
+	})
+	if err == nil || err.Code != "AUTH_RESET_CONFIRM_INVALID_ARGUMENT" {
+		t.Fatalf("expected invalid argument for new password, got %#v", err)
+	}
+
+	repoMock.confirmResetErr = repository.ErrInvalidResetToken
+	_, err = svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
+		Token:       "token-2",
+		NewPassword: "Password123",
+	})
+	if err == nil || err.Code != "AUTH_RESET_CONFIRM_INVALID_TOKEN" {
+		t.Fatalf("expected invalid token, got %#v", err)
+	}
+
+	repoMock.confirmResetErr = errors.New("db failed")
+	_, err = svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
+		Token:       "token-3",
+		NewPassword: "Password123",
+	})
+	if err == nil || err.Code != "AUTH_RESET_CONFIRM_INTERNAL_ERROR" {
+		t.Fatalf("expected internal error, got %#v", err)
+	}
+
+	repoMock.confirmResetErr = nil
+	resp, err := svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
+		Token:       "token-4",
+		NewPassword: "Password123",
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %#v", err)
+	}
+	if !resp.Reset {
+		t.Fatalf("expected reset=true, got %#v", resp)
+	}
+	if repoMock.confirmResetCall == 0 {
+		t.Fatalf("expected confirm reset call")
 	}
 }

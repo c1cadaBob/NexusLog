@@ -29,6 +29,7 @@ type handlerRepoMock struct {
 	revokeErr    error
 	findUserErr  error
 	findUser     repository.UserIdentityRecord
+	confirmErr   error
 }
 
 func (m *handlerRepoMock) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -64,6 +65,19 @@ func (m *handlerRepoMock) CreatePasswordResetToken(
 	_, _ string,
 ) error {
 	return nil
+}
+
+func (m *handlerRepoMock) ConfirmPasswordReset(
+	_ context.Context,
+	_ uuid.UUID,
+	_ string,
+	_ string,
+	_ int,
+) (uuid.UUID, error) {
+	if m.confirmErr != nil {
+		return uuid.Nil, m.confirmErr
+	}
+	return uuid.New(), nil
 }
 
 func (m *handlerRepoMock) CreateUserSession(_ context.Context, _ repository.CreateSessionInput) error {
@@ -449,5 +463,74 @@ func TestPasswordResetRequestSuccessEnvelope(t *testing.T) {
 	}
 	if accepted, ok := data["accepted"].(bool); !ok || !accepted {
 		t.Fatalf("expected accepted=true, got %#v", data["accepted"])
+	}
+}
+
+func TestPasswordResetConfirmInvalidBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	router.POST("/api/v1/auth/password/reset-confirm", h.PasswordResetConfirm)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-confirm", bytes.NewBufferString("{bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "AUTH_RESET_CONFIRM_INVALID_ARGUMENT" {
+		t.Fatalf("unexpected code: %v", body["code"])
+	}
+}
+
+func TestPasswordResetConfirmSuccessEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	mock := &handlerRepoMock{tenantExists: true}
+	h := NewAuthHandler(service.NewAuthService(mock))
+	router.POST("/api/v1/auth/password/reset-confirm", h.PasswordResetConfirm)
+
+	payload := model.PasswordResetConfirmRequest{
+		Token:       "reset-token-1",
+		NewPassword: "Password123",
+	}
+	raw, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-confirm", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	req.Header.Set("X-Request-ID", "gw-reset-confirm-id")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "OK" || body["message"] != "success" {
+		t.Fatalf("unexpected envelope: %#v", body)
+	}
+	if body["request_id"] != "gw-reset-confirm-id" {
+		t.Fatalf("unexpected request_id: %v", body["request_id"])
+	}
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data")
+	}
+	if reset, ok := data["reset"].(bool); !ok || !reset {
+		t.Fatalf("expected reset=true, got %#v", data["reset"])
 	}
 }

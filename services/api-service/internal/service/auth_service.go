@@ -41,6 +41,13 @@ type authRepository interface {
 		expiresAt time.Time,
 		requestedIP, userAgent string,
 	) error
+	ConfirmPasswordReset(
+		ctx context.Context,
+		tenantID uuid.UUID,
+		rawToken string,
+		passwordHash string,
+		passwordCost int,
+	) (uuid.UUID, error)
 	CreateUserSession(ctx context.Context, input repository.CreateSessionInput) error
 	RotateSessionByRefreshToken(ctx context.Context, input repository.RotateSessionInput) (uuid.UUID, error)
 	RevokeSessionByRefreshToken(ctx context.Context, tenantID uuid.UUID, refreshToken string) error
@@ -376,6 +383,57 @@ func (s *AuthService) PasswordResetRequest(
 	return model.PasswordResetRequestResponseData{Accepted: true}, nil
 }
 
+func (s *AuthService) PasswordResetConfirm(
+	ctx context.Context,
+	tenantHeader string,
+	req model.PasswordResetConfirmRequest,
+) (model.PasswordResetConfirmResponseData, *model.APIError) {
+	tenantID, apiErr := parseAndCheckTenant(ctx, s.repo, tenantHeader, "AUTH_RESET_CONFIRM")
+	if apiErr != nil {
+		return model.PasswordResetConfirmResponseData{}, apiErr
+	}
+
+	normalizedReq, apiErr := normalizeAndValidateResetConfirm(req)
+	if apiErr != nil {
+		return model.PasswordResetConfirmResponseData{}, apiErr
+	}
+
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(normalizedReq.NewPassword), bcryptCost)
+	if err != nil {
+		return model.PasswordResetConfirmResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_RESET_CONFIRM_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	if _, err := s.repo.ConfirmPasswordReset(
+		ctx,
+		tenantID,
+		normalizedReq.Token,
+		string(hashBytes),
+		bcryptCost,
+	); err != nil {
+		if errors.Is(err, repository.ErrInvalidResetToken) {
+			return model.PasswordResetConfirmResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       "AUTH_RESET_CONFIRM_INVALID_TOKEN",
+				Message:    "reset token invalid or expired",
+				Details: map[string]any{
+					"field": "token",
+				},
+			}
+		}
+		return model.PasswordResetConfirmResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_RESET_CONFIRM_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	return model.PasswordResetConfirmResponseData{Reset: true}, nil
+}
+
 func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, currentRefreshToken, newRefreshToken, clientIP, userAgent string) error {
 	jti := uuid.NewString()
 	_, err := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
@@ -529,6 +587,20 @@ func normalizeAndValidateResetRequest(req model.PasswordResetRequestRequest) (mo
 	}
 	if len(req.EmailOrUsername) > 255 {
 		return model.PasswordResetRequestRequest{}, invalidField("email_or_username", "AUTH_RESET_REQUEST_INVALID_ARGUMENT", "invalid request")
+	}
+	return req, nil
+}
+
+func normalizeAndValidateResetConfirm(req model.PasswordResetConfirmRequest) (model.PasswordResetConfirmRequest, *model.APIError) {
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Token == "" {
+		return model.PasswordResetConfirmRequest{}, invalidField("token", "AUTH_RESET_CONFIRM_INVALID_ARGUMENT", "invalid request")
+	}
+	if len(req.Token) > 2048 {
+		return model.PasswordResetConfirmRequest{}, invalidField("token", "AUTH_RESET_CONFIRM_INVALID_ARGUMENT", "invalid request")
+	}
+	if len(req.NewPassword) < 8 || len(req.NewPassword) > 72 {
+		return model.PasswordResetConfirmRequest{}, invalidField("new_password", "AUTH_RESET_CONFIRM_INVALID_ARGUMENT", "invalid request")
 	}
 	return req, nil
 }
