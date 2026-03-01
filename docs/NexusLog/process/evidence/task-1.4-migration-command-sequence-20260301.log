@@ -1,0 +1,86 @@
+# Task 1.4 Migration Command Sequence Evidence
+Date: 2026-03-01
+Repo: /opt/projects/NexusLog
+
+## Scope
+- Replay migration command sequence for 000012~000015
+- Record baseline, down rollback, validation, up recovery, and final validation
+
+## Step 1: Environment and baseline
+
+$ date
+Sun Mar  1 13:54:45 CST 2026
+
+$ command -v migrate
+/home/testdev/go/bin/migrate
+
+$ migrate -version
+dev
+
+$ make db-migrate-version
+15
+
+$ docker compose ps postgres
+NAME                  IMAGE                COMMAND                  SERVICE    CREATED        STATUS                  PORTS
+nexuslog-postgres-1   postgres:16-alpine   "docker-entrypoint.s…"   postgres   16 hours ago   Up 16 hours (healthy)   0.0.0.0:5432->5432/tcp, :::5432->5432/tcp
+
+$ docker compose exec -T postgres psql -U nexuslog -d nexuslog -c SELECT version, dirty FROM schema_migrations;
+ version | dirty 
+---------+-------
+      15 | f
+(1 row)
+
+
+## Step 2: Down rollback drill (15 -> 1 via down 4)
+
+$ make db-migrate-down STEPS=4
+15/d runtime_config_dispatch_and_subscription (111.458722ms)
+14/d mvp_search_query_metadata (177.206973ms)
+13/d mvp_ingest_pull_and_incremental_package (236.984159ms)
+12/d mvp_auth_session_and_security (268.208694ms)
+
+$ docker compose exec -T postgres psql -U nexuslog -d nexuslog -c SELECT version, dirty FROM schema_migrations;
+ version | dirty 
+---------+-------
+       1 | f
+(1 row)
+
+
+$ docker compose exec -T postgres psql -U nexuslog -d nexuslog -c SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('user_sessions','password_reset_tokens','login_attempts','ingest_pull_sources','ingest_pull_tasks','agent_incremental_packages','agent_package_files','ingest_delivery_receipts','ingest_file_checkpoints','ingest_dead_letters','query_histories','saved_queries','saved_query_tags','config_namespace','config_item','config_version','config_publish','runtime_config_subscription','runtime_config_dispatch_log') ORDER BY table_name;
+ table_name 
+------------
+(0 rows)
+
+
+## Step 3: Up recovery drill (1 -> 15 via up 4)
+
+$ make db-migrate-up STEPS=4
+12/u mvp_auth_session_and_security (53.665963ms)
+13/u mvp_ingest_pull_and_incremental_package (126.642189ms)
+14/u mvp_search_query_metadata (158.222689ms)
+15/u runtime_config_dispatch_and_subscription (232.790685ms)
+
+$ docker compose exec -T postgres psql -U nexuslog -d nexuslog -c SELECT version, dirty FROM schema_migrations;
+ version | dirty 
+---------+-------
+      15 | f
+(1 row)
+
+
+$ docker compose exec -T postgres psql -U nexuslog -d nexuslog -c SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('user_sessions','password_reset_tokens','login_attempts','config_namespace','config_item','config_version','config_publish','runtime_config_subscription','runtime_config_dispatch_log') ORDER BY table_name;
+         table_name          
+-----------------------------
+ config_item
+ config_namespace
+ config_publish
+ config_version
+ login_attempts
+ password_reset_tokens
+ runtime_config_dispatch_log
+ runtime_config_subscription
+ user_sessions
+(9 rows)
+
+
+## Conclusion
+Task 1.4 command sequence replay passed at 2026-03-01. Final state: schema_migrations=15, dirty=false.
