@@ -275,6 +275,64 @@ func TestLogoutIntegration(t *testing.T) {
 	}
 }
 
+func TestPasswordResetRequestIntegration(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-reset-request")
+	router := buildRouter(db)
+
+	username := "resetreq_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+
+	regStatus, regBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    "Password123",
+		Email:       email,
+		DisplayName: "Reset Request User",
+	})
+	if regStatus != http.StatusCreated || regBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", regStatus, regBody)
+	}
+
+	reqStatus, reqBody := callPasswordResetRequest(t, router, tenantID, model.PasswordResetRequestRequest{EmailOrUsername: username})
+	if reqStatus != http.StatusOK || reqBody["code"] != "OK" {
+		t.Fatalf("reset-request failed, status=%d body=%#v", reqStatus, reqBody)
+	}
+	reqData, ok := reqBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data in reset-request response: %#v", reqBody)
+	}
+	if accepted, ok := reqData["accepted"].(bool); !ok || !accepted {
+		t.Fatalf("expected accepted=true, got %#v", reqData["accepted"])
+	}
+
+	if !hasPasswordResetToken(t, ctx, db, tenantID, username) {
+		t.Fatalf("expected password_reset_tokens row exists")
+	}
+	if !hasLoginAttempt(t, ctx, db, tenantID, username, "success") {
+		t.Fatalf("expected successful login_attempt for reset-request")
+	}
+
+	unknown := "unknown_" + uuid.NewString()[:8]
+	reqStatus, reqBody = callPasswordResetRequest(t, router, tenantID, model.PasswordResetRequestRequest{EmailOrUsername: unknown})
+	if reqStatus != http.StatusOK || reqBody["code"] != "OK" {
+		t.Fatalf("reset-request for unknown user should still succeed, status=%d body=%#v", reqStatus, reqBody)
+	}
+	if !hasLoginAttempt(t, ctx, db, tenantID, unknown, "failed") {
+		t.Fatalf("expected failed login_attempt for unknown reset-request")
+	}
+}
+
 func buildRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -285,6 +343,7 @@ func buildRouter(db *sql.DB) *gin.Engine {
 	r.POST("/api/v1/auth/login", authH.Login)
 	r.POST("/api/v1/auth/refresh", authH.Refresh)
 	r.POST("/api/v1/auth/logout", authH.Logout)
+	r.POST("/api/v1/auth/password/reset-request", authH.PasswordResetRequest)
 	return r
 }
 
@@ -345,6 +404,22 @@ func callLogout(t *testing.T, r *gin.Engine, tenantID string, payload model.Logo
 	if userID != "" {
 		req.Header.Set("X-User-ID", userID)
 	}
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return resp.Code, body
+}
+
+func callPasswordResetRequest(t *testing.T, r *gin.Engine, tenantID string, payload model.PasswordResetRequestRequest) (int, map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-request", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
 	resp := httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 
@@ -427,6 +502,26 @@ func hasSessionStatus(t *testing.T, ctx context.Context, db *sql.DB, tenantID, s
 	var exists bool
 	if err := db.QueryRowContext(ctx, q, tenantID, status).Scan(&exists); err != nil {
 		t.Fatalf("check user_sessions status: %v", err)
+	}
+	return exists
+}
+
+func hasPasswordResetToken(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) bool {
+	t.Helper()
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM password_reset_tokens prt
+			JOIN users u ON u.id = prt.user_id
+			WHERE prt.tenant_id = $1::uuid
+			  AND u.username = $2
+			  AND prt.token_hash <> ''
+			  AND prt.expires_at > NOW()
+		)
+	`
+	var exists bool
+	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&exists); err != nil {
+		t.Fatalf("check password_reset_tokens row: %v", err)
 	}
 	return exists
 }

@@ -86,7 +86,7 @@
 - [x] 2.2 实现 `POST /api/v1/auth/login`
 - [x] 2.3 实现 `POST /api/v1/auth/refresh`
 - [x] 2.4 实现 `POST /api/v1/auth/logout`
-- [ ] 2.5 实现 `POST /api/v1/auth/password/reset-request`
+- [x] 2.5 实现 `POST /api/v1/auth/password/reset-request`
 - [ ] 2.6 实现 `POST /api/v1/auth/password/reset-confirm`
 - [ ] 2.7 统一认证接口响应结构与错误码
 - [ ] 2.8 写入并验证 `user_sessions/password_reset_tokens/login_attempts`

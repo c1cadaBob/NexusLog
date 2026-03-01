@@ -24,6 +24,7 @@ const (
 	defaultAccessTTL       = 15 * time.Minute
 	defaultRefreshTTL      = 7 * 24 * time.Hour
 	defaultRememberRefresh = 30 * 24 * time.Hour
+	defaultResetTokenTTL   = 30 * time.Minute
 )
 
 var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{2,31}$`)
@@ -32,6 +33,14 @@ type authRepository interface {
 	CheckTenantExists(ctx context.Context, tenantID uuid.UUID) (bool, error)
 	RegisterUser(ctx context.Context, input repository.RegisterUserInput) (uuid.UUID, string, error)
 	GetLoginUserByUsername(ctx context.Context, tenantID uuid.UUID, username string) (repository.LoginUserRecord, error)
+	FindUserByEmailOrUsername(ctx context.Context, tenantID uuid.UUID, identifier string) (repository.UserIdentityRecord, error)
+	CreatePasswordResetToken(
+		ctx context.Context,
+		tenantID, userID uuid.UUID,
+		rawToken string,
+		expiresAt time.Time,
+		requestedIP, userAgent string,
+	) error
 	CreateUserSession(ctx context.Context, input repository.CreateSessionInput) error
 	RotateSessionByRefreshToken(ctx context.Context, input repository.RotateSessionInput) (uuid.UUID, error)
 	RevokeSessionByRefreshToken(ctx context.Context, tenantID uuid.UUID, refreshToken string) error
@@ -290,6 +299,83 @@ func (s *AuthService) Logout(ctx context.Context, tenantHeader, userIDHeader str
 	return model.LogoutResponseData{LoggedOut: true}, nil
 }
 
+func (s *AuthService) PasswordResetRequest(
+	ctx context.Context,
+	tenantHeader string,
+	req model.PasswordResetRequestRequest,
+	clientIP, userAgent string,
+) (model.PasswordResetRequestResponseData, *model.APIError) {
+	tenantID, apiErr := parseAndCheckTenant(ctx, s.repo, tenantHeader, "AUTH_RESET_REQUEST")
+	if apiErr != nil {
+		return model.PasswordResetRequestResponseData{}, apiErr
+	}
+
+	normalizedReq, apiErr := normalizeAndValidateResetRequest(req)
+	if apiErr != nil {
+		return model.PasswordResetRequestResponseData{}, apiErr
+	}
+
+	userRec, err := s.repo.FindUserByEmailOrUsername(ctx, tenantID, normalizedReq.EmailOrUsername)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
+				TenantID:  tenantID,
+				Username:  normalizedReq.EmailOrUsername,
+				Email:     inferEmailOrEmpty(normalizedReq.EmailOrUsername),
+				IPAddress: clientIP,
+				UserAgent: userAgent,
+				Result:    "failed",
+				Reason:    "password_reset_user_not_found",
+			})
+			return model.PasswordResetRequestResponseData{Accepted: true}, nil
+		}
+		return model.PasswordResetRequestResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_RESET_REQUEST_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	resetToken, err := newOpaqueToken()
+	if err != nil {
+		return model.PasswordResetRequestResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_RESET_REQUEST_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	if err := s.repo.CreatePasswordResetToken(
+		ctx,
+		tenantID,
+		userRec.UserID,
+		resetToken,
+		time.Now().UTC().Add(defaultResetTokenTTL),
+		clientIP,
+		userAgent,
+	); err != nil {
+		return model.PasswordResetRequestResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_RESET_REQUEST_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	uid := userRec.UserID
+	_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
+		TenantID:  tenantID,
+		UserID:    &uid,
+		Username:  userRec.Username,
+		Email:     userRec.Email,
+		IPAddress: clientIP,
+		UserAgent: userAgent,
+		Result:    "success",
+		Reason:    "password_reset_requested",
+	})
+
+	return model.PasswordResetRequestResponseData{Accepted: true}, nil
+}
+
 func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, currentRefreshToken, newRefreshToken, clientIP, userAgent string) error {
 	jti := uuid.NewString()
 	_, err := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
@@ -436,9 +522,27 @@ func normalizeAndValidateRefresh(req model.RefreshRequest) (model.RefreshRequest
 	return req, nil
 }
 
+func normalizeAndValidateResetRequest(req model.PasswordResetRequestRequest) (model.PasswordResetRequestRequest, *model.APIError) {
+	req.EmailOrUsername = strings.TrimSpace(req.EmailOrUsername)
+	if req.EmailOrUsername == "" {
+		return model.PasswordResetRequestRequest{}, invalidField("email_or_username", "AUTH_RESET_REQUEST_INVALID_ARGUMENT", "invalid request")
+	}
+	if len(req.EmailOrUsername) > 255 {
+		return model.PasswordResetRequestRequest{}, invalidField("email_or_username", "AUTH_RESET_REQUEST_INVALID_ARGUMENT", "invalid request")
+	}
+	return req, nil
+}
+
 func normalizeLogout(req model.LogoutRequest) model.LogoutRequest {
 	req.RefreshToken = strings.TrimSpace(req.RefreshToken)
 	return req
+}
+
+func inferEmailOrEmpty(identifier string) string {
+	if _, err := mail.ParseAddress(identifier); err == nil {
+		return strings.ToLower(identifier)
+	}
+	return ""
 }
 
 func parseAndCheckTenant(ctx context.Context, repo authRepository, tenantHeader, codePrefix string) (uuid.UUID, *model.APIError) {

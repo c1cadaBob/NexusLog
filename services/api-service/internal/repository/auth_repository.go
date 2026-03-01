@@ -20,6 +20,7 @@ var (
 	ErrInvalidCredentials   = errors.New("invalid credentials")
 	ErrSessionTokenConflict = errors.New("session token conflict")
 	ErrInvalidRefreshToken  = errors.New("invalid refresh token")
+	ErrUserNotFound         = errors.New("user not found")
 )
 
 // RegisterUserInput defines DB input for creating user and credentials.
@@ -40,6 +41,14 @@ type LoginUserRecord struct {
 	DisplayName  string
 	Status       string
 	PasswordHash string
+}
+
+// UserIdentityRecord defines generic user identity fields.
+type UserIdentityRecord struct {
+	UserID   uuid.UUID
+	Username string
+	Email    string
+	Status   string
 }
 
 // CreateSessionInput defines input for creating user session.
@@ -180,6 +189,67 @@ func (r *AuthRepository) GetLoginUserByUsername(ctx context.Context, tenantID uu
 		return LoginUserRecord{}, ErrInvalidCredentials
 	}
 	return rec, nil
+}
+
+func (r *AuthRepository) FindUserByEmailOrUsername(ctx context.Context, tenantID uuid.UUID, identifier string) (UserIdentityRecord, error) {
+	const q = `
+		SELECT id, username, email, status
+		FROM users
+		WHERE tenant_id = $1
+		  AND (username = $2 OR LOWER(email) = LOWER($2))
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
+	var rec UserIdentityRecord
+	if err := r.db.QueryRowContext(ctx, q, tenantID, identifier).Scan(
+		&rec.UserID,
+		&rec.Username,
+		&rec.Email,
+		&rec.Status,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return UserIdentityRecord{}, ErrUserNotFound
+		}
+		return UserIdentityRecord{}, fmt.Errorf("find user by email or username: %w", err)
+	}
+	if rec.Status != "active" {
+		return UserIdentityRecord{}, ErrUserNotFound
+	}
+	return rec, nil
+}
+
+func (r *AuthRepository) CreatePasswordResetToken(
+	ctx context.Context,
+	tenantID, userID uuid.UUID,
+	rawToken string,
+	expiresAt time.Time,
+	requestedIP, userAgent string,
+) error {
+	const q = `
+		INSERT INTO password_reset_tokens (
+			tenant_id,
+			user_id,
+			token_hash,
+			expires_at,
+			requested_ip,
+			user_agent
+		)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''))
+	`
+	if _, err := r.db.ExecContext(
+		ctx,
+		q,
+		tenantID,
+		userID,
+		hashToken(rawToken),
+		expiresAt,
+		requestedIP,
+		userAgent,
+	); err != nil {
+		return fmt.Errorf("create password reset token: %w", err)
+	}
+	return nil
 }
 
 func (r *AuthRepository) CreateUserSession(ctx context.Context, input CreateSessionInput) error {

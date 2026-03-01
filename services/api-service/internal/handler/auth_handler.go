@@ -133,3 +133,33 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 
 	httpx.Success(c, http.StatusOK, resp)
 }
+
+// PasswordResetRequest handles POST /api/v1/auth/password/reset-request.
+func (h *AuthHandler) PasswordResetRequest(c *gin.Context) {
+	var req model.PasswordResetRequestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Error(c, &model.APIError{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       "AUTH_RESET_REQUEST_INVALID_ARGUMENT",
+			Message:    "invalid request",
+			Details: map[string]any{
+				"field": "body",
+			},
+		})
+		return
+	}
+
+	resp, apiErr := h.authService.PasswordResetRequest(
+		c.Request.Context(),
+		c.GetHeader("X-Tenant-ID"),
+		req,
+		c.ClientIP(),
+		c.Request.UserAgent(),
+	)
+	if apiErr != nil {
+		httpx.Error(c, apiErr)
+		return
+	}
+
+	httpx.Success(c, http.StatusOK, resp)
+}

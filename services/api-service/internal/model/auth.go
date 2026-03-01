@@ -61,6 +61,16 @@ type LogoutResponseData struct {
 	LoggedOut bool `json:"logged_out"`
 }
 
+// PasswordResetRequestRequest defines payload for POST /api/v1/auth/password/reset-request.
+type PasswordResetRequestRequest struct {
+	EmailOrUsername string `json:"email_or_username"`
+}
+
+// PasswordResetRequestResponseData defines successful reset-request response payload.
+type PasswordResetRequestResponseData struct {
+	Accepted bool `json:"accepted"`
+}
+
 // APIError defines unified API error envelope fields.
 type APIError struct {
 	HTTPStatus int

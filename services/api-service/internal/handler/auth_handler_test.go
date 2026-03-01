@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -26,6 +27,8 @@ type handlerRepoMock struct {
 	loginErr     error
 	rotateErr    error
 	revokeErr    error
+	findUserErr  error
+	findUser     repository.UserIdentityRecord
 }
 
 func (m *handlerRepoMock) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -44,6 +47,23 @@ func (m *handlerRepoMock) GetLoginUserByUsername(_ context.Context, _ uuid.UUID,
 		return repository.LoginUserRecord{}, m.loginErr
 	}
 	return m.loginUser, nil
+}
+
+func (m *handlerRepoMock) FindUserByEmailOrUsername(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {
+	if m.findUserErr != nil {
+		return repository.UserIdentityRecord{}, m.findUserErr
+	}
+	return m.findUser, nil
+}
+
+func (m *handlerRepoMock) CreatePasswordResetToken(
+	_ context.Context,
+	_, _ uuid.UUID,
+	_ string,
+	_ time.Time,
+	_, _ string,
+) error {
+	return nil
 }
 
 func (m *handlerRepoMock) CreateUserSession(_ context.Context, _ repository.CreateSessionInput) error {
@@ -355,5 +375,79 @@ func TestLogoutSuccessEnvelope(t *testing.T) {
 	}
 	if loggedOut, ok := data["logged_out"].(bool); !ok || !loggedOut {
 		t.Fatalf("expected logged_out=true, got %#v", data["logged_out"])
+	}
+}
+
+func TestPasswordResetRequestInvalidBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	router.POST("/api/v1/auth/password/reset-request", h.PasswordResetRequest)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-request", bytes.NewBufferString("{bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "AUTH_RESET_REQUEST_INVALID_ARGUMENT" {
+		t.Fatalf("unexpected code: %v", body["code"])
+	}
+}
+
+func TestPasswordResetRequestSuccessEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	mock := &handlerRepoMock{
+		tenantExists: true,
+		findUser: repository.UserIdentityRecord{
+			UserID:   uuid.New(),
+			Username: "alice",
+			Email:    "alice@example.com",
+			Status:   "active",
+		},
+	}
+	h := NewAuthHandler(service.NewAuthService(mock))
+	router.POST("/api/v1/auth/password/reset-request", h.PasswordResetRequest)
+
+	payload := model.PasswordResetRequestRequest{EmailOrUsername: "alice"}
+	raw, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-request", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	req.Header.Set("X-Request-ID", "gw-reset-request-id")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "OK" || body["message"] != "success" {
+		t.Fatalf("unexpected envelope: %#v", body)
+	}
+	if body["request_id"] != "gw-reset-request-id" {
+		t.Fatalf("unexpected request_id: %v", body["request_id"])
+	}
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data")
+	}
+	if accepted, ok := data["accepted"].(bool); !ok || !accepted {
+		t.Fatalf("expected accepted=true, got %#v", data["accepted"])
 	}
 }

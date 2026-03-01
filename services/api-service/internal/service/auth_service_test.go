@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -21,6 +22,9 @@ type mockAuthRepository struct {
 	username          string
 	loginUser         repository.LoginUserRecord
 	loginUserErr      error
+	findUser          repository.UserIdentityRecord
+	findUserErr       error
+	createResetErr    error
 	createSessionErr  error
 	rotateErr         error
 	revokeRefreshErr  error
@@ -28,6 +32,7 @@ type mockAuthRepository struct {
 	lastLoginAttempt  *repository.LoginAttemptInput
 	sessionCreateCall int
 	rotateCall        int
+	createResetCall   int
 	revokeRefreshCall int
 	revokeByUserCall  int
 }
@@ -51,6 +56,24 @@ func (m *mockAuthRepository) GetLoginUserByUsername(_ context.Context, _ uuid.UU
 		return repository.LoginUserRecord{}, m.loginUserErr
 	}
 	return m.loginUser, nil
+}
+
+func (m *mockAuthRepository) FindUserByEmailOrUsername(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {
+	if m.findUserErr != nil {
+		return repository.UserIdentityRecord{}, m.findUserErr
+	}
+	return m.findUser, nil
+}
+
+func (m *mockAuthRepository) CreatePasswordResetToken(
+	_ context.Context,
+	_, _ uuid.UUID,
+	_ string,
+	_ time.Time,
+	_, _ string,
+) error {
+	m.createResetCall++
+	return m.createResetErr
 }
 
 func (m *mockAuthRepository) CreateUserSession(_ context.Context, _ repository.CreateSessionInput) error {
@@ -355,5 +378,62 @@ func TestLogoutValidationAndSuccess(t *testing.T) {
 	_, err = svc.Logout(context.Background(), tenantID, userID, model.LogoutRequest{})
 	if err == nil || err.Code != "AUTH_LOGOUT_INTERNAL_ERROR" {
 		t.Fatalf("expected internal error on revoke by user, got %#v", err)
+	}
+}
+
+func TestPasswordResetRequestValidationAndSuccess(t *testing.T) {
+	tenantID := uuid.NewString()
+	userID := uuid.New()
+
+	repoMock := &mockAuthRepository{tenantExists: true}
+	svc := NewAuthService(repoMock)
+
+	_, err := svc.PasswordResetRequest(context.Background(), "", model.PasswordResetRequestRequest{}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_RESET_REQUEST_TENANT_REQUIRED" {
+		t.Fatalf("expected tenant required, got %#v", err)
+	}
+
+	_, err = svc.PasswordResetRequest(context.Background(), "bad-tenant", model.PasswordResetRequestRequest{}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_RESET_REQUEST_TENANT_INVALID" {
+		t.Fatalf("expected tenant invalid, got %#v", err)
+	}
+
+	_, err = svc.PasswordResetRequest(context.Background(), tenantID, model.PasswordResetRequestRequest{EmailOrUsername: ""}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_RESET_REQUEST_INVALID_ARGUMENT" {
+		t.Fatalf("expected invalid argument, got %#v", err)
+	}
+
+	repoMock.findUserErr = repository.ErrUserNotFound
+	resp, err := svc.PasswordResetRequest(context.Background(), tenantID, model.PasswordResetRequestRequest{EmailOrUsername: "nobody@example.com"}, "127.0.0.1", "ua")
+	if err != nil || !resp.Accepted {
+		t.Fatalf("expected accepted for user-not-found, resp=%#v err=%#v", resp, err)
+	}
+	if repoMock.lastLoginAttempt == nil || repoMock.lastLoginAttempt.Result != "failed" {
+		t.Fatalf("expected failed attempt record for user-not-found")
+	}
+
+	repoMock.findUserErr = nil
+	repoMock.findUser = repository.UserIdentityRecord{
+		UserID:   userID,
+		Username: "alice",
+		Email:    "alice@example.com",
+		Status:   "active",
+	}
+	repoMock.createResetErr = nil
+	resp, err = svc.PasswordResetRequest(context.Background(), tenantID, model.PasswordResetRequestRequest{EmailOrUsername: "alice"}, "127.0.0.1", "ua")
+	if err != nil || !resp.Accepted {
+		t.Fatalf("expected accepted for existing user, resp=%#v err=%#v", resp, err)
+	}
+	if repoMock.createResetCall == 0 {
+		t.Fatalf("expected reset token creation")
+	}
+	if repoMock.lastLoginAttempt == nil || repoMock.lastLoginAttempt.Result != "success" {
+		t.Fatalf("expected success attempt record for reset request")
+	}
+
+	repoMock.createResetErr = errors.New("db failed")
+	_, err = svc.PasswordResetRequest(context.Background(), tenantID, model.PasswordResetRequestRequest{EmailOrUsername: "alice"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_RESET_REQUEST_INTERNAL_ERROR" {
+		t.Fatalf("expected internal error on token create, got %#v", err)
 	}
 }
