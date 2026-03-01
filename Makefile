@@ -6,7 +6,7 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-down dev-logs dev-test-smoke
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke api-register-smoke
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
@@ -14,6 +14,10 @@ DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.dev.yml
 DEV_SERVICES := \
 	postgres redis elasticsearch zookeeper kafka kafka-init \
 	control-plane api-service query-api audit-api export-api health-worker collector-agent \
+	bff-service frontend-console
+DEV_SERVICES_LITE := \
+	postgres redis \
+	control-plane api-service \
 	bff-service frontend-console
 DEV_LOG_SERVICES := frontend-console bff-service control-plane api-service query-api audit-api export-api health-worker collector-agent
 
@@ -108,6 +112,13 @@ dev-up:
 	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES)
 	@echo "✅ dev 环境已启动"
 
+## 启动轻量开发热更新环境（低资源，占用更小）
+dev-up-lite:
+	@echo "🔥 启动 dev 轻量热更新环境..."
+	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES_LITE)
+	@docker compose --env-file $(MIRROR_ENV_FILE) $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES_LITE)
+	@echo "✅ dev 轻量环境已启动"
+
 ## 关闭开发热更新环境
 dev-down:
 	@echo "🛑 停止 dev 热更新环境..."
@@ -137,6 +148,15 @@ dev-test-smoke:
 		curl -fsS "$$url" >/dev/null; \
 	done; \
 	echo "✅ dev 冒烟检查通过"
+
+## api-service register 冒烟检查（需 SMOKE_TENANT_ID）
+api-register-smoke:
+	@if [ -z "$(SMOKE_TENANT_ID)" ]; then \
+		echo "Usage: make api-register-smoke SMOKE_TENANT_ID=<tenant_uuid> [API_BASE_URL=http://localhost:8085]"; \
+		exit 1; \
+	fi
+	@API_BASE_URL="$(API_BASE_URL)" SMOKE_TENANT_ID="$(SMOKE_TENANT_ID)" \
+		./services/api-service/tests/register_smoke.sh
 
 # ============================================
 # Database migration
@@ -218,9 +238,11 @@ help:
 	@echo ""
 	@echo "开发热更新:"
 	@echo "  make dev-up         - 启动 dev 热更新环境"
+	@echo "  make dev-up-lite    - 启动 dev 轻量热更新环境（低资源）"
 	@echo "  make dev-down       - 停止 dev 热更新环境"
 	@echo "  make dev-logs       - 查看 dev 热更新日志"
 	@echo "  make dev-test-smoke - 执行 dev 冒烟检查"
+	@echo "  make api-register-smoke SMOKE_TENANT_ID=<uuid> [API_BASE_URL=http://localhost:8085] - 执行注册接口冒烟"
 	@echo ""
 	@echo "数据库迁移:"
 	@echo "  make db-migrate-up [STEPS=N]      - 执行迁移 up"

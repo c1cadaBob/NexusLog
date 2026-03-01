@@ -82,7 +82,7 @@
 责任角色：BE  
 目标周次：Week1~Week2
 
-- [ ] 2.1 实现 `POST /api/v1/auth/register`
+- [x] 2.1 实现 `POST /api/v1/auth/register`
 - [ ] 2.2 实现 `POST /api/v1/auth/login`
 - [ ] 2.3 实现 `POST /api/v1/auth/refresh`
 - [ ] 2.4 实现 `POST /api/v1/auth/logout`
