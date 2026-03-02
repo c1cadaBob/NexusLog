@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -26,21 +27,21 @@ type KafkaProducer interface {
 
 // Config 管道配置
 type Config struct {
-	Workers    int
-	Topic      string
-	CacheDir   string
+	Workers     int
+	Topic       string
+	CacheDir    string
 	RetryConfig retry.Config
 }
 
 // Pipeline 日志处理管道
 type Pipeline struct {
-	config    Config
-	registry  *plugins.Registry
-	producer  KafkaProducer
-	ckpStore  checkpoint.Store
-	retryer   *retry.Retryer
-	cache     *retry.DiskCache
-	wg        sync.WaitGroup
+	config   Config
+	registry *plugins.Registry
+	producer KafkaProducer
+	ckpStore checkpoint.Store
+	retryer  *retry.Retryer
+	cache    *retry.DiskCache
+	wg       sync.WaitGroup
 }
 
 // New 创建处理管道
@@ -132,15 +133,35 @@ func (p *Pipeline) processBatch(ctx context.Context, batch []plugins.Record) err
 	}
 
 	// 3. 发送成功后更新 checkpoint（at-least-once 保证的关键）
+	latestOffsets := make(map[string]int64)
 	for _, r := range processed {
-		if r.Source != "" {
-			if ckpErr := p.ckpStore.Save(r.Source, int64(len(r.Data))); ckpErr != nil {
-				log.Printf("更新 checkpoint 失败 [%s]: %v", r.Source, ckpErr)
-			}
+		if r.Source == "" {
+			continue
+		}
+		offset := resolveCheckpointOffset(r)
+		if existing, ok := latestOffsets[r.Source]; !ok || offset > existing {
+			latestOffsets[r.Source] = offset
+		}
+	}
+	for source, offset := range latestOffsets {
+		if ckpErr := p.ckpStore.Save(source, offset); ckpErr != nil {
+			log.Printf("更新 checkpoint 失败 [%s]: %v", source, ckpErr)
 		}
 	}
 
 	return nil
+}
+
+// resolveCheckpointOffset 解析记录里的绝对偏移，缺失时降级为数据长度。
+func resolveCheckpointOffset(r plugins.Record) int64 {
+	if r.Metadata != nil {
+		if rawOffset, ok := r.Metadata["offset"]; ok {
+			if parsed, err := strconv.ParseInt(rawOffset, 10, 64); err == nil && parsed >= 0 {
+				return parsed
+			}
+		}
+	}
+	return int64(len(r.Data))
 }
 
 // replayCache 重发磁盘缓存中的历史数据

@@ -128,13 +128,35 @@ local function apply_tenant_rate_limit(tenant_id, config)
     end
 end
 
---- 返回 JSON 错误响应
-local function reject(status_code, message)
+--- 基于状态码生成默认错误码
+local function default_error_code(status_code)
+    if status_code == 401 then
+        return "AUTH_INVALID_TOKEN"
+    end
+    if status_code == 403 then
+        return "AUTH_FORBIDDEN"
+    end
+    if status_code == 400 then
+        return "INVALID_ARGUMENT"
+    end
+    return "INTERNAL_ERROR"
+end
+
+--- 根据鉴权错误信息细化 401 错误码
+local function classify_auth_401_code(message)
+    if message and string.find(message, "缺少 Authorization", 1, true) then
+        return "AUTH_MISSING_TOKEN"
+    end
+    return "AUTH_INVALID_TOKEN"
+end
+
+--- 返回 JSON 错误响应（统一错误码结构）
+local function reject(status_code, message, error_code)
     ngx.status = status_code
     ngx.header["Content-Type"] = "application/json"
     ngx.say(cjson.encode({
-        code = status_code,
-        message = message,
+        code = error_code or default_error_code(status_code),
+        message = message or "internal error",
         request_id = ngx.var.request_id or "",
     }))
     return ngx.exit(status_code)
@@ -145,33 +167,33 @@ end
 -- 1. 解析租户 ID
 local tenant_id, source = resolve_tenant_id()
 if not tenant_id then
-    return reject(400, "缺少租户标识，请通过 X-Tenant-ID 头或 /t/{tenant_id}/ 路径指定")
+    return reject(400, "缺少租户标识，请通过 X-Tenant-ID 头或 /t/{tenant_id}/ 路径指定", "INVALID_ARGUMENT")
 end
 
 -- 2. 校验租户 ID 格式
 local valid, err = validate_tenant_id(tenant_id)
 if not valid then
-    return reject(400, err)
+    return reject(400, err, "INVALID_ARGUMENT")
 end
 
 -- 3. 加载租户配置
 local config, err = load_tenant_config(tenant_id)
 if not config then
     ngx.log(ngx.ERR, "加载租户配置失败: tenant=", tenant_id, " err=", err)
-    return reject(500, "租户配置加载失败")
+    return reject(500, "租户配置加载失败", "INTERNAL_ERROR")
 end
 
 -- 4. 检查租户是否启用
 local enabled, err = check_tenant_enabled(config)
 if not enabled then
-    return reject(403, err)
+    return reject(403, err, "AUTH_FORBIDDEN")
 end
 
 -- 5. 检查 API 访问权限
 local uri = ngx.var.uri
 local access_ok, err = check_api_access(config, uri)
 if not access_ok then
-    return reject(403, err)
+    return reject(403, err, "AUTH_FORBIDDEN")
 end
 
 -- 6. 应用租户级限流配置
@@ -182,7 +204,7 @@ local auth_check = require("auth_check_helper")
 if auth_check then
     local ok, err = auth_check.verify_request()
     if not ok then
-        return reject(401, err)
+        return reject(401, err, classify_auth_401_code(err))
     end
 end
 

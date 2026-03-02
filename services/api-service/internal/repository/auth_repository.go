@@ -227,6 +227,7 @@ func (r *AuthRepository) CreatePasswordResetToken(
 	expiresAt time.Time,
 	requestedIP, userAgent string,
 ) error {
+	// requested_ip 列类型为 INET，NULLIF 返回 text，需显式转换为 inet。
 	const q = `
 		INSERT INTO password_reset_tokens (
 			tenant_id,
@@ -236,7 +237,7 @@ func (r *AuthRepository) CreatePasswordResetToken(
 			requested_ip,
 			user_agent
 		)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''))
+		VALUES ($1, $2, $3, $4, NULLIF($5, '')::inet, NULLIF($6, ''))
 	`
 	if _, err := r.db.ExecContext(
 		ctx,
@@ -354,6 +355,7 @@ func (r *AuthRepository) ConfirmPasswordReset(
 }
 
 func (r *AuthRepository) CreateUserSession(ctx context.Context, input CreateSessionInput) error {
+	// client_ip 列类型为 INET，NULLIF 返回 text，需显式转换为 inet。
 	const q = `
 		INSERT INTO user_sessions (
 			tenant_id,
@@ -366,7 +368,7 @@ func (r *AuthRepository) CreateUserSession(ctx context.Context, input CreateSess
 			expires_at,
 			last_seen_at
 		)
-		VALUES ($1, $2, $3, $4, 'active', NULLIF($5, ''), NULLIF($6, ''), $7, NOW())
+		VALUES ($1, $2, $3, $4, 'active', NULLIF($5, '')::inet, NULLIF($6, ''), $7, NOW())
 	`
 
 	refreshHash := hashToken(input.RefreshToken)
@@ -449,7 +451,7 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 			expires_at,
 			last_seen_at
 		)
-		VALUES ($1, $2, $3, $4, 'active', NULLIF($5, ''), NULLIF($6, ''), $7, NOW())
+		VALUES ($1, $2, $3, $4, 'active', NULLIF($5, '')::inet, NULLIF($6, ''), $7, NOW())
 	`
 	if _, err = tx.ExecContext(
 		ctx,
@@ -511,6 +513,7 @@ func (r *AuthRepository) RevokeActiveSessionsByUserID(ctx context.Context, tenan
 }
 
 func (r *AuthRepository) RecordLoginAttempt(ctx context.Context, input LoginAttemptInput) error {
+	// ip_address 列类型为 INET，NULLIF 返回 text，需显式转换为 inet。
 	const q = `
 		INSERT INTO login_attempts (
 			tenant_id,
@@ -522,7 +525,7 @@ func (r *AuthRepository) RecordLoginAttempt(ctx context.Context, input LoginAtte
 			result,
 			reason
 		)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, NULLIF($8, ''))
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '')::inet, NULLIF($6, ''), $7, NULLIF($8, ''))
 	`
 
 	var userID any

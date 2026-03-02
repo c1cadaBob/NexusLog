@@ -1,0 +1,109 @@
+services:
+  gateway:
+    build:
+      context: ../../gateway/openresty
+      dockerfile: Dockerfile
+    depends_on:
+      - api-service
+      - control-plane
+      - data-services
+      - frontend-console
+      - query-api
+      - audit-api
+      - export-api
+      - bff-service
+      - keycloak
+    ports:
+      - "18080:80"
+    networks:
+      - gateway-smoke-net
+
+  # 统一 mock 镜像：用于模拟各上游服务，避免依赖完整业务栈。
+  api-service:
+    image: nexuslog-gateway-smoke-mock:local
+    pull_policy: never
+    build:
+      context: ./gateway-mock
+      dockerfile: Dockerfile
+    environment:
+      - MOCK_SERVICE_NAME=api-service
+      - MOCK_PORT=8080
+    networks:
+      - gateway-smoke-net
+
+  query-api:
+    image: nexuslog-gateway-smoke-mock:local
+    pull_policy: never
+    environment:
+      - MOCK_SERVICE_NAME=query-api
+      - MOCK_PORT=8082
+    networks:
+      - gateway-smoke-net
+
+  control-plane:
+    image: nexuslog-gateway-smoke-mock:local
+    pull_policy: never
+    environment:
+      - MOCK_SERVICE_NAME=control-plane
+      - MOCK_PORT=8080
+    networks:
+      - gateway-smoke-net
+
+  data-services:
+    image: nexuslog-gateway-smoke-mock:local
+    pull_policy: never
+    environment:
+      - MOCK_SERVICE_NAME=data-services
+      - MOCK_PORT=8080
+    networks:
+      - gateway-smoke-net
+
+  frontend-console:
+    image: nexuslog-gateway-smoke-mock:local
+    pull_policy: never
+    environment:
+      - MOCK_SERVICE_NAME=frontend-console
+      - MOCK_PORT=80
+    networks:
+      - gateway-smoke-net
+
+  audit-api:
+    image: nexuslog-gateway-smoke-mock:local
+    pull_policy: never
+    environment:
+      - MOCK_SERVICE_NAME=audit-api
+      - MOCK_PORT=8083
+    networks:
+      - gateway-smoke-net
+
+  export-api:
+    image: nexuslog-gateway-smoke-mock:local
+    pull_policy: never
+    environment:
+      - MOCK_SERVICE_NAME=export-api
+      - MOCK_PORT=8084
+    networks:
+      - gateway-smoke-net
+
+  bff-service:
+    image: nexuslog-gateway-smoke-mock:local
+    pull_policy: never
+    environment:
+      - MOCK_SERVICE_NAME=bff-service
+      - MOCK_PORT=3000
+    networks:
+      - gateway-smoke-net
+
+  # 用于让网关快速返回 JWKS 失败并走降级校验，避免 DNS/连接超时。
+  keycloak:
+    image: nexuslog-gateway-smoke-mock:local
+    pull_policy: never
+    environment:
+      - MOCK_SERVICE_NAME=keycloak
+      - MOCK_PORT=8080
+    networks:
+      - gateway-smoke-net
+
+networks:
+  gateway-smoke-net:
+    name: nexuslog-gateway-smoke-net

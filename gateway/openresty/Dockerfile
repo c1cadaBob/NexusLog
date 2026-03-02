@@ -9,6 +9,7 @@ LABEL description="NexusLog API Gateway - OpenResty with Lua extensions"
 # 安装系统依赖和 Lua 模块
 RUN apk add --no-cache \
         curl \
+        perl \
         openssl \
         openssl-dev \
     && opm get SkyLothar/lua-resty-jwt \

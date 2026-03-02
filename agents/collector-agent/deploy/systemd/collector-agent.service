@@ -1,0 +1,23 @@
+[Unit]
+Description=NexusLog Collector Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=collector
+Group=collector
+WorkingDirectory=/opt/nexuslog/collector-agent
+EnvironmentFile=-/etc/nexuslog/collector-agent.env
+ExecStart=/usr/local/bin/collector-agent
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/collector-agent /var/log
+
+[Install]
+WantedBy=multi-user.target

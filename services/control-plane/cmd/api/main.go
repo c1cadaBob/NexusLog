@@ -15,6 +15,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+
+	"github.com/nexuslog/control-plane/internal/ingest"
 )
 
 func main() {
@@ -24,6 +26,22 @@ func main() {
 	// HTTP server (Gin)
 	router := gin.Default()
 	router.Use(gin.Recovery())
+
+	// 任务 6.1：接入控制面 pull-sources 最小接口（内存仓储版本）。
+	pullSourceStore := ingest.NewPullSourceStore()
+	// 任务 6.2：接入控制面 pull-task run 最小接口（内存仓储版本）。
+	pullTaskStore := ingest.NewPullTaskStore()
+	// 任务 6.4：接入控制面 packages 查询最小接口（内存仓储版本）。
+	pullPackageStore := ingest.NewPullPackageStore()
+	// 任务 6.5：接入控制面 receipts 写入最小接口（内存仓储版本）。
+	receiptStore := ingest.NewReceiptStore()
+	// 任务 6.6：接入控制面 dead-letters replay 最小接口（内存仓储版本）。
+	deadLetterStore := ingest.NewDeadLetterStore()
+	ingest.RegisterPullSourceRoutes(router, pullSourceStore)
+	ingest.RegisterPullTaskRoutes(router, pullSourceStore, pullTaskStore)
+	ingest.RegisterPullPackageRoutes(router, pullPackageStore)
+	ingest.RegisterReceiptRoutes(router, pullPackageStore, receiptStore, deadLetterStore)
+	ingest.RegisterDeadLetterRoutes(router, deadLetterStore)
 
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {

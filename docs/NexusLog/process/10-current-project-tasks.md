@@ -114,11 +114,11 @@
 责任角色：FE  
 目标周次：Week1~Week2
 
-- [ ] 3.1 `LoginForm` 从本地模拟状态改为真实 API 调用
-- [ ] 3.2 `Register` 页面改为真实注册调用并处理错误提示
-- [ ] 3.3 `ProtectedRoute` 增加 token 检查、过期跳转与清理逻辑
-- [ ] 3.4 `/forgot-password` 页面调用 reset-request/reset-confirm
-- [ ] 3.5 去除主路径中的 mock 登录分支（仅保留应急开关）
+- [x] 3.1 `LoginForm` 从本地模拟状态改为真实 API 调用
+- [x] 3.2 `Register` 页面改为真实注册调用并处理错误提示
+- [x] 3.3 `ProtectedRoute` 增加 token 检查、过期跳转与清理逻辑
+- [x] 3.4 `/forgot-password` 页面调用 reset-request/reset-confirm
+- [x] 3.5 去除主路径中的 mock 登录分支（仅保留应急开关）
 
 验收标准（DoD）：
 1. 主链路 `/login -> /` 可在真实接口下成功完成。
@@ -137,12 +137,12 @@
 责任角色：BE + DevOps  
 目标周次：Week1~Week2
 
-- [ ] 4.1 配置 `/api/v1/query/* -> query-api:8082`
-- [ ] 4.2 配置 `/api/v1/audit/* -> audit-api:8083`
-- [ ] 4.3 配置 `/api/v1/export/* -> export-api:8084`
-- [ ] 4.4 保持 `/api/v1/auth/*`、`/api/v1/bff/*` 正常转发
-- [ ] 4.5 将白名单从 `forgot-password` 迁移为 `password/reset-request|reset-confirm`
-- [ ] 4.6 统一鉴权失败错误体（401/403）
+- [x] 4.1 配置 `/api/v1/query/* -> query-api:8082`
+- [x] 4.2 配置 `/api/v1/audit/* -> audit-api:8083`
+- [x] 4.3 配置 `/api/v1/export/* -> export-api:8084`
+- [x] 4.4 保持 `/api/v1/auth/*`、`/api/v1/bff/*` 正常转发
+- [x] 4.5 将白名单从 `forgot-password` 迁移为 `password/reset-request|reset-confirm`
+- [x] 4.6 统一鉴权失败错误体（401/403）
 
 验收标准（DoD）：
 1. 五类业务前缀可正确到达目标服务，不出现 502 误路由。
@@ -161,11 +161,11 @@
 责任角色：QA + DevOps  
 目标周次：Week2
 
-- [ ] 5.1 完成认证链路自动化测试（成功/失败）
-- [ ] 5.2 完成网关路由与鉴权冒烟测试
-- [ ] 5.3 完成 M1 发布前回滚演练（服务与配置）
-- [ ] 5.4 发布后观察 30 分钟并记录关键指标
-- [ ] 5.5 增加容器热更新门禁（从任务 2 开始持续执行）：前端与核心后端改动可在开发容器内自动生效
+- [x] 5.1 完成认证链路自动化测试（成功/失败）
+- [x] 5.2 完成网关路由与鉴权冒烟测试
+- [x] 5.3 完成 M1 发布前回滚演练（服务与配置）
+- [x] 5.4 发布后观察 30 分钟并记录关键指标
+- [x] 5.5 增加容器热更新门禁（从任务 2 开始持续执行）：前端与核心后端改动可在开发容器内自动生效
 
 验收标准（DoD）：
 1. M1 所有 P0 测试通过率达到 100%。
@@ -188,13 +188,13 @@
 责任角色：BE  
 目标周次：Week3~Week4
 
-- [ ] 6.1 实现 `GET/POST/PUT /api/v1/ingest/pull-sources`
-- [ ] 6.2 实现 `POST /api/v1/ingest/pull-tasks/run`
-- [ ] 6.3 实现 `GET /api/v1/ingest/pull-tasks`
-- [ ] 6.4 实现 `GET /api/v1/ingest/packages`
-- [ ] 6.5 实现 `POST /api/v1/ingest/receipts`
-- [ ] 6.6 实现 `POST /api/v1/ingest/dead-letters/replay`
-- [ ] 6.7 对齐请求字段、分页与错误码（按 `12` 文档）
+- [x] 6.1 实现 `GET/POST/PUT /api/v1/ingest/pull-sources`
+- [x] 6.2 实现 `POST /api/v1/ingest/pull-tasks/run`
+- [x] 6.3 实现 `GET /api/v1/ingest/pull-tasks`
+- [x] 6.4 实现 `GET /api/v1/ingest/packages`
+- [x] 6.5 实现 `POST /api/v1/ingest/receipts`
+- [x] 6.6 实现 `POST /api/v1/ingest/dead-letters/replay`
+- [x] 6.7 对齐请求字段、分页与错误码（按 `12` 文档）
 
 验收标准（DoD）：
 1. 接口路径、方法、字段与接口设计文档一致。
@@ -213,12 +213,12 @@
 责任角色：BE  
 目标周次：Week4
 
-- [ ] 7.1 完成文件增量读取（checkpoint 增量扫描）
-- [ ] 7.2 实现 `GET /agent/v1/meta`、`POST /agent/v1/logs/pull`、`POST /agent/v1/logs/ack`
-- [ ] 7.3 增加 Agent 拉取接口鉴权：`X-Agent-Key`（必填）与 `X-Key-Id`（可选）
-- [ ] 7.4 交付双安装模式：预编译二进制 + systemd、Docker 运行
-- [ ] 7.5 将 Kafka 主推链路标记为 P1 兼容项，不作为 M2 P0 门禁
-- [ ] 7.6 提供可配置日志采集范围能力（包含路径 include/exclude），并在 systemd 与 Docker 两种运行方式下可独立配置
+- [x] 7.1 完成文件增量读取（checkpoint 增量扫描）
+- [x] 7.2 实现 `GET /agent/v1/meta`、`POST /agent/v1/logs/pull`、`POST /agent/v1/logs/ack`
+- [x] 7.3 增加 Agent 拉取接口鉴权：`X-Agent-Key`（必填）与 `X-Key-Id`（可选）
+- [x] 7.4 交付双安装模式：预编译二进制 + systemd、Docker 运行
+- [x] 7.5 将 Kafka 主推链路标记为 P1 兼容项，不作为 M2 P0 门禁
+- [x] 7.6 提供可配置日志采集范围能力（包含路径 include/exclude），并在 systemd 与 Docker 两种运行方式下可独立配置
 
 验收标准（DoD）：
 1. Agent 重启后可从 checkpoint 继续，不重复全量读取。

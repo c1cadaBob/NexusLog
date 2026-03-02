@@ -32,7 +32,8 @@ local WHITELIST = {
     "/metrics",
     "/api/v1/auth/login",
     "/api/v1/auth/register",
-    "/api/v1/auth/forgot-password",
+    "/api/v1/auth/password/reset-request",
+    "/api/v1/auth/password/reset-confirm",
     "/api/v1/auth/refresh",
     "/auth/",
 }
@@ -253,13 +254,13 @@ local function validate_token(token)
     return true, user_info, nil
 end
 
---- 返回 JSON 错误响应
-local function reject(status_code, message)
+--- 返回 JSON 错误响应（统一错误码结构）
+local function reject(status_code, error_code, message)
     ngx.status = status_code
     ngx.header["Content-Type"] = "application/json"
     ngx.say(cjson.encode({
-        code = status_code,
-        message = message,
+        code = error_code or "INTERNAL_ERROR",
+        message = message or "internal error",
         request_id = ngx.var.request_id or "",
     }))
     return ngx.exit(status_code)
@@ -276,13 +277,13 @@ end
 -- 提取 Token
 local token, err = extract_token()
 if not token then
-    return reject(401, err)
+    return reject(401, "AUTH_MISSING_TOKEN", err)
 end
 
 -- 验证 Token
 local ok, user_info, err = validate_token(token)
 if not ok then
-    return reject(401, err)
+    return reject(401, "AUTH_INVALID_TOKEN", err)
 end
 
 -- 将用户信息传递给上游服务

@@ -11,12 +11,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/nexuslog/collector-agent/internal/checkpoint"
 	"github.com/nexuslog/collector-agent/internal/collector"
 	"github.com/nexuslog/collector-agent/internal/pipeline"
+	"github.com/nexuslog/collector-agent/internal/pullapi"
 	"github.com/nexuslog/collector-agent/internal/retry"
 	"github.com/nexuslog/collector-agent/plugins"
 )
@@ -49,51 +51,88 @@ func main() {
 	//   registry.Register(grpcPlugin)
 	log.Println("插件注册表已初始化")
 
-	// 3. 初始化 Kafka Producer
-	kafkaBrokers := getEnv("KAFKA_BROKERS", "localhost:9092")
-	kafkaTopic := getEnv("KAFKA_TOPIC", "nexuslog-raw-logs")
-	producer, err := pipeline.NewKafkaProducer(pipeline.KafkaConfig{
-		Brokers:     []string{kafkaBrokers},
-		Topic:       kafkaTopic,
-		Compression: "snappy",
-		BatchSize:   500,
-	})
-	if err != nil {
-		log.Fatalf("初始化 Kafka Producer 失败: %v", err)
-	}
-	log.Println("Kafka Producer 已初始化")
+	// 3. 初始化 pull API 服务（供控制面主动拉取日志）
+	pullService := pullapi.New(ckpStore)
+	authConfig := pullapi.NewAuthConfig(
+		getEnv("AGENT_API_KEY_ACTIVE_ID", "active"),
+		getEnv("AGENT_API_KEY_ACTIVE", "dev-agent-key"),
+		getEnv("AGENT_API_KEY_NEXT_ID", "next"),
+		getEnv("AGENT_API_KEY_NEXT", ""),
+	)
 
-	// 4. 初始化采集器
-	coll := collector.New(collector.Config{
-		Sources: []collector.SourceConfig{
-			{Type: collector.SourceTypeFile, Paths: []string{"/var/log/*.log"}},
+	// 4. 初始化采集器（7.6：支持 include/exclude 采集范围）
+	includePaths := parseCSV(getEnv("COLLECTOR_INCLUDE_PATHS", "/var/log/*.log"))
+	excludePaths := parseCSV(getEnv("COLLECTOR_EXCLUDE_PATHS", ""))
+	sourceConfigs := []collector.SourceConfig{
+		{
+			Type:         collector.SourceTypeFile,
+			Paths:        includePaths,
+			ExcludePaths: excludePaths,
 		},
+	}
+	coll := collector.New(collector.Config{
+		Sources:       sourceConfigs,
 		BatchSize:     1000,
 		FlushInterval: 5 * time.Second,
 		BufferSize:    10000,
 	}, ckpStore)
 
-	// 5. 初始化处理管道
-	pipe, err := pipeline.New(pipeline.Config{
-		Workers:     4,
-		Topic:       kafkaTopic,
-		CacheDir:    getEnv("CACHE_DIR", "/var/lib/collector-agent/cache"),
-		RetryConfig: retry.DefaultConfig(),
-	}, registry, producer, ckpStore)
-	if err != nil {
-		log.Fatalf("初始化处理管道失败: %v", err)
+	// 5. Kafka 主推链路降级为 P1 兼容项，不再阻塞 M2 pull 主路径启动。
+	enableKafkaPipeline := isTruthy(getEnv("ENABLE_KAFKA_PIPELINE", "true"))
+	kafkaBrokers := getEnv("KAFKA_BROKERS", "localhost:9092")
+	kafkaTopic := getEnv("KAFKA_TOPIC", "nexuslog-raw-logs")
+
+	var pipe *pipeline.Pipeline
+	if enableKafkaPipeline {
+		producer, producerErr := pipeline.NewKafkaProducer(pipeline.KafkaConfig{
+			Brokers:     []string{kafkaBrokers},
+			Topic:       kafkaTopic,
+			Compression: "snappy",
+			BatchSize:   500,
+		})
+		if producerErr != nil {
+			log.Printf("Kafka Producer 初始化失败，降级为 pull-only 模式: %v", producerErr)
+			enableKafkaPipeline = false
+		} else {
+			pipe, err = pipeline.New(pipeline.Config{
+				Workers:     4,
+				Topic:       kafkaTopic,
+				CacheDir:    getEnv("CACHE_DIR", "/var/lib/collector-agent/cache"),
+				RetryConfig: retry.DefaultConfig(),
+			}, registry, producer, ckpStore)
+			if err != nil {
+				log.Printf("处理管道初始化失败，降级为 pull-only 模式: %v", err)
+				_ = producer.Close()
+				enableKafkaPipeline = false
+			} else {
+				log.Println("Kafka 兼容链路已启用（P1）")
+			}
+		}
+	} else {
+		log.Println("Kafka 兼容链路已禁用（ENABLE_KAFKA_PIPELINE=false）")
 	}
 
-	// 6. 启动采集器和管道
+	// 6. 启动采集器与数据分发。
 	if err := coll.Start(ctx); err != nil {
 		log.Fatalf("启动采集器失败: %v", err)
 	}
-	pipe.Start(ctx, coll.Output())
-	log.Println("采集管道已启动")
 
-	// 7. 启动健康检查 HTTP 端点
+	var pipelineInputCh chan []plugins.Record
+	if enableKafkaPipeline && pipe != nil {
+		// 通过 fan-out 同时喂给 pull API 与兼容 pipeline。
+		pipelineInputCh = make(chan []plugins.Record, 128)
+		go fanOutCollectorOutput(ctx, coll.Output(), pipelineInputCh, pullService)
+		pipe.Start(ctx, pipelineInputCh)
+		log.Println("采集分发已启动：pull + kafka-compat")
+	} else {
+		// pull 主路径独立运行，不依赖 Kafka。
+		go fanOutCollectorOutput(ctx, coll.Output(), nil, pullService)
+		log.Println("采集分发已启动：pull-only")
+	}
+
+	// 7. 启动健康检查与 Agent Pull API HTTP 端点
 	httpPort := getEnv("HTTP_PORT", "9091")
-	httpServer := startHealthServer(httpPort)
+	httpServer := startHTTPServer(httpPort, pullService, buildMetaInfo(sourceConfigs), authConfig)
 
 	// 优雅关闭
 	quit := make(chan os.Signal, 1)
@@ -110,16 +149,89 @@ func main() {
 		log.Printf("HTTP 服务关闭错误: %v", err)
 	}
 
-	pipe.Wait()
-	if err := pipe.Close(); err != nil {
-		log.Printf("管道关闭错误: %v", err)
+	if pipe != nil {
+		pipe.Wait()
+		if err := pipe.Close(); err != nil {
+			log.Printf("管道关闭错误: %v", err)
+		}
 	}
 
 	fmt.Println("Collector Agent 已停止")
 }
 
-// startHealthServer 启动健康检查 HTTP 服务
-func startHealthServer(port string) *http.Server {
+// fanOutCollectorOutput 将采集批次广播到 pull API 与 pipeline 输入通道。
+func fanOutCollectorOutput(ctx context.Context, collectorOut <-chan []plugins.Record, pipelineIn chan<- []plugins.Record, pullService *pullapi.Service) {
+	if pipelineIn != nil {
+		defer close(pipelineIn)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case batch, ok := <-collectorOut:
+			if !ok {
+				return
+			}
+			pullService.AddRecords(batch)
+			if pipelineIn == nil {
+				continue
+			}
+			select {
+			case pipelineIn <- batch:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+func isTruthy(raw string) bool {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	return value == "1" || value == "true" || value == "yes" || value == "on"
+}
+
+func parseCSV(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+// buildMetaInfo 构造 /agent/v1/meta 响应。
+func buildMetaInfo(sourceConfigs []collector.SourceConfig) pullapi.MetaInfo {
+	sourcePaths := make([]string, 0)
+	for _, source := range sourceConfigs {
+		if source.Type != collector.SourceTypeFile {
+			continue
+		}
+		sourcePaths = append(sourcePaths, source.Paths...)
+	}
+	return pullapi.MetaInfo{
+		AgentID: getEnv("AGENT_ID", "collector-agent-local"),
+		Version: getEnv("AGENT_VERSION", "0.1.0"),
+		Status:  "online",
+		Sources: sourcePaths,
+		Capabilities: []string{
+			"file_incremental",
+			"pull_api",
+			"ack_checkpoint",
+		},
+	}
+}
+
+// startHTTPServer 启动健康检查与 agent pull API 服务。
+func startHTTPServer(port string, pullService *pullapi.Service, meta pullapi.MetaInfo, auth pullapi.AuthConfig) *http.Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +247,7 @@ func startHealthServer(port string) *http.Server {
 		fmt.Fprintf(w, `{"status":"ready","service":"collector-agent","time":"%s"}`,
 			time.Now().UTC().Format(time.RFC3339))
 	})
+	pullapi.RegisterRoutes(mux, pullService, meta, auth)
 
 	server := &http.Server{
 		Addr:              ":" + port,

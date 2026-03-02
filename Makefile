@@ -6,7 +6,7 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke api-register-smoke api-auth-storage-verify
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
@@ -181,6 +181,31 @@ api-auth-storage-verify:
 	@TEST_DB_DSN="$(TEST_DB_DSN)" VERIFY_TENANT_ID="$(VERIFY_TENANT_ID)" VERIFY_USERNAME="$(VERIFY_USERNAME)" \
 		./services/api-service/tests/verify_auth_storage.sh
 
+## api-service 认证链路自动化测试（成功/失败）
+api-auth-chain-test:
+	@TEST_DB_DSN="$(TEST_DB_DSN)" TEST_REGEX="$(TEST_REGEX)" KEEP_ENV="$(KEEP_ENV)" \
+		./tests/integration/run_auth_chain.sh
+
+## gateway 路由与鉴权冒烟测试（任务 5.2）
+gateway-auth-smoke-test:
+	@GATEWAY_BASE_URL="$(GATEWAY_BASE_URL)" KEEP_ENV="$(KEEP_ENV)" \
+		./tests/integration/run_gateway_auth_smoke.sh
+
+## M1 发布前回滚演练（任务 5.3，服务与配置）
+m1-rollback-drill:
+	@GATEWAY_BASE_URL="$(GATEWAY_BASE_URL)" KEEP_ENV="$(KEEP_ENV)" \
+		./tests/integration/run_m1_pre_release_rollback_drill.sh
+
+## M1 发布后 30 分钟观察（任务 5.4）
+m1-post-release-observe:
+	@GATEWAY_BASE_URL="$(GATEWAY_BASE_URL)" OBSERVE_MINUTES="$(OBSERVE_MINUTES)" SAMPLE_INTERVAL_SEC="$(SAMPLE_INTERVAL_SEC)" REPORT_FILE="$(REPORT_FILE)" KEEP_ENV="$(KEEP_ENV)" \
+		./tests/integration/run_m1_post_release_observation.sh
+
+## M1 容器热更新门禁（任务 5.5）
+m1-hot-reload-gate:
+	@REPORT_FILE="$(REPORT_FILE)" KEEP_ENV="$(KEEP_ENV)" DEV_START_TIMEOUT_SEC="$(DEV_START_TIMEOUT_SEC)" HOT_RELOAD_TIMEOUT_SEC="$(HOT_RELOAD_TIMEOUT_SEC)" POLL_INTERVAL_SEC="$(POLL_INTERVAL_SEC)" \
+		bash ./tests/integration/run_m1_hot_reload_gate.sh
+
 # ============================================
 # Database migration
 # ============================================
@@ -267,6 +292,11 @@ help:
 	@echo "  make dev-test-smoke - 执行 dev 冒烟检查"
 	@echo "  make api-register-smoke SMOKE_TENANT_ID=<uuid> [API_BASE_URL=http://localhost:8085] - 执行注册接口冒烟"
 	@echo "  make api-auth-storage-verify TEST_DB_DSN=<dsn> VERIFY_TENANT_ID=<uuid> VERIFY_USERNAME=<name> - 执行认证落库核验"
+	@echo "  make api-auth-chain-test [TEST_DB_DSN=<dsn>] [TEST_REGEX=<regex>] [KEEP_ENV=1] - 执行认证链路自动化测试（成功/失败）"
+	@echo "  make gateway-auth-smoke-test [GATEWAY_BASE_URL=http://localhost:18080] [KEEP_ENV=1] - 执行网关路由与鉴权冒烟测试"
+	@echo "  make m1-rollback-drill [GATEWAY_BASE_URL=http://localhost:18080] [KEEP_ENV=1] - 执行 M1 发布前回滚演练（服务与配置）"
+	@echo "  make m1-post-release-observe [OBSERVE_MINUTES=30] [SAMPLE_INTERVAL_SEC=10] [REPORT_FILE=<path>] [KEEP_ENV=1] - 执行 M1 发布后指标观察"
+	@echo "  make m1-hot-reload-gate [REPORT_FILE=<path>] [DEV_START_TIMEOUT_SEC=300] [HOT_RELOAD_TIMEOUT_SEC=120] [KEEP_ENV=1] - 执行 M1 容器热更新门禁"
 	@echo ""
 	@echo "数据库迁移:"
 	@echo "  make db-migrate-up [STEPS=N]      - 执行迁移 up"

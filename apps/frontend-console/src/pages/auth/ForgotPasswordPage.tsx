@@ -1,13 +1,17 @@
 import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import ForgotPasswordForm from '../../components/auth/ForgotPasswordForm';
 
 const ForgotPasswordPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     document.title = '忘记密码 - NexusLog';
   }, []);
+
+  /** 从 URL 中读取 reset token，支持邮件链接直接进入确认重置流程 */
+  const initialToken = (searchParams.get('token') ?? searchParams.get('reset_token') ?? '').trim() || undefined;
 
   const handleBack = () => {
     navigate('/login');
@@ -65,7 +69,7 @@ const ForgotPasswordPage: React.FC = () => {
             <h1 className="text-lg font-bold text-white">NexusLog</h1>
           </div>
 
-          <ForgotPasswordForm onBack={handleBack} />
+          <ForgotPasswordForm onBack={handleBack} initialToken={initialToken} />
         </div>
 
         <p className="text-center text-xs mt-4" style={{ color: '#64748b' }}>

@@ -1,0 +1,33 @@
+services:
+  collector-agent:
+    image: nexuslog/collector-agent:latest
+    container_name: nexuslog-collector-agent
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+    environment:
+      HTTP_PORT: "9091"
+      AGENT_ID: "collector-agent-docker"
+      AGENT_VERSION: "0.1.0"
+      AGENT_API_KEY_ACTIVE_ID: "active"
+      AGENT_API_KEY_ACTIVE: "replace-with-strong-key"
+      AGENT_API_KEY_NEXT_ID: "next"
+      AGENT_API_KEY_NEXT: ""
+      COLLECTOR_INCLUDE_PATHS: "/var/log/*.log"
+      COLLECTOR_EXCLUDE_PATHS: "/var/log/wtmp,/var/log/btmp"
+      ENABLE_KAFKA_PIPELINE: "false"
+      CHECKPOINT_DIR: "/var/lib/collector-agent/checkpoints"
+      CACHE_DIR: "/var/lib/collector-agent/cache"
+      KAFKA_BROKERS: "kafka:9092"
+      KAFKA_TOPIC: "nexuslog-raw-logs"
+    volumes:
+      - ./configs:/app/configs:ro
+      - ./state/checkpoints:/var/lib/collector-agent/checkpoints
+      - ./state/cache:/var/lib/collector-agent/cache
+      - /var/log:/var/log:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9091/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
