@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createClientId } from '../utils/id';
 
 export interface Notification {
   id: string;
@@ -24,7 +25,8 @@ export const useNotificationStore = create<NotificationState>()((set) => ({
     set((state) => {
       const newNotification: Notification = {
         ...notification,
-        id: crypto.randomUUID(),
+        // 非安全上下文下 randomUUID 可能不可用，统一走兼容生成器
+        id: createClientId('notice'),
         read: false,
         timestamp: Date.now(),
       };

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "puppeteer-debugger-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@aliex7664/puppeteer-debugger-mcp@latest"
+      ]
+    }
+  }
+}

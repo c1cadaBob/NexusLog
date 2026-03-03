@@ -83,10 +83,24 @@ type AckResponse struct {
 
 // APIRecord 定义 pull 返回的记录骨架。
 type APIRecord struct {
-	Source    string            `json:"source"`
-	Timestamp int64             `json:"timestamp"`
-	Data      string            `json:"data"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
+	// RecordID 为批次内记录标识，便于调用端做幂等追踪与问题排查。
+	RecordID string `json:"record_id"`
+	// Sequence 为 Agent 侧递增序号，可与 cursor 对照定位。
+	Sequence int64 `json:"sequence"`
+	// Source 为日志来源（通常是文件路径，也可为 syslog 等来源标识）。
+	Source string `json:"source"`
+	// Timestamp 为日志采集时间（Unix 纳秒）。
+	Timestamp int64 `json:"timestamp"`
+	// CollectedAt 为可读时间格式，便于直接展示与排障。
+	CollectedAt string `json:"collected_at"`
+	// Data 为日志原文。
+	Data string `json:"data"`
+	// SizeBytes 为日志原文字节数，便于上游估算带宽与批次大小。
+	SizeBytes int `json:"size_bytes"`
+	// Offset 为该条记录对应来源中的绝对偏移（行尾位置）。
+	Offset int64 `json:"offset"`
+	// Metadata 保留扩展元数据，至少保证 offset 可用（兼容历史调用方）。
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 type internalRecord struct {
@@ -321,10 +335,15 @@ func (s *Service) tryBuildPullResponse(req PullRequest) (PullResponse, bool, err
 	apiRecords := make([]APIRecord, 0, len(selected))
 	for _, record := range selected {
 		apiRecords = append(apiRecords, APIRecord{
-			Source:    record.Source,
-			Timestamp: record.Timestamp,
-			Data:      string(record.Data),
-			Metadata:  cloneMetadata(record.Metadata),
+			RecordID:    formatRecordID(record.Seq),
+			Sequence:    record.Seq,
+			Source:      record.Source,
+			Timestamp:   record.Timestamp,
+			CollectedAt: formatTimestampRFC3339Nano(record.Timestamp),
+			Data:        string(record.Data),
+			SizeBytes:   len(record.Data),
+			Offset:      record.Offset,
+			Metadata:    buildAPIMetadata(record),
 		})
 	}
 
@@ -556,4 +575,35 @@ func cloneMetadata(src map[string]string) map[string]string {
 		dst[key] = value
 	}
 	return dst
+}
+
+// buildAPIMetadata 构造 pull 返回元数据。
+// 兼容性要求：历史调用方依赖 metadata.offset，因此此处保证该字段始终可取。
+func buildAPIMetadata(record internalRecord) map[string]string {
+	metadata := cloneMetadata(record.Metadata)
+	if record.Offset > 0 {
+		if metadata == nil {
+			metadata = make(map[string]string, 1)
+		}
+		if strings.TrimSpace(metadata["offset"]) == "" {
+			metadata["offset"] = strconv.FormatInt(record.Offset, 10)
+		}
+	}
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
+}
+
+// formatRecordID 基于内部递增序号生成记录 ID。
+func formatRecordID(seq int64) string {
+	return "rec-" + strconv.FormatInt(seq, 10)
+}
+
+// formatTimestampRFC3339Nano 将 Unix 纳秒时间戳格式化为 UTC 字符串。
+func formatTimestampRFC3339Nano(ts int64) string {
+	if ts <= 0 {
+		return ""
+	}
+	return time.Unix(0, ts).UTC().Format(time.RFC3339Nano)
 }

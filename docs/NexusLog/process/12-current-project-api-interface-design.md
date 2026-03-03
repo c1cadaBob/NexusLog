@@ -162,6 +162,26 @@
 1. `ingest_pull_tasks.status`: `pending -> running -> success|failed|canceled`
 2. `agent_incremental_packages.status`: `created -> uploaded -> acked|nacked`
 
+`GET /api/v1/ingest/packages` 的 `items[]` 结构补充（2026-03-03）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `package_id` | string | 是 | 增量包唯一标识。 |
+| `agent_id` | string | 是 | 产生日志包的 Agent 标识。 |
+| `source_ref` | string | 是 | 来源标识（单文件场景通常为文件路径，多来源场景可为 `multi-source`）。 |
+| `package_no` | string | 是 | 包序号（业务可读标识）。 |
+| `batch_id` | string | 否 | 对应 agent pull 返回的 `batch_id`，用于链路追踪。 |
+| `next_cursor` | string | 否 | 对应 agent pull 返回的 `next_cursor`。 |
+| `record_count` | int | 否 | 包内日志条数。 |
+| `from_offset` | int64 | 是 | 包覆盖的起始偏移。 |
+| `to_offset` | int64 | 是 | 包覆盖的结束偏移。 |
+| `file_count` | int | 是 | 包内文件数。 |
+| `size_bytes` | int64 | 是 | 包总字节数。 |
+| `checksum` | string | 是 | 包级校验和，用于幂等与一致性验证。 |
+| `status` | string | 是 | 包状态（`created/uploaded/acked/nacked/failed/dead_lettered`）。 |
+| `files[]` | array | 否 | 文件级摘要列表；每项包含 `file_path/from_offset/to_offset/line_count/size_bytes/checksum`，以及可追溯字段 `first_record_id/last_record_id`。 |
+| `metadata` | object | 否 | 扩展字段（如 `has_more/next_cursor`），与数据库 `metadata jsonb` 对齐。 |
+
 ### 5.3 `query-api`（检索）
 
 | 接口 | 方法 | 鉴权 | 请求字段骨架 | 响应字段骨架 | 关联表 | 里程碑 |
@@ -224,6 +244,26 @@
 | `/agent/v1/meta` | GET | api-key | - | `agent_id,version,status,sources,capabilities` | 返回 Agent 运行信息与采集范围 | M2 |
 | `/agent/v1/logs/pull` | POST | api-key | `cursor,max_records,max_bytes,timeout_ms` | `batch_id,records[],next_cursor,has_more` | 按游标批次拉取，不提交 checkpoint | M2 |
 | `/agent/v1/logs/ack` | POST | api-key | `batch_id,status(ack/nack),committed_cursor,reason` | `accepted,checkpoint_updated` | 仅 `ack` 成功后提交 checkpoint，`nack` 不推进 | M2 |
+
+`POST /agent/v1/logs/pull` 的 `records[]` 结构（2026-03-03 补充）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `record_id` | string | 是 | Agent 侧记录标识（`rec-{sequence}`），用于幂等追踪与排障定位。 |
+| `sequence` | int64 | 是 | Agent 内部递增序号，可与 `cursor/next_cursor` 对照。 |
+| `source` | string | 是 | 日志来源标识（通常为文件路径，也可为 syslog 源标识）。 |
+| `timestamp` | int64 | 是 | 采集时间戳（Unix 纳秒）。 |
+| `collected_at` | string | 是 | `timestamp` 的 UTC 可读格式（RFC3339Nano）。 |
+| `data` | string | 是 | 日志原文。 |
+| `size_bytes` | int | 是 | 日志原文的字节长度。 |
+| `offset` | int64 | 是 | 该条日志在来源中的绝对偏移（行尾位置）。 |
+| `metadata` | object | 否 | 扩展元数据（键值对）；为兼容历史调用方，至少可读取 `metadata.offset`。 |
+
+兼容性说明：
+
+1. 历史字段 `source/timestamp/data/metadata` 继续保留，不做删除。
+2. 新增字段 `record_id/sequence/collected_at/size_bytes/offset` 为向后兼容扩展。
+3. `ack` 提交 checkpoint 语义不变，仍以记录偏移推进，不因字段扩展改变处理流程。
 
 ## 6. 关键对象模型（DTO 骨架）
 
@@ -380,5 +420,7 @@
 
 ## 11. 版本记录
 
+- `v1.3`（2026-03-03）：补充 `GET /api/v1/ingest/packages` 的包级/文件级日志结构字段，明确 `batch_id/next_cursor/record_count/files[]/metadata` 契约。
+- `v1.2`（2026-03-03）：细化 `collector-agent` 拉取记录 `records[]` 字段结构，明确 `record_id/sequence/offset/size_bytes/collected_at` 及兼容策略。
 - `v1.1`（2026-03-01）：补齐 Agent 生命周期与分析接口契约，新增 DTO 骨架与错误码扩展，明确 M2/M3 扩展接口口径。
 - `v1.0`（2026-02-28）：首次形成当前项目 API 接口设计基线，覆盖 M1~M3 所有 P0 接口。

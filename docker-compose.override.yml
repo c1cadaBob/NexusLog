@@ -25,6 +25,13 @@ services:
       - WATCHPACK_POLLING=true
       - COREPACK_NPM_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}
       - NPM_CONFIG_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}
+      # Vite 运行在容器内时，代理目标需要指向容器网络中的 api-service
+      - VITE_DEV_API_PROXY_TARGET=http://api-service:8080
+      # ingest 接口走 control-plane，避免被 api-service 兜底转发
+      - VITE_DEV_INGEST_PROXY_TARGET=http://control-plane:8080
+      # agent 拉取接口走 collector-agent
+      - VITE_DEV_AGENT_PROXY_TARGET=http://collector-agent:9091
+      - VITE_DEV_WS_PROXY_TARGET=ws://api-service:8080
     volumes:
       - ./:/workspace
       - pnpm-store:/root/.local/share/pnpm/store

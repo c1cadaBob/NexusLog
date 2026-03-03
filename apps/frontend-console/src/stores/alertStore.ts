@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createClientId } from '../utils/id';
 
 export interface Alert {
   id: string;
@@ -29,7 +30,8 @@ export const useAlertStore = create<AlertState>()((set) => ({
     set((state) => {
       const newAlert: Alert = {
         ...alert,
-        id: crypto.randomUUID(),
+        // 与通知中心保持一致，避免 http 环境下 randomUUID 缺失导致崩溃
+        id: createClientId('alert'),
         read: false,
         timestamp: Date.now(),
       };

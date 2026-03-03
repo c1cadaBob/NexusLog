@@ -7,6 +7,7 @@ import { COLORS } from '../../theme/tokens';
 import ChartWrapper from '../../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
 import type { LogEntry } from '../../types/log';
+import { createShortId } from '../../utils/id';
 
 // ============================================================================
 // 模拟数据
@@ -63,11 +64,11 @@ const MOCK_LOGS: LogEntry[] = Array.from({ length: 50 }, (_, i) => {
     level,
     service: services[Math.floor(Math.random() * services.length)],
     message: messages[Math.floor(Math.random() * messages.length)],
-    rawLog: `${ts.toISOString()} [${level.toUpperCase()}] [${services[Math.floor(Math.random() * services.length)]}] ${messages[Math.floor(Math.random() * messages.length)]} | traceId=trace-${crypto.randomUUID().slice(0, 8)} spanId=span-${crypto.randomUUID().slice(0, 6)} host=node-${String(Math.floor(Math.random() * 5) + 1).padStart(2, '0')} env=${envs[Math.floor(Math.random() * envs.length)]} method=${methods[Math.floor(Math.random() * methods.length)]} path=${paths[Math.floor(Math.random() * paths.length)]} status=${statusCode} duration=${(Math.random() * 3000).toFixed(0)}ms clientIp=10.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
+    rawLog: `${ts.toISOString()} [${level.toUpperCase()}] [${services[Math.floor(Math.random() * services.length)]}] ${messages[Math.floor(Math.random() * messages.length)]} | traceId=trace-${createShortId(8)} spanId=span-${createShortId(6)} host=node-${String(Math.floor(Math.random() * 5) + 1).padStart(2, '0')} env=${envs[Math.floor(Math.random() * envs.length)]} method=${methods[Math.floor(Math.random() * methods.length)]} path=${paths[Math.floor(Math.random() * paths.length)]} status=${statusCode} duration=${(Math.random() * 3000).toFixed(0)}ms clientIp=10.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
     fields: {
       host: `node-${String(Math.floor(Math.random() * 5) + 1).padStart(2, '0')}`,
-      traceId: `trace-${crypto.randomUUID().slice(0, 8)}`,
-      spanId: `span-${crypto.randomUUID().slice(0, 6)}`,
+      traceId: `trace-${createShortId(8)}`,
+      spanId: `span-${createShortId(6)}`,
       statusCode,
       duration: `${(Math.random() * 3000).toFixed(0)}ms`,
       method: methods[Math.floor(Math.random() * methods.length)],

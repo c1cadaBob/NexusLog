@@ -235,6 +235,18 @@
 
 关联差异：`GAP-018`
 
+执行状态（2026-03-03，前端页面联调补充）：
+1. 已完成：任务 `1~7` 的前端页面联调复核，覆盖认证主路径、受保护路由、ingest 代理、agent 代理。
+2. 已完成：在 rootless Docker（仅存储依赖）+ 本机进程（frontend/api/control-plane/agent）组合下完成端到端联调。
+3. 已完成：Playwright 页面级用例 `7/7` 通过（注册/登录/忘记密码 + token 过期跳转 + ingest/agent 页面请求校验）。
+4. 风险说明：当前会话未挂载 `puppeteer-debugger-mcp`（`unknown MCP server`），本次使用 Playwright 作为等价浏览器调试手段；后续可在 MCP 会话恢复后补跑同一用例集。
+
+证据链接（本次补充）：
+1. `docs/NexusLog/process/evidence/task-1-7-frontend-debug-20260303.md`
+2. `tests/e2e/tests/tasks1-7-debug.spec.js`
+3. `tests/e2e/tests/auth.spec.js`
+4. `tests/e2e/playwright-report/index.html`
+
 #### 任务 8（R4）：完成接入链路落库与幂等
 
 责任角色：BE + DBA  

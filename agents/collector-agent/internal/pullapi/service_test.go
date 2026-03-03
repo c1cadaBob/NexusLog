@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/nexuslog/collector-agent/internal/checkpoint"
 	"github.com/nexuslog/collector-agent/plugins"
@@ -109,6 +110,31 @@ func TestPullAndAckFlow(t *testing.T) {
 	if len(pullData.Records) != 2 {
 		t.Fatalf("expected 2 records, got %d", len(pullData.Records))
 	}
+	first := pullData.Records[0]
+	if first.RecordID == "" {
+		t.Fatalf("expected non-empty record_id: %+v", first)
+	}
+	if first.Sequence <= 0 {
+		t.Fatalf("expected positive sequence: %+v", first)
+	}
+	if first.Offset != 6 {
+		t.Fatalf("expected first record offset=6, got %d", first.Offset)
+	}
+	if first.SizeBytes != len("line-a") {
+		t.Fatalf("expected first record size=%d, got %d", len("line-a"), first.SizeBytes)
+	}
+	if first.Metadata["offset"] != "6" {
+		t.Fatalf("expected first record metadata.offset=6, got %#v", first.Metadata["offset"])
+	}
+	if first.CollectedAt == "" {
+		t.Fatalf("expected non-empty collected_at: %+v", first)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, first.CollectedAt); err != nil {
+		t.Fatalf("parse collected_at failed: %v value=%s", err, first.CollectedAt)
+	}
+	if first.Timestamp <= 0 {
+		t.Fatalf("expected positive timestamp: %+v", first)
+	}
 
 	ackResp := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/ack", map[string]any{
 		"batch_id":         pullData.BatchID,
@@ -130,6 +156,42 @@ func TestPullAndAckFlow(t *testing.T) {
 	}
 	if got := store.saved["/var/log/app.log"]; got != 12 {
 		t.Fatalf("expected checkpoint offset 12, got %d", got)
+	}
+}
+
+// TestPullRecordFallbackOffsetMetadata 验证缺省 metadata 时仍返回结构化 offset 与 metadata.offset。
+func TestPullRecordFallbackOffsetMetadata(t *testing.T) {
+	svc := New(newMockCheckpointStore())
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, svc, MetaInfo{}, testAuthConfig())
+
+	svc.AddRecords([]plugins.Record{
+		{Source: "syslog://local", Data: []byte("hello")},
+	})
+
+	resp := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/pull", map[string]any{
+		"max_records": 1,
+		"max_bytes":   1024,
+	}, map[string]string{
+		"X-Agent-Key": "test-active-key",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("pull failed: %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var pullData PullResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &pullData); err != nil {
+		t.Fatalf("decode pull response failed: %v", err)
+	}
+	if len(pullData.Records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(pullData.Records))
+	}
+	got := pullData.Records[0]
+	if got.Offset != int64(len("hello")) {
+		t.Fatalf("expected offset=%d, got %d", len("hello"), got.Offset)
+	}
+	if got.Metadata["offset"] != "5" {
+		t.Fatalf("expected metadata.offset=5, got %#v", got.Metadata["offset"])
 	}
 }
 
