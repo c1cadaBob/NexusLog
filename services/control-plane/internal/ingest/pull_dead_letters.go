@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -42,8 +43,9 @@ type DeadLetterRecord struct {
 
 // DeadLetterStore 提供死信记录写入与重放能力（内存仓储）。
 type DeadLetterStore struct {
-	mu    sync.RWMutex
-	items map[string]DeadLetterRecord
+	mu      sync.RWMutex
+	items   map[string]DeadLetterRecord
+	backend *PGBackend
 }
 
 // NewDeadLetterStore 创建死信内存仓储。
@@ -53,8 +55,20 @@ func NewDeadLetterStore() *DeadLetterStore {
 	}
 }
 
+// NewDeadLetterStoreWithPG 创建死信 PostgreSQL 仓储。
+func NewDeadLetterStoreWithPG(backend *PGBackend) *DeadLetterStore {
+	return &DeadLetterStore{
+		items:   make(map[string]DeadLetterRecord),
+		backend: backend,
+	}
+}
+
 // CreateFromReceipt 在 NACK 回执后写入一条死信记录。
-func (s *DeadLetterStore) CreateFromReceipt(pkg PullPackage, reason string) DeadLetterRecord {
+func (s *DeadLetterStore) CreateFromReceipt(pkg PullPackage, reason string) (DeadLetterRecord, error) {
+	if s.backend != nil {
+		return s.createFromReceiptFromDB(context.Background(), pkg, reason)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -70,11 +84,19 @@ func (s *DeadLetterStore) CreateFromReceipt(pkg PullPackage, reason string) Dead
 		CreatedAt:    now,
 	}
 	s.items[record.DeadLetterID] = record
-	return record
+	return record, nil
 }
 
 // CreateForTest 仅用于测试场景注入死信记录。
 func (s *DeadLetterStore) CreateForTest(record DeadLetterRecord) DeadLetterRecord {
+	if s.backend != nil {
+		created, err := s.createRecordFromDB(context.Background(), record)
+		if err != nil {
+			return DeadLetterRecord{}
+		}
+		return created
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -93,7 +115,11 @@ func (s *DeadLetterStore) CreateForTest(record DeadLetterRecord) DeadLetterRecor
 }
 
 // Replay 按 dead_letter_ids 执行重放并返回批次号与成功数量。
-func (s *DeadLetterStore) Replay(deadLetterIDs []string, reason string) (string, int) {
+func (s *DeadLetterStore) Replay(deadLetterIDs []string, reason string) (string, int, error) {
+	if s.backend != nil {
+		return s.replayFromDB(context.Background(), deadLetterIDs, reason)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -124,11 +150,15 @@ func (s *DeadLetterStore) Replay(deadLetterIDs []string, reason string) (string,
 		replayedCount++
 	}
 
-	return replayBatchID, replayedCount
+	return replayBatchID, replayedCount, nil
 }
 
 // Get 查询指定死信记录，供测试断言复用。
 func (s *DeadLetterStore) Get(deadLetterID string) (DeadLetterRecord, bool) {
+	if s.backend != nil {
+		return s.getFromDB(context.Background(), deadLetterID)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -138,6 +168,10 @@ func (s *DeadLetterStore) Get(deadLetterID string) (DeadLetterRecord, bool) {
 
 // Count 返回当前死信数量，供测试断言。
 func (s *DeadLetterStore) Count() int {
+	if s.backend != nil {
+		return s.countFromDB(context.Background())
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.items)
@@ -173,7 +207,11 @@ func (h *DeadLetterHandler) ReplayDeadLetters(c *gin.Context) {
 		return
 	}
 
-	replayBatchID, replayedCount := h.store.Replay(normalized.DeadLetterIDs, normalized.Reason)
+	replayBatchID, replayedCount, err := h.store.Replay(normalized.DeadLetterIDs, normalized.Reason)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, ErrorCodeDeadLetterInternalError, "failed to replay dead letters", nil)
+		return
+	}
 	if replayedCount == 0 {
 		writeError(c, http.StatusNotFound, ErrorCodeDeadLetterNotFound, "dead letters not found", nil)
 		return

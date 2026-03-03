@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -51,8 +52,9 @@ type DeliveryReceipt struct {
 
 // ReceiptStore 保存回执记录（内存仓储版本）。
 type ReceiptStore struct {
-	mu    sync.RWMutex
-	items map[string]DeliveryReceipt
+	mu      sync.RWMutex
+	items   map[string]DeliveryReceipt
+	backend *PGBackend
 }
 
 // NewReceiptStore 创建回执内存仓储。
@@ -62,8 +64,20 @@ func NewReceiptStore() *ReceiptStore {
 	}
 }
 
+// NewReceiptStoreWithPG 创建回执 PostgreSQL 仓储。
+func NewReceiptStoreWithPG(backend *PGBackend) *ReceiptStore {
+	return &ReceiptStore{
+		items:   make(map[string]DeliveryReceipt),
+		backend: backend,
+	}
+}
+
 // Create 写入回执记录并返回最终实体。
-func (s *ReceiptStore) Create(receipt DeliveryReceipt) DeliveryReceipt {
+func (s *ReceiptStore) Create(receipt DeliveryReceipt) (DeliveryReceipt, error) {
+	if s.backend != nil {
+		return s.createFromDB(context.Background(), receipt)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -78,7 +92,7 @@ func (s *ReceiptStore) Create(receipt DeliveryReceipt) DeliveryReceipt {
 		created.CreatedAt = created.ReceivedAt
 	}
 	s.items[created.ReceiptID] = created
-	return created
+	return created, nil
 }
 
 // ReceiptHandler 实现 receipts 写入接口。
@@ -139,7 +153,7 @@ func (h *ReceiptHandler) CreateReceipt(c *gin.Context) {
 		return
 	}
 
-	created := h.receiptStore.Create(DeliveryReceipt{
+	created, err := h.receiptStore.Create(DeliveryReceipt{
 		PackageID:  normalized.PackageID,
 		Status:     normalized.Status,
 		Reason:     normalized.Reason,
@@ -147,10 +161,17 @@ func (h *ReceiptHandler) CreateReceipt(c *gin.Context) {
 		Accepted:   true,
 		ReceivedAt: receivedAt,
 	})
+	if err != nil || created.ReceiptID == "" {
+		writeError(c, http.StatusInternalServerError, ErrorCodeReceiptInternalError, "failed to persist receipt", nil)
+		return
+	}
 
 	// NACK 回执写入死信，供 6.6 重放接口消费。
 	if normalized.Status == "nack" && h.deadLetterStore != nil {
-		h.deadLetterStore.CreateFromReceipt(pkg, normalized.Reason)
+		if _, dlErr := h.deadLetterStore.CreateFromReceipt(pkg, normalized.Reason); dlErr != nil {
+			writeError(c, http.StatusInternalServerError, ErrorCodeReceiptInternalError, "failed to write dead letter", nil)
+			return
+		}
 	}
 
 	writeSuccess(c, http.StatusCreated, gin.H{

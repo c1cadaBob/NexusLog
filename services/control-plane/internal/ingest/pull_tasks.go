@@ -1,6 +1,9 @@
 package ingest
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -45,6 +48,10 @@ type PullTask struct {
 	TriggerType  string         `json:"trigger_type"`
 	Options      map[string]any `json:"options"`
 	Status       string         `json:"status"`
+	RequestID    string         `json:"request_id,omitempty"`
+	BatchID      string         `json:"batch_id,omitempty"`
+	RetryCount   int            `json:"retry_count,omitempty"`
+	LastCursor   string         `json:"last_cursor,omitempty"`
 	ScheduledAt  time.Time      `json:"scheduled_at"`
 	StartedAt    *time.Time     `json:"started_at,omitempty"`
 	FinishedAt   *time.Time     `json:"finished_at,omitempty"`
@@ -71,8 +78,10 @@ type listPullTasksQuery struct {
 
 // PullTaskStore 提供任务内存存储，支持任务创建与后续状态流转扩展。
 type PullTaskStore struct {
-	mu    sync.RWMutex
-	items map[string]PullTask
+	mu       sync.RWMutex
+	items    map[string]PullTask
+	backend  *PGBackend
+	executor func(PullTask)
 }
 
 // NewPullTaskStore 创建 pull-task 内存仓储。
@@ -82,11 +91,33 @@ func NewPullTaskStore() *PullTaskStore {
 	}
 }
 
-// CreatePending 创建 pending 状态任务，供 run 接口触发。
-func (s *PullTaskStore) CreatePending(req RunPullTaskRequest) PullTask {
+// NewPullTaskStoreWithPG 创建 PostgreSQL 仓储版本。
+func NewPullTaskStoreWithPG(backend *PGBackend) *PullTaskStore {
+	return &PullTaskStore{
+		items:   make(map[string]PullTask),
+		backend: backend,
+	}
+}
+
+// SetExecutor 设置任务执行回调。
+func (s *PullTaskStore) SetExecutor(executor func(PullTask)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.executor = executor
+}
 
+// CreatePending 创建 pending 状态任务，供 run 接口触发。
+func (s *PullTaskStore) CreatePending(req RunPullTaskRequest) PullTask {
+	if s.backend != nil {
+		task, err := s.createPendingFromDB(context.Background(), req)
+		if err != nil {
+			return PullTask{}
+		}
+		s.triggerExecution(task)
+		return task
+	}
+
+	s.mu.Lock()
 	now := time.Now().UTC()
 	task := PullTask{
 		TaskID:      newUUIDLike(),
@@ -99,11 +130,32 @@ func (s *PullTaskStore) CreatePending(req RunPullTaskRequest) PullTask {
 		UpdatedAt:   now,
 	}
 	s.items[task.TaskID] = task
+	executor := s.executor
+	s.mu.Unlock()
+	triggerExecution(task, executor)
 	return task
+}
+
+func (s *PullTaskStore) triggerExecution(task PullTask) {
+	s.mu.RLock()
+	executor := s.executor
+	s.mu.RUnlock()
+	triggerExecution(task, executor)
+}
+
+func triggerExecution(task PullTask, executor func(PullTask)) {
+	if task.TaskID == "" || executor == nil {
+		return
+	}
+	go executor(task)
 }
 
 // List 按 source_id、status 与分页返回任务列表。
 func (s *PullTaskStore) List(sourceID, status string, page, pageSize int) ([]PullTask, int) {
+	if s.backend != nil {
+		return s.listFromDB(context.Background(), sourceID, status, page, pageSize)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -136,6 +188,83 @@ func (s *PullTaskStore) List(sourceID, status string, page, pageSize int) ([]Pul
 		end = total
 	}
 	return result[start:end], total
+}
+
+// GetByID 查询任务详情。
+func (s *PullTaskStore) GetByID(taskID string) (PullTask, bool) {
+	if s.backend != nil {
+		return s.getByIDFromDB(context.Background(), taskID)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	task, ok := s.items[taskID]
+	return task, ok
+}
+
+// MarkRunning 将任务状态更新为 running。
+func (s *PullTaskStore) MarkRunning(taskID string) bool {
+	if s.backend != nil {
+		return s.markRunningFromDB(context.Background(), taskID)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.items[taskID]
+	if !ok {
+		return false
+	}
+	now := time.Now().UTC()
+	task.Status = "running"
+	task.StartedAt = &now
+	task.UpdatedAt = now
+	s.items[taskID] = task
+	return true
+}
+
+// MarkSuccess 将任务状态更新为 success。
+func (s *PullTaskStore) MarkSuccess(taskID, batchID, lastCursor string) bool {
+	if s.backend != nil {
+		return s.markSuccessFromDB(context.Background(), taskID, batchID, lastCursor)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.items[taskID]
+	if !ok {
+		return false
+	}
+	now := time.Now().UTC()
+	task.Status = "success"
+	task.BatchID = strings.TrimSpace(batchID)
+	task.LastCursor = strings.TrimSpace(lastCursor)
+	task.FinishedAt = &now
+	task.UpdatedAt = now
+	s.items[taskID] = task
+	return true
+}
+
+// MarkFailed 将任务状态更新为 failed。
+func (s *PullTaskStore) MarkFailed(taskID, code, message string, retryCount int) bool {
+	if s.backend != nil {
+		return s.markFailedFromDB(context.Background(), taskID, code, message, retryCount)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.items[taskID]
+	if !ok {
+		return false
+	}
+	now := time.Now().UTC()
+	task.Status = "failed"
+	task.ErrorCode = strings.TrimSpace(code)
+	task.ErrorMessage = strings.TrimSpace(message)
+	task.RetryCount = retryCount
+	task.FinishedAt = &now
+	task.UpdatedAt = now
+	s.items[taskID] = task
+	return true
 }
 
 // PullTaskHandler 实现 pull-task run 接口处理。
@@ -191,11 +320,16 @@ func (h *PullTaskHandler) RunPullTask(c *gin.Context) {
 	}
 
 	task := h.taskStore.CreatePending(normalized)
+	if task.TaskID == "" {
+		writeError(c, http.StatusInternalServerError, ErrorCodePullTaskInternalError, "failed to create pull task", nil)
+		return
+	}
 	writeSuccess(c, http.StatusAccepted, gin.H{
 		"task_id":      task.TaskID,
 		"source_id":    task.SourceID,
 		"trigger_type": task.TriggerType,
 		"status":       task.Status,
+		"request_id":   task.RequestID,
 	}, gin.H{})
 }
 
@@ -273,6 +407,10 @@ func normalizeTaskStatus(status string) (string, bool) {
 
 // SetStatusForTest 仅用于测试场景模拟状态机，便于验证状态筛选。
 func (s *PullTaskStore) SetStatusForTest(taskID, status string) bool {
+	if s.backend != nil {
+		return s.setStatusForTestFromDB(context.Background(), taskID, status)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -300,7 +438,36 @@ func (s *PullTaskStore) SetStatusForTest(taskID, status string) bool {
 
 // Count 返回任务总数，便于测试验证。
 func (s *PullTaskStore) Count() int {
+	if s.backend != nil {
+		return s.countFromDB(context.Background())
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.items)
+}
+
+func mustMarshalJSONOrEmpty(v map[string]any) []byte {
+	if v == nil {
+		return []byte("{}")
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return []byte("{}")
+	}
+	return raw
+}
+
+func parseTaskOptions(raw []byte) map[string]any {
+	if len(raw) == 0 {
+		return map[string]any{}
+	}
+	result := make(map[string]any)
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return map[string]any{}
+	}
+	return result
+}
+
+func buildTaskPointers(startedAt, finishedAt sql.NullTime) (*time.Time, *time.Time) {
+	return parseOptionalTime(startedAt), parseOptionalTime(finishedAt)
 }

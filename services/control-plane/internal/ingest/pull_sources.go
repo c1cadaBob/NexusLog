@@ -1,7 +1,9 @@
 package ingest
 
 import (
+	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -61,39 +63,51 @@ var (
 
 // PullSource 定义 pull-sources 列表/详情响应骨架。
 type PullSource struct {
-	SourceID  string    `json:"source_id"`
-	Name      string    `json:"name"`
-	Host      string    `json:"host"`
-	Port      int       `json:"port"`
-	Protocol  string    `json:"protocol"`
-	Path      string    `json:"path"`
-	Auth      string    `json:"auth"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	SourceID        string    `json:"source_id"`
+	Name            string    `json:"name"`
+	Host            string    `json:"host"`
+	Port            int       `json:"port"`
+	Protocol        string    `json:"protocol"`
+	Path            string    `json:"path"`
+	Auth            string    `json:"auth"`
+	AgentBaseURL    string    `json:"agent_base_url,omitempty"`
+	PullIntervalSec int       `json:"pull_interval_sec"`
+	PullTimeoutSec  int       `json:"pull_timeout_sec"`
+	KeyRef          string    `json:"key_ref,omitempty"`
+	Status          string    `json:"status"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // CreatePullSourceRequest 定义创建请求字段。
 type CreatePullSourceRequest struct {
-	Name     string `json:"name"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Protocol string `json:"protocol"`
-	Path     string `json:"path"`
-	Auth     string `json:"auth"`
-	Status   string `json:"status"`
+	Name            string `json:"name"`
+	Host            string `json:"host"`
+	Port            int    `json:"port"`
+	Protocol        string `json:"protocol"`
+	Path            string `json:"path"`
+	Auth            string `json:"auth"`
+	AgentBaseURL    string `json:"agent_base_url"`
+	PullIntervalSec int    `json:"pull_interval_sec"`
+	PullTimeoutSec  int    `json:"pull_timeout_sec"`
+	KeyRef          string `json:"key_ref"`
+	Status          string `json:"status"`
 }
 
 // UpdatePullSourceRequest 定义更新请求字段（支持部分更新）。
 type UpdatePullSourceRequest struct {
-	SourceID string  `json:"source_id"`
-	Name     *string `json:"name"`
-	Host     *string `json:"host"`
-	Port     *int    `json:"port"`
-	Protocol *string `json:"protocol"`
-	Path     *string `json:"path"`
-	Auth     *string `json:"auth"`
-	Status   *string `json:"status"`
+	SourceID        string  `json:"source_id"`
+	Name            *string `json:"name"`
+	Host            *string `json:"host"`
+	Port            *int    `json:"port"`
+	Protocol        *string `json:"protocol"`
+	Path            *string `json:"path"`
+	Auth            *string `json:"auth"`
+	AgentBaseURL    *string `json:"agent_base_url"`
+	PullIntervalSec *int    `json:"pull_interval_sec"`
+	PullTimeoutSec  *int    `json:"pull_timeout_sec"`
+	KeyRef          *string `json:"key_ref"`
+	Status          *string `json:"status"`
 }
 
 // listPullSourcesQuery 定义列表分页与筛选参数。
@@ -105,8 +119,9 @@ type listPullSourcesQuery struct {
 
 // PullSourceStore 提供线程安全的内存存储，用于 6.1 最小可用闭环。
 type PullSourceStore struct {
-	mu    sync.RWMutex
-	items map[string]PullSource
+	mu      sync.RWMutex
+	items   map[string]PullSource
+	backend *PGBackend
 }
 
 // NewPullSourceStore 创建拉取源内存仓储。
@@ -116,8 +131,20 @@ func NewPullSourceStore() *PullSourceStore {
 	}
 }
 
+// NewPullSourceStoreWithPG 创建 PostgreSQL 仓储版本。
+func NewPullSourceStoreWithPG(backend *PGBackend) *PullSourceStore {
+	return &PullSourceStore{
+		items:   make(map[string]PullSource),
+		backend: backend,
+	}
+}
+
 // List 按状态与分页返回拉取源列表。
 func (s *PullSourceStore) List(status string, page, pageSize int) ([]PullSource, int) {
+	if s.backend != nil {
+		return s.listFromDB(context.Background(), status, page, pageSize)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -148,6 +175,10 @@ func (s *PullSourceStore) List(status string, page, pageSize int) ([]PullSource,
 
 // Exists 判断指定 source_id 是否存在。
 func (s *PullSourceStore) Exists(sourceID string) bool {
+	if s.backend != nil {
+		return s.existsFromDB(context.Background(), sourceID)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -157,6 +188,10 @@ func (s *PullSourceStore) Exists(sourceID string) bool {
 
 // Create 创建新的拉取源，并校验名称唯一性。
 func (s *PullSourceStore) Create(req CreatePullSourceRequest) (PullSource, error) {
+	if s.backend != nil {
+		return s.createFromDB(context.Background(), req)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -168,16 +203,20 @@ func (s *PullSourceStore) Create(req CreatePullSourceRequest) (PullSource, error
 
 	now := time.Now().UTC()
 	created := PullSource{
-		SourceID:  newUUIDLike(),
-		Name:      req.Name,
-		Host:      req.Host,
-		Port:      req.Port,
-		Protocol:  req.Protocol,
-		Path:      req.Path,
-		Auth:      req.Auth,
-		Status:    req.Status,
-		CreatedAt: now,
-		UpdatedAt: now,
+		SourceID:        newUUIDLike(),
+		Name:            req.Name,
+		Host:            req.Host,
+		Port:            req.Port,
+		Protocol:        req.Protocol,
+		Path:            req.Path,
+		Auth:            req.Auth,
+		AgentBaseURL:    req.AgentBaseURL,
+		PullIntervalSec: req.PullIntervalSec,
+		PullTimeoutSec:  req.PullTimeoutSec,
+		KeyRef:          req.KeyRef,
+		Status:          req.Status,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	s.items[created.SourceID] = created
 	return created, nil
@@ -185,6 +224,10 @@ func (s *PullSourceStore) Create(req CreatePullSourceRequest) (PullSource, error
 
 // Update 更新已有拉取源，并返回更新后的实体。
 func (s *PullSourceStore) Update(sourceID string, req UpdatePullSourceRequest) (PullSource, error) {
+	if s.backend != nil {
+		return s.updateFromDB(context.Background(), sourceID, req)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -220,6 +263,18 @@ func (s *PullSourceStore) Update(sourceID string, req UpdatePullSourceRequest) (
 	if req.Auth != nil {
 		current.Auth = strings.TrimSpace(*req.Auth)
 	}
+	if req.AgentBaseURL != nil {
+		current.AgentBaseURL = strings.TrimSpace(*req.AgentBaseURL)
+	}
+	if req.PullIntervalSec != nil {
+		current.PullIntervalSec = *req.PullIntervalSec
+	}
+	if req.PullTimeoutSec != nil {
+		current.PullTimeoutSec = *req.PullTimeoutSec
+	}
+	if req.KeyRef != nil {
+		current.KeyRef = strings.TrimSpace(*req.KeyRef)
+	}
 	if req.Status != nil {
 		current.Status = strings.ToLower(strings.TrimSpace(*req.Status))
 	}
@@ -227,6 +282,18 @@ func (s *PullSourceStore) Update(sourceID string, req UpdatePullSourceRequest) (
 	current.UpdatedAt = time.Now().UTC()
 	s.items[sourceID] = current
 	return current, nil
+}
+
+// GetByID 按 source_id 查询拉取源。
+func (s *PullSourceStore) GetByID(sourceID string) (PullSource, bool) {
+	if s.backend != nil {
+		return s.getByIDFromDB(context.Background(), sourceID)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item, ok := s.items[sourceID]
+	return item, ok
 }
 
 // PullSourceHandler 实现 pull-sources HTTP 处理逻辑。
@@ -379,13 +446,17 @@ func parseListPullSourcesQuery(c *gin.Context) (listPullSourcesQuery, error) {
 // normalizeCreatePullSourceRequest 校验并规范化创建请求。
 func normalizeCreatePullSourceRequest(req CreatePullSourceRequest) (CreatePullSourceRequest, error) {
 	normalized := CreatePullSourceRequest{
-		Name:     strings.TrimSpace(req.Name),
-		Host:     strings.TrimSpace(req.Host),
-		Port:     req.Port,
-		Protocol: strings.ToLower(strings.TrimSpace(req.Protocol)),
-		Path:     strings.TrimSpace(req.Path),
-		Auth:     strings.TrimSpace(req.Auth),
-		Status:   strings.ToLower(strings.TrimSpace(req.Status)),
+		Name:            strings.TrimSpace(req.Name),
+		Host:            strings.TrimSpace(req.Host),
+		Port:            req.Port,
+		Protocol:        strings.ToLower(strings.TrimSpace(req.Protocol)),
+		Path:            strings.TrimSpace(req.Path),
+		Auth:            strings.TrimSpace(req.Auth),
+		AgentBaseURL:    strings.TrimSpace(req.AgentBaseURL),
+		PullIntervalSec: req.PullIntervalSec,
+		PullTimeoutSec:  req.PullTimeoutSec,
+		KeyRef:          strings.TrimSpace(req.KeyRef),
+		Status:          strings.ToLower(strings.TrimSpace(req.Status)),
 	}
 
 	if normalized.Name == "" {
@@ -406,12 +477,35 @@ func normalizeCreatePullSourceRequest(req CreatePullSourceRequest) (CreatePullSo
 	if !isAllowedStatus(normalized.Status) {
 		return CreatePullSourceRequest{}, fmt.Errorf("status must be one of active|paused|disabled")
 	}
+	if normalized.PullIntervalSec <= 0 {
+		normalized.PullIntervalSec = 30
+	}
+	if normalized.PullTimeoutSec <= 0 {
+		normalized.PullTimeoutSec = 30
+	}
+	if normalized.AgentBaseURL == "" {
+		scheme := "http"
+		if normalized.Protocol == "https" {
+			scheme = "https"
+		}
+		normalized.AgentBaseURL = fmt.Sprintf("%s://%s:%d", scheme, normalized.Host, normalized.Port)
+	}
 	return normalized, nil
 }
 
 // normalizeUpdatePullSourceRequest 校验并规范化更新请求。
 func normalizeUpdatePullSourceRequest(req UpdatePullSourceRequest) (UpdatePullSourceRequest, error) {
-	if req.Name == nil && req.Host == nil && req.Port == nil && req.Protocol == nil && req.Path == nil && req.Auth == nil && req.Status == nil {
+	if req.Name == nil &&
+		req.Host == nil &&
+		req.Port == nil &&
+		req.Protocol == nil &&
+		req.Path == nil &&
+		req.Auth == nil &&
+		req.AgentBaseURL == nil &&
+		req.PullIntervalSec == nil &&
+		req.PullTimeoutSec == nil &&
+		req.KeyRef == nil &&
+		req.Status == nil {
 		return UpdatePullSourceRequest{}, fmt.Errorf("at least one field is required")
 	}
 
@@ -451,6 +545,26 @@ func normalizeUpdatePullSourceRequest(req UpdatePullSourceRequest) (UpdatePullSo
 		trimmed := strings.TrimSpace(*req.Auth)
 		normalized.Auth = &trimmed
 	}
+	if req.AgentBaseURL != nil {
+		trimmed := strings.TrimSpace(*req.AgentBaseURL)
+		normalized.AgentBaseURL = &trimmed
+	}
+	if req.PullIntervalSec != nil {
+		if *req.PullIntervalSec <= 0 {
+			return UpdatePullSourceRequest{}, fmt.Errorf("pull_interval_sec must be > 0")
+		}
+		normalized.PullIntervalSec = req.PullIntervalSec
+	}
+	if req.PullTimeoutSec != nil {
+		if *req.PullTimeoutSec <= 0 {
+			return UpdatePullSourceRequest{}, fmt.Errorf("pull_timeout_sec must be > 0")
+		}
+		normalized.PullTimeoutSec = req.PullTimeoutSec
+	}
+	if req.KeyRef != nil {
+		trimmed := strings.TrimSpace(*req.KeyRef)
+		normalized.KeyRef = &trimmed
+	}
 	if req.Status != nil {
 		trimmed := strings.ToLower(strings.TrimSpace(*req.Status))
 		if !isAllowedStatus(trimmed) {
@@ -459,6 +573,14 @@ func normalizeUpdatePullSourceRequest(req UpdatePullSourceRequest) (UpdatePullSo
 		normalized.Status = &trimmed
 	}
 	return normalized, nil
+}
+
+func toNullableString(raw string) sql.NullString {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: trimmed, Valid: true}
 }
 
 // parsePositiveInt 解析正整数；空值返回默认值。

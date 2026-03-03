@@ -1,6 +1,9 @@
 package ingest
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -35,6 +38,7 @@ var (
 type PullPackage struct {
 	PackageID string `json:"package_id"`
 	SourceID  string `json:"source_id,omitempty"`
+	TaskID    string `json:"task_id,omitempty"`
 	AgentID   string `json:"agent_id"`
 	SourceRef string `json:"source_ref"`
 	PackageNo string `json:"package_no"`
@@ -50,6 +54,7 @@ type PullPackage struct {
 	SizeBytes   int64  `json:"size_bytes"`
 	Checksum    string `json:"checksum"`
 	Status      string `json:"status"`
+	RequestID   string `json:"request_id,omitempty"`
 	// Files 为包内文件级摘要，和 agent_package_files 模型一一对应。
 	Files []PullPackageFile `json:"files,omitempty"`
 	// Metadata 预留扩展字段（与数据库 jsonb metadata 对齐）。
@@ -70,8 +75,9 @@ type listPullPackagesQuery struct {
 
 // PullPackageStore 提供增量包内存查询能力（6.4 最小可用版本）。
 type PullPackageStore struct {
-	mu    sync.RWMutex
-	items map[string]PullPackage
+	mu      sync.RWMutex
+	items   map[string]PullPackage
+	backend *PGBackend
 }
 
 // NewPullPackageStore 创建包查询内存仓储。
@@ -81,8 +87,20 @@ func NewPullPackageStore() *PullPackageStore {
 	}
 }
 
+// NewPullPackageStoreWithPG 创建 PostgreSQL 仓储版本。
+func NewPullPackageStoreWithPG(backend *PGBackend) *PullPackageStore {
+	return &PullPackageStore{
+		items:   make(map[string]PullPackage),
+		backend: backend,
+	}
+}
+
 // List 按 agent/source_ref/status 过滤并返回分页切片。
 func (s *PullPackageStore) List(agentID, sourceRef, status string, page, pageSize int) ([]PullPackage, int) {
+	if s.backend != nil {
+		return s.listFromDB(context.Background(), agentID, sourceRef, status, page, pageSize)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -122,6 +140,10 @@ func (s *PullPackageStore) List(agentID, sourceRef, status string, page, pageSiz
 
 // Get 按 package_id 获取增量包。
 func (s *PullPackageStore) Get(packageID string) (PullPackage, bool) {
+	if s.backend != nil {
+		return s.getFromDB(context.Background(), packageID)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -131,6 +153,10 @@ func (s *PullPackageStore) Get(packageID string) (PullPackage, bool) {
 
 // ApplyReceipt 根据 ACK/NACK 回执更新包状态。
 func (s *PullPackageStore) ApplyReceipt(packageID, receiptStatus string, receivedAt time.Time) (PullPackage, bool) {
+	if s.backend != nil {
+		return s.applyReceiptFromDB(context.Background(), packageID, receiptStatus, receivedAt)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -157,8 +183,26 @@ func (s *PullPackageStore) ApplyReceipt(packageID, receiptStatus string, receive
 	return item, true
 }
 
+// Create 创建或写入增量包（执行链路使用）。
+func (s *PullPackageStore) Create(pkg PullPackage) (PullPackage, error) {
+	if s.backend != nil {
+		return s.createFromDB(context.Background(), pkg)
+	}
+
+	created := s.CreateForTest(pkg)
+	return created, nil
+}
+
 // CreateForTest 仅用于测试注入包数据，避免为 6.4 额外增加写接口。
 func (s *PullPackageStore) CreateForTest(pkg PullPackage) PullPackage {
+	if s.backend != nil {
+		created, err := s.createFromDB(context.Background(), pkg)
+		if err != nil {
+			return PullPackage{}
+		}
+		return created
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -215,6 +259,38 @@ func (s *PullPackageStore) CreateForTest(pkg PullPackage) PullPackage {
 	}
 	s.items[created.PackageID] = created
 	return created
+}
+
+func encodePackageMetadata(metadata map[string]string) []byte {
+	if metadata == nil {
+		return []byte("{}")
+	}
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return []byte("{}")
+	}
+	return raw
+}
+
+func decodePackageMetadata(raw []byte) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	result := make(map[string]string)
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func toNullTimePtr(v *time.Time) sql.NullTime {
+	if v == nil {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: v.UTC(), Valid: true}
 }
 
 // PullPackageHandler 实现 packages 查询接口。
