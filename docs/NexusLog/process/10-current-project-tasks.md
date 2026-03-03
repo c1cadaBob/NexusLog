@@ -252,11 +252,11 @@
 责任角色：BE + DBA  
 目标周次：Week4
 
-- [ ] 8.1 打通 `ingest_pull_sources/ingest_pull_tasks` 落库并补充拉取配置（`agent_base_url/pull_interval_sec/pull_timeout_sec/key_ref`）
-- [ ] 8.2 新增并打通 `agent_pull_batches` 批次落库
-- [ ] 8.3 新增并打通 `agent_pull_cursors`、`agent_pull_auth_keys` 与 `ingest_dead_letters` 联动
-- [ ] 8.4 实施并验证 `batch_id + checksum` 幂等规则
-- [ ] 8.5 增加链路追踪字段（如 `request_id/task_id/batch_id`）
+- [~] 8.1 打通 `ingest_pull_sources/ingest_pull_tasks` 落库并补充拉取配置（`agent_base_url/pull_interval_sec/pull_timeout_sec/key_ref`）
+- [~] 8.2 新增并打通 `agent_pull_batches` 批次落库
+- [~] 8.3 新增并打通 `agent_pull_cursors`、`agent_pull_auth_keys` 与 `ingest_dead_letters` 联动
+- [~] 8.4 实施并验证 `batch_id + checksum` 幂等规则
+- [~] 8.5 增加链路追踪字段（如 `request_id/task_id/batch_id`）
 
 验收标准（DoD）：
 1. 拉取任务、批次、游标、ACK/NACK、死信之间可按 ID 全链路追踪。
@@ -269,6 +269,23 @@
 3. 死信重放成功样例。
 
 关联差异：`GAP-018`
+
+执行状态（2026-03-03，后端链路改造阶段）：
+1. 已完成：新增迁移 `000017_m2_ingest_execution_chain_enhancement`，补齐 `pull_sources/tasks` 扩展字段、`agent_pull_batches/cursors/auth_keys`、dead-letter replay 关联字段与索引。
+2. 已完成：`pull-sources/pull-tasks/pull-packages/pull-receipts/dead-letters` 五组接口仓储改为“内存+PG 双后端”，并在 `control-plane` 启动时支持 PG 接线与回退策略。
+3. 已完成：新增执行器骨架 `executor`，打通最小闭环 `pull -> package -> ES bulk -> ack/nack -> dead-letter -> cursor`。
+4. 已完成：新增幂等批次仓储与 `batch_id + checksum` 去重落库逻辑，补齐 `request_id/task_id/batch_id` 追踪字段贯通。
+5. 已完成：新增执行器单测（成功/ES 失败）与 ingest 全量单测通过；待完成真实 PG+ES 联调证据后再将 8.x 子项从 `[~]` 切为 `[x]`。
+
+证据链接（本次补充）：
+1. `storage/postgresql/migrations/000017_m2_ingest_execution_chain_enhancement.up.sql`
+2. `storage/postgresql/migrations/000017_m2_ingest_execution_chain_enhancement.down.sql`
+3. `services/control-plane/internal/ingest/executor.go`
+4. `services/control-plane/internal/ingest/executor_test.go`
+5. `services/control-plane/internal/ingest/pull_batches_pg.go`
+6. `services/control-plane/internal/ingest/pull_cursors_pg.go`
+7. `services/control-plane/internal/ingest/pull_auth_keys_pg.go`
+8. `services/control-plane/cmd/api/main.go`
 
 #### 任务 9（R8）：健康检测目标动态化
 
