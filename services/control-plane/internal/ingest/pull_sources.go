@@ -33,6 +33,8 @@ const (
 	ErrorCodePullSourceNotFound = ErrorCodeResourceNotFound
 	// ErrorCodePullSourceNameConflict 表示同名拉取源冲突。
 	ErrorCodePullSourceNameConflict = ErrorCodeResourceConflict
+	// ErrorCodePullSourceOverlapConflict 表示活跃拉取源在同一 agent 端点冲突。
+	ErrorCodePullSourceOverlapConflict = ErrorCodeResourceConflict
 	// ErrorCodePullSourceInternalError 表示服务内部异常。
 	ErrorCodePullSourceInternalError = ErrorCodeInternalError
 )
@@ -59,6 +61,8 @@ var (
 	ErrPullSourceNotFound = errors.New("pull source not found")
 	// ErrPullSourceNameConflict 表示拉取源名称冲突。
 	ErrPullSourceNameConflict = errors.New("pull source name conflict")
+	// ErrPullSourceOverlapConflict 表示同一 agent 端点活跃拉取源冲突。
+	ErrPullSourceOverlapConflict = errors.New("pull source overlap conflict")
 )
 
 // PullSource 定义 pull-sources 列表/详情响应骨架。
@@ -218,6 +222,9 @@ func (s *PullSourceStore) Create(req CreatePullSourceRequest) (PullSource, error
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
+	if err := ensureNoActiveOverlapInMemory(s.items, created, ""); err != nil {
+		return PullSource{}, err
+	}
 	s.items[created.SourceID] = created
 	return created, nil
 }
@@ -246,42 +253,16 @@ func (s *PullSourceStore) Update(sourceID string, req UpdatePullSourceRequest) (
 				return PullSource{}, ErrPullSourceNameConflict
 			}
 		}
-		current.Name = trimmed
-	}
-	if req.Host != nil {
-		current.Host = strings.TrimSpace(*req.Host)
-	}
-	if req.Port != nil {
-		current.Port = *req.Port
-	}
-	if req.Protocol != nil {
-		current.Protocol = strings.ToLower(strings.TrimSpace(*req.Protocol))
-	}
-	if req.Path != nil {
-		current.Path = strings.TrimSpace(*req.Path)
-	}
-	if req.Auth != nil {
-		current.Auth = strings.TrimSpace(*req.Auth)
-	}
-	if req.AgentBaseURL != nil {
-		current.AgentBaseURL = strings.TrimSpace(*req.AgentBaseURL)
-	}
-	if req.PullIntervalSec != nil {
-		current.PullIntervalSec = *req.PullIntervalSec
-	}
-	if req.PullTimeoutSec != nil {
-		current.PullTimeoutSec = *req.PullTimeoutSec
-	}
-	if req.KeyRef != nil {
-		current.KeyRef = strings.TrimSpace(*req.KeyRef)
-	}
-	if req.Status != nil {
-		current.Status = strings.ToLower(strings.TrimSpace(*req.Status))
 	}
 
-	current.UpdatedAt = time.Now().UTC()
-	s.items[sourceID] = current
-	return current, nil
+	updated := applyPullSourceUpdate(current, req)
+	if err := ensureNoActiveOverlapInMemory(s.items, updated, sourceID); err != nil {
+		return PullSource{}, err
+	}
+
+	updated.UpdatedAt = time.Now().UTC()
+	s.items[sourceID] = updated
+	return updated, nil
 }
 
 // GetByID 按 source_id 查询拉取源。
@@ -348,6 +329,10 @@ func (h *PullSourceHandler) CreatePullSource(c *gin.Context) {
 			writeError(c, http.StatusConflict, ErrorCodePullSourceNameConflict, "pull source name already exists", nil)
 			return
 		}
+		if errors.Is(err, ErrPullSourceOverlapConflict) {
+			writeError(c, http.StatusConflict, ErrorCodePullSourceOverlapConflict, "active pull source overlaps existing agent endpoint", gin.H{"field": "agent_base_url"})
+			return
+		}
 		writeError(c, http.StatusInternalServerError, ErrorCodePullSourceInternalError, "failed to create pull source", nil)
 		return
 	}
@@ -408,6 +393,8 @@ func (h *PullSourceHandler) updatePullSourceWithRequest(c *gin.Context, sourceID
 			writeError(c, http.StatusNotFound, ErrorCodePullSourceNotFound, "pull source not found", nil)
 		case errors.Is(err, ErrPullSourceNameConflict):
 			writeError(c, http.StatusConflict, ErrorCodePullSourceNameConflict, "pull source name already exists", nil)
+		case errors.Is(err, ErrPullSourceOverlapConflict):
+			writeError(c, http.StatusConflict, ErrorCodePullSourceOverlapConflict, "active pull source overlaps existing agent endpoint", gin.H{"field": "agent_base_url"})
 		default:
 			writeError(c, http.StatusInternalServerError, ErrorCodePullSourceInternalError, "failed to update pull source", nil)
 		}
@@ -573,6 +560,91 @@ func normalizeUpdatePullSourceRequest(req UpdatePullSourceRequest) (UpdatePullSo
 		normalized.Status = &trimmed
 	}
 	return normalized, nil
+}
+
+func applyPullSourceUpdate(current PullSource, req UpdatePullSourceRequest) PullSource {
+	updated := current
+	if req.Name != nil {
+		updated.Name = strings.TrimSpace(*req.Name)
+	}
+	if req.Host != nil {
+		updated.Host = strings.TrimSpace(*req.Host)
+	}
+	if req.Port != nil {
+		updated.Port = *req.Port
+	}
+	if req.Protocol != nil {
+		updated.Protocol = strings.ToLower(strings.TrimSpace(*req.Protocol))
+	}
+	if req.Path != nil {
+		updated.Path = strings.TrimSpace(*req.Path)
+	}
+	if req.Auth != nil {
+		updated.Auth = strings.TrimSpace(*req.Auth)
+	}
+	if req.AgentBaseURL != nil {
+		updated.AgentBaseURL = strings.TrimSpace(*req.AgentBaseURL)
+	}
+	if req.PullIntervalSec != nil {
+		updated.PullIntervalSec = *req.PullIntervalSec
+	}
+	if req.PullTimeoutSec != nil {
+		updated.PullTimeoutSec = *req.PullTimeoutSec
+	}
+	if req.KeyRef != nil {
+		updated.KeyRef = strings.TrimSpace(*req.KeyRef)
+	}
+	if req.Status != nil {
+		updated.Status = strings.ToLower(strings.TrimSpace(*req.Status))
+	}
+	return updated
+}
+
+func ensureNoActiveOverlapInMemory(items map[string]PullSource, candidate PullSource, excludeSourceID string) error {
+	candidateIdentity, ok := activeAgentIdentity(candidate)
+	if !ok {
+		return nil
+	}
+	for _, item := range items {
+		if item.SourceID == excludeSourceID {
+			continue
+		}
+		otherIdentity, overlap := activeAgentIdentity(item)
+		if !overlap {
+			continue
+		}
+		if otherIdentity == candidateIdentity {
+			return ErrPullSourceOverlapConflict
+		}
+	}
+	return nil
+}
+
+func activeAgentIdentity(source PullSource) (string, bool) {
+	if strings.ToLower(strings.TrimSpace(source.Status)) != "active" {
+		return "", false
+	}
+
+	protocol := strings.ToLower(strings.TrimSpace(source.Protocol))
+	if protocol != "http" && protocol != "https" {
+		return "", false
+	}
+
+	baseURL := strings.TrimSpace(source.AgentBaseURL)
+	if baseURL == "" {
+		host := strings.ToLower(strings.TrimSpace(source.Host))
+		if host == "" || source.Port <= 0 {
+			return "", false
+		}
+		baseURL = fmt.Sprintf("%s://%s:%d", protocol, host, source.Port)
+	}
+
+	baseURL = strings.ToLower(strings.TrimSpace(baseURL))
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" {
+		return "", false
+	}
+	return baseURL, true
 }
 
 func toNullableString(raw string) sql.NullString {

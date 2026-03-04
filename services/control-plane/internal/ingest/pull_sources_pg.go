@@ -113,6 +113,17 @@ func (s *PullSourceStore) createFromDB(ctx context.Context, req CreatePullSource
 		return PullSource{}, fmt.Errorf("postgres backend is not configured")
 	}
 
+	candidate := PullSource{
+		Host:         req.Host,
+		Port:         req.Port,
+		Protocol:     req.Protocol,
+		AgentBaseURL: req.AgentBaseURL,
+		Status:       req.Status,
+	}
+	if err := s.ensureNoActiveOverlapFromDB(ctx, candidate, ""); err != nil {
+		return PullSource{}, err
+	}
+
 	tenantID := s.backend.ResolveTenantID(ctx)
 	now := s.backend.Now()
 	query := `
@@ -216,6 +227,15 @@ func (s *PullSourceStore) updateFromDB(ctx context.Context, sourceID string, req
 	sourceID = strings.TrimSpace(sourceID)
 	if sourceID == "" {
 		return PullSource{}, ErrPullSourceNotFound
+	}
+
+	current, ok := s.getByIDFromDB(ctx, sourceID)
+	if !ok {
+		return PullSource{}, ErrPullSourceNotFound
+	}
+	candidate := applyPullSourceUpdate(current, req)
+	if err := s.ensureNoActiveOverlapFromDB(ctx, candidate, sourceID); err != nil {
+		return PullSource{}, err
 	}
 
 	now := s.backend.Now()
@@ -348,4 +368,43 @@ WHERE id = $1::uuid
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
 	return item, true
+}
+
+func (s *PullSourceStore) ensureNoActiveOverlapFromDB(ctx context.Context, candidate PullSource, excludeSourceID string) error {
+	if s.backend == nil || s.backend.DB() == nil {
+		return nil
+	}
+
+	candidateIdentity, ok := activeAgentIdentity(candidate)
+	if !ok {
+		return nil
+	}
+
+	tenantID := s.backend.ResolveTenantID(ctx)
+	excludeSourceID = strings.TrimSpace(excludeSourceID)
+
+	query := `
+SELECT EXISTS (
+    SELECT 1
+    FROM ingest_pull_sources
+    WHERE tenant_id = $1::uuid
+      AND status = 'active'
+      AND LOWER(protocol) IN ('http', 'https')
+      AND COALESCE(NULLIF(LOWER(BTRIM(agent_base_url)), ''), LOWER(BTRIM(protocol)) || '://' || LOWER(BTRIM(host)) || ':' || port::text) = $2
+      AND ($3::uuid IS NULL OR id <> $3::uuid)
+)
+`
+	var exclude sql.NullString
+	if excludeSourceID != "" {
+		exclude = sql.NullString{String: excludeSourceID, Valid: true}
+	}
+
+	var exists bool
+	if err := s.backend.DB().QueryRowContext(ctx, query, tenantID, candidateIdentity, exclude).Scan(&exists); err != nil {
+		return wrapDBError("check pull source overlap", err)
+	}
+	if exists {
+		return ErrPullSourceOverlapConflict
+	}
+	return nil
 }

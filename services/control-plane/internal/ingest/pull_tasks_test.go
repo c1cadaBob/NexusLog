@@ -12,14 +12,16 @@ import (
 // createPullSourceForTask 在测试中创建一个可用拉取源并返回 source_id。
 func createPullSourceForTask(t *testing.T, router *gin.Engine, name string) string {
 	t.Helper()
+	host := name + ".nexuslog.test"
 
 	createResp := performJSONRequest(router, http.MethodPost, "/api/v1/ingest/pull-sources", map[string]any{
-		"name":     name,
-		"host":     "10.0.0.9",
-		"port":     443,
-		"protocol": "https",
-		"path":     "/api/pull",
-		"auth":     "token-ref-" + name,
+		"name":           name,
+		"host":           host,
+		"port":           443,
+		"protocol":       "https",
+		"path":           "/api/pull",
+		"auth":           "token-ref-" + name,
+		"agent_base_url": "https://" + host + ":443",
 	})
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create pull source failed: %d %s", createResp.Code, createResp.Body.String())

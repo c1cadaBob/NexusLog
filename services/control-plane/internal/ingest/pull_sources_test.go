@@ -238,6 +238,63 @@ func TestPullSourceInvalidArgument(t *testing.T) {
 	}
 }
 
+// TestPullSourceRejectsActiveOverlap 验证同一 agent 端点不允许并行 active 拉取源。
+func TestPullSourceRejectsActiveOverlap(t *testing.T) {
+	router := newTestRouter()
+
+	first := performJSONRequest(router, http.MethodPost, "/api/v1/ingest/pull-sources", map[string]any{
+		"name":              "source-overlap-a",
+		"host":              "172.29.0.1",
+		"port":              16666,
+		"protocol":          "http",
+		"path":              "/host-docker-containers/*/*-json.log",
+		"auth":              "key-ref-a",
+		"agent_base_url":    "http://172.29.0.1:16666/",
+		"pull_interval_sec": 30,
+		"pull_timeout_sec":  30,
+		"status":            "active",
+	})
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first create failed: %d %s", first.Code, first.Body.String())
+	}
+
+	overlap := performJSONRequest(router, http.MethodPost, "/api/v1/ingest/pull-sources", map[string]any{
+		"name":              "source-overlap-b",
+		"host":              "172.29.0.1",
+		"port":              16666,
+		"protocol":          "http",
+		"path":              "/host-var-log/*.log",
+		"auth":              "key-ref-b",
+		"agent_base_url":    "http://172.29.0.1:16666",
+		"pull_interval_sec": 30,
+		"pull_timeout_sec":  30,
+		"status":            "active",
+	})
+	if overlap.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for overlap, got %d body=%s", overlap.Code, overlap.Body.String())
+	}
+	overlapEnvelope := decodeEnvelope(t, overlap)
+	if overlapEnvelope.Code != ErrorCodePullSourceOverlapConflict {
+		t.Fatalf("unexpected overlap error code: %s", overlapEnvelope.Code)
+	}
+
+	paused := performJSONRequest(router, http.MethodPost, "/api/v1/ingest/pull-sources", map[string]any{
+		"name":              "source-overlap-c",
+		"host":              "172.29.0.1",
+		"port":              16666,
+		"protocol":          "http",
+		"path":              "/host-var-log/*.log",
+		"auth":              "key-ref-c",
+		"agent_base_url":    "http://172.29.0.1:16666",
+		"pull_interval_sec": 30,
+		"pull_timeout_sec":  30,
+		"status":            "paused",
+	})
+	if paused.Code != http.StatusCreated {
+		t.Fatalf("paused create should bypass overlap check: %d %s", paused.Code, paused.Body.String())
+	}
+}
+
 // TestGlobalErrorCodeContractAlignment 验证 ingest 错误码常量对齐 12 文档核心规范。
 func TestGlobalErrorCodeContractAlignment(t *testing.T) {
 	if ErrorCodeRequestInvalidParams != "REQ_INVALID_PARAMS" {
