@@ -1,0 +1,594 @@
+[INFO] evidence log: docs/NexusLog/process/evidence/task-8-real-pull-es-ack-20260304-122352.log
+\n[STEP] make db-migrate-up
+\n[STEP] make db-migrate-version
+17
+\n[STEP] docker compose restart control-plane collector-agent
+\n[STEP] wait and health checks
+{"service":"control-plane","status":"healthy","time":"2026-03-04T04:24:20Z"}
+{"status":"healthy","service":"collector-agent","time":"2026-03-04T04:24:20Z"}
+\n[STEP] inject test logs into collector-agent
+2026-03-04T04:24:40Z nexuslog-e2e line-1
+2026-03-04T04:24:40Z nexuslog-e2e line-2
+\n[STEP] collector-agent auth env
+AGENT_API_KEY_ACTIVE_ID=
+AGENT_API_KEY_ACTIVE=
+\n[STEP] control-plane executor env
+INGEST_EXECUTOR_ENABLED=
+INGEST_AGENT_API_KEY=
+AGENT_API_KEY_ACTIVE=
+[INFO] KEY_REF=e2e-keyref-20260304122708 SRC_NAME=e2e-source-20260304122708
+\n[STEP] inspect tenant
+                  id                  |  name   
+--------------------------------------+---------
+ 00000000-0000-0000-0000-000000000001 | default
+(1 row)
+
+\n[STEP] upsert auth key
+INSERT 0 1
+\n[STEP] create pull source
+{"code":"OK","data":{"source_id":"77f6e38e-063c-4496-ae27-7a55ee74a8ea","status":"active"},"message":"success","meta":{},"request_id":"cp-1772598429-834f10988c40"}
+[INFO] SOURCE_ID=77f6e38e-063c-4496-ae27-7a55ee74a8ea
+\n[STEP] run pull task
+{"code":"OK","data":{"request_id":"cp-task-1772598429-532f338e","source_id":"77f6e38e-063c-4496-ae27-7a55ee74a8ea","status":"pending","task_id":"01af8642-3043-497c-8430-79573b6c4ea8","trigger_type":"manual"},"message":"success","meta":{},"request_id":"cp-1772598429-ed5f074dfdda"}
+[INFO] TASK_ID=01af8642-3043-497c-8430-79573b6c4ea8
+\n[STEP] poll task status
+[POLL 1] status=running error_code=
+[POLL 2] status=failed error_code=INGEST_AGENT_PULL_FAILED
+{"code":"OK","data":{"items":[{"task_id":"01af8642-3043-497c-8430-79573b6c4ea8","source_id":"77f6e38e-063c-4496-ae27-7a55ee74a8ea","trigger_type":"manual","options":{"agent_id":"collector-agent-e2e","max_bytes":1048576,"max_records":200,"timeout_ms":5000},"status":"failed","request_id":"cp-task-1772598429-532f338e","scheduled_at":"2026-03-04T04:27:09.389967Z","started_at":"2026-03-04T04:27:09.393062Z","finished_at":"2026-03-04T04:27:09.452462Z","error_code":"INGEST_AGENT_PULL_FAILED","error_message":"Post \"http://collector-agent:9091/agent/v1/logs/pull\": dial tcp: lookup collector-agent on 127.0.0.11:53: no such host","created_at":"2026-03-04T04:27:09.389967Z","updated_at":"2026-03-04T04:27:09.452462Z"}]},"message":"success","meta":{"has_next":false,"page":1,"page_size":5,"total":1},"request_id":"cp-1772598430-176f942ad3ca"}
+\n[STEP] query ES docs by task_id
+{"error":{"root_cause":[{"type":"index_not_found_exception","reason":"no such index [logs-remote]","resource.type":"index_or_alias","resource.id":"logs-remote","index_uuid":"_na_","index":"logs-remote"}],"type":"index_not_found_exception","reason":"no such index [logs-remote]","resource.type":"index_or_alias","resource.id":"logs-remote","index_uuid":"_na_","index":"logs-remote"},"status":404}\n[STEP] SQL evidence: pull task
+                  id                  |              source_id               | status |         request_id          | batch_id | retry_count |        error_code        |                                                     error_message                                                      |          created_at           |          updated_at           
+--------------------------------------+--------------------------------------+--------+-----------------------------+----------+-------------+--------------------------+------------------------------------------------------------------------------------------------------------------------+-------------------------------+-------------------------------
+ 01af8642-3043-497c-8430-79573b6c4ea8 | 77f6e38e-063c-4496-ae27-7a55ee74a8ea | failed | cp-task-1772598429-532f338e |          |           0 | INGEST_AGENT_PULL_FAILED | Post "http://collector-agent:9091/agent/v1/logs/pull": dial tcp: lookup collector-agent on 127.0.0.11:53: no such host | 2026-03-04 04:27:09.389967+00 | 2026-03-04 04:27:09.452462+00
+(1 row)
+
+\n[STEP] SQL evidence: pull source
+                  id                  |           name            |      host       | port | protocol |       path_pattern        |       agent_base_url        | pull_interval_sec | pull_timeout_sec |          key_ref          | status |          created_at           
+--------------------------------------+---------------------------+-----------------+------+----------+---------------------------+-----------------------------+-------------------+------------------+---------------------------+--------+-------------------------------
+ 77f6e38e-063c-4496-ae27-7a55ee74a8ea | e2e-source-20260304122708 | collector-agent | 9091 | http     | /var/log/nexuslog-e2e.log | http://collector-agent:9091 |                30 |               30 | e2e-keyref-20260304122708 | active | 2026-03-04 04:27:09.333478+00
+(1 row)
+
+\n[STEP] SQL evidence: packages
+ id | source_id | task_id | agent_id | source_ref | batch_id | next_cursor | record_count | status | checksum | request_id | created_at | acked_at 
+----+-----------+---------+----------+------------+----------+-------------+--------------+--------+----------+------------+------------+----------
+(0 rows)
+
+\n[STEP] SQL evidence: batches
+ batch_id | checksum | source_id | task_id | package_id | status | record_count | retry_count | request_id | error_code | error_message | acked_at | created_at 
+----------+----------+-----------+---------+------------+--------+--------------+-------------+------------+------------+---------------+----------+------------
+(0 rows)
+
+\n[STEP] SQL evidence: cursors
+ source_id | task_id | agent_id | source_ref | source_path | last_cursor | last_offset | last_batch_id | request_id | updated_at 
+-----------+---------+----------+------------+-------------+-------------+-------------+---------------+------------+------------
+(0 rows)
+
+\n[STEP] SQL evidence: receipts
+ id | package_id | result | error_code | error_message | received_at 
+----+------------+--------+------------+---------------+-------------
+(0 rows)
+
+\n[STEP] SQL evidence: dead letters
+ id | package_id | error_code | error_message | retry_count | failed_at | replayed_at 
+----+------------+------------+---------------+-------------+-----------+-------------
+(0 rows)
+
+\n[STEP] control-plane logs (last 120 lines)
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/03/03 16:14:43 ingest store backend: postgres
+[GIN-debug] GET    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).ListPullSources-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).CreatePullSource-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources/:source_id --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByPath-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByBody-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/pull-tasks --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).ListPullTasks-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-tasks/run --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).RunPullTask-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/packages   --> github.com/nexuslog/control-plane/internal/ingest.(*PullPackageHandler).ListPullPackages-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/receipts   --> github.com/nexuslog/control-plane/internal/ingest.(*ReceiptHandler).CreateReceipt-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/dead-letters/replay --> github.com/nexuslog/control-plane/internal/ingest.(*DeadLetterHandler).ReplayDeadLetters-fm (4 handlers)
+[GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+[GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+2026/03/03 16:14:43 gRPC server listening on :9090
+2026/03/03 16:14:43 HTTP server listening on :8080
+cmd/api/main.go has changed
+building...
+running...
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+internal/ingest/pull_sources.go has changed
+building...
+running...
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/03/03 16:17:05 ingest store backend: postgres
+2026/03/03 16:17:05 ingest executor enabled
+[GIN-debug] GET    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).ListPullSources-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).CreatePullSource-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources/:source_id --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByPath-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByBody-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/pull-tasks --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).ListPullTasks-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-tasks/run --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).RunPullTask-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/packages   --> github.com/nexuslog/control-plane/internal/ingest.(*PullPackageHandler).ListPullPackages-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/receipts   --> github.com/nexuslog/control-plane/internal/ingest.(*ReceiptHandler).CreateReceipt-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/dead-letters/replay --> github.com/nexuslog/control-plane/internal/ingest.(*DeadLetterHandler).ReplayDeadLetters-fm (4 handlers)
+[GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+[GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+2026/03/03 16:17:05 HTTP server listening on :8080
+2026/03/03 16:17:05 gRPC server listening on :9090
+cleaning...
+see you again~
+
+  __    _   ___  
+ / /\  | | | |_) 
+/_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+
+watching .
+watching api
+watching api/openapi
+watching api/proto
+watching cmd
+watching cmd/api
+watching configs
+watching internal
+watching internal/app
+watching internal/config
+watching internal/domain
+watching internal/ingest
+watching internal/repository
+watching internal/service
+watching internal/transport
+watching internal/transport/grpc
+watching internal/transport/http
+watching tests
+!exclude tmp
+building...
+running...
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/03/04 04:24:12 ingest store backend: postgres
+2026/03/04 04:24:12 ingest executor enabled
+[GIN-debug] GET    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).ListPullSources-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).CreatePullSource-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources/:source_id --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByPath-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByBody-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/pull-tasks --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).ListPullTasks-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-tasks/run --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).RunPullTask-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/packages   --> github.com/nexuslog/control-plane/internal/ingest.(*PullPackageHandler).ListPullPackages-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/receipts   --> github.com/nexuslog/control-plane/internal/ingest.(*ReceiptHandler).CreateReceipt-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/dead-letters/replay --> github.com/nexuslog/control-plane/internal/ingest.(*DeadLetterHandler).ReplayDeadLetters-fm (4 handlers)
+[GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+[GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+2026/03/04 04:24:12 gRPC server listening on :9090
+2026/03/04 04:24:12 HTTP server listening on :8080
+[GIN] 2026/03/04 - 04:24:20 |[97;42m 200 [0m|      23.341µs |      172.29.0.1 |[97;44m GET     [0m "/healthz"
+[GIN] 2026/03/04 - 04:27:10 |[97;42m 200 [0m|    1.290875ms |      172.29.0.1 |[97;44m GET     [0m "/api/v1/ingest/pull-tasks?source_id=77f6e38e-063c-4496-ae27-7a55ee74a8ea&page=1&page_size=5"
+\n[STEP] collector-agent logs (last 120 lines)
+running...
+2026/03/02 13:29:17 main.go:28: 启动 NexusLog Collector Agent...
+2026/03/02 13:29:17 main.go:31: 加载配置: /workspace/agents/collector-agent/configs/agent.yaml
+2026/03/02 13:29:17 main.go:43: Checkpoint 存储已初始化
+2026/03/02 13:29:17 main.go:52: 插件注册表已初始化
+2026/03/02 13:29:17 kafka_producer.go:43: Kafka Producer 初始化: brokers=[kafka:9092], topic=nexuslog-raw-logs, compression=snappy
+2026/03/02 13:29:17 main.go:108: Kafka 兼容链路已启用（P1）
+2026/03/02 13:29:17 collector.go:106: 采集器已启动，共 1 个采集源
+2026/03/02 13:29:17 pipeline.go:81: 管道已启动，4 个 worker
+2026/03/02 13:29:17 main.go:126: 采集分发已启动：pull + kafka-compat
+2026/03/02 13:29:17 main.go:259: 健康检查 HTTP 服务监听端口 :9091
+2026/03/02 13:29:22 kafka_producer.go:76: 发送 786 条记录到 Kafka topic=nexuslog-raw-logs
+
+  __    _   ___  
+ / /\  | | | |_) 
+/_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+
+watching .
+watching cmd
+watching cmd/agent
+watching configs
+watching deploy
+watching deploy/docker
+watching deploy/systemd
+watching dist
+watching dist/collector-agent-linux-amd64
+watching dist/collector-agent-linux-amd64/configs
+watching dist/collector-agent-linux-amd64/deploy
+watching dist/collector-agent-linux-amd64/deploy/docker
+watching dist/collector-agent-linux-amd64/deploy/systemd
+watching docs
+watching internal
+watching internal/checkpoint
+watching internal/collector
+watching internal/pipeline
+watching internal/pullapi
+watching internal/retry
+watching plugins
+watching plugins/grpc
+watching plugins/wasm
+watching scripts
+watching tests
+!exclude tmp
+building...
+running...
+2026/03/03 04:22:37 collector.go:190: 从 checkpoint 恢复 [/var/log/dpkg.log]: offset=51862
+internal/pullapi/service.go has changed
+building...
+running...
+2026/03/03 05:00:42 main.go:28: 启动 NexusLog Collector Agent...
+2026/03/03 05:00:42 main.go:31: 加载配置: /workspace/agents/collector-agent/configs/agent.yaml
+2026/03/03 05:00:42 main.go:43: Checkpoint 存储已初始化
+2026/03/03 05:00:42 main.go:52: 插件注册表已初始化
+2026/03/03 05:00:42 kafka_producer.go:43: Kafka Producer 初始化: brokers=[kafka:9092], topic=nexuslog-raw-logs, compression=snappy
+2026/03/03 05:00:42 main.go:108: Kafka 兼容链路已启用（P1）
+2026/03/03 05:00:42 collector.go:106: 采集器已启动，共 1 个采集源
+cleaning...
+see you again~
+
+  __    _   ___  
+ / /\  | | | |_) 
+/_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+
+watching .
+watching cmd
+watching cmd/agent
+watching configs
+watching deploy
+watching deploy/docker
+watching deploy/systemd
+watching dist
+watching dist/collector-agent-linux-amd64
+watching dist/collector-agent-linux-amd64/configs
+watching dist/collector-agent-linux-amd64/deploy
+watching dist/collector-agent-linux-amd64/deploy/docker
+watching dist/collector-agent-linux-amd64/deploy/systemd
+watching docs
+watching internal
+watching internal/checkpoint
+watching internal/collector
+watching internal/pipeline
+watching internal/pullapi
+watching internal/retry
+watching plugins
+watching plugins/grpc
+watching plugins/wasm
+watching scripts
+watching tests
+!exclude tmp
+building...
+running...
+2026/03/04 04:24:12 collector.go:106: 采集器已启动，共 1 个采集源
+2026/03/04 04:24:12 pipeline.go:81: 管道已启动，4 个 worker2026/03/04 04:24:12 main.go:259: 健康检查 HTTP 服务监听端口 :9091
+2026/03/04 04:24:17 collector.go:190: 从 checkpoint 恢复 [/var/log/alternatives.log]: offset=2254
+\n[RESULT] SOURCE_ID=77f6e38e-063c-4496-ae27-7a55ee74a8ea
+[RESULT] TASK_ID=01af8642-3043-497c-8430-79573b6c4ea8
+[RESULT] FINAL_STATUS=failed
+\n[STEP] inspect control-plane network aliases
+{"nexuslog_nexuslog-net":{"IPAMConfig":null,"Links":null,"Aliases":["nexuslog-control-plane-1","control-plane"],"MacAddress":"02:42:ac:1d:00:04","NetworkID":"e8f3ddbac70a505f3de2927ec3b7edc8b7c7ec999c539f66049b5fe1b4a533c4","EndpointID":"cf5244a7fae8ff506435ea58026a6f323695261962f03bc43217d1d4f6d4da8d","Gateway":"172.29.0.1","IPAddress":"172.29.0.4","IPPrefixLen":16,"IPv6Gateway":"","GlobalIPv6Address":"","GlobalIPv6PrefixLen":0,"DriverOpts":null,"DNSNames":["nexuslog-control-plane-1","control-plane","9f09a020afbd"]}}
+\n[STEP] inspect collector-agent network aliases
+{"nexuslog_default":{"IPAMConfig":null,"Links":null,"Aliases":["nexuslog-collector-agent-1","collector-agent"],"MacAddress":"02:42:ac:1e:00:02","NetworkID":"3875dfbde468ca76de11124d32638d2246e89a819a62b84a4a1b954d7700bf42","EndpointID":"bd56161670339936d7af85c64d0f761b7474d079cfd13ef93f2b7a46dfd970f3","Gateway":"172.30.0.1","IPAddress":"172.30.0.2","IPPrefixLen":16,"IPv6Gateway":"","GlobalIPv6Address":"","GlobalIPv6PrefixLen":0,"DriverOpts":null,"DNSNames":["nexuslog-collector-agent-1","collector-agent","f69c00924038"]}}
+\n[STEP] connectivity check from control-plane container
+-- collector-agent
+
+-- nexuslog-collector-agent-1
+
+-- host.docker.internal
+
+-- 172.29.0.1
+{"status":"healthy","service":"collector-agent","time":"2026-03-04T04:49:10Z"}
+\n[RETRY] KEY_REF=e2e-keyref-success-20260304125053 SRC_NAME=e2e-source-success-20260304125053
+\n[STEP] append fresh logs
+2026-03-04T04:24:40Z nexuslog-e2e line-1
+2026-03-04T04:24:40Z nexuslog-e2e line-2
+2026-03-04T04:50:54Z nexuslog-e2e success-line-1
+2026-03-04T04:50:54Z nexuslog-e2e success-line-2
+\n[STEP] upsert auth key for retry
+INSERT 0 1
+\n[STEP] create pull source with routable agent_base_url
+{"code":"OK","data":{"source_id":"4e614b70-7b21-4856-a271-ce83470ee48b","status":"active"},"message":"success","meta":{},"request_id":"cp-1772599854-aad2e80ac5c5"}
+[INFO] SOURCE_ID=4e614b70-7b21-4856-a271-ce83470ee48b
+\n[STEP] run pull task (retry run)
+{"code":"OK","data":{"request_id":"cp-task-1772599854-9ea0a678","source_id":"4e614b70-7b21-4856-a271-ce83470ee48b","status":"pending","task_id":"517ef8e3-6768-48de-bc28-e48fb47acdca","trigger_type":"manual"},"message":"success","meta":{},"request_id":"cp-1772599854-2de833cf0b67"}
+[INFO] TASK_ID=517ef8e3-6768-48de-bc28-e48fb47acdca
+\n[STEP] poll task status (expect success)
+[POLL 1] status=running error_code=
+[POLL 2] status=running error_code=
+[POLL 3] status=running error_code=
+[POLL 4] status=running error_code=
+[POLL 5] status=running error_code=
+[POLL 6] status=running error_code=
+[POLL 7] status=failed error_code=INGEST_ES_WRITE_FAILED
+{"code":"OK","data":{"items":[{"task_id":"517ef8e3-6768-48de-bc28-e48fb47acdca","source_id":"4e614b70-7b21-4856-a271-ce83470ee48b","trigger_type":"manual","options":{"agent_id":"collector-agent-e2e","max_bytes":1048576,"max_records":200,"timeout_ms":5000},"status":"failed","request_id":"cp-task-1772599854-9ea0a678","retry_count":2,"scheduled_at":"2026-03-04T04:50:54.144849Z","started_at":"2026-03-04T04:50:54.146412Z","finished_at":"2026-03-04T04:51:00.20202Z","error_code":"INGEST_ES_WRITE_FAILED","error_message":"Post \"http://localhost:9200/_bulk\": dial tcp [::1]:9200: connect: connection refused","created_at":"2026-03-04T04:50:54.144849Z","updated_at":"2026-03-04T04:51:00.20202Z"}]},"message":"success","meta":{"has_next":false,"page":1,"page_size":5,"total":1},"request_id":"cp-1772599860-cc752e6350fe"}
+[ERROR] expected success but got failed
+\n[WORKAROUND] stop container control-plane and start local control-plane for real E2E
+nexuslog-control-plane-1
+[INFO] local control-plane pid=3073520
+\n[STEP] local control-plane health
+{"service":"control-plane","status":"healthy","time":"2026-03-04T04:53:45Z"}
+\n[STEP] tail local control-plane log
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/03/04 12:53:41 ingest store backend: postgres
+2026/03/04 12:53:41 ingest executor enabled
+[GIN-debug] GET    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).ListPullSources-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).CreatePullSource-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources/:source_id --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByPath-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByBody-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/pull-tasks --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).ListPullTasks-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-tasks/run --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).RunPullTask-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/packages   --> github.com/nexuslog/control-plane/internal/ingest.(*PullPackageHandler).ListPullPackages-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/receipts   --> github.com/nexuslog/control-plane/internal/ingest.(*ReceiptHandler).CreateReceipt-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/dead-letters/replay --> github.com/nexuslog/control-plane/internal/ingest.(*DeadLetterHandler).ReplayDeadLetters-fm (4 handlers)
+[GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+[GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+2026/03/04 12:53:41 gRPC server listening on :9090
+2026/03/04 12:53:41 HTTP server listening on :8080
+[GIN] 2026/03/04 - 12:53:45 | 200 |      28.976µs |             ::1 | GET      "/healthz"
+\n[LOCAL-RUN] KEY_REF=e2e-keyref-local-success-20260304125429 SRC_NAME=e2e-source-local-success-20260304125429
+\n[STEP] append fresh logs for local run
+2026-03-04T04:50:54Z nexuslog-e2e success-line-1
+2026-03-04T04:50:54Z nexuslog-e2e success-line-2
+2026-03-04T04:54:29Z nexuslog-e2e local-success-line-1
+2026-03-04T04:54:29Z nexuslog-e2e local-success-line-2
+\n[STEP] upsert auth key for local run
+INSERT 0 1
+\n[STEP] create pull source against localhost agent
+
+[ERROR] create source failed
+\n[FINAL-ATTEMPT] KEY_REF=e2e-keyref-final-success-20260304125634 SRC_NAME=e2e-source-final-success-20260304125634
+[STEP] start local control-plane in same shell
+[INFO] local control-plane pid=3080150
+[STEP] wait local control-plane health
+{"service":"control-plane","status":"healthy","time":"2026-03-04T04:56:35Z"}
+\n[STEP] append fresh logs
+2026-03-04T04:54:29Z nexuslog-e2e local-success-line-1
+2026-03-04T04:54:29Z nexuslog-e2e local-success-line-2
+2026-03-04T04:56:35Z nexuslog-e2e final-success-line-1
+2026-03-04T04:56:35Z nexuslog-e2e final-success-line-2
+\n[STEP] upsert auth key
+INSERT 0 1
+\n[STEP] create pull source
+{"code":"OK","data":{"source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","status":"active"},"message":"success","meta":{},"request_id":"cp-1772600195-d2bc6f9344dd"}
+[INFO] SOURCE_ID=29d0e0d6-885b-4442-a9eb-f110c1aec22d
+\n[STEP] run pull task
+{"code":"OK","data":{"request_id":"cp-task-1772600195-9489b449","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","status":"pending","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264","trigger_type":"manual"},"message":"success","meta":{},"request_id":"cp-1772600195-77e010262105"}
+[INFO] TASK_ID=7adb8307-effd-4528-8d87-8bb6ba6b8264
+\n[STEP] poll task status
+[POLL 1] status=running error_code=
+[POLL 2] status=success error_code=
+{"code":"OK","data":{"items":[{"task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","trigger_type":"manual","options":{"agent_id":"collector-agent-e2e","max_bytes":1048576,"max_records":200,"timeout_ms":5000},"status":"success","request_id":"cp-task-1772600195-9489b449","batch_id":"batch-72aab03cfd43fa0f10bc4f15","last_cursor":"6","scheduled_at":"2026-03-04T04:56:35.901085Z","started_at":"2026-03-04T04:56:35.904147Z","finished_at":"2026-03-04T04:56:36.658851Z","created_at":"2026-03-04T04:56:35.901085Z","updated_at":"2026-03-04T04:56:36.658851Z"}]},"message":"success","meta":{"has_next":false,"page":1,"page_size":5,"total":1},"request_id":"cp-1772600196-9e9e8e4fae08"}
+\n[STEP] ES evidence by task_id
+{"took":47,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":0,"relation":"eq"},"max_score":null,"hits":[]}}\n[STEP] SQL evidence: pull task
+                  id                  |              source_id               | status  |         request_id          |            batch_id            | retry_count | error_code | error_message |          created_at           |          updated_at           
+--------------------------------------+--------------------------------------+---------+-----------------------------+--------------------------------+-------------+------------+---------------+-------------------------------+-------------------------------
+ 7adb8307-effd-4528-8d87-8bb6ba6b8264 | 29d0e0d6-885b-4442-a9eb-f110c1aec22d | success | cp-task-1772600195-9489b449 | batch-72aab03cfd43fa0f10bc4f15 |           0 |            |               | 2026-03-04 04:56:35.901085+00 | 2026-03-04 04:56:36.658851+00
+(1 row)
+
+\n[STEP] SQL evidence: pull source
+                  id                  |                  name                   |   host    | port | protocol |       path_pattern        |    agent_base_url     | pull_interval_sec | pull_timeout_sec |                 key_ref                 | status |          created_at          
+--------------------------------------+-----------------------------------------+-----------+------+----------+---------------------------+-----------------------+-------------------+------------------+-----------------------------------------+--------+------------------------------
+ 29d0e0d6-885b-4442-a9eb-f110c1aec22d | e2e-source-final-success-20260304125634 | localhost | 9091 | http     | /var/log/nexuslog-e2e.log | http://localhost:9091 |                30 |               30 | e2e-keyref-final-success-20260304125634 | active | 2026-03-04 04:56:35.87897+00
+(1 row)
+
+\n[STEP] SQL evidence: packages
+                  id                  |              source_id               |               task_id                |      agent_id       |        source_ref         |            batch_id            | next_cursor | record_count | status |                             checksum                             |         request_id          |          created_at           |           acked_at            
+--------------------------------------+--------------------------------------+--------------------------------------+---------------------+---------------------------+--------------------------------+-------------+--------------+--------+------------------------------------------------------------------+-----------------------------+-------------------------------+-------------------------------
+ 777cab65-b0c7-4dda-8687-f7d83ac406e7 | 29d0e0d6-885b-4442-a9eb-f110c1aec22d | 7adb8307-effd-4528-8d87-8bb6ba6b8264 | collector-agent-e2e | /var/log/nexuslog-e2e.log | batch-72aab03cfd43fa0f10bc4f15 | 6           |            6 | acked  | ef3608ae3172d48b97d6b0e96818b4ac3eff35bc3113aac7505447cb6827176c | cp-task-1772600195-9489b449 | 2026-03-04 04:56:35.919712+00 | 2026-03-04 04:56:36.650922+00
+(1 row)
+
+\n[STEP] SQL evidence: batches
+            batch_id            |                             checksum                             |              source_id               |               task_id                |              package_id              | status | record_count | retry_count |         request_id          | error_code | error_message |           acked_at            |          created_at           
+--------------------------------+------------------------------------------------------------------+--------------------------------------+--------------------------------------+--------------------------------------+--------+--------------+-------------+-----------------------------+------------+---------------+-------------------------------+-------------------------------
+ batch-72aab03cfd43fa0f10bc4f15 | ef3608ae3172d48b97d6b0e96818b4ac3eff35bc3113aac7505447cb6827176c | 29d0e0d6-885b-4442-a9eb-f110c1aec22d | 7adb8307-effd-4528-8d87-8bb6ba6b8264 | 777cab65-b0c7-4dda-8687-f7d83ac406e7 | acked  |            6 |           0 | cp-task-1772600195-9489b449 |            |               | 2026-03-04 04:56:36.650922+00 | 2026-03-04 04:56:35.941017+00
+(1 row)
+
+\n[STEP] SQL evidence: cursors
+              source_id               |               task_id                |      agent_id       |        source_ref         |        source_path        | last_cursor | last_offset |         last_batch_id          |         request_id          |          updated_at           
+--------------------------------------+--------------------------------------+---------------------+---------------------------+---------------------------+-------------+-------------+--------------------------------+-----------------------------+-------------------------------
+ 29d0e0d6-885b-4442-a9eb-f110c1aec22d | 7adb8307-effd-4528-8d87-8bb6ba6b8264 | collector-agent-e2e | /var/log/nexuslog-e2e.log | /var/log/nexuslog-e2e.log | 6           |         290 | batch-72aab03cfd43fa0f10bc4f15 | cp-task-1772600195-9489b449 | 2026-03-04 04:56:36.650922+00
+(1 row)
+
+\n[STEP] SQL evidence: receipts
+                  id                  |              package_id              | result | error_code | error_message |          received_at          
+--------------------------------------+--------------------------------------+--------+------------+---------------+-------------------------------
+ b700b5c5-91e9-4540-b8b1-feb42a8818a9 | 777cab65-b0c7-4dda-8687-f7d83ac406e7 | ack    |            |               | 2026-03-04 04:56:36.650922+00
+(1 row)
+
+\n[STEP] SQL evidence: dead letters
+ id | package_id | error_code | error_message | retry_count | failed_at | replayed_at 
+----+------------+------------+---------------+-------------+-----------+-------------
+(0 rows)
+
+\n[STEP] local control-plane logs tail
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/03/04 12:56:34 ingest store backend: postgres
+2026/03/04 12:56:34 ingest executor enabled
+[GIN-debug] GET    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).ListPullSources-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).CreatePullSource-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources/:source_id --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByPath-fm (4 handlers)
+[GIN-debug] PUT    /api/v1/ingest/pull-sources --> github.com/nexuslog/control-plane/internal/ingest.(*PullSourceHandler).UpdatePullSourceByBody-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/pull-tasks --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).ListPullTasks-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/pull-tasks/run --> github.com/nexuslog/control-plane/internal/ingest.(*PullTaskHandler).RunPullTask-fm (4 handlers)
+[GIN-debug] GET    /api/v1/ingest/packages   --> github.com/nexuslog/control-plane/internal/ingest.(*PullPackageHandler).ListPullPackages-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/receipts   --> github.com/nexuslog/control-plane/internal/ingest.(*ReceiptHandler).CreateReceipt-fm (4 handlers)
+[GIN-debug] POST   /api/v1/ingest/dead-letters/replay --> github.com/nexuslog/control-plane/internal/ingest.(*DeadLetterHandler).ReplayDeadLetters-fm (4 handlers)
+[GIN-debug] GET    /healthz                  --> main.main.func1 (4 handlers)
+[GIN-debug] GET    /api/v1/health            --> main.main.func2 (4 handlers)
+2026/03/04 12:56:34 HTTP server listening on :8080
+2026/03/04 12:56:34 gRPC server listening on :9090
+[GIN] 2026/03/04 - 12:56:35 | 200 |      42.486µs |             ::1 | GET      "/healthz"
+[GIN] 2026/03/04 - 12:56:35 | 200 |       54.87µs |             ::1 | GET      "/healthz"
+[GIN] 2026/03/04 - 12:56:35 | 201 |    5.505811ms |             ::1 | POST     "/api/v1/ingest/pull-sources"
+[GIN] 2026/03/04 - 12:56:35 | 202 |    4.288411ms |             ::1 | POST     "/api/v1/ingest/pull-tasks/run"
+[GIN] 2026/03/04 - 12:56:35 | 200 |    2.439075ms |             ::1 | GET      "/api/v1/ingest/pull-tasks?source_id=29d0e0d6-885b-4442-a9eb-f110c1aec22d&page=1&page_size=5"
+[GIN] 2026/03/04 - 12:56:36 | 200 |    3.275631ms |             ::1 | GET      "/api/v1/ingest/pull-tasks?source_id=29d0e0d6-885b-4442-a9eb-f110c1aec22d&page=1&page_size=5"
+\n[STEP] collector-agent logs tail
+
+  __    _   ___  
+ / /\  | | | |_) 
+/_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+
+watching .
+watching cmd
+watching cmd/agent
+watching configs
+watching deploy
+watching deploy/docker
+watching deploy/systemd
+watching dist
+watching dist/collector-agent-linux-amd64
+watching dist/collector-agent-linux-amd64/configs
+watching dist/collector-agent-linux-amd64/deploy
+watching dist/collector-agent-linux-amd64/deploy/docker
+watching dist/collector-agent-linux-amd64/deploy/systemd
+watching docs
+watching internal
+watching internal/checkpoint
+watching internal/collector
+watching internal/pipeline
+watching internal/pullapi
+watching internal/retry
+watching plugins
+watching plugins/grpc
+watching plugins/wasm
+watching scripts
+watching tests
+!exclude tmp
+building...
+running...
+2026/03/02 13:29:17 main.go:28: 启动 NexusLog Collector Agent...
+2026/03/02 13:29:17 main.go:31: 加载配置: /workspace/agents/collector-agent/configs/agent.yaml
+2026/03/02 13:29:17 main.go:43: Checkpoint 存储已初始化
+2026/03/02 13:29:17 main.go:52: 插件注册表已初始化
+2026/03/02 13:29:17 kafka_producer.go:43: Kafka Producer 初始化: brokers=[kafka:9092], topic=nexuslog-raw-logs, compression=snappy
+2026/03/02 13:29:17 main.go:108: Kafka 兼容链路已启用（P1）
+2026/03/02 13:29:17 collector.go:106: 采集器已启动，共 1 个采集源
+2026/03/02 13:29:17 pipeline.go:81: 管道已启动，4 个 worker
+2026/03/02 13:29:17 main.go:126: 采集分发已启动：pull + kafka-compat
+2026/03/02 13:29:17 main.go:259: 健康检查 HTTP 服务监听端口 :9091
+2026/03/02 13:29:22 kafka_producer.go:76: 发送 786 条记录到 Kafka topic=nexuslog-raw-logs
+
+  __    _   ___  
+ / /\  | | | |_) 
+/_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+
+watching .
+watching cmd
+watching cmd/agent
+watching configs
+watching deploy
+watching deploy/docker
+watching deploy/systemd
+watching dist
+watching dist/collector-agent-linux-amd64
+watching dist/collector-agent-linux-amd64/configs
+watching dist/collector-agent-linux-amd64/deploy
+watching dist/collector-agent-linux-amd64/deploy/docker
+watching dist/collector-agent-linux-amd64/deploy/systemd
+watching docs
+watching internal
+watching internal/checkpoint
+watching internal/collector
+watching internal/pipeline
+watching internal/pullapi
+watching internal/retry
+watching plugins
+watching plugins/grpc
+watching plugins/wasm
+watching scripts
+watching tests
+!exclude tmp
+building...
+running...
+2026/03/03 04:22:37 collector.go:190: 从 checkpoint 恢复 [/var/log/dpkg.log]: offset=51862
+internal/pullapi/service.go has changed
+building...
+running...
+2026/03/03 05:00:42 main.go:28: 启动 NexusLog Collector Agent...
+2026/03/03 05:00:42 main.go:31: 加载配置: /workspace/agents/collector-agent/configs/agent.yaml
+2026/03/03 05:00:42 main.go:43: Checkpoint 存储已初始化
+2026/03/03 05:00:42 main.go:52: 插件注册表已初始化
+2026/03/03 05:00:42 kafka_producer.go:43: Kafka Producer 初始化: brokers=[kafka:9092], topic=nexuslog-raw-logs, compression=snappy
+2026/03/03 05:00:42 main.go:108: Kafka 兼容链路已启用（P1）
+2026/03/03 05:00:42 collector.go:106: 采集器已启动，共 1 个采集源
+cleaning...
+see you again~
+
+  __    _   ___  
+ / /\  | | | |_) 
+/_/--\ |_| |_| \_ v1.52.3, built with Go go1.23.12
+
+watching .
+watching cmd
+watching cmd/agent
+watching configs
+watching deploy
+watching deploy/docker
+watching deploy/systemd
+watching dist
+watching dist/collector-agent-linux-amd64
+watching dist/collector-agent-linux-amd64/configs
+watching dist/collector-agent-linux-amd64/deploy
+watching dist/collector-agent-linux-amd64/deploy/docker
+watching dist/collector-agent-linux-amd64/deploy/systemd
+watching docs
+watching internal
+watching internal/checkpoint
+watching internal/collector
+watching internal/pipeline
+watching internal/pullapi
+watching internal/retry
+watching plugins
+watching plugins/grpc
+watching plugins/wasm
+watching scripts
+watching tests
+!exclude tmp
+building...
+running...
+2026/03/04 04:24:12 collector.go:106: 采集器已启动，共 1 个采集源
+2026/03/04 04:24:12 pipeline.go:81: 管道已启动，4 个 worker2026/03/04 04:24:12 main.go:259: 健康检查 HTTP 服务监听端口 :9091
+2026/03/04 04:24:17 collector.go:190: 从 checkpoint 恢复 [/var/log/alternatives.log]: offset=2254
+2026/03/04 04:50:57 kafka_producer.go:76: 发送 2 条记录到 Kafka topic=nexuslog-raw-logs
+2026/03/04 04:54:32 kafka_producer.go:76: 发送 2 条记录到 Kafka topic=nexuslog-raw-logs
+2026/03/04 04:56:37 kafka_producer.go:76: 发送 2 条记录到 Kafka topic=nexuslog-raw-logs
+\n[RESULT-FINAL-SUCCESS] SOURCE_ID=29d0e0d6-885b-4442-a9eb-f110c1aec22d
+[RESULT-FINAL-SUCCESS] TASK_ID=7adb8307-effd-4528-8d87-8bb6ba6b8264
+[RESULT-FINAL-SUCCESS] FINAL_STATUS=success
+[CLEANUP] local control-plane stopped; container control-plane started
+\n[STEP] ES refresh and verification for final success task
+{"_shards":{"total":2,"successful":1,"failed":0}}
+\n[STEP] ES count all logs-remote
+{"count":6,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}
+\n[STEP] ES search by task_id (match)
+{"took":32,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":6,"relation":"eq"},"max_score":null,"hits":[{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-5","_score":null,"_source":{"@timestamp":"2026-03-04T04:54:32.44005388Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:54:29Z nexuslog-e2e local-success-line-1","metadata":{"offset":"235"},"offset":235,"record_id":"rec-5","request_id":"cp-task-1772600195-9489b449","sequence":5,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772600072440]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-6","_score":null,"_source":{"@timestamp":"2026-03-04T04:54:32.440058819Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:54:29Z nexuslog-e2e local-success-line-2","metadata":{"offset":"290"},"offset":290,"record_id":"rec-6","request_id":"cp-task-1772600195-9489b449","sequence":6,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772600072440]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-3","_score":null,"_source":{"@timestamp":"2026-03-04T04:50:57.438164102Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:50:54Z nexuslog-e2e success-line-1","metadata":{"offset":"131"},"offset":131,"record_id":"rec-3","request_id":"cp-task-1772600195-9489b449","sequence":3,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772599857438]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-4","_score":null,"_source":{"@timestamp":"2026-03-04T04:50:57.438167963Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:50:54Z nexuslog-e2e success-line-2","metadata":{"offset":"180"},"offset":180,"record_id":"rec-4","request_id":"cp-task-1772600195-9489b449","sequence":4,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772599857438]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-2","_score":null,"_source":{"@timestamp":"2026-03-04T04:24:42.440032585Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:24:40Z nexuslog-e2e line-2","metadata":{"offset":"82"},"offset":82,"record_id":"rec-2","request_id":"cp-task-1772600195-9489b449","sequence":2,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772598282440]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-1","_score":null,"_source":{"@timestamp":"2026-03-04T04:24:42.439796177Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:24:40Z nexuslog-e2e line-1","metadata":{"offset":"41"},"offset":41,"record_id":"rec-1","request_id":"cp-task-1772600195-9489b449","sequence":1,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772598282439]}]}}
+\n[STEP] ES search by batch_id (match)
+{"took":5,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":6,"relation":"eq"},"max_score":null,"hits":[{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-5","_score":null,"_source":{"@timestamp":"2026-03-04T04:54:32.44005388Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:54:29Z nexuslog-e2e local-success-line-1","metadata":{"offset":"235"},"offset":235,"record_id":"rec-5","request_id":"cp-task-1772600195-9489b449","sequence":5,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772600072440]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-6","_score":null,"_source":{"@timestamp":"2026-03-04T04:54:32.440058819Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:54:29Z nexuslog-e2e local-success-line-2","metadata":{"offset":"290"},"offset":290,"record_id":"rec-6","request_id":"cp-task-1772600195-9489b449","sequence":6,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772600072440]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-3","_score":null,"_source":{"@timestamp":"2026-03-04T04:50:57.438164102Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:50:54Z nexuslog-e2e success-line-1","metadata":{"offset":"131"},"offset":131,"record_id":"rec-3","request_id":"cp-task-1772600195-9489b449","sequence":3,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772599857438]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-4","_score":null,"_source":{"@timestamp":"2026-03-04T04:50:57.438167963Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:50:54Z nexuslog-e2e success-line-2","metadata":{"offset":"180"},"offset":180,"record_id":"rec-4","request_id":"cp-task-1772600195-9489b449","sequence":4,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772599857438]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-2","_score":null,"_source":{"@timestamp":"2026-03-04T04:24:42.440032585Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:24:40Z nexuslog-e2e line-2","metadata":{"offset":"82"},"offset":82,"record_id":"rec-2","request_id":"cp-task-1772600195-9489b449","sequence":2,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772598282440]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-1","_score":null,"_source":{"@timestamp":"2026-03-04T04:24:42.439796177Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:24:40Z nexuslog-e2e line-1","metadata":{"offset":"41"},"offset":41,"record_id":"rec-1","request_id":"cp-task-1772600195-9489b449","sequence":1,"source":"/var/log/nexuslog-e2e.log","source_id":"29d0e0d6-885b-4442-a9eb-f110c1aec22d","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772598282439]}]}}
+\n[STEP] ES sample latest docs
+{"took":9,"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":6,"relation":"eq"},"max_score":null,"hits":[{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-5","_score":null,"_source":{"@timestamp":"2026-03-04T04:54:32.44005388Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:54:29Z nexuslog-e2e local-success-line-1","offset":235,"record_id":"rec-5","source":"/var/log/nexuslog-e2e.log","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772600072440]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-6","_score":null,"_source":{"@timestamp":"2026-03-04T04:54:32.440058819Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:54:29Z nexuslog-e2e local-success-line-2","offset":290,"record_id":"rec-6","source":"/var/log/nexuslog-e2e.log","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772600072440]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-3","_score":null,"_source":{"@timestamp":"2026-03-04T04:50:57.438164102Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:50:54Z nexuslog-e2e success-line-1","offset":131,"record_id":"rec-3","source":"/var/log/nexuslog-e2e.log","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772599857438]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-4","_score":null,"_source":{"@timestamp":"2026-03-04T04:50:57.438167963Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:50:54Z nexuslog-e2e success-line-2","offset":180,"record_id":"rec-4","source":"/var/log/nexuslog-e2e.log","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772599857438]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-2","_score":null,"_source":{"@timestamp":"2026-03-04T04:24:42.440032585Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:24:40Z nexuslog-e2e line-2","offset":82,"record_id":"rec-2","source":"/var/log/nexuslog-e2e.log","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772598282440]},{"_index":"logs-remote","_id":"collector-agent-e2e:batch-72aab03cfd43fa0f10bc4f15:rec-1","_score":null,"_source":{"@timestamp":"2026-03-04T04:24:42.439796177Z","batch_id":"batch-72aab03cfd43fa0f10bc4f15","message":"2026-03-04T04:24:40Z nexuslog-e2e line-1","offset":41,"record_id":"rec-1","source":"/var/log/nexuslog-e2e.log","task_id":"7adb8307-effd-4528-8d87-8bb6ba6b8264"},"sort":[1772598282439]}]}}
+\n[POST-CHECK] control-plane container health after cleanup
+
+\n[POST-CHECK-RETRY] ensure control-plane container restored
+nexuslog-control-plane-1	Up Less than a second
+[INFO] control-plane health restored
+{"service":"control-plane","status":"healthy","time":"2026-03-04T04:58:01Z"}
