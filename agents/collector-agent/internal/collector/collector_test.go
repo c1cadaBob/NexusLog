@@ -175,6 +175,91 @@ func TestCollectFilesWithExcludePatterns(t *testing.T) {
 	}
 }
 
+// TestCollectFilesWithPathLabelRules 验证按路径匹配规则注入自定义标签。
+func TestCollectFilesWithPathLabelRules(t *testing.T) {
+	tempDir := t.TempDir()
+	nginxFile := filepath.Join(tempDir, "nginx-access.log")
+	appFile := filepath.Join(tempDir, "app.log")
+	if err := os.WriteFile(nginxFile, []byte("nginx-line\n"), 0644); err != nil {
+		t.Fatalf("write nginx log failed: %v", err)
+	}
+	if err := os.WriteFile(appFile, []byte("app-line\n"), 0644); err != nil {
+		t.Fatalf("write app log failed: %v", err)
+	}
+
+	store, err := checkpoint.NewFileStore(filepath.Join(tempDir, "checkpoints"))
+	if err != nil {
+		t.Fatalf("new checkpoint store failed: %v", err)
+	}
+	defer store.Close()
+
+	coll := New(Config{
+		Sources: []SourceConfig{
+			{
+				Type:  SourceTypeFile,
+				Paths: []string{filepath.Join(tempDir, "*.log")},
+				PathLabelRules: []PathLabelRule{
+					{
+						Pattern: filepath.Join(tempDir, "nginx-*.log"),
+						Labels: map[string]string{
+							"service": "nginx",
+							"tier":    "edge",
+						},
+					},
+					{
+						Pattern: filepath.Join(tempDir, "app*.log"),
+						Labels: map[string]string{
+							"service": "app",
+							"tier":    "core",
+						},
+					},
+				},
+			},
+		},
+		BatchSize:     10,
+		FlushInterval: 20 * time.Millisecond,
+		BufferSize:    4,
+	}, store)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := coll.Start(ctx); err != nil {
+		t.Fatalf("start collector failed: %v", err)
+	}
+
+	batch := waitBatch(t, coll.Output(), 2*time.Second)
+	if len(batch) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(batch))
+	}
+
+	bySource := make(map[string]plugins.Record, len(batch))
+	for _, record := range batch {
+		bySource[record.Source] = record
+	}
+
+	nginxRecord, ok := bySource[nginxFile]
+	if !ok {
+		t.Fatalf("nginx record not found in batch")
+	}
+	if nginxRecord.Metadata["service"] != "nginx" || nginxRecord.Metadata["tier"] != "edge" {
+		t.Fatalf("unexpected nginx labels: %#v", nginxRecord.Metadata)
+	}
+	if nginxRecord.Metadata["offset"] == "" {
+		t.Fatalf("expected nginx metadata.offset to be present")
+	}
+
+	appRecord, ok := bySource[appFile]
+	if !ok {
+		t.Fatalf("app record not found in batch")
+	}
+	if appRecord.Metadata["service"] != "app" || appRecord.Metadata["tier"] != "core" {
+		t.Fatalf("unexpected app labels: %#v", appRecord.Metadata)
+	}
+	if appRecord.Metadata["offset"] == "" {
+		t.Fatalf("expected app metadata.offset to be present")
+	}
+}
+
 func waitBatch(t *testing.T, ch <-chan []plugins.Record, timeout time.Duration) []plugins.Record {
 	t.Helper()
 	select {

@@ -15,6 +15,7 @@ services:
       AGENT_API_KEY_NEXT: ""
       COLLECTOR_INCLUDE_PATHS: "/var/log/*.log"
       COLLECTOR_EXCLUDE_PATHS: "/var/log/wtmp,/var/log/btmp"
+      COLLECTOR_PATH_LABEL_RULES: '[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]'
       ENABLE_KAFKA_PIPELINE: "false"
       CHECKPOINT_DIR: "/var/lib/collector-agent/checkpoints"
       CACHE_DIR: "/var/lib/collector-agent/cache"

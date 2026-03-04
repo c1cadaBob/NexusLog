@@ -41,6 +41,7 @@ sudo cp deploy/systemd/collector-agent.env.example /etc/nexuslog/collector-agent
 ```bash
 COLLECTOR_INCLUDE_PATHS=/var/log/*.log,/data/app/*.log
 COLLECTOR_EXCLUDE_PATHS=/var/log/wtmp,/data/app/debug-*.log
+COLLECTOR_PATH_LABEL_RULES=[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}},{"pattern":"/data/app/*.log","labels":{"service":"app","env":"prod"}}]
 ```
 
 ### 2.3 启动与验证
@@ -71,6 +72,7 @@ curl -s -H 'X-Agent-Key: replace-with-strong-key' http://127.0.0.1:9091/agent/v1
 environment:
   COLLECTOR_INCLUDE_PATHS: "/var/log/*.log,/host-data/logs/*.log"
   COLLECTOR_EXCLUDE_PATHS: "/var/log/wtmp,/host-data/logs/debug-*.log"
+  COLLECTOR_PATH_LABEL_RULES: '[{"pattern":"/host-data/logs/nginx*.log","labels":{"service":"nginx","env":"prod"}}]'
 ```
 
 ## 4. 回滚与停机

@@ -226,6 +226,46 @@ services:
     cpus: "0.75"
     mem_limit: "768m"
 
+  # 本地模拟远程服务器部署的 Agent（用于日志存储与拉取联调）
+  collector-agent-remote:
+    build: !reset null
+    image: ${MIRROR_DOCKER_HUB}/golang:1.23-bullseye
+    working_dir: /workspace/agents/collector-agent
+    command:
+      - /bin/bash
+      - -c
+      - |
+        export PATH="/usr/local/go/bin:/go/bin:$$PATH"
+        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.52.3
+        air --build.cmd "go build -buildvcs=false -o /tmp/collector-agent-remote ./cmd/agent" --build.bin "/tmp/collector-agent-remote" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+    environment:
+      # 按需求使用 16666 暴露“远程日志记录/拉取”端口
+      - HTTP_PORT=16666
+      - AGENT_ID=collector-agent-remote-local
+      - AGENT_API_KEY_ACTIVE_ID=active
+      - AGENT_API_KEY_ACTIVE=dev-agent-key
+      # 远程模拟模式仅保留 pull 主路径，关闭 Kafka 兼容主推
+      - ENABLE_KAFKA_PIPELINE=false
+      # 独立的状态与日志路径，避免与本地主 agent 混用
+      - CHECKPOINT_DIR=/var/lib/collector-agent-remote/checkpoints
+      - CACHE_DIR=/var/lib/collector-agent-remote/cache
+      - COLLECTOR_INCLUDE_PATHS=/var/log/remote/*.log
+      - 'COLLECTOR_PATH_LABEL_RULES=[{"pattern":"/var/log/remote/*.log","labels":{"env":"local","channel":"remote-sim"}}]'
+      - COLLECTOR_EXCLUDE_PATHS=
+      - CONFIG_PATH=/workspace/agents/collector-agent/configs/agent.yaml
+      - GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}
+      - GOSUMDB=off
+    ports:
+      - "16666:16666"
+    volumes:
+      - ./:/workspace
+      - go-pkg-mod:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+      - collector-agent-remote-data:/var/lib/collector-agent-remote
+      - collector-agent-remote-logs:/var/log/remote
+    cpus: "0.75"
+    mem_limit: "768m"
+
   postgres:
     cpus: "1.00"
     mem_limit: "1g"
@@ -265,3 +305,5 @@ volumes:
   go-pkg-mod:
   go-build-cache:
   collector-agent-data:
+  collector-agent-remote-data:
+  collector-agent-remote-logs:

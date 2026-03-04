@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -63,11 +64,17 @@ func main() {
 	// 4. 初始化采集器（7.6：支持 include/exclude 采集范围）
 	includePaths := parseCSV(getEnv("COLLECTOR_INCLUDE_PATHS", "/var/log/*.log"))
 	excludePaths := parseCSV(getEnv("COLLECTOR_EXCLUDE_PATHS", ""))
+	pathLabelRules, err := parsePathLabelRules(getEnv("COLLECTOR_PATH_LABEL_RULES", ""))
+	if err != nil {
+		log.Printf("解析 COLLECTOR_PATH_LABEL_RULES 失败，已忽略路径标签配置: %v", err)
+		pathLabelRules = nil
+	}
 	sourceConfigs := []collector.SourceConfig{
 		{
-			Type:         collector.SourceTypeFile,
-			Paths:        includePaths,
-			ExcludePaths: excludePaths,
+			Type:           collector.SourceTypeFile,
+			Paths:          includePaths,
+			ExcludePaths:   excludePaths,
+			PathLabelRules: pathLabelRules,
 		},
 	}
 	coll := collector.New(collector.Config{
@@ -206,6 +213,57 @@ func parseCSV(raw string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+
+type pathLabelRuleEnv struct {
+	Pattern string            `json:"pattern"`
+	Labels  map[string]string `json:"labels"`
+}
+
+// parsePathLabelRules 解析路径标签规则，支持 JSON 数组输入：
+// [{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx"}}]
+func parsePathLabelRules(raw string) ([]collector.PathLabelRule, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+
+	var decoded []pathLabelRuleEnv
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return nil, err
+	}
+
+	rules := make([]collector.PathLabelRule, 0, len(decoded))
+	for _, item := range decoded {
+		pattern := strings.TrimSpace(item.Pattern)
+		if pattern == "" || len(item.Labels) == 0 {
+			continue
+		}
+
+		labels := make(map[string]string, len(item.Labels))
+		for key, value := range item.Labels {
+			trimmedKey := strings.TrimSpace(key)
+			if trimmedKey == "" {
+				continue
+			}
+			// offset 作为系统关键字段，避免被配置覆盖。
+			if trimmedKey == "offset" {
+				continue
+			}
+			labels[trimmedKey] = strings.TrimSpace(value)
+		}
+		if len(labels) == 0 {
+			continue
+		}
+		rules = append(rules, collector.PathLabelRule{
+			Pattern: pattern,
+			Labels:  labels,
+		})
+	}
+	if len(rules) == 0 {
+		return nil, nil
+	}
+	return rules, nil
 }
 
 // buildMetaInfo 构造 /agent/v1/meta 响应。

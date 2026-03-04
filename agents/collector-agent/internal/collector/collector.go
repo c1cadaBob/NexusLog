@@ -31,12 +31,19 @@ const (
 
 // SourceConfig 采集源配置
 type SourceConfig struct {
-	Type         SourceType
-	Paths        []string          // 文件采集包含路径（file 类型）
-	ExcludePaths []string          // 文件采集排除路径（file 类型）
-	Protocol     string            // 协议（syslog 类型: udp/tcp）
-	Bind         string            // 监听地址（syslog 类型）
-	Extra        map[string]string // 额外配置
+	Type           SourceType
+	Paths          []string          // 文件采集包含路径（file 类型）
+	ExcludePaths   []string          // 文件采集排除路径（file 类型）
+	PathLabelRules []PathLabelRule   // 按路径命中后注入 metadata 标签（file 类型）
+	Protocol       string            // 协议（syslog 类型: udp/tcp）
+	Bind           string            // 监听地址（syslog 类型）
+	Extra          map[string]string // 额外配置
+}
+
+// PathLabelRule 定义“路径 -> 标签”匹配规则。
+type PathLabelRule struct {
+	Pattern string            // 支持 glob，如 /var/log/nginx/*.log
+	Labels  map[string]string // 命中后附加到 record.Metadata
 }
 
 // Collector 日志采集器
@@ -159,7 +166,8 @@ func (c *Collector) scanIncrementalFileRecords(src SourceConfig, fileOffsets map
 				currentOffset = 0
 			}
 
-			records, nextOffset, err := c.readFileIncremental(path, currentOffset, c.batchSize-len(batch))
+			pathLabels := resolvePathLabels(path, src.PathLabelRules)
+			records, nextOffset, err := c.readFileIncremental(path, currentOffset, c.batchSize-len(batch), pathLabels)
 			if err != nil {
 				log.Printf("增量读取失败 [%s]: %v", path, err)
 				continue
@@ -193,7 +201,8 @@ func (c *Collector) loadOffsetIfNeeded(path string, fileOffsets map[string]int64
 }
 
 // readFileIncremental 从指定偏移读取文件新增日志，返回记录与新偏移。
-func (c *Collector) readFileIncremental(path string, startOffset int64, maxRecords int) ([]plugins.Record, int64, error) {
+// pathLabels 用于按路径注入自定义标签，最终会透传到 pull API 与下游存储。
+func (c *Collector) readFileIncremental(path string, startOffset int64, maxRecords int, pathLabels map[string]string) ([]plugins.Record, int64, error) {
 	if maxRecords <= 0 {
 		return nil, startOffset, nil
 	}
@@ -229,14 +238,25 @@ func (c *Collector) readFileIncremental(path string, startOffset int64, maxRecor
 		if len(line) > 0 {
 			currentOffset += int64(len(line))
 			payload := bytes.TrimRight(line, "\r\n")
+			metadata := make(map[string]string, len(pathLabels)+1)
+			for key, value := range pathLabels {
+				trimmedKey := strings.TrimSpace(key)
+				if trimmedKey == "" {
+					continue
+				}
+				// offset 为系统关键字段，禁止自定义规则覆盖。
+				if trimmedKey == "offset" {
+					continue
+				}
+				metadata[trimmedKey] = strings.TrimSpace(value)
+			}
+			// 记录“已提交到该行末尾”的绝对偏移，供 pipeline 与 ack checkpoint 回写。
+			metadata["offset"] = strconv.FormatInt(currentOffset, 10)
 			record := plugins.Record{
 				Source:    path,
 				Timestamp: time.Now().UTC().UnixNano(),
 				Data:      append([]byte(nil), payload...),
-				Metadata: map[string]string{
-					// 记录“已提交到该行末尾”的绝对偏移，供 pipeline 回写 checkpoint。
-					"offset": strconv.FormatInt(currentOffset, 10),
-				},
+				Metadata:  metadata,
 			}
 			records = append(records, record)
 		}
@@ -250,6 +270,46 @@ func (c *Collector) readFileIncremental(path string, startOffset int64, maxRecor
 	}
 
 	return records, currentOffset, nil
+}
+
+// resolvePathLabels 根据路径规则生成标签，后出现的规则会覆盖先前同名字段。
+func resolvePathLabels(path string, rules []PathLabelRule) map[string]string {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	resolved := make(map[string]string)
+	for _, rule := range rules {
+		pattern := strings.TrimSpace(rule.Pattern)
+		if pattern == "" || len(rule.Labels) == 0 {
+			continue
+		}
+		if !isPathMatched(path, pattern) {
+			continue
+		}
+		for key, value := range rule.Labels {
+			trimmedKey := strings.TrimSpace(key)
+			if trimmedKey == "" {
+				continue
+			}
+			resolved[trimmedKey] = strings.TrimSpace(value)
+		}
+	}
+	if len(resolved) == 0 {
+		return nil
+	}
+	return resolved
+}
+
+// isPathMatched 判断路径是否命中 pattern，兼容全路径与文件名匹配。
+func isPathMatched(path, pattern string) bool {
+	if matched, err := filepath.Match(pattern, path); err == nil && matched {
+		return true
+	}
+	if matched, err := filepath.Match(pattern, filepath.Base(path)); err == nil && matched {
+		return true
+	}
+	return false
 }
 
 // resolveScanPaths 将配置项解析为可读取文件列表，支持 glob 与单文件路径。
