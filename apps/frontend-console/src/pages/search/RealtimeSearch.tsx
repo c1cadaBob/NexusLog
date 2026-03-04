@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useMemo, useCallback, useState } from 'react';
 import { Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
@@ -7,7 +7,7 @@ import { COLORS } from '../../theme/tokens';
 import ChartWrapper from '../../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
 import type { LogEntry } from '../../types/log';
-import { createShortId } from '../../utils/id';
+import { queryRealtimeLogs } from '../../api/query';
 
 // ============================================================================
 // 模拟数据
@@ -22,66 +22,41 @@ const RECENT_QUERIES = [
   'level:warn',
 ];
 
-/** 生成直方图数据（最近 30 分钟，每分钟一个桶） */
-function generateHistogramData() {
+/** 构建近 30 分钟直方图（使用当前查询结果统计） */
+function buildHistogramData(logs: LogEntry[]) {
   const now = new Date();
-  return Array.from({ length: 30 }, (_, i) => {
-    const t = new Date(now.getTime() - (29 - i) * 60000);
-    return {
-      time: t.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-      normal: Math.floor(80 + Math.random() * 200),
-      error: Math.floor(2 + Math.random() * 30),
-    };
-  });
-}
+  const buckets = new Map<string, { time: string; normal: number; error: number }>();
+  for (let i = 29; i >= 0; i -= 1) {
+    const tick = new Date(now.getTime() - i * 60000);
+    tick.setSeconds(0, 0);
+    const key = tick.toISOString().slice(0, 16);
+    buckets.set(key, {
+      time: tick.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      normal: 0,
+      error: 0,
+    });
+  }
 
-/** 模拟日志数据 */
-const MOCK_LOGS: LogEntry[] = Array.from({ length: 50 }, (_, i) => {
-  const levels: LogEntry['level'][] = ['info', 'warn', 'error', 'debug'];
-  const services = ['payment-service', 'order-api', 'user-service', 'auth-service', 'gateway'];
-  const messages = [
-    'Request processed successfully',
-    'Connection timeout after 30s',
-    'Failed to authenticate user',
-    'Database query took 2.3s',
-    'Rate limit exceeded for client',
-    'Cache miss for key user:1234',
-    'Retry attempt 3/5 for upstream',
-    'Health check passed',
-    'Memory usage above threshold',
-    'New deployment detected v2.1.0',
-  ];
-  const envs = ['production', 'staging', 'development'];
-  const regions = ['cn-east-1', 'cn-north-2', 'cn-south-1'];
-  const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
-  const paths = ['/api/v1/orders', '/api/v1/users', '/api/v1/payments', '/api/v1/auth/login', '/health'];
-  const level = levels[Math.floor(Math.random() * levels.length)];
-  const ts = new Date(Date.now() - i * 12000);
-  const statusCode = level === 'error' ? [500, 502, 503][Math.floor(Math.random() * 3)] : level === 'warn' ? [429, 408, 404][Math.floor(Math.random() * 3)] : [200, 201, 204][Math.floor(Math.random() * 3)];
-  return {
-    id: `log-${String(i + 1).padStart(4, '0')}`,
-    timestamp: ts.toISOString(),
-    level,
-    service: services[Math.floor(Math.random() * services.length)],
-    message: messages[Math.floor(Math.random() * messages.length)],
-    rawLog: `${ts.toISOString()} [${level.toUpperCase()}] [${services[Math.floor(Math.random() * services.length)]}] ${messages[Math.floor(Math.random() * messages.length)]} | traceId=trace-${createShortId(8)} spanId=span-${createShortId(6)} host=node-${String(Math.floor(Math.random() * 5) + 1).padStart(2, '0')} env=${envs[Math.floor(Math.random() * envs.length)]} method=${methods[Math.floor(Math.random() * methods.length)]} path=${paths[Math.floor(Math.random() * paths.length)]} status=${statusCode} duration=${(Math.random() * 3000).toFixed(0)}ms clientIp=10.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-    fields: {
-      host: `node-${String(Math.floor(Math.random() * 5) + 1).padStart(2, '0')}`,
-      traceId: `trace-${createShortId(8)}`,
-      spanId: `span-${createShortId(6)}`,
-      statusCode,
-      duration: `${(Math.random() * 3000).toFixed(0)}ms`,
-      method: methods[Math.floor(Math.random() * methods.length)],
-      path: paths[Math.floor(Math.random() * paths.length)],
-      env: envs[Math.floor(Math.random() * envs.length)],
-      region: regions[Math.floor(Math.random() * regions.length)],
-      clientIp: `10.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-      userAgent: 'Mozilla/5.0 (compatible; NexusLog/2.1)',
-      requestSize: `${Math.floor(Math.random() * 5000)}B`,
-      responseSize: `${Math.floor(Math.random() * 50000)}B`,
-    },
-  };
-});
+  logs.forEach((log) => {
+    const ts = new Date(log.timestamp);
+    if (Number.isNaN(ts.getTime())) {
+      return;
+    }
+    ts.setSeconds(0, 0);
+    const key = ts.toISOString().slice(0, 16);
+    const bucket = buckets.get(key);
+    if (!bucket) {
+      return;
+    }
+    if (log.level === 'error') {
+      bucket.error += 1;
+      return;
+    }
+    bucket.normal += 1;
+  });
+
+  return Array.from(buckets.values());
+}
 
 // ============================================================================
 // 级别颜色映射
@@ -101,11 +76,19 @@ const RealtimeSearch: React.FC = () => {
 
   // 查询状态
   const [query, setQuery] = useState('');
+  const [activeQuery, setActiveQuery] = useState('');
   const [isLive, setIsLive] = useState(true);
 
   // 日志详情抽屉
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+
+  // 查询结果状态
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [queryTimeMS, setQueryTimeMS] = useState(0);
+  const [queryTimedOut, setQueryTimedOut] = useState(false);
+  const [tableLoading, setTableLoading] = useState(false);
 
   // 分页（pageSize 持久化）
   const [currentPage, setCurrentPage] = useState(1);
@@ -117,8 +100,66 @@ const RealtimeSearch: React.FC = () => {
     setStoredPageSize('realtimeSearch', size);
   }, [setStoredPageSize]);
 
+  const executeQuery = useCallback(async (options: {
+    queryText: string;
+    page: number;
+    pageSize: number;
+    silent?: boolean;
+  }) => {
+    setTableLoading(true);
+    try {
+      const now = new Date();
+      const result = await queryRealtimeLogs({
+        keywords: options.queryText,
+        page: options.page,
+        pageSize: options.pageSize,
+        timeRange: {
+          // 默认查询近 30 分钟，保证页面加载和刷新更可控。
+          from: new Date(now.getTime() - 30 * 60 * 1000).toISOString(),
+          to: now.toISOString(),
+        },
+      });
+      setLogs(result.hits);
+      setTotal(result.total);
+      setCurrentPage(result.page);
+      setQueryTimeMS(result.queryTimeMS);
+      setQueryTimedOut(result.timedOut);
+      if (result.timedOut && !options.silent) {
+        message.warning('查询超时，结果可能不完整');
+      }
+    } catch (error) {
+      if (!options.silent) {
+        const readableError = error instanceof Error ? error.message : '查询失败，请稍后重试';
+        message.error(readableError);
+      }
+    } finally {
+      setTableLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // 页面首次加载执行一次真实查询。
+    void executeQuery({ queryText: '', page: 1, pageSize, silent: true });
+  }, [executeQuery, pageSize]);
+
+  useEffect(() => {
+    // 实时模式下按 5 秒轮询当前条件。
+    if (!isLive) {
+      return () => undefined;
+    }
+    const timer = window.setInterval(() => {
+      void executeQuery({
+        queryText: activeQuery,
+        page: 1,
+        pageSize,
+        silent: true,
+      });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [activeQuery, executeQuery, isLive, pageSize]);
+
   // 直方图数据
-  const histogramData = useMemo(() => generateHistogramData(), []);
+  const histogramData = useMemo(() => buildHistogramData(logs), [logs]);
   const totalEvents = useMemo(
     () => histogramData.reduce((sum, d) => sum + d.normal + d.error, 0),
     [histogramData],
@@ -129,6 +170,19 @@ const RealtimeSearch: React.FC = () => {
     setSelectedLog(record);
     setDrawerOpen(true);
   }, []);
+
+  // 执行检索（手动触发）
+  const handleSearch = useCallback((value: string) => {
+    const keyword = value.trim();
+    setQuery(keyword);
+    setActiveQuery(keyword);
+    void executeQuery({
+      queryText: keyword,
+      page: 1,
+      pageSize,
+      silent: false,
+    });
+  }, [executeQuery, pageSize]);
 
   // 直方图 ECharts 配置
   const histogramOption: EChartsCoreOption = useMemo(() => ({
@@ -228,7 +282,7 @@ const RealtimeSearch: React.FC = () => {
                 执行
               </span>
             }
-            onSearch={() => {}}
+            onSearch={handleSearch}
             style={{ flex: 1, minWidth: 300 }}
             allowClear
           />
@@ -250,7 +304,7 @@ const RealtimeSearch: React.FC = () => {
               key={q}
               className="cursor-pointer"
               style={{ fontSize: 11, margin: 0 }}
-              onClick={() => setQuery(q)}
+              onClick={() => handleSearch(q)}
             >
               {q}
             </Tag>
@@ -261,7 +315,7 @@ const RealtimeSearch: React.FC = () => {
       {/* 事件量直方图 */}
       <ChartWrapper
         title="事件量分布"
-        subtitle={`最近 30 分钟 · 共 ${totalEvents.toLocaleString()} 条`}
+        subtitle={`最近 30 分钟（当前页）· 共 ${totalEvents.toLocaleString()} 条`}
         option={histogramOption}
         height={160}
       />
@@ -283,8 +337,9 @@ const RealtimeSearch: React.FC = () => {
               {isLive ? '实时' : '已暂停'}
             </Button>
             <span className="text-xs opacity-50">
-              共 {MOCK_LOGS.length} 条结果
+              共 {total.toLocaleString()} 条结果 · 耗时 {queryTimeMS}ms
             </span>
+            {queryTimedOut && <Tag color="warning" style={{ margin: 0 }}>查询超时</Tag>}
           </div>
           <Space size="small">
             <Tooltip title="列设置">
@@ -297,19 +352,29 @@ const RealtimeSearch: React.FC = () => {
         </div>
 
         <Table<LogEntry>
-          dataSource={MOCK_LOGS}
+          dataSource={logs}
           columns={columns}
           rowKey="id"
+          loading={tableLoading}
           size="small"
           pagination={{
             current: currentPage,
             pageSize,
-            total: MOCK_LOGS.length,
+            total,
             showSizeChanger: true,
             showQuickJumper: true,
             showTotal: (total) => `共 ${total} 条`,
             pageSizeOptions: ['10', '20', '50', '100'],
-            onChange: (page, size) => { setCurrentPage(page); setPageSize(size); },
+            onChange: (page, size) => {
+              setCurrentPage(page);
+              setPageSize(size);
+              void executeQuery({
+                queryText: activeQuery,
+                page,
+                pageSize: size,
+                silent: true,
+              });
+            },
             position: ['bottomLeft'],
           }}
           onRow={(record) => ({

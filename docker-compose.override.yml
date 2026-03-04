@@ -29,6 +29,8 @@ services:
       - VITE_DEV_API_PROXY_TARGET=http://api-service:8080
       # ingest 接口走 control-plane，避免被 api-service 兜底转发
       - VITE_DEV_INGEST_PROXY_TARGET=http://control-plane:8080
+      # query 接口走 query-api，避免被 api-service 兜底转发
+      - VITE_DEV_QUERY_PROXY_TARGET=http://query-api:8082
       # agent 拉取接口走 collector-agent
       - VITE_DEV_AGENT_PROXY_TARGET=http://collector-agent:9091
       - VITE_DEV_WS_PROXY_TARGET=ws://api-service:8080
@@ -75,6 +77,8 @@ services:
       - GOMEMLIMIT=512MiB
       - GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}
       - GOSUMDB=off
+      # ingest 执行链路在容器内需要直连 ES 服务名，不能使用 localhost
+      - INGEST_ES_ENDPOINT=http://elasticsearch:9200
     cpus: "0.75"
     mem_limit: "768m"
 
@@ -249,9 +253,10 @@ services:
       # 独立的状态与日志路径，避免与本地主 agent 混用
       - CHECKPOINT_DIR=/var/lib/collector-agent-remote/checkpoints
       - CACHE_DIR=/var/lib/collector-agent-remote/cache
-      - COLLECTOR_INCLUDE_PATHS=/var/log/remote/*.log
-      - 'COLLECTOR_PATH_LABEL_RULES=[{"pattern":"/var/log/remote/*.log","labels":{"env":"local","channel":"remote-sim"}}]'
-      - COLLECTOR_EXCLUDE_PATHS=
+      # 采集“远程模拟日志 + 宿主机服务日志 + 容器日志”
+      - COLLECTOR_INCLUDE_PATHS=/var/log/remote/*.log,/host-var-log/*.log,/host-var-log/messages,/host-var-log/secure,/host-var-log/syslog,/host-var-log/*/*.log,/host-docker-containers/*/*-json.log
+      - 'COLLECTOR_PATH_LABEL_RULES=[{"pattern":"/var/log/remote/*.log","labels":{"env":"local","channel":"remote-sim","log_scope":"sandbox"}},{"pattern":"/host-var-log/*","labels":{"env":"local","log_scope":"service","source_type":"host-log"}},{"pattern":"/host-var-log/*/*.log","labels":{"env":"local","log_scope":"service","source_type":"host-log"}},{"pattern":"/host-docker-containers/*/*-json.log","labels":{"env":"local","log_scope":"container","source_type":"docker-json"}}]'
+      - COLLECTOR_EXCLUDE_PATHS=/host-var-log/*.gz,/host-var-log/*/*.gz,/host-var-log/*.xz,/host-var-log/*/*.xz,/host-var-log/journal/*
       - CONFIG_PATH=/workspace/agents/collector-agent/configs/agent.yaml
       - GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}
       - GOSUMDB=off
@@ -263,6 +268,8 @@ services:
       - go-build-cache:/root/.cache/go-build
       - collector-agent-remote-data:/var/lib/collector-agent-remote
       - collector-agent-remote-logs:/var/log/remote
+      - /var/log:/host-var-log:ro
+      - /var/lib/docker/containers:/host-docker-containers:ro
     cpus: "0.75"
     mem_limit: "768m"
 

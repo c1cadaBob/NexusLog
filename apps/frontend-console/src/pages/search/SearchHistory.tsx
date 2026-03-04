@@ -1,45 +1,24 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Table, Input, Button, Tag, DatePicker, Space, Tooltip, App } from 'antd';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Table, Input, Button, Tag, DatePicker, Space, Tooltip, App, Popconfirm, Alert, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
+import { useNavigate } from 'react-router-dom';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import type { QueryHistory } from '../../types/log';
+import { createSavedQuery, deleteQueryHistory, fetchQueryHistory } from '../../api/query';
 
-// ============================================================================
-// 模拟数据
-// ============================================================================
-const MOCK_HISTORY: QueryHistory[] = Array.from({ length: 30 }, (_, i) => {
-  const queries = [
-    'level:error AND service:payment-service',
-    'status:500 OR status:502',
-    'service:order-api AND message:"timeout"',
-    'level:warn AND host:node-03',
-    'service:auth-service AND level:error',
-    'message:"connection refused"',
-    'service:gateway AND duration:>1000',
-    'level:info AND service:user-service',
-    'status:429 AND service:*',
-    'message:"OOM" OR message:"out of memory"',
-  ];
-  const ts = new Date(Date.now() - i * 3600000 - Math.random() * 1800000);
-  return {
-    id: `qh-${String(i + 1).padStart(3, '0')}`,
-    query: queries[i % queries.length],
-    executedAt: ts.toISOString(),
-    duration: Math.floor(50 + Math.random() * 2000),
-    resultCount: Math.floor(Math.random() * 5000),
-  };
-});
-
-// ============================================================================
-// SearchHistory 主组件
-// ============================================================================
 const SearchHistory: React.FC = () => {
   const { message } = App.useApp();
+  const navigate = useNavigate();
 
-  // 筛选状态
+  const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+  const [rows, setRows] = useState<QueryHistory[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [errorText, setErrorText] = useState('');
+
   const [currentPage, setCurrentPage] = useState(1);
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['searchHistory'] ?? 15);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -49,42 +28,101 @@ const SearchHistory: React.FC = () => {
     setStoredPageSize('searchHistory', size);
   }, [setStoredPageSize]);
 
-  // 筛选后的数据
-  const filteredData = useMemo(() => {
-    let data = MOCK_HISTORY;
-    if (keyword.trim()) {
-      const kw = keyword.toLowerCase();
-      data = data.filter((item) => item.query.toLowerCase().includes(kw));
-    }
-    if (dateRange && dateRange[0] && dateRange[1]) {
-      const start = dateRange[0].startOf('day').valueOf();
-      const end = dateRange[1].endOf('day').valueOf();
-      data = data.filter((item) => {
-        const t = new Date(item.executedAt).getTime();
-        return t >= start && t <= end;
+  // 查询历史列表使用服务端分页，确保和后端真实数据一致。
+  const loadHistory = useCallback(async () => {
+    setLoading(true);
+    setErrorText('');
+    try {
+      const result = await fetchQueryHistory({
+        page: currentPage,
+        pageSize,
+        keyword,
+        from: dateRange?.[0]?.toISOString(),
+        to: dateRange?.[1]?.toISOString(),
       });
+      setRows(result.items);
+      setTotal(result.total);
+      if (result.page !== currentPage) {
+        setCurrentPage(result.page);
+      }
+      if (result.pageSize !== pageSize) {
+        setPageSize(result.pageSize);
+      }
+    } catch (error) {
+      const readable = error instanceof Error ? error.message : '查询历史加载失败';
+      setErrorText(readable);
+    } finally {
+      setLoading(false);
     }
-    return data;
-  }, [keyword, dateRange]);
+  }, [currentPage, pageSize, keyword, dateRange, setPageSize]);
 
-  // 表格列定义
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
+
+  const handleSearch = useCallback((value: string) => {
+    setCurrentPage(1);
+    setKeyword(value.trim());
+  }, []);
+
+  const handleReplay = useCallback(async (record: QueryHistory) => {
+    try {
+      await navigator.clipboard.writeText(record.query);
+      message.success('已复制查询语句并跳转到实时检索');
+    } catch {
+      message.info(`请在实时检索页执行: ${record.query}`);
+    }
+    navigate('/search/realtime');
+  }, [message, navigate]);
+
+  const handleBookmark = useCallback(async (record: QueryHistory) => {
+    try {
+      const now = new Date();
+      await createSavedQuery({
+        name: `历史查询 ${now.toLocaleString('zh-CN')}`,
+        query: record.query,
+        tags: ['历史查询'],
+      });
+      message.success('已收藏查询语句');
+    } catch (error) {
+      const readable = error instanceof Error ? error.message : '收藏失败';
+      message.error(readable);
+    }
+  }, [message]);
+
+  const handleDelete = useCallback(async (historyID: string) => {
+    try {
+      const deleted = await deleteQueryHistory(historyID);
+      if (!deleted) {
+        message.warning('记录不存在或已被删除');
+        return;
+      }
+      message.success('已删除');
+      // 删除后刷新当前页数据，若当前页为空则回退一页。
+      if (rows.length === 1 && currentPage > 1) {
+        setCurrentPage(currentPage - 1);
+        return;
+      }
+      void loadHistory();
+    } catch (error) {
+      const readable = error instanceof Error ? error.message : '删除失败';
+      message.error(readable);
+    }
+  }, [currentPage, loadHistory, message, rows.length]);
+
   const columns: ColumnsType<QueryHistory> = useMemo(() => [
     {
       title: '查询语句',
       dataIndex: 'query',
       key: 'query',
       ellipsis: true,
-      render: (v: string) => (
-        <span className="font-mono text-sm pl-2">{v}</span>
-      ),
+      render: (v: string) => <span className="font-mono text-sm pl-2">{v}</span>,
     },
     {
       title: '执行时间',
       dataIndex: 'executedAt',
       key: 'executedAt',
-      width: 170,
-      sorter: (a, b) => new Date(a.executedAt).getTime() - new Date(b.executedAt).getTime(),
-      defaultSortOrder: 'descend',
+      width: 180,
       render: (v: string) => (
         <span className="text-sm opacity-70">
           {new Date(v).toLocaleString('zh-CN')}
@@ -96,7 +134,6 @@ const SearchHistory: React.FC = () => {
       dataIndex: 'duration',
       key: 'duration',
       width: 100,
-      sorter: (a, b) => a.duration - b.duration,
       render: (v: number) => {
         const color = v > 1000 ? 'error' : v > 500 ? 'warning' : 'success';
         return <Tag color={color} style={{ margin: 0, fontSize: 12 }}>{v}ms</Tag>;
@@ -106,14 +143,13 @@ const SearchHistory: React.FC = () => {
       title: '结果数量',
       dataIndex: 'resultCount',
       key: 'resultCount',
-      width: 110,
-      sorter: (a, b) => a.resultCount - b.resultCount,
+      width: 120,
       render: (v: number) => <span className="text-sm">{v.toLocaleString()}</span>,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 150,
+      width: 170,
       render: (_: unknown, record: QueryHistory) => (
         <Space size="small">
           <Tooltip title="重新执行">
@@ -121,7 +157,7 @@ const SearchHistory: React.FC = () => {
               type="link"
               size="small"
               icon={<span className="material-symbols-outlined text-sm">replay</span>}
-              onClick={() => message.info(`重新执行: ${record.query}`)}
+              onClick={() => void handleReplay(record)}
             />
           </Tooltip>
           <Tooltip title="收藏">
@@ -129,61 +165,96 @@ const SearchHistory: React.FC = () => {
               type="link"
               size="small"
               icon={<span className="material-symbols-outlined text-sm">bookmark_add</span>}
-              onClick={() => message.success(`已收藏: ${record.query}`)}
+              onClick={() => void handleBookmark(record)}
             />
           </Tooltip>
-          <Tooltip title="删除">
-            <Button
-              type="link"
-              size="small"
-              danger
-              icon={<span className="material-symbols-outlined text-sm">delete</span>}
-              onClick={() => message.success('已删除')}
-            />
-          </Tooltip>
+          <Popconfirm
+            title="确认删除"
+            description="删除后不可恢复，是否继续？"
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => void handleDelete(record.id)}
+          >
+            <Tooltip title="删除">
+              <Button
+                type="link"
+                size="small"
+                danger
+                icon={<span className="material-symbols-outlined text-sm">delete</span>}
+              />
+            </Tooltip>
+          </Popconfirm>
         </Space>
       ),
     },
-  ], [message]);
+  ], [handleBookmark, handleDelete, handleReplay]);
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 筛选栏 */}
       <div className="flex items-center gap-3 flex-wrap">
         <Input.Search
           placeholder="搜索查询语句..."
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          value={keywordInput}
+          onChange={(e) => setKeywordInput(e.target.value)}
+          onSearch={handleSearch}
           allowClear
           style={{ width: 300 }}
         />
         <DatePicker.RangePicker
           showTime={{ format: 'HH:mm:ss' }}
           format="YYYY-MM-DD HH:mm:ss"
-          onChange={(dates) => setDateRange(dates as [Dayjs | null, Dayjs | null] | null)}
+          onChange={(dates) => {
+            setCurrentPage(1);
+            setDateRange(dates as [Dayjs | null, Dayjs | null] | null);
+          }}
           placeholder={['开始时间', '结束时间']}
         />
+        <Button
+          onClick={() => {
+            setKeywordInput('');
+            setKeyword('');
+            setDateRange(null);
+            setCurrentPage(1);
+          }}
+        >
+          重置
+        </Button>
         <span className="text-xs opacity-50">
-          共 {filteredData.length} 条记录
+          共 {total.toLocaleString()} 条记录
         </span>
       </div>
 
-      {/* 查询历史表格 */}
+      {errorText && (
+        <Alert
+          type="error"
+          showIcon
+          message="查询历史加载失败"
+          description={errorText}
+          action={<Button size="small" onClick={() => void loadHistory()}>重试</Button>}
+        />
+      )}
+
       <Table<QueryHistory>
-        dataSource={filteredData}
+        dataSource={rows}
         columns={columns}
         rowKey="id"
         size="small"
+        loading={loading}
+        locale={{ emptyText: <Empty description="暂无查询历史" /> }}
         pagination={{
           current: currentPage,
           pageSize,
-          total: filteredData.length,
+          total,
           showSizeChanger: true,
           showQuickJumper: true,
-          showTotal: (total) => `共 ${total} 条`,
+          showTotal: (count) => `共 ${count} 条`,
           pageSizeOptions: ['10', '15', '20', '50', '100'],
           position: ['bottomLeft'],
-          onChange: (page, size) => { setCurrentPage(page); setPageSize(size); },
+          onChange: (page, size) => {
+            setCurrentPage(page);
+            setPageSize(size);
+          },
         }}
       />
     </div>
