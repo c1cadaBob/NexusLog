@@ -285,7 +285,7 @@ const AgentManagement: React.FC = () => {
       {/* Agent 配置模态框 */}
       <Modal open={configModalOpen} title={`配置 Agent - ${selectedAgent?.hostname || ''}`}
         onCancel={() => setConfigModalOpen(false)} onOk={handleSaveConfig}
-        okText="保存配置" cancelText="取消" width={640} destroyOnClose>
+        okText="保存配置" cancelText="取消" width={640} destroyOnHidden>
         {/* Agent 信息 */}
         {selectedAgent && (
           <Card size="small" style={{ marginBottom: 16, marginTop: 16 }} styles={{ body: { padding: 12 } }}>

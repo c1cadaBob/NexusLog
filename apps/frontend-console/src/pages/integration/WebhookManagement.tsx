@@ -320,13 +320,13 @@ const WebhookManagement: React.FC = () => {
 
       {/* 创建模态框 */}
       <Modal open={createModalOpen} title="新建 Webhook" onCancel={() => setCreateModalOpen(false)}
-        onOk={handleCreate} okText="创建" cancelText="取消" width={520} destroyOnClose>
+        onOk={handleCreate} okText="创建" cancelText="取消" width={520} destroyOnHidden>
         {renderForm()}
       </Modal>
 
       {/* 编辑模态框 */}
       <Modal open={editModalOpen} title="编辑 Webhook" onCancel={() => setEditModalOpen(false)}
-        onOk={handleEdit} okText="保存" cancelText="取消" width={520} destroyOnClose>
+        onOk={handleEdit} okText="保存" cancelText="取消" width={520} destroyOnHidden>
         {renderForm()}
       </Modal>
 

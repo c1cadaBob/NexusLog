@@ -71,83 +71,93 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
   const isDark = useThemeStore((s) => s.isDark);
 
   const themeOption = useMemo(() => getEChartsTheme(isDark), [isDark]);
+  const mergedOption = useMemo(
+    () => ({ ...themeOption, ...option }),
+    [themeOption, option],
+  );
 
-  // 初始化和销毁 ECharts 实例
+  // 初始化实例并绑定 ResizeObserver；卸载时统一释放，避免 React StrictMode 下残留实例。
   useEffect(() => {
-    if (!chartRef.current) return;
+    const dom = chartRef.current;
+    if (!dom) return;
 
-    const instance = echarts.init(chartRef.current);
+    const existing = echarts.getInstanceByDom(dom);
+    const instance = existing ?? echarts.init(dom);
     instanceRef.current = instance;
-
-    return () => {
-      instance.dispose();
-      instanceRef.current = null;
-    };
-  }, []);
-
-  // 主题切换时重新创建实例
-  useEffect(() => {
-    if (!chartRef.current) return;
-
-    if (instanceRef.current) {
-      instanceRef.current.dispose();
-    }
-    const instance = echarts.init(chartRef.current);
-    instanceRef.current = instance;
-
-    // 合并主题配置和用户配置
-    instance.setOption({ ...themeOption, ...option }, true);
-  }, [isDark]);
-
-  // 更新图表配置
-  useEffect(() => {
-    if (!instanceRef.current) return;
-    instanceRef.current.setOption({ ...themeOption, ...option }, true);
-  }, [option, themeOption]);
-
-  // 响应式 resize
-  useEffect(() => {
-    const instance = instanceRef.current;
-    if (!instance) return;
 
     const observer = new ResizeObserver(() => {
       instance.resize();
     });
+    observer.observe(dom);
 
-    if (chartRef.current) {
-      observer.observe(chartRef.current);
+    return () => {
+      observer.disconnect();
+
+      const current = instanceRef.current ?? echarts.getInstanceByDom(dom);
+      if (current) {
+        current.dispose();
+      }
+      instanceRef.current = null;
+    };
+  }, []);
+
+  // 配置变化时更新图表；实例已存在时只 setOption，不重复 init。
+  useEffect(() => {
+    if (loading || error || empty) {
+      return;
     }
 
-    return () => observer.disconnect();
-  }, []);
+    const dom = chartRef.current;
+    if (!dom) return;
+
+    const instance =
+      instanceRef.current ??
+      echarts.getInstanceByDom(dom) ??
+      echarts.init(dom);
+    instanceRef.current = instance;
+    instance.setOption(mergedOption, true);
+  }, [mergedOption, loading, error, empty]);
 
   // 渲染内容区域
   const renderContent = () => {
-    if (loading) {
-      return (
-        <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Spin tip="加载中..." />
-        </div>
-      );
-    }
+    const mask = (() => {
+      if (loading) {
+        return <Spin tip="加载中..." />;
+      }
+      if (error) {
+        return <Empty description={error} image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+      }
+      if (empty) {
+        return <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+      }
+      return null;
+    })();
 
-    if (error) {
-      return (
-        <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Empty description={error} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        </div>
-      );
-    }
-
-    if (empty) {
-      return (
-        <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        </div>
-      );
-    }
-
-    return <div ref={chartRef} style={{ width: '100%', height }} />;
+    return (
+      <div style={{ position: 'relative', width: '100%', height }}>
+        <div
+          ref={chartRef}
+          style={{
+            width: '100%',
+            height,
+            visibility: mask ? 'hidden' : 'visible',
+          }}
+        />
+        {mask && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {mask}
+          </div>
+        )}
+      </div>
+    );
   };
 
   // 如果没有标题，直接渲染图表

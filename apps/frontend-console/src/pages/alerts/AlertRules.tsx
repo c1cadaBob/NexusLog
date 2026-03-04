@@ -385,7 +385,7 @@ const AlertRules: React.FC = () => {
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="规则名称" rules={[{ required: true, message: '请输入规则名称' }]}>

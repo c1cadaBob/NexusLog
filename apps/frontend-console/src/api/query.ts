@@ -3,6 +3,8 @@ import type { LogEntry, QueryHistory, SavedQuery } from '../types/log';
 
 const ACCESS_TOKEN_KEY = 'nexuslog-access-token';
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
+const TOKEN_EXPIRES_AT_KEY = 'nexuslog-token-expires-at';
+const EMERGENCY_ACCESS_TOKEN_PREFIX = 'emergency-access-';
 
 interface RuntimeConfigWithTenant {
   apiBaseUrl: string;
@@ -116,6 +118,21 @@ export interface SavedQueryUpsertPayload {
   filters?: Record<string, unknown>;
 }
 
+type QueryApiAuthErrorCode =
+  | 'AUTH_UNAUTHORIZED';
+
+class QueryApiAuthError extends Error {
+  readonly code: QueryApiAuthErrorCode;
+  readonly status: number;
+
+  constructor(code: QueryApiAuthErrorCode, message: string, status = 401) {
+    super(message);
+    this.name = 'QueryApiAuthError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
 function normalizeApiBaseUrl(rawBaseUrl: string): string {
   const normalized = (rawBaseUrl || '/api/v1').trim();
   if (!normalized) {
@@ -208,10 +225,25 @@ function getQueryApiBasePath(): string {
   return `${apiBaseUrl}/query`;
 }
 
-function buildAuthHeaders(): Record<string, string> {
+function resolveAccessToken(): string {
+  const accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY)?.trim() ?? '';
+  if (!accessToken) {
+    return '';
+  }
+  const expiresAtRaw = window.localStorage.getItem(TOKEN_EXPIRES_AT_KEY)?.trim() ?? '';
+  if (expiresAtRaw) {
+    const expiresAtMs = Number(expiresAtRaw);
+    if (Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) {
+      return '';
+    }
+  }
+
+  return accessToken;
+}
+
+function buildAuthHeaders(accessToken: string): Record<string, string> {
   const runtimeConfig = getRuntimeConfig() as RuntimeConfigWithTenant;
   const tenantId = resolveTenantId(runtimeConfig);
-  const accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY)?.trim();
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -225,6 +257,15 @@ function buildAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+function clearAccessSessionOnUnauthorized(): void {
+  try {
+    window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+    window.localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
+  } catch {
+    // ignore localStorage unavailable errors
+  }
+}
+
 async function requestQueryApi<TData>(
   path: string,
   options: {
@@ -233,6 +274,7 @@ async function requestQueryApi<TData>(
     query?: Record<string, string | number | undefined>;
   } = {},
 ): Promise<ApiEnvelope<TData>> {
+  const accessToken = resolveAccessToken();
   const url = new URL(`${getQueryApiBasePath()}${path}`, window.location.origin);
   const query = options.query ?? {};
   Object.entries(query).forEach(([key, value]) => {
@@ -244,11 +286,21 @@ async function requestQueryApi<TData>(
 
   const response = await fetch(url.pathname + url.search, {
     method: options.method ?? 'GET',
-    headers: buildAuthHeaders(),
+    headers: buildAuthHeaders(accessToken),
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<TData> | null;
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      if (response.status === 401) {
+        clearAccessSessionOnUnauthorized();
+      }
+      throw new QueryApiAuthError(
+        'AUTH_UNAUTHORIZED',
+        envelope?.message ?? '当前会话未授权，请重新登录',
+        response.status,
+      );
+    }
     throw new Error(envelope?.message ?? `query api request failed: HTTP ${response.status}`);
   }
   return envelope ?? {
@@ -257,6 +309,34 @@ async function requestQueryApi<TData>(
     data: undefined,
     meta: {},
   };
+}
+
+function buildEmptyQueryHistoryResult(params: QueryHistoryListParams): QueryHistoryListResult {
+  return {
+    items: [],
+    total: 0,
+    page: Math.max(1, params.page),
+    pageSize: Math.max(1, params.pageSize),
+    hasNext: false,
+  };
+}
+
+function buildEmptySavedQueryResult(params: SavedQueryListParams): SavedQueryListResult {
+  return {
+    items: [],
+    total: 0,
+    page: Math.max(1, params.page),
+    pageSize: Math.max(1, params.pageSize),
+    hasNext: false,
+  };
+}
+
+function shouldUseQueryCollectionFallback(): boolean {
+  const accessToken = resolveAccessToken();
+  if (!accessToken) {
+    return true;
+  }
+  return accessToken.startsWith(EMERGENCY_ACCESS_TOKEN_PREFIX);
 }
 
 export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<QueryLogsResult> {
@@ -296,27 +376,38 @@ export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<Quer
 }
 
 export async function fetchQueryHistory(params: QueryHistoryListParams): Promise<QueryHistoryListResult> {
-  const envelope = await requestQueryApi<ListData<QueryHistoryApiItem>>('/history', {
-    method: 'GET',
-    query: {
-      page: params.page,
-      page_size: params.pageSize,
-      keyword: params.keyword?.trim(),
-      from: params.from,
-      to: params.to,
-    },
-  });
-  const items = (envelope.data?.items ?? []).map(normalizeQueryHistory);
-  const total = toPositiveNumber(envelope.meta?.total, items.length);
-  const page = toPositiveNumber(envelope.meta?.page, params.page);
-  const pageSize = toPositiveNumber(envelope.meta?.page_size, params.pageSize);
-  return {
-    items,
-    total,
-    page,
-    pageSize,
-    hasNext: Boolean(envelope.meta?.has_next ?? page * pageSize < total),
-  };
+  if (shouldUseQueryCollectionFallback()) {
+    return buildEmptyQueryHistoryResult(params);
+  }
+
+  try {
+    const envelope = await requestQueryApi<ListData<QueryHistoryApiItem>>('/history', {
+      method: 'GET',
+      query: {
+        page: params.page,
+        page_size: params.pageSize,
+        keyword: params.keyword?.trim(),
+        from: params.from,
+        to: params.to,
+      },
+    });
+    const items = (envelope.data?.items ?? []).map(normalizeQueryHistory);
+    const total = toPositiveNumber(envelope.meta?.total, items.length);
+    const page = toPositiveNumber(envelope.meta?.page, params.page);
+    const pageSize = toPositiveNumber(envelope.meta?.page_size, params.pageSize);
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      hasNext: Boolean(envelope.meta?.has_next ?? page * pageSize < total),
+    };
+  } catch (error) {
+    if (error instanceof QueryApiAuthError) {
+      return buildEmptyQueryHistoryResult(params);
+    }
+    throw error;
+  }
 }
 
 export async function deleteQueryHistory(historyID: string): Promise<boolean> {
@@ -327,26 +418,37 @@ export async function deleteQueryHistory(historyID: string): Promise<boolean> {
 }
 
 export async function fetchSavedQueries(params: SavedQueryListParams): Promise<SavedQueryListResult> {
-  const envelope = await requestQueryApi<ListData<SavedQueryApiItem>>('/saved', {
-    method: 'GET',
-    query: {
-      page: params.page,
-      page_size: params.pageSize,
-      tag: params.tag?.trim(),
-      keyword: params.keyword?.trim(),
-    },
-  });
-  const items = (envelope.data?.items ?? []).map(normalizeSavedQuery);
-  const total = toPositiveNumber(envelope.meta?.total, items.length);
-  const page = toPositiveNumber(envelope.meta?.page, params.page);
-  const pageSize = toPositiveNumber(envelope.meta?.page_size, params.pageSize);
-  return {
-    items,
-    total,
-    page,
-    pageSize,
-    hasNext: Boolean(envelope.meta?.has_next ?? page * pageSize < total),
-  };
+  if (shouldUseQueryCollectionFallback()) {
+    return buildEmptySavedQueryResult(params);
+  }
+
+  try {
+    const envelope = await requestQueryApi<ListData<SavedQueryApiItem>>('/saved', {
+      method: 'GET',
+      query: {
+        page: params.page,
+        page_size: params.pageSize,
+        tag: params.tag?.trim(),
+        keyword: params.keyword?.trim(),
+      },
+    });
+    const items = (envelope.data?.items ?? []).map(normalizeSavedQuery);
+    const total = toPositiveNumber(envelope.meta?.total, items.length);
+    const page = toPositiveNumber(envelope.meta?.page, params.page);
+    const pageSize = toPositiveNumber(envelope.meta?.page_size, params.pageSize);
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      hasNext: Boolean(envelope.meta?.has_next ?? page * pageSize < total),
+    };
+  } catch (error) {
+    if (error instanceof QueryApiAuthError) {
+      return buildEmptySavedQueryResult(params);
+    }
+    throw error;
+  }
 }
 
 export async function createSavedQuery(payload: SavedQueryUpsertPayload): Promise<SavedQuery> {

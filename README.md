@@ -534,6 +534,25 @@ pnpm preview              # 预览生产构建
 
 前端包含 15 个功能模块：Dashboard、日志检索、日志分析、告警中心、采集接入、解析字段、索引存储、性能高可用、分布式追踪、报表中心、安全审计、集成平台、成本管理、系统设置、帮助中心。
 
+## 前端测试准备（用户手动执行）
+
+### 前端调试强制规则
+
+- 任何涉及前端页面内容的任务（页面渲染、交互行为、路由跳转、接口联调、控制台报错）都必须使用 `chrome-devtools` MCP 工具进行调试与验证。
+- 未通过 `chrome-devtools` MCP 复现并采集证据（至少包含 URL、Console、Network）的结论，视为无效结论。
+- 交付结果中应明确记录调试页面地址、复现步骤、关键请求与控制台信息。
+
+Claude 提示用户启动 Chrome 调试模式：
+```bash
+# 启动 Chrome（带远程调试）
+google-chrome --remote-debugging-port=9222 --disable-gpu \
+    --no-sandbox --user-data-dir=/tmp/chrome-debug http://localhost:3001/ &
+
+# 或使用 headless 模式
+google-chrome --headless --remote-debugging-port=9222 --disable-gpu \
+    --no-sandbox --user-data-dir=/tmp/chrome-debug http://localhost:3001/ &
+```
+
 ## 架构概览
 
 ```

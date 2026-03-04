@@ -351,13 +351,13 @@ const SourceManagement: React.FC = () => {
 
       {/* 创建模态框 */}
       <Modal open={createModalOpen} title="新建采集源" onCancel={() => setCreateModalOpen(false)}
-        onOk={handleCreate} okText="创建" cancelText="取消" width={560} destroyOnClose>
+        onOk={handleCreate} okText="创建" cancelText="取消" width={560} destroyOnHidden>
         {renderForm()}
       </Modal>
 
       {/* 编辑模态框 */}
       <Modal open={editModalOpen} title="编辑采集源" onCancel={() => setEditModalOpen(false)}
-        onOk={handleUpdate} okText="保存" cancelText="取消" width={560} destroyOnClose>
+        onOk={handleUpdate} okText="保存" cancelText="取消" width={560} destroyOnHidden>
         {renderForm()}
       </Modal>
 

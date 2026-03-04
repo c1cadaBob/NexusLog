@@ -6,6 +6,10 @@
         "-y",
         "@aliex7664/puppeteer-debugger-mcp@latest"
       ]
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
     }
   }
 }
