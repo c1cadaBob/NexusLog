@@ -12,11 +12,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/nexuslog/collector-agent/internal/checkpoint"
 	"github.com/nexuslog/collector-agent/plugins"
 )
@@ -29,15 +31,27 @@ const (
 	SourceTypeSyslog SourceType = "syslog"
 )
 
+// SourcePriority 定义采集源优先级。
+type SourcePriority string
+
+const (
+	SourcePriorityNormal   SourcePriority = "normal"
+	SourcePriorityCritical SourcePriority = "critical"
+)
+
 // SourceConfig 采集源配置
 type SourceConfig struct {
-	Type           SourceType
-	Paths          []string          // 文件采集包含路径（file 类型）
-	ExcludePaths   []string          // 文件采集排除路径（file 类型）
-	PathLabelRules []PathLabelRule   // 按路径命中后注入 metadata 标签（file 类型）
-	Protocol       string            // 协议（syslog 类型: udp/tcp）
-	Bind           string            // 监听地址（syslog 类型）
-	Extra          map[string]string // 额外配置
+	Type             SourceType
+	Paths            []string          // 文件采集包含路径（file 类型）
+	ExcludePaths     []string          // 文件采集排除路径（file 类型）
+	PathLabelRules   []PathLabelRule   // 按路径命中后注入 metadata 标签（file 类型）
+	ScanInterval     time.Duration     // 独立扫描间隔（file 类型）
+	Priority         SourcePriority    // 优先级（normal/critical）
+	CriticalKeywords []string          // 关键日志关键词（覆盖默认关键字，file 类型）
+	DisableFSNotify  bool              // 禁用 fsnotify 事件触发（file 类型）
+	Protocol         string            // 协议（syslog 类型: udp/tcp）
+	Bind             string            // 监听地址（syslog 类型）
+	Extra            map[string]string // 额外配置
 }
 
 // PathLabelRule 定义“路径 -> 标签”匹配规则。
@@ -48,22 +62,35 @@ type PathLabelRule struct {
 
 // Collector 日志采集器
 type Collector struct {
-	mu            sync.RWMutex
-	sources       []SourceConfig
-	ckpStore      checkpoint.Store
-	outputCh      chan []plugins.Record
-	batchSize     int
-	flushInterval time.Duration
-	running       bool
+	mu               sync.RWMutex
+	sources          []SourceConfig
+	ckpStore         checkpoint.Store
+	outputCh         chan []plugins.Record
+	batchSize        int
+	flushInterval    time.Duration
+	perFileReadLimit int
+	enableFSNotify   bool
+	eventDebounce    time.Duration
+	criticalKeywords []string
+	running          bool
 }
 
 // Config 采集器配置
 type Config struct {
-	Sources       []SourceConfig
-	BatchSize     int
-	FlushInterval time.Duration
-	BufferSize    int
+	Sources          []SourceConfig
+	BatchSize        int
+	FlushInterval    time.Duration
+	BufferSize       int
+	PerFileReadLimit int
+	EnableFSNotify   *bool
+	EventDebounce    time.Duration
+	CriticalKeywords []string
 }
+
+const (
+	defaultPerFileReadLimit = 200
+	defaultEventDebounce    = 200 * time.Millisecond
+)
 
 // New 创建采集器实例
 func New(cfg Config, ckpStore checkpoint.Store) *Collector {
@@ -76,12 +103,37 @@ func New(cfg Config, ckpStore checkpoint.Store) *Collector {
 	if cfg.BufferSize <= 0 {
 		cfg.BufferSize = 10000
 	}
+	if cfg.PerFileReadLimit <= 0 {
+		cfg.PerFileReadLimit = defaultPerFileReadLimit
+	}
+	enableFSNotify := true
+	if cfg.EnableFSNotify != nil {
+		enableFSNotify = *cfg.EnableFSNotify
+	}
+	if cfg.EventDebounce <= 0 {
+		cfg.EventDebounce = defaultEventDebounce
+	}
+	criticalKeywords := normalizeKeywords(cfg.CriticalKeywords)
+	if len(criticalKeywords) == 0 {
+		criticalKeywords = []string{
+			"critical",
+			"fatal",
+			"panic",
+			"error",
+			"alert",
+			"security",
+		}
+	}
 	return &Collector{
-		sources:       cfg.Sources,
-		ckpStore:      ckpStore,
-		outputCh:      make(chan []plugins.Record, cfg.BufferSize),
-		batchSize:     cfg.BatchSize,
-		flushInterval: cfg.FlushInterval,
+		sources:          cfg.Sources,
+		ckpStore:         ckpStore,
+		outputCh:         make(chan []plugins.Record, cfg.BufferSize),
+		batchSize:        cfg.BatchSize,
+		flushInterval:    cfg.FlushInterval,
+		perFileReadLimit: cfg.PerFileReadLimit,
+		enableFSNotify:   enableFSNotify,
+		eventDebounce:    cfg.EventDebounce,
+		criticalKeywords: criticalKeywords,
 	}
 }
 
@@ -118,69 +170,146 @@ func (c *Collector) Start(ctx context.Context) error {
 func (c *Collector) collectFiles(ctx context.Context, src SourceConfig) {
 	// fileOffsets 维护当前进程内各文件读取位置，首次从 checkpoint 恢复。
 	fileOffsets := make(map[string]int64)
-	ticker := time.NewTicker(c.flushInterval)
+	nextPathIndex := 0
+	scanInterval := c.flushInterval
+	if src.ScanInterval > 0 {
+		scanInterval = src.ScanInterval
+	}
+	ticker := time.NewTicker(scanInterval)
 	defer ticker.Stop()
+
+	triggerCh := make(chan struct{}, 1)
+	stopWatcher := c.startFileEventWatcher(ctx, src, triggerCh)
+	defer stopWatcher()
+	emitTrigger(triggerCh)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			batch, latestOffsets := c.scanIncrementalFileRecords(src, fileOffsets)
-			if len(batch) == 0 {
-				continue
-			}
-			if !c.emitBatch(ctx, batch) {
+			if !c.scanAndEmit(ctx, src, fileOffsets, &nextPathIndex) {
 				return
 			}
-			// 只有批次成功投递到下游通道后，才推进本进程读取位置。
-			for path, offset := range latestOffsets {
-				fileOffsets[path] = offset
+		case <-triggerCh:
+			if !c.scanAndEmit(ctx, src, fileOffsets, &nextPathIndex) {
+				return
 			}
 		}
 	}
 }
 
+func (c *Collector) scanAndEmit(ctx context.Context, src SourceConfig, fileOffsets map[string]int64, nextPathIndex *int) bool {
+	batch, latestOffsets, nextIndex := c.scanIncrementalFileRecords(src, fileOffsets, *nextPathIndex)
+	*nextPathIndex = nextIndex
+	if len(batch) == 0 {
+		return true
+	}
+
+	criticalBatch, normalBatch := c.splitCriticalBatch(src, batch)
+	if len(criticalBatch) > 0 {
+		if !c.emitBatch(ctx, criticalBatch) {
+			return false
+		}
+	}
+	if len(normalBatch) > 0 {
+		if !c.emitBatch(ctx, normalBatch) {
+			return false
+		}
+	}
+
+	// 只有批次成功投递到下游通道后，才推进本进程读取位置。
+	for path, offset := range latestOffsets {
+		fileOffsets[path] = offset
+	}
+	return true
+}
+
 // scanIncrementalFileRecords 按源配置扫描新增内容并生成批次。
-func (c *Collector) scanIncrementalFileRecords(src SourceConfig, fileOffsets map[string]int64) ([]plugins.Record, map[string]int64) {
+// 使用 round-robin 按文件公平读取，避免高流量文件长期饿死其他路径。
+func (c *Collector) scanIncrementalFileRecords(src SourceConfig, fileOffsets map[string]int64, startIndex int) ([]plugins.Record, map[string]int64, int) {
 	batch := make([]plugins.Record, 0, c.batchSize)
 	latestOffsets := make(map[string]int64)
+	paths := c.resolveSourcePaths(src)
+	if len(paths) == 0 || c.batchSize <= 0 {
+		return batch, latestOffsets, 0
+	}
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	startIndex = startIndex % len(paths)
+	nextIndex := startIndex
 
-	for _, configured := range src.Paths {
-		paths, err := resolveScanPaths(configured)
-		if err != nil {
-			log.Printf("解析采集路径失败 [%s]: %v", configured, err)
-			continue
-		}
-		for _, path := range paths {
-			if len(batch) >= c.batchSize {
-				return batch, latestOffsets
-			}
-			if isExcludedPath(path, src.ExcludePaths) {
-				continue
-			}
+	idleRounds := 0
+	for len(batch) < c.batchSize {
+		path := paths[nextIndex]
+		nextIndex = (nextIndex + 1) % len(paths)
 
-			currentOffset, err := c.loadOffsetIfNeeded(path, fileOffsets)
+		currentOffset, ok := latestOffsets[path]
+		if !ok {
+			var err error
+			currentOffset, err = c.loadOffsetIfNeeded(path, fileOffsets)
 			if err != nil {
 				log.Printf("加载 checkpoint 失败 [%s]: %v, 使用 offset=0", path, err)
 				currentOffset = 0
 			}
+		}
 
-			pathLabels := resolvePathLabels(path, src.PathLabelRules)
-			records, nextOffset, err := c.readFileIncremental(path, currentOffset, c.batchSize-len(batch), pathLabels)
-			if err != nil {
-				log.Printf("增量读取失败 [%s]: %v", path, err)
-				continue
-			}
-			if len(records) == 0 {
-				continue
-			}
-
+		pathLabels := resolvePathLabels(path, src.PathLabelRules)
+		perPathLimit := c.perFileReadLimit
+		remaining := c.batchSize - len(batch)
+		if perPathLimit > remaining {
+			perPathLimit = remaining
+		}
+		if perPathLimit <= 0 {
+			break
+		}
+		records, nextOffset, readErr := c.readFileIncremental(path, currentOffset, perPathLimit, pathLabels)
+		if readErr != nil {
+			log.Printf("增量读取失败 [%s]: %v", path, readErr)
+			idleRounds++
+		} else if len(records) == 0 {
+			idleRounds++
+		} else {
 			batch = append(batch, records...)
 			latestOffsets[path] = nextOffset
+			idleRounds = 0
+		}
+
+		// 完整扫描一轮都无新增，提前结束。
+		if idleRounds >= len(paths) {
+			break
 		}
 	}
-	return batch, latestOffsets
+	return batch, latestOffsets, nextIndex
+}
+
+func (c *Collector) resolveSourcePaths(src SourceConfig) []string {
+	paths := make([]string, 0, len(src.Paths))
+	seen := make(map[string]struct{})
+	for _, configured := range src.Paths {
+		resolved, err := resolveScanPaths(configured)
+		if err != nil {
+			log.Printf("解析采集路径失败 [%s]: %v", configured, err)
+			continue
+		}
+		for _, path := range resolved {
+			if isExcludedPath(path, src.ExcludePaths) {
+				continue
+			}
+			cleaned := filepath.Clean(path)
+			if cleaned == "" {
+				continue
+			}
+			if _, exists := seen[cleaned]; exists {
+				continue
+			}
+			seen[cleaned] = struct{}{}
+			paths = append(paths, cleaned)
+		}
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 // loadOffsetIfNeeded 在当前进程未缓存时，从 checkpoint 存储恢复文件偏移。
@@ -363,6 +492,240 @@ func (c *Collector) emitBatch(ctx context.Context, batch []plugins.Record) bool 
 	case <-ctx.Done():
 		return false
 	}
+}
+
+func (c *Collector) splitCriticalBatch(src SourceConfig, batch []plugins.Record) ([]plugins.Record, []plugins.Record) {
+	criticalKeywords := c.criticalKeywords
+	if len(src.CriticalKeywords) > 0 {
+		criticalKeywords = normalizeKeywords(src.CriticalKeywords)
+	}
+	priority := normalizeSourcePriority(src.Priority)
+
+	critical := make([]plugins.Record, 0, len(batch))
+	normal := make([]plugins.Record, 0, len(batch))
+	for _, item := range batch {
+		isCritical := priority == SourcePriorityCritical || isCriticalRecord(item, criticalKeywords)
+		if isCritical {
+			record := item
+			if record.Metadata == nil {
+				record.Metadata = map[string]string{}
+			}
+			if strings.TrimSpace(record.Metadata["log_priority"]) == "" {
+				record.Metadata["log_priority"] = string(SourcePriorityCritical)
+			}
+			critical = append(critical, record)
+			continue
+		}
+		normal = append(normal, item)
+	}
+	return critical, normal
+}
+
+func isCriticalRecord(record plugins.Record, keywords []string) bool {
+	if record.Metadata != nil && strings.EqualFold(strings.TrimSpace(record.Metadata["log_priority"]), string(SourcePriorityCritical)) {
+		return true
+	}
+	if len(keywords) == 0 || len(record.Data) == 0 {
+		return false
+	}
+	text := strings.ToLower(string(record.Data))
+	for _, keyword := range keywords {
+		if keyword == "" {
+			continue
+		}
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeKeywords(raw []string) []string {
+	result := make([]string, 0, len(raw))
+	seen := make(map[string]struct{})
+	for _, item := range raw {
+		trimmed := strings.ToLower(strings.TrimSpace(item))
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func normalizeSourcePriority(priority SourcePriority) SourcePriority {
+	switch strings.ToLower(strings.TrimSpace(string(priority))) {
+	case string(SourcePriorityCritical):
+		return SourcePriorityCritical
+	default:
+		return SourcePriorityNormal
+	}
+}
+
+func emitTrigger(triggerCh chan<- struct{}) {
+	select {
+	case triggerCh <- struct{}{}:
+	default:
+	}
+}
+
+func (c *Collector) startFileEventWatcher(ctx context.Context, src SourceConfig, triggerCh chan<- struct{}) func() {
+	if !c.enableFSNotify || src.DisableFSNotify {
+		return func() {}
+	}
+	dirs := collectWatchDirs(src.Paths)
+	if len(dirs) == 0 {
+		return func() {}
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("初始化 fsnotify 失败，降级为定时扫描: %v", err)
+		return func() {}
+	}
+	var closeOnce sync.Once
+	closeWatcher := func() {
+		closeOnce.Do(func() {
+			_ = watcher.Close()
+		})
+	}
+	for _, dir := range dirs {
+		if addErr := watcher.Add(dir); addErr != nil {
+			log.Printf("添加 fsnotify 监听目录失败 [%s]: %v", dir, addErr)
+		}
+	}
+
+	go func() {
+		var debounceTimer *time.Timer
+		var debounceCh <-chan time.Time
+		pending := false
+		for {
+			select {
+			case <-ctx.Done():
+				closeWatcher()
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
+				return
+			case <-debounceCh:
+				debounceCh = nil
+				if pending {
+					emitTrigger(triggerCh)
+					pending = false
+				}
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if !shouldHandleFsEvent(event.Op) {
+					continue
+				}
+				path := filepath.Clean(strings.TrimSpace(event.Name))
+				if path == "" || !matchesSourcePaths(path, src.Paths) || isExcludedPath(path, src.ExcludePaths) {
+					continue
+				}
+				if c.eventDebounce <= 0 {
+					emitTrigger(triggerCh)
+					continue
+				}
+				pending = true
+				if debounceTimer == nil {
+					debounceTimer = time.NewTimer(c.eventDebounce)
+					debounceCh = debounceTimer.C
+					continue
+				}
+				if !debounceTimer.Stop() {
+					select {
+					case <-debounceTimer.C:
+					default:
+					}
+				}
+				debounceTimer.Reset(c.eventDebounce)
+				debounceCh = debounceTimer.C
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Printf("fsnotify 监听异常: %v", err)
+			}
+		}
+	}()
+
+	return func() {
+		closeWatcher()
+	}
+}
+
+func shouldHandleFsEvent(op fsnotify.Op) bool {
+	return op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Chmod) != 0
+}
+
+func collectWatchDirs(configuredPaths []string) []string {
+	seen := make(map[string]struct{})
+	dirs := make([]string, 0, len(configuredPaths))
+	for _, configured := range configuredPaths {
+		configured = strings.TrimSpace(configured)
+		if configured == "" {
+			continue
+		}
+		dir := configured
+		if hasWildcard(configured) {
+			dir = filepath.Dir(configured)
+		} else {
+			info, err := os.Stat(configured)
+			if err == nil {
+				if info.IsDir() {
+					dir = configured
+				} else {
+					dir = filepath.Dir(configured)
+				}
+			} else {
+				dir = filepath.Dir(configured)
+			}
+		}
+		dir = filepath.Clean(strings.TrimSpace(dir))
+		if dir == "" || dir == "." {
+			dir = "."
+		}
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
+func matchesSourcePaths(path string, configuredPaths []string) bool {
+	for _, configured := range configuredPaths {
+		trimmed := strings.TrimSpace(configured)
+		if trimmed == "" {
+			continue
+		}
+		if hasWildcard(trimmed) {
+			if isPathMatched(path, trimmed) {
+				return true
+			}
+			continue
+		}
+		cleaned := filepath.Clean(trimmed)
+		if cleaned == path {
+			return true
+		}
+		if filepath.Base(cleaned) == filepath.Base(path) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWildcard(path string) bool {
+	return strings.ContainsAny(path, "*?[")
 }
 
 // collectSyslog 从 syslog 源采集日志

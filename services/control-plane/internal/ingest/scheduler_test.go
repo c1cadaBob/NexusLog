@@ -112,6 +112,50 @@ func TestPullTaskSchedulerRespectsInterval(t *testing.T) {
 	}
 }
 
+func TestPullTaskSchedulerAppliesCriticalSourceInterval(t *testing.T) {
+	fixture := newTestFixture()
+	source := createSchedulerSourceForTest(t, fixture.sourceStore, "active", 30, 7)
+
+	if _, err := fixture.sourceStore.Update(source.SourceID, UpdatePullSourceRequest{
+		Name: ptrString("critical-auth-source"),
+	}); err != nil {
+		t.Fatalf("update source name failed: %v", err)
+	}
+
+	scheduler := NewPullTaskScheduler(fixture.sourceStore, fixture.taskStore, PullTaskSchedulerConfig{
+		CheckInterval:           time.Second,
+		PageSize:                50,
+		CriticalSourcePatterns:  []string{"critical-*"},
+		CriticalPullIntervalSec: 2,
+	})
+
+	scheduler.tick()
+	firstTask, ok := fixture.taskStore.LatestBySource(source.SourceID)
+	if !ok || firstTask.TaskID == "" {
+		t.Fatalf("expected first scheduled task")
+	}
+	if !fixture.taskStore.SetStatusForTest(firstTask.TaskID, "success") {
+		t.Fatalf("failed to update first task status")
+	}
+
+	// 按关键源策略，2 秒后即可再次调度（无需等待原始 30 秒间隔）。
+	scheduler.nowFn = func() time.Time {
+		return firstTask.ScheduledAt.Add(3 * time.Second)
+	}
+	scheduler.tick()
+	if fixture.taskStore.Count() != 2 {
+		t.Fatalf("expected critical source to schedule with shortened interval, got %d tasks", fixture.taskStore.Count())
+	}
+
+	latest, _ := fixture.taskStore.LatestBySource(source.SourceID)
+	if resolveIntOption(latest.Options, "target_interval_sec", -1) != 2 {
+		t.Fatalf("expected target_interval_sec=2, got %#v", latest.Options["target_interval_sec"])
+	}
+	if latest.Options["priority"] != "critical" {
+		t.Fatalf("expected priority=critical, got %#v", latest.Options["priority"])
+	}
+}
+
 func createSchedulerSourceForTest(t *testing.T, store *PullSourceStore, status string, intervalSec, timeoutSec int) PullSource {
 	t.Helper()
 
@@ -133,4 +177,8 @@ func createSchedulerSourceForTest(t *testing.T, store *PullSourceStore, status s
 		t.Fatalf("create source failed: %v", err)
 	}
 	return source
+}
+
+func ptrString(value string) *string {
+	return &value
 }

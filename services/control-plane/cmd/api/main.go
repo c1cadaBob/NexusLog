@@ -94,6 +94,15 @@ func main() {
 
 	// 执行引擎：run-task 异步触发 pull -> ES -> ack/nack -> dead-letter 主链路。
 	executorEnabled := isTruthy(getEnv("INGEST_EXECUTOR_ENABLED", "true"))
+	var latencyMonitor *ingest.PullLatencyMonitor
+	if executorEnabled {
+		latencyMonitor = ingest.NewPullLatencyMonitor(
+			parseEnvInt("INGEST_LATENCY_WINDOW_SIZE", 200),
+			int64(parseEnvInt("INGEST_LATENCY_ALERT_P95_MS", 3000)),
+			int64(parseEnvInt("INGEST_LATENCY_ALERT_P99_MS", 5000)),
+			time.Duration(parseEnvInt("INGEST_LATENCY_ALERT_COOLDOWN_SEC", 60))*time.Second,
+		)
+	}
 	if executorEnabled {
 		agentClient := ingest.NewAgentClient(time.Duration(parseEnvInt("INGEST_AGENT_TIMEOUT_SEC", 15)) * time.Second)
 		esSink := ingest.NewESSink(
@@ -120,6 +129,7 @@ func main() {
 				ExecutionTimeout:  time.Duration(parseEnvInt("INGEST_EXECUTOR_TIMEOUT_SEC", 120)) * time.Second,
 				DefaultAgentKeyID: getEnv("INGEST_AGENT_API_KEY_ID", getEnv("AGENT_API_KEY_ACTIVE_ID", "active")),
 				DefaultAgentKey:   getEnv("INGEST_AGENT_API_KEY", getEnv("AGENT_API_KEY_ACTIVE", "")),
+				LatencyMonitor:    latencyMonitor,
 			},
 		)
 		pullTaskStore.SetExecutor(executor.Execute)
@@ -143,8 +153,10 @@ func main() {
 			pullSourceStore,
 			pullTaskStore,
 			ingest.PullTaskSchedulerConfig{
-				CheckInterval: time.Duration(schedulerCheckIntervalSec) * time.Second,
-				PageSize:      schedulerPageSize,
+				CheckInterval:           time.Duration(schedulerCheckIntervalSec) * time.Second,
+				PageSize:                schedulerPageSize,
+				CriticalSourcePatterns:  parseCSV(getEnv("INGEST_CRITICAL_SOURCE_PATTERNS", "")),
+				CriticalPullIntervalSec: parseEnvInt("INGEST_CRITICAL_PULL_INTERVAL_SEC", 2),
 			},
 		)
 		go scheduler.Start(workerCtx)
@@ -162,6 +174,33 @@ func main() {
 	ingest.RegisterPullPackageRoutes(router, pullPackageStore)
 	ingest.RegisterReceiptRoutes(router, pullPackageStore, receiptStore, deadLetterStore)
 	ingest.RegisterDeadLetterRoutes(router, deadLetterStore)
+	router.GET("/api/v1/ingest/metrics/latency", func(c *gin.Context) {
+		if latencyMonitor == nil {
+			c.JSON(http.StatusOK, gin.H{
+				"code":       "OK",
+				"message":    "success",
+				"request_id": resolveRequestID(c),
+				"data":       gin.H{"enabled": false},
+				"meta":       gin.H{},
+			})
+			return
+		}
+		snapshot := latencyMonitor.Snapshot()
+		c.JSON(http.StatusOK, gin.H{
+			"code":       "OK",
+			"message":    "success",
+			"request_id": resolveRequestID(c),
+			"data": gin.H{
+				"enabled":  true,
+				"snapshot": snapshot,
+				"thresholds": gin.H{
+					"p95_ms": parseEnvInt("INGEST_LATENCY_ALERT_P95_MS", 3000),
+					"p99_ms": parseEnvInt("INGEST_LATENCY_ALERT_P99_MS", 5000),
+				},
+			},
+			"meta": gin.H{},
+		})
+	})
 
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {
@@ -253,6 +292,36 @@ func parseEnvInt(key string, fallback int) int {
 func isTruthy(raw string) bool {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	return value == "1" || value == "true" || value == "yes" || value == "on"
+}
+
+func parseCSV(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func resolveRequestID(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if existing := strings.TrimSpace(c.GetHeader("X-Request-ID")); existing != "" {
+		c.Header("X-Request-ID", existing)
+		return existing
+	}
+	generated := fmt.Sprintf("cp-%d", time.Now().UTC().UnixNano())
+	c.Header("X-Request-ID", generated)
+	return generated
 }
 
 func newPostgresDBFromEnv() (*sql.DB, error) {

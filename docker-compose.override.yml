@@ -79,6 +79,14 @@ services:
       - GOSUMDB=off
       # ingest 执行链路在容器内需要直连 ES 服务名，不能使用 localhost
       - INGEST_ES_ENDPOINT=http://elasticsearch:9200
+      # 关键日志源使用更短轮询间隔（命中 source_id/name/path 中以下模式即触发）
+      - INGEST_CRITICAL_SOURCE_PATTERNS=critical,security,audit,secure
+      - INGEST_CRITICAL_PULL_INTERVAL_SEC=2
+      # 端到端拉取延迟窗口统计与告警阈值
+      - INGEST_LATENCY_WINDOW_SIZE=300
+      - INGEST_LATENCY_ALERT_P95_MS=3000
+      - INGEST_LATENCY_ALERT_P99_MS=5000
+      - INGEST_LATENCY_ALERT_COOLDOWN_SEC=60
     cpus: "0.75"
     mem_limit: "768m"
 
@@ -255,6 +263,14 @@ services:
       - CACHE_DIR=/var/lib/collector-agent-remote/cache
       # 采集“远程模拟日志 + 宿主机服务日志 + 容器日志”
       - COLLECTOR_INCLUDE_PATHS=/var/log/remote/*.log,/host-var-log/*.log,/host-var-log/messages,/host-var-log/secure,/host-var-log/syslog,/host-var-log/*/*.log,/host-docker-containers/*/*-json.log
+      # 对关键日志路径使用更快扫描策略，降低告警日志入链路延迟
+      - COLLECTOR_CRITICAL_INCLUDE_PATHS=/host-var-log/messages,/host-var-log/secure
+      - COLLECTOR_FLUSH_INTERVAL=5s
+      - COLLECTOR_CRITICAL_FLUSH_INTERVAL=500ms
+      - COLLECTOR_PER_FILE_READ_LIMIT=200
+      - COLLECTOR_ENABLE_FSNOTIFY=true
+      - COLLECTOR_EVENT_DEBOUNCE=200ms
+      - COLLECTOR_CRITICAL_KEYWORDS=critical,fatal,panic,error,alert,security,unauthorized,denied
       - 'COLLECTOR_PATH_LABEL_RULES=[{"pattern":"/var/log/remote/*.log","labels":{"env":"local","channel":"remote-sim","log_scope":"sandbox"}},{"pattern":"/host-var-log/*","labels":{"env":"local","log_scope":"service","source_type":"host-log"}},{"pattern":"/host-var-log/*/*.log","labels":{"env":"local","log_scope":"service","source_type":"host-log"}},{"pattern":"/host-docker-containers/*/*-json.log","labels":{"env":"local","log_scope":"container","source_type":"docker-json"}}]'
       - COLLECTOR_EXCLUDE_PATHS=/host-var-log/*.gz,/host-var-log/*/*.gz,/host-var-log/*.xz,/host-var-log/*/*.xz,/host-var-log/journal/*
       - CONFIG_PATH=/workspace/agents/collector-agent/configs/agent.yaml

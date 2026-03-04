@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"log"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -16,12 +17,16 @@ const (
 	defaultSourcePullIntervalSec = 30
 	// defaultSourcePullTimeoutSec 拉取超时默认值（秒）。
 	defaultSourcePullTimeoutSec = 30
+	// defaultCriticalPullIntervalSec 关键源默认拉取间隔（秒）。
+	defaultCriticalPullIntervalSec = 2
 )
 
 // PullTaskSchedulerConfig 定义调度器运行参数。
 type PullTaskSchedulerConfig struct {
-	CheckInterval time.Duration
-	PageSize      int
+	CheckInterval           time.Duration
+	PageSize                int
+	CriticalSourcePatterns  []string
+	CriticalPullIntervalSec int
 }
 
 // PullTaskScheduler 负责将 active source 按 pull_interval_sec 自动转成 pull task。
@@ -40,6 +45,10 @@ func NewPullTaskScheduler(sourceStore *PullSourceStore, taskStore *PullTaskStore
 	if config.PageSize <= 0 {
 		config.PageSize = defaultSchedulerPageSize
 	}
+	if config.CriticalPullIntervalSec <= 0 {
+		config.CriticalPullIntervalSec = defaultCriticalPullIntervalSec
+	}
+	config.CriticalSourcePatterns = normalizeSourcePatterns(config.CriticalSourcePatterns)
 	return &PullTaskScheduler{
 		sourceStore: sourceStore,
 		taskStore:   taskStore,
@@ -97,24 +106,26 @@ func (s *PullTaskScheduler) scheduleSource(source PullSource) {
 	}
 
 	now := s.now()
-	if !s.shouldSchedule(sourceID, source.PullIntervalSec, now) {
+	effectiveInterval, critical := s.resolveEffectivePullInterval(source)
+	if !s.shouldSchedule(sourceID, effectiveInterval, now) {
 		return
 	}
 
 	task := s.taskStore.CreatePending(RunPullTaskRequest{
 		SourceID:    sourceID,
 		TriggerType: "scheduled",
-		Options:     s.buildTaskOptions(source),
+		Options:     s.buildTaskOptions(source, effectiveInterval, critical),
 	})
 	if task.TaskID == "" {
 		log.Printf("ingest scheduler create task failed source_id=%s", sourceID)
 		return
 	}
 	log.Printf(
-		"ingest scheduler created task source_id=%s task_id=%s interval_sec=%d",
+		"ingest scheduler created task source_id=%s task_id=%s interval_sec=%d critical=%t",
 		sourceID,
 		task.TaskID,
-		resolveSourcePullIntervalSec(source.PullIntervalSec),
+		effectiveInterval,
+		critical,
 	)
 }
 
@@ -134,10 +145,15 @@ func (s *PullTaskScheduler) shouldSchedule(sourceID string, intervalSec int, now
 	return !now.Before(lastScheduledAt.Add(interval))
 }
 
-func (s *PullTaskScheduler) buildTaskOptions(source PullSource) map[string]any {
-	return map[string]any{
-		"timeout_ms": resolveSourcePullTimeoutSec(source.PullTimeoutSec) * 1000,
+func (s *PullTaskScheduler) buildTaskOptions(source PullSource, intervalSec int, critical bool) map[string]any {
+	options := map[string]any{
+		"timeout_ms":          resolveSourcePullTimeoutSec(source.PullTimeoutSec) * 1000,
+		"target_interval_sec": intervalSec,
 	}
+	if critical {
+		options["priority"] = "critical"
+	}
+	return options
 }
 
 func (s *PullTaskScheduler) now() time.Time {
@@ -159,4 +175,62 @@ func resolveSourcePullTimeoutSec(raw int) int {
 		return defaultSourcePullTimeoutSec
 	}
 	return raw
+}
+
+func (s *PullTaskScheduler) resolveEffectivePullInterval(source PullSource) (int, bool) {
+	interval := resolveSourcePullIntervalSec(source.PullIntervalSec)
+	if !s.isCriticalSource(source) {
+		return interval, false
+	}
+	if s.config.CriticalPullIntervalSec > 0 && s.config.CriticalPullIntervalSec < interval {
+		return s.config.CriticalPullIntervalSec, true
+	}
+	return interval, true
+}
+
+func (s *PullTaskScheduler) isCriticalSource(source PullSource) bool {
+	patterns := s.config.CriticalSourcePatterns
+	if len(patterns) == 0 {
+		return false
+	}
+	candidates := []string{
+		strings.ToLower(strings.TrimSpace(source.SourceID)),
+		strings.ToLower(strings.TrimSpace(source.Name)),
+		strings.ToLower(strings.TrimSpace(source.Path)),
+	}
+	for _, pattern := range patterns {
+		normalizedPattern := strings.ToLower(strings.TrimSpace(pattern))
+		if normalizedPattern == "" {
+			continue
+		}
+		for _, candidate := range candidates {
+			if candidate == "" {
+				continue
+			}
+			if matched, err := filepath.Match(normalizedPattern, candidate); err == nil && matched {
+				return true
+			}
+			if strings.Contains(candidate, normalizedPattern) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizeSourcePatterns(patterns []string) []string {
+	result := make([]string, 0, len(patterns))
+	seen := make(map[string]struct{})
+	for _, item := range patterns {
+		normalized := strings.ToLower(strings.TrimSpace(item))
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
 }

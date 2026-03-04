@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 )
@@ -33,6 +34,7 @@ type PullTaskExecutorConfig struct {
 	ExecutionTimeout  time.Duration
 	DefaultAgentKeyID string
 	DefaultAgentKey   string
+	LatencyMonitor    *PullLatencyMonitor
 }
 
 // PullTaskExecutor 负责异步执行 pull task 主链路。
@@ -48,6 +50,7 @@ type PullTaskExecutor struct {
 	agentClient     *AgentClient
 	esSink          *ESSink
 	config          PullTaskExecutorConfig
+	latencyMonitor  *PullLatencyMonitor
 }
 
 // NewPullTaskExecutor 创建任务执行器。
@@ -85,6 +88,7 @@ func NewPullTaskExecutor(
 		agentClient:     agentClient,
 		esSink:          esSink,
 		config:          config,
+		latencyMonitor:  config.LatencyMonitor,
 	}
 }
 
@@ -99,6 +103,8 @@ func (e *PullTaskExecutor) Execute(task PullTask) {
 	if !e.taskStore.MarkRunning(task.TaskID) {
 		return
 	}
+	taskOutcome := "failed"
+	defer e.observeTaskLatency(task, taskOutcome)
 
 	source, ok := e.sourceStore.GetByID(task.SourceID)
 	if !ok {
@@ -204,6 +210,7 @@ func (e *PullTaskExecutor) Execute(task PullTask) {
 		return
 	}
 	e.taskStore.MarkSuccess(task.TaskID, createdPkg.BatchID, createdPkg.NextCursor)
+	taskOutcome = "success"
 }
 
 func (e *PullTaskExecutor) handleNack(task PullTask, source PullSource, credential AgentAuthCredential, pkg PullPackage, batch PullBatch, retryCount int, errorCode, errorMessage string) {
@@ -332,6 +339,32 @@ func (e *PullTaskExecutor) resolveAgentID(task PullTask, source PullSource) stri
 		return candidate
 	}
 	return strings.TrimSpace(source.SourceID)
+}
+
+func (e *PullTaskExecutor) observeTaskLatency(task PullTask, status string) {
+	if e == nil || e.latencyMonitor == nil {
+		return
+	}
+	snapshot, shouldAlert := e.latencyMonitor.Observe(
+		strings.TrimSpace(task.SourceID),
+		strings.TrimSpace(task.TaskID),
+		strings.TrimSpace(status),
+		task.ScheduledAt.UTC(),
+		time.Now().UTC(),
+	)
+	if !shouldAlert {
+		return
+	}
+	log.Printf(
+		"ingest latency alert source_id=%s task_id=%s status=%s count=%d p95_ms=%d p99_ms=%d max_ms=%d",
+		snapshot.LastSourceID,
+		snapshot.LastTaskID,
+		snapshot.LastStatus,
+		snapshot.Count,
+		snapshot.P95MS,
+		snapshot.P99MS,
+		snapshot.MaxMS,
+	)
 }
 
 func resolveStringOption(options map[string]any, key string) string {

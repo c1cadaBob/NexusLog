@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -285,4 +286,116 @@ func maxRecordOffset(t *testing.T, batch []plugins.Record) int64 {
 		}
 	}
 	return max
+}
+
+func TestCollectFilesRoundRobinFairness(t *testing.T) {
+	tempDir := t.TempDir()
+	hotFile := filepath.Join(tempDir, "hot.log")
+	coldFile := filepath.Join(tempDir, "cold.log")
+	if err := os.WriteFile(hotFile, []byte("hot-1\nhot-2\nhot-3\n"), 0644); err != nil {
+		t.Fatalf("write hot log failed: %v", err)
+	}
+	if err := os.WriteFile(coldFile, []byte("cold-1\n"), 0644); err != nil {
+		t.Fatalf("write cold log failed: %v", err)
+	}
+
+	store, err := checkpoint.NewFileStore(filepath.Join(tempDir, "checkpoints"))
+	if err != nil {
+		t.Fatalf("new checkpoint store failed: %v", err)
+	}
+	defer store.Close()
+
+	disableFSNotify := false
+	coll := New(Config{
+		Sources: []SourceConfig{{
+			Type:  SourceTypeFile,
+			Paths: []string{hotFile, coldFile},
+		}},
+		BatchSize:        2,
+		PerFileReadLimit: 1,
+		FlushInterval:    10 * time.Millisecond,
+		BufferSize:       4,
+		EnableFSNotify:   &disableFSNotify,
+	}, store)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := coll.Start(ctx); err != nil {
+		t.Fatalf("start collector failed: %v", err)
+	}
+
+	batch := waitBatch(t, coll.Output(), 2*time.Second)
+	if len(batch) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(batch))
+	}
+	sourceSet := map[string]bool{}
+	for _, item := range batch {
+		sourceSet[item.Source] = true
+	}
+	if !sourceSet[hotFile] || !sourceSet[coldFile] {
+		t.Fatalf("expected round-robin batch from both files, got sources=%#v", sourceSet)
+	}
+}
+
+func TestCollectFilesCriticalFastPathWithFSNotify(t *testing.T) {
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "critical.log")
+	if err := os.WriteFile(logPath, []byte(""), 0644); err != nil {
+		t.Fatalf("write log file failed: %v", err)
+	}
+
+	store, err := checkpoint.NewFileStore(filepath.Join(tempDir, "checkpoints"))
+	if err != nil {
+		t.Fatalf("new checkpoint store failed: %v", err)
+	}
+	defer store.Close()
+
+	enableFSNotify := true
+	coll := New(Config{
+		Sources: []SourceConfig{{
+			Type:             SourceTypeFile,
+			Paths:            []string{logPath},
+			CriticalKeywords: []string{"fatal"},
+		}},
+		BatchSize:      10,
+		FlushInterval:  2 * time.Second,
+		BufferSize:     4,
+		EnableFSNotify: &enableFSNotify,
+		EventDebounce:  20 * time.Millisecond,
+	}, store)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := coll.Start(ctx); err != nil {
+		t.Fatalf("start collector failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatalf("open critical log failed: %v", err)
+	}
+	if _, err = f.WriteString("fatal: subsystem unavailable\n"); err != nil {
+		_ = f.Close()
+		t.Fatalf("append critical log failed: %v", err)
+	}
+	_ = f.Close()
+
+	deadline := time.After(1200 * time.Millisecond)
+	for {
+		select {
+		case batch := <-coll.Output():
+			for _, item := range batch {
+				if !strings.Contains(string(item.Data), "fatal: subsystem unavailable") {
+					continue
+				}
+				if item.Metadata["log_priority"] != string(SourcePriorityCritical) {
+					t.Fatalf("expected critical metadata, got %#v", item.Metadata)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatalf("expected critical record to be emitted before fallback flush interval")
+		}
+	}
 }

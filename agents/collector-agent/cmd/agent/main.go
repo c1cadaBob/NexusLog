@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -63,25 +64,65 @@ func main() {
 
 	// 4. 初始化采集器（7.6：支持 include/exclude 采集范围）
 	includePaths := parseCSV(getEnv("COLLECTOR_INCLUDE_PATHS", "/var/log/*.log"))
+	criticalIncludePaths := parseCSV(getEnv("COLLECTOR_CRITICAL_INCLUDE_PATHS", ""))
 	excludePaths := parseCSV(getEnv("COLLECTOR_EXCLUDE_PATHS", ""))
+	criticalKeywords := parseCSV(getEnv("COLLECTOR_CRITICAL_KEYWORDS", "critical,fatal,panic,error,alert,security"))
+	normalFlushInterval := parseDurationEnv("COLLECTOR_FLUSH_INTERVAL", 5*time.Second)
+	criticalFlushInterval := parseDurationEnv("COLLECTOR_CRITICAL_FLUSH_INTERVAL", 500*time.Millisecond)
+	perFileReadLimit := parseEnvInt("COLLECTOR_PER_FILE_READ_LIMIT", 200)
+	enableFSNotify := isTruthy(getEnv("COLLECTOR_ENABLE_FSNOTIFY", "true"))
+	eventDebounce := parseDurationEnv("COLLECTOR_EVENT_DEBOUNCE", 200*time.Millisecond)
 	pathLabelRules, err := parsePathLabelRules(getEnv("COLLECTOR_PATH_LABEL_RULES", ""))
 	if err != nil {
 		log.Printf("解析 COLLECTOR_PATH_LABEL_RULES 失败，已忽略路径标签配置: %v", err)
 		pathLabelRules = nil
 	}
-	sourceConfigs := []collector.SourceConfig{
-		{
-			Type:           collector.SourceTypeFile,
-			Paths:          includePaths,
-			ExcludePaths:   excludePaths,
-			PathLabelRules: pathLabelRules,
-		},
+
+	sourceConfigs := make([]collector.SourceConfig, 0, 2)
+	if len(criticalIncludePaths) > 0 {
+		sourceConfigs = append(sourceConfigs, collector.SourceConfig{
+			Type:             collector.SourceTypeFile,
+			Paths:            criticalIncludePaths,
+			ExcludePaths:     excludePaths,
+			PathLabelRules:   pathLabelRules,
+			ScanInterval:     criticalFlushInterval,
+			Priority:         collector.SourcePriorityCritical,
+			CriticalKeywords: criticalKeywords,
+		})
+	}
+	normalExcludePaths := append([]string{}, excludePaths...)
+	normalExcludePaths = append(normalExcludePaths, criticalIncludePaths...)
+	if len(includePaths) > 0 {
+		sourceConfigs = append(sourceConfigs, collector.SourceConfig{
+			Type:             collector.SourceTypeFile,
+			Paths:            includePaths,
+			ExcludePaths:     normalExcludePaths,
+			PathLabelRules:   pathLabelRules,
+			ScanInterval:     normalFlushInterval,
+			Priority:         collector.SourcePriorityNormal,
+			CriticalKeywords: criticalKeywords,
+		})
+	}
+	if len(sourceConfigs) == 0 {
+		sourceConfigs = append(sourceConfigs, collector.SourceConfig{
+			Type:             collector.SourceTypeFile,
+			Paths:            []string{"/var/log/*.log"},
+			ExcludePaths:     excludePaths,
+			PathLabelRules:   pathLabelRules,
+			ScanInterval:     normalFlushInterval,
+			Priority:         collector.SourcePriorityNormal,
+			CriticalKeywords: criticalKeywords,
+		})
 	}
 	coll := collector.New(collector.Config{
-		Sources:       sourceConfigs,
-		BatchSize:     1000,
-		FlushInterval: 5 * time.Second,
-		BufferSize:    10000,
+		Sources:          sourceConfigs,
+		BatchSize:        parseEnvInt("COLLECTOR_BATCH_SIZE", 1000),
+		FlushInterval:    normalFlushInterval,
+		BufferSize:       parseEnvInt("COLLECTOR_BUFFER_SIZE", 10000),
+		PerFileReadLimit: perFileReadLimit,
+		EnableFSNotify:   &enableFSNotify,
+		EventDebounce:    eventDebounce,
+		CriticalKeywords: criticalKeywords,
 	}, ckpStore)
 
 	// 5. Kafka 主推链路降级为 P1 兼容项，不再阻塞 M2 pull 主路径启动。
@@ -213,6 +254,33 @@ func parseCSV(raw string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+
+func parseDurationEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil {
+		return fallback
+	}
+	if parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func parseEnvInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 type pathLabelRuleEnv struct {
