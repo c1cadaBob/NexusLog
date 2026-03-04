@@ -38,7 +38,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ onMenuClick, isMobile }) => {
       ];
       mockNotifications.forEach((n) => addNotification(n));
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const typeColorMap: Record<string, string> = {
     error: COLORS.danger,

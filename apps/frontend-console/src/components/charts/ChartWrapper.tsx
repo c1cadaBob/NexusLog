@@ -97,7 +97,7 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
 
     // 合并主题配置和用户配置
     instance.setOption({ ...themeOption, ...option }, true);
-  }, [isDark]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isDark]);
 
   // 更新图表配置
   useEffect(() => {
