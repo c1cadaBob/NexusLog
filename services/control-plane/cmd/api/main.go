@@ -88,8 +88,13 @@ func main() {
 		authKeyStore = ingest.NewAgentAuthKeyStore()
 	}
 
+	// 后台任务统一使用可取消上下文，便于服务优雅退出。
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+
 	// 执行引擎：run-task 异步触发 pull -> ES -> ack/nack -> dead-letter 主链路。
-	if isTruthy(getEnv("INGEST_EXECUTOR_ENABLED", "true")) {
+	executorEnabled := isTruthy(getEnv("INGEST_EXECUTOR_ENABLED", "true"))
+	if executorEnabled {
 		agentClient := ingest.NewAgentClient(time.Duration(parseEnvInt("INGEST_AGENT_TIMEOUT_SEC", 15)) * time.Second)
 		esSink := ingest.NewESSink(
 			getEnv("INGEST_ES_ENDPOINT", getEnv("ELASTICSEARCH_URL", "http://localhost:9200")),
@@ -121,6 +126,35 @@ func main() {
 		log.Printf("ingest executor enabled")
 	} else {
 		log.Printf("ingest executor disabled")
+	}
+
+	// 自动调度器：按 source.pull_interval_sec 定时创建 scheduled 任务。
+	schedulerEnabled := executorEnabled && isTruthy(getEnv("INGEST_SCHEDULER_ENABLED", "true"))
+	if schedulerEnabled {
+		schedulerCheckIntervalSec := parseEnvInt("INGEST_SCHEDULER_CHECK_INTERVAL_SEC", 1)
+		if schedulerCheckIntervalSec <= 0 {
+			schedulerCheckIntervalSec = 1
+		}
+		schedulerPageSize := parseEnvInt("INGEST_SCHEDULER_PAGE_SIZE", 200)
+		if schedulerPageSize <= 0 {
+			schedulerPageSize = 200
+		}
+		scheduler := ingest.NewPullTaskScheduler(
+			pullSourceStore,
+			pullTaskStore,
+			ingest.PullTaskSchedulerConfig{
+				CheckInterval: time.Duration(schedulerCheckIntervalSec) * time.Second,
+				PageSize:      schedulerPageSize,
+			},
+		)
+		go scheduler.Start(workerCtx)
+		log.Printf(
+			"ingest scheduler enabled (check_interval_sec=%d, page_size=%d)",
+			schedulerCheckIntervalSec,
+			schedulerPageSize,
+		)
+	} else {
+		log.Printf("ingest scheduler disabled")
 	}
 
 	ingest.RegisterPullSourceRoutes(router, pullSourceStore)
@@ -184,6 +218,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down servers...")
+	workerCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -202,6 +202,46 @@ func (s *PullTaskStore) GetByID(taskID string) (PullTask, bool) {
 	return task, ok
 }
 
+// HasInFlight 判断指定 source 是否存在 pending/running 任务。
+// 调度器依赖该方法避免同 source 并发重入拉取。
+func (s *PullTaskStore) HasInFlight(sourceID string) bool {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return false
+	}
+	if s.backend != nil {
+		return s.hasInFlightFromDB(context.Background(), sourceID)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, task := range s.items {
+		if task.SourceID != sourceID {
+			continue
+		}
+		if task.Status == "pending" || task.Status == "running" {
+			return true
+		}
+	}
+	return false
+}
+
+// LatestBySource 返回指定 source 最近一次任务（按 scheduled_at 倒序）。
+func (s *PullTaskStore) LatestBySource(sourceID string) (PullTask, bool) {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return PullTask{}, false
+	}
+	if s.backend != nil {
+		return s.latestBySourceFromDB(context.Background(), sourceID)
+	}
+	items, _ := s.List(sourceID, "", 1, 1)
+	if len(items) == 0 {
+		return PullTask{}, false
+	}
+	return items[0], true
+}
+
 // MarkRunning 将任务状态更新为 running。
 func (s *PullTaskStore) MarkRunning(taskID string) bool {
 	if s.backend != nil {

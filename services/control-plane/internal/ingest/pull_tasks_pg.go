@@ -237,6 +237,94 @@ WHERE id = $1::uuid
 	return task, true
 }
 
+func (s *PullTaskStore) hasInFlightFromDB(ctx context.Context, sourceID string) bool {
+	if s.backend == nil || s.backend.DB() == nil {
+		return false
+	}
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return false
+	}
+	query := `
+SELECT EXISTS(
+    SELECT 1
+    FROM ingest_pull_tasks
+    WHERE source_id = $1::uuid
+      AND status IN ('pending', 'running')
+)
+`
+	var ok bool
+	if err := s.backend.DB().QueryRowContext(ctx, query, sourceID).Scan(&ok); err != nil {
+		return false
+	}
+	return ok
+}
+
+func (s *PullTaskStore) latestBySourceFromDB(ctx context.Context, sourceID string) (PullTask, bool) {
+	if s.backend == nil || s.backend.DB() == nil {
+		return PullTask{}, false
+	}
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return PullTask{}, false
+	}
+	query := `
+SELECT
+    id::text,
+    source_id::text,
+    trigger_type,
+    options,
+    status,
+    COALESCE(request_id, ''),
+    COALESCE(batch_id, ''),
+    COALESCE(last_cursor, ''),
+    COALESCE(retry_count, 0),
+    scheduled_at,
+    started_at,
+    finished_at,
+    COALESCE(error_code, ''),
+    COALESCE(error_message, ''),
+    created_at,
+    updated_at
+FROM ingest_pull_tasks
+WHERE source_id = $1::uuid
+ORDER BY scheduled_at DESC
+LIMIT 1
+`
+	var (
+		task       PullTask
+		optionsRaw []byte
+		startedAt  sql.NullTime
+		finishedAt sql.NullTime
+	)
+	if err := s.backend.DB().QueryRowContext(ctx, query, sourceID).Scan(
+		&task.TaskID,
+		&task.SourceID,
+		&task.TriggerType,
+		&optionsRaw,
+		&task.Status,
+		&task.RequestID,
+		&task.BatchID,
+		&task.LastCursor,
+		&task.RetryCount,
+		&task.ScheduledAt,
+		&startedAt,
+		&finishedAt,
+		&task.ErrorCode,
+		&task.ErrorMessage,
+		&task.CreatedAt,
+		&task.UpdatedAt,
+	); err != nil {
+		return PullTask{}, false
+	}
+	task.Options = parseTaskOptions(optionsRaw)
+	task.StartedAt, task.FinishedAt = buildTaskPointers(startedAt, finishedAt)
+	task.ScheduledAt = task.ScheduledAt.UTC()
+	task.CreatedAt = task.CreatedAt.UTC()
+	task.UpdatedAt = task.UpdatedAt.UTC()
+	return task, true
+}
+
 func (s *PullTaskStore) markRunningFromDB(ctx context.Context, taskID string) bool {
 	query := `
 UPDATE ingest_pull_tasks
