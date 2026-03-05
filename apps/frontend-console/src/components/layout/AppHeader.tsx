@@ -145,6 +145,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({ onMenuClick, isMobile }) => {
 
       {/* 全局搜索框 */}
       <Input
+        id="global-search-input"
+        name="global-search"
+        autoComplete="off"
         prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, opacity: 0.5 }}>search</span>}
         placeholder="搜索日志、告警、设置..."
         style={{ maxWidth: 400, flex: 1 }}

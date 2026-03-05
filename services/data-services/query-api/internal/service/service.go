@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +31,12 @@ var (
 	ErrUserContextRequired = errors.New("user context is required")
 	// ErrInvalidSavedQuery 表示收藏查询参数非法。
 	ErrInvalidSavedQuery = errors.New("invalid saved query payload")
+	// levelTokenPattern 用于在日志正文中优先识别显式级别词。
+	levelTokenPattern = regexp.MustCompile(`(?i)\b(trace|debug|info|warn(?:ing)?|error|fatal|panic)\b`)
+	// ansiColorPattern 用于移除 ANSI 颜色控制序列。
+	ansiColorPattern = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
+	// controlCharPattern 用于移除非换行/回车/制表符控制字符。
+	controlCharPattern = regexp.MustCompile(`[\x00-\x08\x0B-\x1F\x7F]`)
 )
 
 // RequestActor 描述一次查询请求的调用身份。
@@ -591,17 +598,22 @@ func mapRawHit(raw repository.RawLogHit) SearchLogHit {
 		fields = map[string]any{}
 	}
 	fields["_index"] = raw.Index
+	normalizeSourceFieldsForDisplay(fields)
 
 	timestamp := firstString(raw.Source, "@timestamp", "timestamp", "collected_at")
-	message := firstString(raw.Source, "message", "data", "raw_log")
-	if message == "" {
-		message = marshalMapOrEmpty(raw.Source)
+	sourceMessage := firstString(raw.Source, "message", "data", "raw_log")
+	if sourceMessage == "" {
+		sourceMessage = marshalMapOrEmpty(raw.Source)
 	}
 	rawLog := firstString(raw.Source, "raw_log", "data")
 	if rawLog == "" {
-		rawLog = message
+		rawLog = sourceMessage
 	}
-	level := normalizeLevel(firstString(raw.Source, "level", "severity"), message)
+	message := normalizeDisplayMessage(sourceMessage)
+	if message == "" {
+		message = sourceMessage
+	}
+	level := normalizeLevel(firstString(raw.Source, "level", "severity"), sourceMessage)
 	service := firstString(raw.Source, "service", "service_name", "app", "agent_id", "source_id")
 	if service == "" {
 		service = "unknown"
@@ -622,6 +634,56 @@ func mapRawHit(raw repository.RawLogHit) SearchLogHit {
 		Message:   message,
 		RawLog:    rawLog,
 		Fields:    fields,
+	}
+}
+
+func normalizeSourceFieldsForDisplay(fields map[string]any) {
+	if len(fields) == 0 {
+		return
+	}
+
+	sourceRaw := firstString(fields, "source")
+	sourcePathRaw := firstString(fields, "source_path")
+	original := sourceRaw
+	if original == "" {
+		original = sourcePathRaw
+	}
+	if original == "" {
+		return
+	}
+
+	display := normalizeSourcePathForDisplay(original)
+	fields["source"] = display
+	fields["source_path"] = display
+	if display != original {
+		fields["source_internal"] = original
+	}
+}
+
+func normalizeSourcePathForDisplay(raw string) string {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return path
+	}
+
+	const (
+		hostVarLogPrefix           = "/host-var-log"
+		hostDockerContainersPrefix = "/host-docker-containers"
+		canonicalVarLogPrefix      = "/var/log"
+		canonicalDockerPrefix      = "/var/lib/docker/containers"
+	)
+
+	switch {
+	case path == hostVarLogPrefix:
+		return canonicalVarLogPrefix
+	case strings.HasPrefix(path, hostVarLogPrefix+"/"):
+		return canonicalVarLogPrefix + strings.TrimPrefix(path, hostVarLogPrefix)
+	case path == hostDockerContainersPrefix:
+		return canonicalDockerPrefix
+	case strings.HasPrefix(path, hostDockerContainersPrefix+"/"):
+		return canonicalDockerPrefix + strings.TrimPrefix(path, hostDockerContainersPrefix)
+	default:
+		return path
 	}
 }
 
@@ -648,20 +710,106 @@ func normalizeLevel(rawLevel string, message string) string {
 		return "warn"
 	}
 
+	if explicit := detectLevelFromMessage(message); explicit != "" {
+		return explicit
+	}
+
 	messageLower := strings.ToLower(message)
-	switch {
-	case strings.Contains(messageLower, "error"),
-		strings.Contains(messageLower, "fatal"),
-		strings.Contains(messageLower, "panic"),
-		strings.Contains(messageLower, "fail"):
-		return "error"
-	case strings.Contains(messageLower, "warn"):
+	warnIndex := earliestKeywordIndex(messageLower, "warn", "warning")
+	errorIndex := earliestKeywordIndex(messageLower, "error", "fatal", "panic", "fail")
+	if warnIndex >= 0 && (errorIndex < 0 || warnIndex < errorIndex) {
 		return "warn"
+	}
+	switch {
+	case errorIndex >= 0:
+		return "error"
 	case strings.Contains(messageLower, "debug"):
 		return "debug"
 	default:
 		return "info"
 	}
+}
+
+func detectLevelFromMessage(message string) string {
+	primary := unwrapMessageForLevel(message)
+	if primary == "" {
+		return ""
+	}
+	matched := levelTokenPattern.FindStringSubmatch(primary)
+	if len(matched) < 2 {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(matched[1])) {
+	case "warn", "warning":
+		return "warn"
+	case "error", "fatal", "panic":
+		return "error"
+	case "debug", "trace":
+		return "debug"
+	case "info":
+		return "info"
+	default:
+		return ""
+	}
+}
+
+func normalizeDisplayMessage(message string) string {
+	primary := unwrapMessageForLevel(message)
+	if primary == "" {
+		primary = strings.TrimSpace(message)
+	}
+	if primary == "" {
+		return ""
+	}
+
+	cleaned := ansiColorPattern.ReplaceAllString(primary, "")
+	cleaned = strings.ReplaceAll(cleaned, "\r\n", "\n")
+	cleaned = strings.ReplaceAll(cleaned, "\r", "\n")
+	cleaned = strings.ReplaceAll(cleaned, "\t", " ")
+	cleaned = controlCharPattern.ReplaceAllString(cleaned, " ")
+	cleaned = strings.ReplaceAll(cleaned, "\n", " ")
+	cleaned = strings.Join(strings.Fields(cleaned), " ")
+	return strings.TrimSpace(cleaned)
+}
+
+func unwrapMessageForLevel(message string) string {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" {
+		return ""
+	}
+	if !(strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}")) {
+		return trimmed
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return trimmed
+	}
+	for _, key := range []string{"log", "message", "msg", "raw_log"} {
+		candidate := strings.TrimSpace(fmt.Sprintf("%v", payload[key]))
+		if candidate == "" || candidate == "<nil>" {
+			continue
+		}
+		return candidate
+	}
+	return trimmed
+}
+
+func earliestKeywordIndex(text string, keywords ...string) int {
+	result := -1
+	for _, keyword := range keywords {
+		if keyword == "" {
+			continue
+		}
+		index := strings.Index(text, keyword)
+		if index < 0 {
+			continue
+		}
+		if result < 0 || index < result {
+			result = index
+		}
+	}
+	return result
 }
 
 func cloneMap(source map[string]any) map[string]any {

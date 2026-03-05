@@ -85,18 +85,22 @@ func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSou
 		payload.Write(actionRaw)
 		payload.WriteByte('\n')
 
+		internalSourcePath := strings.TrimSpace(record.Source)
+		displaySourcePath := normalizeSourcePathForDisplay(internalSourcePath)
 		doc := map[string]any{
-			"@timestamp": toRFC3339Nano(record.Timestamp),
-			"message":    record.Data,
-			"source":     record.Source,
-			"offset":     record.Offset,
-			"sequence":   record.Sequence,
-			"record_id":  record.RecordID,
-			"batch_id":   response.BatchID,
-			"task_id":    task.TaskID,
-			"source_id":  source.SourceID,
-			"request_id": task.RequestID,
-			"metadata":   record.Metadata,
+			"@timestamp":      toRFC3339Nano(record.Timestamp),
+			"message":         record.Data,
+			"source":          displaySourcePath,
+			"source_path":     displaySourcePath,
+			"source_internal": internalSourcePath,
+			"offset":          record.Offset,
+			"sequence":        record.Sequence,
+			"record_id":       record.RecordID,
+			"batch_id":        response.BatchID,
+			"task_id":         task.TaskID,
+			"source_id":       source.SourceID,
+			"request_id":      task.RequestID,
+			"metadata":        record.Metadata,
 		}
 		docRaw, _ := json.Marshal(doc)
 		payload.Write(docRaw)
@@ -147,6 +151,32 @@ func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSou
 		return result, fmt.Errorf("es bulk contains failed items: indexed=%d failed=%d", result.Indexed, result.Failed)
 	}
 	return result, nil
+}
+
+func normalizeSourcePathForDisplay(raw string) string {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return "unknown"
+	}
+	const (
+		hostVarLogPrefix           = "/host-var-log"
+		hostDockerContainersPrefix = "/host-docker-containers"
+		canonicalVarLogPrefix      = "/var/log"
+		canonicalDockerPrefix      = "/var/lib/docker/containers"
+	)
+
+	switch {
+	case path == hostVarLogPrefix:
+		return canonicalVarLogPrefix
+	case strings.HasPrefix(path, hostVarLogPrefix+"/"):
+		return canonicalVarLogPrefix + strings.TrimPrefix(path, hostVarLogPrefix)
+	case path == hostDockerContainersPrefix:
+		return canonicalDockerPrefix
+	case strings.HasPrefix(path, hostDockerContainersPrefix+"/"):
+		return canonicalDockerPrefix + strings.TrimPrefix(path, hostDockerContainersPrefix)
+	default:
+		return path
+	}
 }
 
 func toRFC3339Nano(ts int64) string {

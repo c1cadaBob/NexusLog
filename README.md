@@ -546,11 +546,11 @@ Claude 提示用户启动 Chrome 调试模式：
 ```bash
 # 启动 Chrome（带远程调试）
 google-chrome --remote-debugging-port=9222 --disable-gpu \
-    --no-sandbox --user-data-dir=/tmp/chrome-debug http://localhost:3001/ &
+    --no-sandbox --user-data-dir=/tmp/chrome-debug http://localhost:3000/ &
 
 # 或使用 headless 模式
 google-chrome --headless --remote-debugging-port=9222 --disable-gpu \
-    --no-sandbox --user-data-dir=/tmp/chrome-debug http://localhost:3001/ &
+    --no-sandbox --user-data-dir=/tmp/chrome-debug http://localhost:3000/ &
 ```
 
 ## 架构概览

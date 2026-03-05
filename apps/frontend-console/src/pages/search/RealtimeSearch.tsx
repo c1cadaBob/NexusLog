@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useCallback, useState } from 'react';
 import { Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useThemeStore } from '../../stores/themeStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { COLORS } from '../../theme/tokens';
@@ -21,6 +22,62 @@ const RECENT_QUERIES = [
   'message:"timeout"',
   'level:warn',
 ];
+const DEFAULT_LOOKBACK_WINDOW_MS = 30 * 60 * 1000;
+const EXTENDED_LOOKBACK_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function formatLookbackWindow(windowMS: number): string {
+  if (windowMS >= EXTENDED_LOOKBACK_WINDOW_MS) {
+    return '最近 24 小时';
+  }
+  return '最近 30 分钟';
+}
+
+function parseJSONStringIfPossible(text: string): unknown | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const isJSONObject = trimmed.startsWith('{') && trimmed.endsWith('}');
+  const isJSONArray = trimmed.startsWith('[') && trimmed.endsWith(']');
+  if (!isJSONObject && !isJSONArray) {
+    return null;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStructuredValue(value: unknown, depth = 0): unknown {
+  // 防止极端数据导致深层递归。
+  if (depth > 8) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = parseJSONStringIfPossible(value);
+    if (parsed === null) {
+      return value;
+    }
+    return normalizeStructuredValue(parsed, depth + 1);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeStructuredValue(item, depth + 1));
+  }
+
+  if (value && typeof value === 'object') {
+    const source = value as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    Object.entries(source).forEach(([key, item]) => {
+      normalized[key] = normalizeStructuredValue(item, depth + 1);
+    });
+    return normalized;
+  }
+
+  return value;
+}
 
 /** 构建近 30 分钟直方图（使用当前查询结果统计） */
 function buildHistogramData(logs: LogEntry[]) {
@@ -68,11 +125,18 @@ const LEVEL_CONFIG: Record<string, { color: string; tagColor: string }> = {
   debug: { color: COLORS.purple, tagColor: 'purple' },
 };
 
+interface RealtimeNavigationState {
+  autoRun?: boolean;
+  presetQuery?: string;
+}
+
 // ============================================================================
 // RealtimeSearch 主组件
 // ============================================================================
 const RealtimeSearch: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   // 查询状态
   const [query, setQuery] = useState('');
@@ -89,6 +153,8 @@ const RealtimeSearch: React.FC = () => {
   const [queryTimeMS, setQueryTimeMS] = useState(0);
   const [queryTimedOut, setQueryTimedOut] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
+  const [lookbackWindowMS, setLookbackWindowMS] = useState(DEFAULT_LOOKBACK_WINDOW_MS);
+  const [isUsingExtendedWindow, setIsUsingExtendedWindow] = useState(false);
 
   // 分页（pageSize 持久化）
   const [currentPage, setCurrentPage] = useState(1);
@@ -105,20 +171,50 @@ const RealtimeSearch: React.FC = () => {
     page: number;
     pageSize: number;
     silent?: boolean;
+    recordHistory?: boolean;
+    lookbackWindowMS?: number;
+    allowAutoWindowFallback?: boolean;
   }) => {
     setTableLoading(true);
+    const requestedWindowMS = options.lookbackWindowMS ?? DEFAULT_LOOKBACK_WINDOW_MS;
     try {
-      const now = new Date();
-      const result = await queryRealtimeLogs({
-        keywords: options.queryText,
-        page: options.page,
-        pageSize: options.pageSize,
-        timeRange: {
-          // 默认查询近 30 分钟，保证页面加载和刷新更可控。
-          from: new Date(now.getTime() - 30 * 60 * 1000).toISOString(),
-          to: now.toISOString(),
-        },
-      });
+      const runWithWindow = async (windowMS: number) => {
+        const now = new Date();
+        return queryRealtimeLogs({
+          keywords: options.queryText,
+          page: options.page,
+          pageSize: options.pageSize,
+          timeRange: {
+            from: new Date(now.getTime() - windowMS).toISOString(),
+            to: now.toISOString(),
+          },
+          recordHistory: options.recordHistory,
+        });
+      };
+
+      let usedWindowMS = requestedWindowMS;
+      let result = await runWithWindow(usedWindowMS);
+
+      const shouldAutoFallback =
+        options.allowAutoWindowFallback !== false &&
+        usedWindowMS === DEFAULT_LOOKBACK_WINDOW_MS &&
+        options.page === 1 &&
+        !options.queryText.trim() &&
+        result.total === 0;
+
+      if (shouldAutoFallback) {
+        usedWindowMS = EXTENDED_LOOKBACK_WINDOW_MS;
+        result = await runWithWindow(usedWindowMS);
+        setLookbackWindowMS(EXTENDED_LOOKBACK_WINDOW_MS);
+        setIsUsingExtendedWindow(true);
+        if (!options.silent) {
+          message.info('近 30 分钟暂无日志，已自动扩展到最近 24 小时');
+        }
+      } else {
+        setLookbackWindowMS(usedWindowMS);
+        setIsUsingExtendedWindow(usedWindowMS > DEFAULT_LOOKBACK_WINDOW_MS);
+      }
+
       setLogs(result.hits);
       setTotal(result.total);
       setCurrentPage(result.page);
@@ -139,8 +235,15 @@ const RealtimeSearch: React.FC = () => {
 
   useEffect(() => {
     // 页面首次加载执行一次真实查询。
-    void executeQuery({ queryText: '', page: 1, pageSize, silent: true });
-  }, [executeQuery, pageSize]);
+    void executeQuery({
+      queryText: '',
+      page: 1,
+      pageSize,
+      silent: true,
+      lookbackWindowMS,
+      allowAutoWindowFallback: true,
+    });
+  }, [executeQuery, pageSize, lookbackWindowMS]);
 
   useEffect(() => {
     // 实时模式下按 5 秒轮询当前条件。
@@ -153,16 +256,50 @@ const RealtimeSearch: React.FC = () => {
         page: 1,
         pageSize,
         silent: true,
+        lookbackWindowMS,
+        allowAutoWindowFallback: false,
       });
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [activeQuery, executeQuery, isLive, pageSize]);
+  }, [activeQuery, executeQuery, isLive, lookbackWindowMS, pageSize]);
+
+  useEffect(() => {
+    const state = (location.state as RealtimeNavigationState | null) ?? null;
+    const presetQuery = state?.presetQuery?.trim() ?? '';
+    if (!state?.autoRun || !presetQuery) {
+      return;
+    }
+    setQuery(presetQuery);
+    setActiveQuery(presetQuery);
+    void executeQuery({
+      queryText: presetQuery,
+      page: 1,
+      pageSize,
+      silent: false,
+      recordHistory: true,
+      lookbackWindowMS,
+      allowAutoWindowFallback: true,
+    });
+    navigate(location.pathname, { replace: true, state: null });
+  }, [executeQuery, location.pathname, location.state, lookbackWindowMS, navigate, pageSize]);
 
   // 直方图数据
   const histogramData = useMemo(() => buildHistogramData(logs), [logs]);
   const totalEvents = useMemo(
     () => histogramData.reduce((sum, d) => sum + d.normal + d.error, 0),
     [histogramData],
+  );
+  const lookbackWindowLabel = useMemo(() => formatLookbackWindow(lookbackWindowMS), [lookbackWindowMS]);
+  const normalizedStructuredFields = useMemo(() => {
+    const normalized = normalizeStructuredValue(selectedLog?.fields ?? {});
+    if (normalized && typeof normalized === 'object' && !Array.isArray(normalized)) {
+      return normalized as Record<string, unknown>;
+    }
+    return {};
+  }, [selectedLog?.fields]);
+  const normalizedStructuredFieldsText = useMemo(
+    () => JSON.stringify(normalizedStructuredFields, null, 2),
+    [normalizedStructuredFields],
   );
 
   // 打开日志详情
@@ -181,8 +318,24 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: false,
+      recordHistory: true,
+      lookbackWindowMS,
+      allowAutoWindowFallback: true,
     });
-  }, [executeQuery, pageSize]);
+  }, [executeQuery, lookbackWindowMS, pageSize]);
+
+  const resetToRealtimeWindow = useCallback(() => {
+    setLookbackWindowMS(DEFAULT_LOOKBACK_WINDOW_MS);
+    setIsUsingExtendedWindow(false);
+    void executeQuery({
+      queryText: activeQuery,
+      page: 1,
+      pageSize,
+      silent: false,
+      lookbackWindowMS: DEFAULT_LOOKBACK_WINDOW_MS,
+      allowAutoWindowFallback: false,
+    });
+  }, [activeQuery, executeQuery, pageSize]);
 
   // 直方图 ECharts 配置
   const histogramOption: EChartsCoreOption = useMemo(() => ({
@@ -273,6 +426,8 @@ const RealtimeSearch: React.FC = () => {
       <div className="flex flex-col gap-3">
         <div className="flex gap-2 items-center flex-wrap">
           <Input.Search
+            id="realtime-query-input"
+            name="realtime-query"
             placeholder='输入查询语句，例如: level:error AND service:"payment-service"'
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -315,7 +470,7 @@ const RealtimeSearch: React.FC = () => {
       {/* 事件量直方图 */}
       <ChartWrapper
         title="事件量分布"
-        subtitle={`最近 30 分钟（当前页）· 共 ${totalEvents.toLocaleString()} 条`}
+        subtitle={`${lookbackWindowLabel}（当前页）· 共 ${totalEvents.toLocaleString()} 条`}
         option={histogramOption}
         height={160}
       />
@@ -340,6 +495,16 @@ const RealtimeSearch: React.FC = () => {
               共 {total.toLocaleString()} 条结果 · 耗时 {queryTimeMS}ms
             </span>
             {queryTimedOut && <Tag color="warning" style={{ margin: 0 }}>查询超时</Tag>}
+            {isUsingExtendedWindow && (
+              <Tag color="processing" style={{ margin: 0 }}>
+                当前窗口：最近 24 小时
+              </Tag>
+            )}
+            {isUsingExtendedWindow && (
+              <Button size="small" onClick={resetToRealtimeWindow}>
+                切回 30 分钟
+              </Button>
+            )}
           </div>
           <Space size="small">
             <Tooltip title="列设置">
@@ -373,6 +538,8 @@ const RealtimeSearch: React.FC = () => {
                 page,
                 pageSize: size,
                 silent: true,
+                lookbackWindowMS,
+                allowAutoWindowFallback: false,
               });
             },
             position: ['bottomLeft'],
@@ -593,8 +760,7 @@ const RealtimeSearch: React.FC = () => {
                   style={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}
                   icon={<span className="material-symbols-outlined text-sm">content_copy</span>}
                   onClick={() => {
-                    const json = JSON.stringify(selectedLog.fields ?? {}, null, 2);
-                    navigator.clipboard.writeText(json).then(() => message.success('已复制 JSON'));
+                    navigator.clipboard.writeText(normalizedStructuredFieldsText).then(() => message.success('已复制 JSON'));
                   }}
                 >
                   复制 JSON
@@ -609,7 +775,7 @@ const RealtimeSearch: React.FC = () => {
                   overflow: 'auto',
                 }}
               >
-                {JSON.stringify(selectedLog.fields ?? {}, null, 2)}
+                {normalizedStructuredFieldsText}
               </div>
             </div>
 

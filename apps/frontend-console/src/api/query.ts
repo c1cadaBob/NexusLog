@@ -5,6 +5,13 @@ const ACCESS_TOKEN_KEY = 'nexuslog-access-token';
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
 const TOKEN_EXPIRES_AT_KEY = 'nexuslog-token-expires-at';
 const EMERGENCY_ACCESS_TOKEN_PREFIX = 'emergency-access-';
+const LOCAL_QUERY_HISTORY_KEY = 'nexuslog-local-query-history';
+const LOCAL_SAVED_QUERIES_KEY = 'nexuslog-local-saved-queries';
+const LOCAL_QUERY_HISTORY_LIMIT = 200;
+const LOCAL_QUERY_HISTORY_DEDUP_WINDOW_MS = 1500;
+const LOG_LEVEL_TOKEN_PATTERN = /\b(trace|debug|info|warn(?:ing)?|error|fatal|panic)\b/i;
+const ANSI_COLOR_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+const CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
 
 interface RuntimeConfigWithTenant {
   apiBaseUrl: string;
@@ -66,6 +73,8 @@ interface QueryLogsPayload {
     from?: string;
     to?: string;
   };
+  /** 仅用于前端本地功能：是否写入本地查询历史 */
+  recordHistory?: boolean;
 }
 
 export interface QueryLogsResult {
@@ -133,6 +142,18 @@ class QueryApiAuthError extends Error {
   }
 }
 
+class QueryApiRequestError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = 'QueryApiRequestError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
 function normalizeApiBaseUrl(rawBaseUrl: string): string {
   const normalized = (rawBaseUrl || '/api/v1').trim();
   if (!normalized) {
@@ -149,6 +170,95 @@ function resolveTenantId(config: RuntimeConfigWithTenant): string {
   return (config.tenantId ?? config.tenantID ?? '').trim();
 }
 
+function unwrapMessageForLevel(message: unknown): string {
+  const raw = String(message ?? '').trim();
+  if (!raw) {
+    return '';
+  }
+  if (!raw.startsWith('{') || !raw.endsWith('}')) {
+    return raw;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return raw;
+    }
+    const payload = parsed as Record<string, unknown>;
+    for (const key of ['log', 'message', 'msg', 'raw_log']) {
+      const candidate = String(payload[key] ?? '').trim();
+      if (!candidate) {
+        continue;
+      }
+      return candidate;
+    }
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
+function sanitizeDisplayMessage(message: string): string {
+  if (!message) {
+    return '';
+  }
+  let cleaned = message.replace(ANSI_COLOR_PATTERN, '');
+  cleaned = cleaned.replace(/\r\n?/g, '\n');
+  cleaned = cleaned.replace(/\t/g, ' ');
+  cleaned = cleaned.replace(CONTROL_CHAR_PATTERN, ' ');
+  cleaned = cleaned.replace(/\n+/g, ' ');
+  cleaned = cleaned.replace(/\s{2,}/g, ' ');
+  return cleaned.trim();
+}
+
+function normalizeDisplayMessage(message: unknown): string {
+  const raw = String(message ?? '').trim();
+  if (!raw) {
+    return '';
+  }
+  const unwrapped = unwrapMessageForLevel(raw);
+  return sanitizeDisplayMessage(unwrapped || raw);
+}
+
+function detectExplicitLevelFromMessage(message: unknown): LogEntry['level'] | null {
+  const text = unwrapMessageForLevel(message);
+  if (!text) {
+    return null;
+  }
+  const matched = text.match(LOG_LEVEL_TOKEN_PATTERN);
+  if (!matched?.[1]) {
+    return null;
+  }
+  const token = matched[1].trim().toLowerCase();
+  if (token === 'warn' || token === 'warning') {
+    return 'warn';
+  }
+  if (token === 'error' || token === 'fatal' || token === 'panic') {
+    return 'error';
+  }
+  if (token === 'debug' || token === 'trace') {
+    return 'debug';
+  }
+  if (token === 'info') {
+    return 'info';
+  }
+  return null;
+}
+
+function earliestKeywordIndex(text: string, keywords: string[]): number {
+  let result = -1;
+  keywords.forEach((keyword) => {
+    const index = text.indexOf(keyword);
+    if (index < 0) {
+      return;
+    }
+    if (result < 0 || index < result) {
+      result = index;
+    }
+  });
+  return result;
+}
+
 function normalizeLevel(rawLevel: unknown, message: unknown): LogEntry['level'] {
   const level = String(rawLevel ?? '').trim().toLowerCase();
   if (level === 'error') return 'error';
@@ -156,12 +266,19 @@ function normalizeLevel(rawLevel: unknown, message: unknown): LogEntry['level'] 
   if (level === 'debug') return 'debug';
   if (level === 'info') return 'info';
 
-  const text = String(message ?? '').toLowerCase();
-  if (text.includes('error') || text.includes('panic') || text.includes('fatal') || text.includes('fail')) {
-    return 'error';
+  const explicit = detectExplicitLevelFromMessage(message);
+  if (explicit) {
+    return explicit;
   }
-  if (text.includes('warn')) {
+
+  const text = String(message ?? '').toLowerCase();
+  const warnIndex = earliestKeywordIndex(text, ['warn', 'warning']);
+  const errorIndex = earliestKeywordIndex(text, ['error', 'panic', 'fatal', 'fail']);
+  if (warnIndex >= 0 && (errorIndex < 0 || warnIndex < errorIndex)) {
     return 'warn';
+  }
+  if (errorIndex >= 0) {
+    return 'error';
   }
   if (text.includes('debug')) {
     return 'debug';
@@ -171,17 +288,20 @@ function normalizeLevel(rawLevel: unknown, message: unknown): LogEntry['level'] 
 
 function normalizeHit(hit: QueryLogsApiHit, index: number): LogEntry {
   const timestamp = String(hit.timestamp ?? '').trim() || new Date().toISOString();
-  const message = String(hit.message ?? '').trim() || '(empty message)';
+  const sourceMessage = String(hit.message ?? '').trim();
+  const message = normalizeDisplayMessage(sourceMessage) || '(empty message)';
   const fields = hit.fields ?? {};
   const service = String(hit.service ?? fields['service'] ?? fields['agent_id'] ?? fields['source_id'] ?? 'unknown').trim() || 'unknown';
+  const rawLogSource = hit.raw_log ?? fields['raw_log'] ?? fields['data'] ?? sourceMessage;
+  const rawLog = String(rawLogSource || message);
 
   return {
     id: String(hit.id ?? fields['record_id'] ?? `log-${index + 1}`).trim() || `log-${index + 1}`,
     timestamp,
-    level: normalizeLevel(hit.level, message),
+    level: normalizeLevel(hit.level, sourceMessage || message),
     service,
     message,
-    rawLog: String(hit.raw_log ?? fields['raw_log'] ?? fields['data'] ?? message),
+    rawLog,
     fields,
   };
 }
@@ -217,6 +337,226 @@ function toPositiveNumber(raw: unknown, fallback: number): number {
     return fallback;
   }
   return Math.floor(parsed);
+}
+
+function createLocalID(prefix: string): string {
+  const random = Math.random().toString(36).slice(2, 10);
+  return `${prefix}-${Date.now()}-${random}`;
+}
+
+function readLocalList<T>(storageKey: string): T[] {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed as T[];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalList<T>(storageKey: string, items: T[]): void {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(items));
+  } catch {
+    // ignore localStorage write errors
+  }
+}
+
+function readLocalQueryHistory(): QueryHistory[] {
+  const rawItems = readLocalList<QueryHistory>(LOCAL_QUERY_HISTORY_KEY);
+  return rawItems
+    .filter((item) => Boolean(item?.id) && Boolean(item?.query))
+    .map((item) => ({
+      id: String(item.id),
+      query: String(item.query),
+      executedAt: String(item.executedAt ?? new Date().toISOString()),
+      duration: Number(item.duration ?? 0),
+      resultCount: Number(item.resultCount ?? 0),
+    }));
+}
+
+function writeLocalQueryHistory(items: QueryHistory[]): void {
+  writeLocalList(LOCAL_QUERY_HISTORY_KEY, items);
+}
+
+function readLocalSavedQueries(): SavedQuery[] {
+  const rawItems = readLocalList<SavedQuery>(LOCAL_SAVED_QUERIES_KEY);
+  return rawItems
+    .filter((item) => Boolean(item?.id) && Boolean(item?.name))
+    .map((item) => ({
+      id: String(item.id),
+      name: String(item.name),
+      query: String(item.query ?? ''),
+      tags: Array.isArray(item.tags)
+        ? item.tags.map((tag) => String(tag)).filter(Boolean)
+        : [],
+      createdAt: String(item.createdAt ?? new Date().toISOString()),
+    }));
+}
+
+function writeLocalSavedQueries(items: SavedQuery[]): void {
+  writeLocalList(LOCAL_SAVED_QUERIES_KEY, items);
+}
+
+function toPagedResult<T>(
+  source: T[],
+  page: number,
+  pageSize: number,
+): { items: T[]; total: number; page: number; pageSize: number; hasNext: boolean } {
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.max(1, pageSize);
+  const total = source.length;
+  const start = (safePage - 1) * safePageSize;
+  const items = source.slice(start, start + safePageSize);
+  return {
+    items,
+    total,
+    page: safePage,
+    pageSize: safePageSize,
+    hasNext: start + safePageSize < total,
+  };
+}
+
+function buildLocalQueryHistoryResult(params: QueryHistoryListParams): QueryHistoryListResult {
+  const keyword = params.keyword?.trim().toLowerCase() ?? '';
+  const fromMs = params.from ? Date.parse(params.from) : Number.NaN;
+  const toMs = params.to ? Date.parse(params.to) : Number.NaN;
+
+  const filtered = readLocalQueryHistory()
+    .filter((item) => {
+      if (keyword && !item.query.toLowerCase().includes(keyword)) {
+        return false;
+      }
+      const executedAtMs = Date.parse(item.executedAt);
+      if (Number.isFinite(fromMs) && Number.isFinite(executedAtMs) && executedAtMs < fromMs) {
+        return false;
+      }
+      if (Number.isFinite(toMs) && Number.isFinite(executedAtMs) && executedAtMs > toMs) {
+        return false;
+      }
+      return true;
+    })
+    .sort((a, b) => Date.parse(b.executedAt) - Date.parse(a.executedAt));
+
+  const paged = toPagedResult(filtered, params.page, params.pageSize);
+  return {
+    items: paged.items,
+    total: paged.total,
+    page: paged.page,
+    pageSize: paged.pageSize,
+    hasNext: paged.hasNext,
+  };
+}
+
+function buildLocalSavedQueryResult(params: SavedQueryListParams): SavedQueryListResult {
+  const keyword = params.keyword?.trim().toLowerCase() ?? '';
+  const tag = params.tag?.trim() ?? '';
+
+  const filtered = readLocalSavedQueries()
+    .filter((item) => {
+      if (keyword) {
+        const inName = item.name.toLowerCase().includes(keyword);
+        const inQuery = item.query.toLowerCase().includes(keyword);
+        if (!inName && !inQuery) {
+          return false;
+        }
+      }
+      if (tag && !item.tags.includes(tag)) {
+        return false;
+      }
+      return true;
+    })
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+
+  const paged = toPagedResult(filtered, params.page, params.pageSize);
+  return {
+    items: paged.items,
+    total: paged.total,
+    page: paged.page,
+    pageSize: paged.pageSize,
+    hasNext: paged.hasNext,
+  };
+}
+
+function appendLocalQueryHistory(query: string, durationMS: number, resultCount: number): void {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    return;
+  }
+  const current = readLocalQueryHistory();
+  const nowMs = Date.now();
+  const latest = current[0];
+  if (
+    latest
+    && latest.query === trimmedQuery
+    && Number.isFinite(Date.parse(latest.executedAt))
+    && nowMs - Date.parse(latest.executedAt) <= LOCAL_QUERY_HISTORY_DEDUP_WINDOW_MS
+  ) {
+    latest.duration = Math.max(0, Math.floor(durationMS));
+    latest.resultCount = Math.max(0, Math.floor(resultCount));
+    writeLocalQueryHistory(current);
+    return;
+  }
+  const next: QueryHistory = {
+    id: createLocalID('query-history'),
+    query: trimmedQuery,
+    executedAt: new Date(nowMs).toISOString(),
+    duration: Math.max(0, Math.floor(durationMS)),
+    resultCount: Math.max(0, Math.floor(resultCount)),
+  };
+  current.unshift(next);
+  writeLocalQueryHistory(current.slice(0, LOCAL_QUERY_HISTORY_LIMIT));
+}
+
+function saveLocalSavedQuery(item: SavedQuery): SavedQuery {
+  const current = readLocalSavedQueries();
+  const existingIndex = current.findIndex((candidate) => candidate.id === item.id);
+  if (existingIndex >= 0) {
+    current[existingIndex] = item;
+  } else {
+    current.unshift(item);
+  }
+  writeLocalSavedQueries(current);
+  return item;
+}
+
+function removeLocalSavedQuery(savedQueryID: string): boolean {
+  const current = readLocalSavedQueries();
+  const next = current.filter((item) => item.id !== savedQueryID);
+  if (next.length === current.length) {
+    return false;
+  }
+  writeLocalSavedQueries(next);
+  return true;
+}
+
+function removeLocalQueryHistory(historyID: string): boolean {
+  const current = readLocalQueryHistory();
+  const next = current.filter((item) => item.id !== historyID);
+  if (next.length === current.length) {
+    return false;
+  }
+  writeLocalQueryHistory(next);
+  return true;
+}
+
+function shouldFallbackToLocalStore(error: unknown): boolean {
+  if (error instanceof QueryApiAuthError) {
+    return true;
+  }
+  if (!(error instanceof QueryApiRequestError)) {
+    return false;
+  }
+  if (error.status >= 500 || error.status === 404) {
+    return true;
+  }
+  return error.code === 'QUERY_SERVICE_UNAVAILABLE' || error.code === 'QUERY_INTERNAL_ERROR';
 }
 
 function getQueryApiBasePath(): string {
@@ -257,15 +597,6 @@ function buildAuthHeaders(accessToken: string): Record<string, string> {
   return headers;
 }
 
-function clearAccessSessionOnUnauthorized(): void {
-  try {
-    window.localStorage.removeItem(ACCESS_TOKEN_KEY);
-    window.localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
-  } catch {
-    // ignore localStorage unavailable errors
-  }
-}
-
 async function requestQueryApi<TData>(
   path: string,
   options: {
@@ -292,42 +623,23 @@ async function requestQueryApi<TData>(
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<TData> | null;
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      if (response.status === 401) {
-        clearAccessSessionOnUnauthorized();
-      }
       throw new QueryApiAuthError(
         'AUTH_UNAUTHORIZED',
         envelope?.message ?? '当前会话未授权，请重新登录',
         response.status,
       );
     }
-    throw new Error(envelope?.message ?? `query api request failed: HTTP ${response.status}`);
+    throw new QueryApiRequestError(
+      response.status,
+      envelope?.code ?? 'QUERY_API_REQUEST_FAILED',
+      envelope?.message ?? `query api request failed: HTTP ${response.status}`,
+    );
   }
   return envelope ?? {
     code: 'OK',
     message: 'success',
     data: undefined,
     meta: {},
-  };
-}
-
-function buildEmptyQueryHistoryResult(params: QueryHistoryListParams): QueryHistoryListResult {
-  return {
-    items: [],
-    total: 0,
-    page: Math.max(1, params.page),
-    pageSize: Math.max(1, params.pageSize),
-    hasNext: false,
-  };
-}
-
-function buildEmptySavedQueryResult(params: SavedQueryListParams): SavedQueryListResult {
-  return {
-    items: [],
-    total: 0,
-    page: Math.max(1, params.page),
-    pageSize: Math.max(1, params.pageSize),
-    hasNext: false,
   };
 }
 
@@ -363,7 +675,7 @@ export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<Quer
   const queryTimeMS = Number(envelope.meta?.query_time_ms ?? 0);
   const timedOut = Boolean(envelope.meta?.timed_out ?? false);
 
-  return {
+  const result: QueryLogsResult = {
     hits,
     total: Number.isFinite(total) ? total : hits.length,
     page: Number.isFinite(page) ? page : payload.page,
@@ -373,11 +685,15 @@ export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<Quer
     timedOut,
     aggregations: envelope.data?.aggregations ?? {},
   };
+  if (payload.recordHistory) {
+    appendLocalQueryHistory(payload.keywords, result.queryTimeMS, result.total);
+  }
+  return result;
 }
 
 export async function fetchQueryHistory(params: QueryHistoryListParams): Promise<QueryHistoryListResult> {
   if (shouldUseQueryCollectionFallback()) {
-    return buildEmptyQueryHistoryResult(params);
+    return buildLocalQueryHistoryResult(params);
   }
 
   try {
@@ -395,31 +711,49 @@ export async function fetchQueryHistory(params: QueryHistoryListParams): Promise
     const total = toPositiveNumber(envelope.meta?.total, items.length);
     const page = toPositiveNumber(envelope.meta?.page, params.page);
     const pageSize = toPositiveNumber(envelope.meta?.page_size, params.pageSize);
-    return {
+    const backendResult: QueryHistoryListResult = {
       items,
       total,
       page,
       pageSize,
       hasNext: Boolean(envelope.meta?.has_next ?? page * pageSize < total),
     };
+    if (backendResult.total === 0) {
+      const localResult = buildLocalQueryHistoryResult(params);
+      if (localResult.total > 0) {
+        return localResult;
+      }
+    }
+    return backendResult;
   } catch (error) {
-    if (error instanceof QueryApiAuthError) {
-      return buildEmptyQueryHistoryResult(params);
+    if (shouldFallbackToLocalStore(error)) {
+      return buildLocalQueryHistoryResult(params);
     }
     throw error;
   }
 }
 
 export async function deleteQueryHistory(historyID: string): Promise<boolean> {
-  const envelope = await requestQueryApi<{ deleted?: boolean }>(`/history/${encodeURIComponent(historyID)}`, {
-    method: 'DELETE',
-  });
-  return Boolean(envelope.data?.deleted);
+  if (shouldUseQueryCollectionFallback()) {
+    return removeLocalQueryHistory(historyID);
+  }
+
+  try {
+    const envelope = await requestQueryApi<{ deleted?: boolean }>(`/history/${encodeURIComponent(historyID)}`, {
+      method: 'DELETE',
+    });
+    return Boolean(envelope.data?.deleted);
+  } catch (error) {
+    if (shouldFallbackToLocalStore(error)) {
+      return removeLocalQueryHistory(historyID);
+    }
+    throw error;
+  }
 }
 
 export async function fetchSavedQueries(params: SavedQueryListParams): Promise<SavedQueryListResult> {
   if (shouldUseQueryCollectionFallback()) {
-    return buildEmptySavedQueryResult(params);
+    return buildLocalSavedQueryResult(params);
   }
 
   try {
@@ -436,66 +770,130 @@ export async function fetchSavedQueries(params: SavedQueryListParams): Promise<S
     const total = toPositiveNumber(envelope.meta?.total, items.length);
     const page = toPositiveNumber(envelope.meta?.page, params.page);
     const pageSize = toPositiveNumber(envelope.meta?.page_size, params.pageSize);
-    return {
+    const backendResult: SavedQueryListResult = {
       items,
       total,
       page,
       pageSize,
       hasNext: Boolean(envelope.meta?.has_next ?? page * pageSize < total),
     };
+    if (backendResult.total === 0) {
+      const localResult = buildLocalSavedQueryResult(params);
+      if (localResult.total > 0) {
+        return localResult;
+      }
+    }
+    return backendResult;
   } catch (error) {
-    if (error instanceof QueryApiAuthError) {
-      return buildEmptySavedQueryResult(params);
+    if (shouldFallbackToLocalStore(error)) {
+      return buildLocalSavedQueryResult(params);
     }
     throw error;
   }
 }
 
 export async function createSavedQuery(payload: SavedQueryUpsertPayload): Promise<SavedQuery> {
-  const envelope = await requestQueryApi<{ item?: SavedQueryApiItem; saved_query_id?: string }>('/saved', {
-    method: 'POST',
-    body: {
+  const localItem: SavedQuery = {
+    id: createLocalID('saved-query'),
+    name: payload.name.trim() || '未命名查询',
+    query: payload.query.trim(),
+    tags: payload.tags,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (shouldUseQueryCollectionFallback()) {
+    return saveLocalSavedQuery(localItem);
+  }
+
+  try {
+    const envelope = await requestQueryApi<{ item?: SavedQueryApiItem; saved_query_id?: string }>('/saved', {
+      method: 'POST',
+      body: {
+        name: payload.name,
+        query: payload.query,
+        tags: payload.tags,
+        description: payload.description ?? '',
+        filters: payload.filters ?? {},
+      },
+    });
+    const item = envelope.data?.item ?? {
+      id: envelope.data?.saved_query_id,
       name: payload.name,
       query: payload.query,
       tags: payload.tags,
-      description: payload.description ?? '',
-      filters: payload.filters ?? {},
-    },
-  });
-  const item = envelope.data?.item ?? {
-    id: envelope.data?.saved_query_id,
-    name: payload.name,
-    query: payload.query,
-    tags: payload.tags,
-    created_at: new Date().toISOString(),
-  };
-  return normalizeSavedQuery(item, 0);
+      created_at: new Date().toISOString(),
+    };
+    const normalized = normalizeSavedQuery(item, 0);
+    saveLocalSavedQuery(normalized);
+    return normalized;
+  } catch (error) {
+    if (shouldFallbackToLocalStore(error)) {
+      return saveLocalSavedQuery(localItem);
+    }
+    throw error;
+  }
 }
 
 export async function updateSavedQuery(savedQueryID: string, payload: SavedQueryUpsertPayload): Promise<SavedQuery> {
-  const envelope = await requestQueryApi<{ item?: SavedQueryApiItem }>(`/saved/${encodeURIComponent(savedQueryID)}`, {
-    method: 'PUT',
-    body: {
+  const localItem: SavedQuery = {
+    id: savedQueryID,
+    name: payload.name.trim() || '未命名查询',
+    query: payload.query.trim(),
+    tags: payload.tags,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (shouldUseQueryCollectionFallback()) {
+    return saveLocalSavedQuery(localItem);
+  }
+
+  try {
+    const envelope = await requestQueryApi<{ item?: SavedQueryApiItem }>(`/saved/${encodeURIComponent(savedQueryID)}`, {
+      method: 'PUT',
+      body: {
+        name: payload.name,
+        query: payload.query,
+        tags: payload.tags,
+        description: payload.description ?? '',
+        filters: payload.filters ?? {},
+      },
+    });
+    const item = envelope.data?.item ?? {
+      id: savedQueryID,
       name: payload.name,
       query: payload.query,
       tags: payload.tags,
-      description: payload.description ?? '',
-      filters: payload.filters ?? {},
-    },
-  });
-  const item = envelope.data?.item ?? {
-    id: savedQueryID,
-    name: payload.name,
-    query: payload.query,
-    tags: payload.tags,
-    created_at: new Date().toISOString(),
-  };
-  return normalizeSavedQuery(item, 0);
+      created_at: new Date().toISOString(),
+    };
+    const normalized = normalizeSavedQuery(item, 0);
+    saveLocalSavedQuery(normalized);
+    return normalized;
+  } catch (error) {
+    if (shouldFallbackToLocalStore(error)) {
+      return saveLocalSavedQuery(localItem);
+    }
+    throw error;
+  }
 }
 
 export async function deleteSavedQuery(savedQueryID: string): Promise<boolean> {
-  const envelope = await requestQueryApi<{ deleted?: boolean }>(`/saved/${encodeURIComponent(savedQueryID)}`, {
-    method: 'DELETE',
-  });
-  return Boolean(envelope.data?.deleted);
+  if (shouldUseQueryCollectionFallback()) {
+    return removeLocalSavedQuery(savedQueryID);
+  }
+
+  try {
+    const envelope = await requestQueryApi<{ deleted?: boolean }>(`/saved/${encodeURIComponent(savedQueryID)}`, {
+      method: 'DELETE',
+    });
+    const deleted = Boolean(envelope.data?.deleted);
+    if (deleted) {
+      removeLocalSavedQuery(savedQueryID);
+    }
+    return deleted;
+  } catch (error) {
+    if (shouldFallbackToLocalStore(error)) {
+      return removeLocalSavedQuery(savedQueryID);
+    }
+    throw error;
+  }
 }

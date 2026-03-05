@@ -153,17 +153,24 @@ const SavedQueries: React.FC = () => {
   const handleExecute = useCallback(async (item: SavedQuery) => {
     try {
       await navigator.clipboard.writeText(item.query);
-      msg.success('已复制查询语句并跳转实时检索');
+      msg.success('已执行收藏查询并同步到剪贴板');
     } catch {
       msg.info(`请在实时检索页执行: ${item.query}`);
     }
-    navigate('/search/realtime');
+    navigate('/search/realtime', {
+      state: {
+        autoRun: true,
+        presetQuery: item.query,
+      },
+    });
   }, [msg, navigate]);
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3 flex-wrap">
         <Input.Search
+          id="saved-query-search"
+          name="saved-query-search"
           placeholder="搜索查询名称或语句..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
@@ -334,6 +341,7 @@ const SavedQueries: React.FC = () => {
         }}
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
+        forceRender
         destroyOnHidden
       >
         <Form form={form} layout="vertical" className="mt-4">

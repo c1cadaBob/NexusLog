@@ -68,11 +68,16 @@ const SearchHistory: React.FC = () => {
   const handleReplay = useCallback(async (record: QueryHistory) => {
     try {
       await navigator.clipboard.writeText(record.query);
-      message.success('已复制查询语句并跳转到实时检索');
+      message.success('已执行历史查询并同步到剪贴板');
     } catch {
       message.info(`请在实时检索页执行: ${record.query}`);
     }
-    navigate('/search/realtime');
+    navigate('/search/realtime', {
+      state: {
+        autoRun: true,
+        presetQuery: record.query,
+      },
+    });
   }, [message, navigate]);
 
   const handleBookmark = useCallback(async (record: QueryHistory) => {
@@ -194,6 +199,8 @@ const SearchHistory: React.FC = () => {
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3 flex-wrap">
         <Input.Search
+          id="search-history-keyword"
+          name="search-history-keyword"
           placeholder="搜索查询语句..."
           value={keywordInput}
           onChange={(e) => setKeywordInput(e.target.value)}
@@ -202,6 +209,7 @@ const SearchHistory: React.FC = () => {
           style={{ width: 300 }}
         />
         <DatePicker.RangePicker
+          id={{ start: 'search-history-start', end: 'search-history-end' }}
           showTime={{ format: 'HH:mm:ss' }}
           format="YYYY-MM-DD HH:mm:ss"
           onChange={(dates) => {
