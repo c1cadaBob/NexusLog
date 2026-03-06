@@ -72,37 +72,30 @@ func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSou
 		agentID = strings.TrimSpace(source.SourceID)
 	}
 
+	tenantID, retentionPolicy := resolveGovernanceFromTask(task)
+	batchID := strings.TrimSpace(response.BatchID)
+
 	var payload bytes.Buffer
 	for _, record := range response.Records {
-		docID := fmt.Sprintf("%s:%s:%s", agentID, strings.TrimSpace(response.BatchID), strings.TrimSpace(record.RecordID))
+		displaySourcePath := normalizeSourcePathForDisplay(strings.TrimSpace(record.Source))
+		doc := BuildLogDocument(record, agentID, batchID, displaySourcePath, tenantID, retentionPolicy)
+		eventID := doc.Event.EventID
+
 		action := map[string]any{
 			"index": map[string]any{
 				"_index": s.indexName,
-				"_id":    docID,
+				"_id":    eventID,
 			},
 		}
 		actionRaw, _ := json.Marshal(action)
 		payload.Write(actionRaw)
 		payload.WriteByte('\n')
 
-		internalSourcePath := strings.TrimSpace(record.Source)
-		displaySourcePath := normalizeSourcePathForDisplay(internalSourcePath)
-		doc := map[string]any{
-			"@timestamp":      toRFC3339Nano(record.Timestamp),
-			"message":         record.Data,
-			"source":          displaySourcePath,
-			"source_path":     displaySourcePath,
-			"source_internal": internalSourcePath,
-			"offset":          record.Offset,
-			"sequence":        record.Sequence,
-			"record_id":       record.RecordID,
-			"batch_id":        response.BatchID,
-			"task_id":         task.TaskID,
-			"source_id":       source.SourceID,
-			"request_id":      task.RequestID,
-			"metadata":        record.Metadata,
+		esDoc := doc.ToESDocument()
+		if len(record.Metadata) > 0 {
+			esDoc["metadata"] = record.Metadata
 		}
-		docRaw, _ := json.Marshal(doc)
+		docRaw, _ := json.Marshal(esDoc)
 		payload.Write(docRaw)
 		payload.WriteByte('\n')
 	}
@@ -184,4 +177,18 @@ func toRFC3339Nano(ts int64) string {
 		return time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	return time.Unix(0, ts).UTC().Format(time.RFC3339Nano)
+}
+
+// resolveGovernanceFromTask 从 task.Options 解析 tenant_id 与 retention_policy。
+func resolveGovernanceFromTask(task PullTask) (tenantID, retentionPolicy string) {
+	if task.Options == nil {
+		return "", ""
+	}
+	if v, ok := task.Options["tenant_id"].(string); ok {
+		tenantID = strings.TrimSpace(v)
+	}
+	if v, ok := task.Options["retention_policy"].(string); ok {
+		retentionPolicy = strings.TrimSpace(v)
+	}
+	return tenantID, retentionPolicy
 }

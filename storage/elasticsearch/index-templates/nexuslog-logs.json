@@ -1,6 +1,6 @@
 {
   "_comment": "NexusLog 日志索引模板 | change_level: cab | 生效时间: 发布窗口",
-  "_description": "定义日志数据的字段映射、分片策略和索引设置。涉及分片策略变更时需 CAB 审批。",
+  "_description": "定义五层字段模型（doc20）的字段映射、分片策略和索引设置。_id 使用 event_id 保证幂等写入。",
   "index_patterns": ["nexuslog-logs-*"],
   "priority": 200,
   "data_stream": {},
@@ -27,17 +27,20 @@
     "mappings": {
       "dynamic": "strict",
       "properties": {
-        "@timestamp": {
-          "type": "date",
-          "format": "strict_date_optional_time||epoch_millis"
+        "raw_message": {
+          "type": "text",
+          "index": false
         },
-        "ingested_at": {
-          "type": "date",
-          "format": "strict_date_optional_time||epoch_millis"
+        "event_id": {
+          "type": "keyword"
         },
         "level": {
           "type": "keyword",
           "doc_values": true
+        },
+        "timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
         },
         "message": {
           "type": "text",
@@ -49,24 +52,54 @@
             }
           }
         },
-        "service": {
-          "type": "keyword",
-          "doc_values": true
-        },
         "source": {
           "type": "keyword"
         },
-        "trace_id": {
+        "agent_id": {
           "type": "keyword"
         },
-        "span_id": {
+        "batch_id": {
+          "type": "keyword"
+        },
+        "collect_time": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "sequence": {
+          "type": "long"
+        },
+        "ingested_at": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "schema_version": {
+          "type": "keyword"
+        },
+        "pipeline_version": {
           "type": "keyword"
         },
         "tenant_id": {
           "type": "keyword",
           "doc_values": true
         },
-        "agent_id": {
+        "retention_policy": {
+          "type": "keyword"
+        },
+        "pii_masked": {
+          "type": "boolean"
+        },
+        "@timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "service": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "trace_id": {
+          "type": "keyword"
+        },
+        "span_id": {
           "type": "keyword"
         },
         "host": {
@@ -111,8 +144,8 @@
     }
   },
   "_meta": {
-    "description": "NexusLog 日志数据索引模板",
-    "version": "1.0.0",
+    "description": "NexusLog 五层字段模型（doc20）日志索引模板",
+    "version": "1.1.0",
     "change_level": "cab",
     "managed_by": "nexuslog-platform"
   }
