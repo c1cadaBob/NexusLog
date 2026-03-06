@@ -392,7 +392,7 @@ func RegisterRoutes(mux *http.ServeMux, svc *Service, meta MetaInfo, auth AuthCo
 			writeError(w, http.StatusBadRequest, ErrorCodeInvalidParams, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, resp)
+		writeJSONCompressed(w, http.StatusOK, resp, r)
 	})
 
 	mux.HandleFunc("/agent/v1/logs/ack", func(w http.ResponseWriter, r *http.Request) {
