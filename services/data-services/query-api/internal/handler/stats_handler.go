@@ -1,0 +1,57 @@
+package handler
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/nexuslog/data-services/query-api/internal/service"
+)
+
+// StatsHandler handles stats HTTP endpoints.
+type StatsHandler struct {
+	svc *service.StatsService
+}
+
+// NewStatsHandler creates a new stats handler.
+func NewStatsHandler(svc *service.StatsService) *StatsHandler {
+	return &StatsHandler{svc: svc}
+}
+
+// GetOverviewStats GET /api/v1/query/stats/overview
+func (h *StatsHandler) GetOverviewStats(c *gin.Context) {
+	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	if tenantID == "" {
+		tenantID = service.DefaultTenantID
+	}
+
+	stats, err := h.svc.GetOverviewStats(c.Request.Context(), tenantID)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, CodeQueryInternalError, err.Error())
+		return
+	}
+
+	writeSuccess(c, http.StatusOK, stats, nil)
+}
+
+// Aggregate POST /api/v1/query/stats/aggregate
+func (h *StatsHandler) Aggregate(c *gin.Context) {
+	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	if tenantID == "" {
+		tenantID = service.DefaultTenantID
+	}
+
+	var req service.AggregateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, CodeQueryInvalidParams, "invalid request body")
+		return
+	}
+
+	result, err := h.svc.Aggregate(c.Request.Context(), tenantID, req)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, CodeQueryInternalError, err.Error())
+		return
+	}
+
+	writeSuccess(c, http.StatusOK, result, nil)
+}

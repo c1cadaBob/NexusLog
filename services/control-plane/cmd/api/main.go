@@ -21,6 +21,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/nexuslog/control-plane/internal/alert"
+	"github.com/nexuslog/control-plane/internal/backup"
 	"github.com/nexuslog/control-plane/internal/incident"
 	"github.com/nexuslog/control-plane/internal/ingest"
 	"github.com/nexuslog/control-plane/internal/metrics"
@@ -182,6 +183,10 @@ func main() {
 	ingest.RegisterPullSourceRoutes(router, pullSourceStore)
 	ingest.RegisterPullTaskRoutes(router, pullSourceStore, pullTaskStore)
 
+	// ES Snapshot Backup/Restore (W4-B3)
+	backupSvc := backup.NewService()
+	backup.RegisterRoutes(router, backup.NewHandler(backupSvc))
+
 	// Metrics report + query API (W3-B6, W3-B8)
 	if pgDB != nil {
 		metricsRepo := metrics.NewRepository(pgDB)
@@ -205,6 +210,10 @@ func main() {
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
 		alert.RegisterAlertRuleRoutes(router, alertRuleHandler)
 
+		// Alert silence policy (W4-B6)
+		silenceSvc := alert.NewSilenceService(pgDB)
+		alert.RegisterSilenceRoutes(router, alert.NewSilenceHandler(silenceSvc))
+
 		// Incident API
 		incidentRepo := incident.NewRepositoryPG(pgDB)
 		incidentTimeline := incident.NewTimelineStorePG(pgDB)
@@ -223,7 +232,9 @@ func main() {
 				time.Duration(parseEnvInt("INGEST_ES_TIMEOUT_SEC", 15))*time.Second,
 			)
 			incidentCreator := alert.NewIncidentCreator(pgDB)
-			evaluator := alert.NewEvaluator(alertRuleRepo, esClient, pgDB, esIndex).WithIncidentCreator(incidentCreator)
+			evaluator := alert.NewEvaluator(alertRuleRepo, esClient, pgDB, esIndex).
+				WithIncidentCreator(incidentCreator).
+				WithSilenceChecker(silenceSvc)
 			go evaluator.Start()
 			log.Printf("alert evaluator enabled (interval=30s)")
 		}

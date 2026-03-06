@@ -40,10 +40,14 @@ func main() {
 		metadataRepository := repository.NewQueryMetadataRepository(metadataDB)
 		queryService := service.NewQueryService(esRepository, metadataRepository)
 		queryHandler := handler.NewQueryHandler(queryService)
+		statsService := service.NewStatsService(esRepository, metadataDB)
+		statsHandler := handler.NewStatsHandler(statsService)
 
 		v1 := r.Group("/api/v1/query")
 		{
 			v1.POST("/logs", queryHandler.SearchLogs)
+			v1.GET("/stats/overview", statsHandler.GetOverviewStats)
+			v1.POST("/stats/aggregate", statsHandler.Aggregate)
 			v1.GET("/history", queryHandler.ListQueryHistories)
 			v1.DELETE("/history/:history_id", queryHandler.DeleteQueryHistory)
 			v1.GET("/saved", queryHandler.ListSavedQueries)

@@ -157,6 +157,49 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 	return result, nil
 }
 
+// SearchWithBody executes a raw ES _search with custom body (for aggregations).
+func (r *ElasticsearchRepository) SearchWithBody(ctx context.Context, body map[string]any) (SearchLogsResult, error) {
+	if r == nil || r.client == nil {
+		return SearchLogsResult{}, fmt.Errorf("elasticsearch repository is not configured")
+	}
+	payloadRaw, err := json.Marshal(body)
+	if err != nil {
+		return SearchLogsResult{}, fmt.Errorf("marshal es query: %w", err)
+	}
+	endpoint := fmt.Sprintf("%s/%s/_search", r.address, r.index)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadRaw))
+	if err != nil {
+		return SearchLogsResult{}, fmt.Errorf("build es request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if r.username != "" {
+		req.SetBasicAuth(r.username, r.password)
+	}
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return SearchLogsResult{}, fmt.Errorf("execute es request: %w", err)
+	}
+	defer resp.Body.Close()
+	bodyRaw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return SearchLogsResult{}, fmt.Errorf("read es response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return SearchLogsResult{}, fmt.Errorf("es search failed: status=%d body=%s", resp.StatusCode, string(bodyRaw))
+	}
+	var parsed esSearchResponse
+	if err := json.Unmarshal(bodyRaw, &parsed); err != nil {
+		return SearchLogsResult{}, fmt.Errorf("decode es response: %w", err)
+	}
+	return SearchLogsResult{
+		TookMS:       parsed.Took,
+		TimedOut:     parsed.TimedOut,
+		Total:        parseHitsTotal(parsed.Hits.Total),
+		Hits:         nil,
+		Aggregations: parsed.Aggregations,
+	}, nil
+}
+
 type esSearchResponse struct {
 	Took         int            `json:"took"`
 	TimedOut     bool           `json:"timed_out"`

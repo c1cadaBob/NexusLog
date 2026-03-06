@@ -1,0 +1,322 @@
+package backup
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+)
+
+// Handler handles backup HTTP endpoints.
+type Handler struct {
+	svc *Service
+}
+
+// NewHandler creates a new backup handler.
+func NewHandler(svc *Service) *Handler {
+	return &Handler{svc: svc}
+}
+
+// RegisterRoutes registers backup routes.
+func RegisterRoutes(router gin.IRouter, h *Handler) {
+	g := router.Group("/api/v1/backup")
+	{
+		g.GET("/repositories", h.ListRepositories)
+		g.POST("/repositories", h.CreateRepository)
+		g.GET("/snapshots", h.ListSnapshots)
+		g.POST("/snapshots", h.CreateSnapshot)
+		g.GET("/snapshots/:name", h.GetSnapshotStatus)
+		g.POST("/snapshots/:name/restore", h.RestoreSnapshot)
+		g.DELETE("/snapshots/:name", h.DeleteSnapshot)
+		g.POST("/snapshots/:name/cancel", h.CancelSnapshot)
+	}
+}
+
+// ListRepositories GET /api/v1/backup/repositories
+func (h *Handler) ListRepositories(c *gin.Context) {
+	repos, err := h.svc.ListRepositories(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": "INTERNAL_ERROR",
+			"message": err.Error(),
+		})
+		return
+	}
+	items := make([]gin.H, 0, len(repos))
+	for name, info := range repos {
+		items = append(items, gin.H{
+			"name":     name,
+			"type":     info.Type,
+			"settings": info.Settings,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    "OK",
+		"message": "success",
+		"data":    gin.H{"repositories": items},
+	})
+}
+
+// CreateRepositoryRequest for POST /api/v1/backup/repositories
+type CreateRepositoryRequest struct {
+	Name     string            `json:"name"`
+	Settings map[string]string `json:"settings,omitempty"`
+}
+
+// CreateRepository POST /api/v1/backup/repositories
+func (h *Handler) CreateRepository(c *gin.Context) {
+	var req CreateRepositoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "invalid request body",
+		})
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "name is required",
+		})
+		return
+	}
+	settings := make(map[string]interface{})
+	if req.Settings != nil {
+		for k, v := range req.Settings {
+			settings[k] = v
+		}
+	}
+	if loc, ok := settings["location"]; !ok || loc == "" {
+		settings["location"] = defaultRepoPath
+	}
+	if err := h.svc.CreateRepository(c.Request.Context(), req.Name, settings); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "INTERNAL_ERROR",
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    "OK",
+		"message": "repository created",
+		"data":    gin.H{"name": req.Name},
+	})
+}
+
+// ListSnapshots GET /api/v1/backup/snapshots
+func (h *Handler) ListSnapshots(c *gin.Context) {
+	repo := strings.TrimSpace(c.Query("repository"))
+	if repo == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "repository query param is required",
+		})
+		return
+	}
+	snapshots, err := h.svc.ListSnapshots(c.Request.Context(), repo)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "INTERNAL_ERROR",
+			"message": err.Error(),
+		})
+		return
+	}
+	items := make([]gin.H, 0, len(snapshots))
+	for _, s := range snapshots {
+		items = append(items, gin.H{
+			"snapshot":   s.Snapshot,
+			"state":     s.State,
+			"indices":   s.Indices,
+			"start_time": s.StartTime,
+			"end_time":   s.EndTime,
+			"metadata":  s.Metadata,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    "OK",
+		"message": "success",
+		"data":    gin.H{"snapshots": items, "repository": repo},
+	})
+}
+
+// CreateSnapshotRequest for POST /api/v1/backup/snapshots
+type CreateSnapshotRequest struct {
+	Repository  string `json:"repository"`
+	Name        string `json:"name"`
+	Indices     string `json:"indices"`
+	Description string `json:"description"`
+}
+
+// CreateSnapshot POST /api/v1/backup/snapshots
+func (h *Handler) CreateSnapshot(c *gin.Context) {
+	var req CreateSnapshotRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "invalid request body",
+		})
+		return
+	}
+	req.Repository = strings.TrimSpace(req.Repository)
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Repository == "" || req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "repository and name are required",
+		})
+		return
+	}
+	if req.Indices == "" {
+		req.Indices = "nexuslog-*"
+	}
+	if err := h.svc.CreateSnapshot(c.Request.Context(), req.Repository, req.Name, req.Indices, req.Description); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "INTERNAL_ERROR",
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    "OK",
+		"message": "snapshot created",
+		"data": gin.H{
+			"repository": req.Repository,
+			"snapshot":   req.Name,
+			"indices":   req.Indices,
+		},
+	})
+}
+
+// GetSnapshotStatus GET /api/v1/backup/snapshots/:name
+func (h *Handler) GetSnapshotStatus(c *gin.Context) {
+	name := strings.TrimSpace(c.Param("name"))
+	repo := strings.TrimSpace(c.Query("repository"))
+	if name == "" || repo == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "name is required and repository query param is required",
+		})
+		return
+	}
+	status, err := h.svc.GetSnapshotStatus(c.Request.Context(), repo, name)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{
+				"code":    "RES_NOT_FOUND",
+				"message": err.Error(),
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "INTERNAL_ERROR",
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    "OK",
+		"message": "success",
+		"data": gin.H{
+			"snapshot":   status.Snapshot,
+			"state":     status.State,
+			"indices":   status.Indices,
+			"start_time": status.StartTime,
+			"end_time":   status.EndTime,
+			"metadata":  status.Metadata,
+		},
+	})
+}
+
+// RestoreSnapshotRequest for POST /api/v1/backup/snapshots/:name/restore
+type RestoreSnapshotRequest struct {
+	Repository string   `json:"repository"`
+	Indices    []string  `json:"indices,omitempty"`
+}
+
+// RestoreSnapshot POST /api/v1/backup/snapshots/:name/restore
+func (h *Handler) RestoreSnapshot(c *gin.Context) {
+	name := strings.TrimSpace(c.Param("name"))
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "name is required",
+		})
+		return
+	}
+	var req RestoreSnapshotRequest
+	_ = c.ShouldBindJSON(&req)
+	req.Repository = strings.TrimSpace(req.Repository)
+	if req.Repository == "" {
+		req.Repository = strings.TrimSpace(c.Query("repository"))
+	}
+	if req.Repository == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "repository is required (query or body)",
+		})
+		return
+	}
+	if err := h.svc.RestoreSnapshot(c.Request.Context(), req.Repository, name, req.Indices); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "INTERNAL_ERROR",
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    "OK",
+		"message": "restore started",
+		"data":    gin.H{"repository": req.Repository, "snapshot": name},
+	})
+}
+
+// DeleteSnapshot DELETE /api/v1/backup/snapshots/:name
+func (h *Handler) DeleteSnapshot(c *gin.Context) {
+	name := strings.TrimSpace(c.Param("name"))
+	repo := strings.TrimSpace(c.Query("repository"))
+	if name == "" || repo == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "name and repository query param are required",
+		})
+		return
+	}
+	if err := h.svc.DeleteSnapshot(c.Request.Context(), repo, name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "INTERNAL_ERROR",
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    "OK",
+		"message": "snapshot deleted",
+		"data":    gin.H{"snapshot": name},
+	})
+}
+
+// CancelSnapshot POST /api/v1/backup/snapshots/:name/cancel
+func (h *Handler) CancelSnapshot(c *gin.Context) {
+	name := strings.TrimSpace(c.Param("name"))
+	repo := strings.TrimSpace(c.Query("repository"))
+	if name == "" || repo == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "name and repository query param are required",
+		})
+		return
+	}
+	if err := h.svc.CancelSnapshot(c.Request.Context(), repo, name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "INTERNAL_ERROR",
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    "OK",
+		"message": "snapshot cancel requested",
+		"data":    gin.H{"snapshot": name},
+	})
+}

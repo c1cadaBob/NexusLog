@@ -82,6 +82,11 @@ type IncidentCreator interface {
 	CreateFromAlert(ctx context.Context, tenantID, ruleID, alertEventID, title, detail, severity string) error
 }
 
+// SilenceChecker checks if an alert should be silenced (no notification).
+type SilenceChecker interface {
+	IsSilenced(ctx context.Context, tenantID, ruleID, severity, sourceID string) (bool, error)
+}
+
 // Evaluator runs the alert evaluation loop.
 type Evaluator struct {
 	ruleRepo        RuleRepository
@@ -92,6 +97,7 @@ type Evaluator struct {
 	stopCh          chan struct{}
 	suppressor      *Suppressor
 	incidentCreator IncidentCreator
+	silenceChecker  SilenceChecker
 }
 
 // NewEvaluator creates a new evaluator.
@@ -114,6 +120,12 @@ func (e *Evaluator) WithIncidentCreator(ic IncidentCreator) *Evaluator {
 	return e
 }
 
+// WithSilenceChecker sets the silence checker; when alert matches, skip notification but still record.
+func (e *Evaluator) WithSilenceChecker(sc SilenceChecker) *Evaluator {
+	e.silenceChecker = sc
+	return e
+}
+
 // WithInterval sets the evaluation interval.
 func (e *Evaluator) WithInterval(d time.Duration) *Evaluator {
 	return &Evaluator{
@@ -125,6 +137,7 @@ func (e *Evaluator) WithInterval(d time.Duration) *Evaluator {
 		stopCh:          e.stopCh,
 		suppressor:      e.suppressor,
 		incidentCreator: e.incidentCreator,
+		silenceChecker:  e.silenceChecker,
 	}
 }
 
@@ -139,6 +152,7 @@ func (e *Evaluator) WithSuppressor(s *Suppressor) *Evaluator {
 		stopCh:          e.stopCh,
 		suppressor:      s,
 		incidentCreator: e.incidentCreator,
+		silenceChecker:  e.silenceChecker,
 	}
 }
 
@@ -218,8 +232,14 @@ RETURNING id::text
 	}
 	alertEventsTotal.Inc()
 
-	// Auto-create incident for critical alerts
+	// Auto-create incident for critical alerts (skip if silenced)
 	if e.incidentCreator != nil {
+		if e.silenceChecker != nil {
+			silenced, err := e.silenceChecker.IsSilenced(ctx, rule.TenantID, rule.ID, rule.Severity, sourceID)
+			if err == nil && silenced {
+				return nil // notification suppressed, alert_event already recorded
+			}
+		}
 		_ = e.incidentCreator.CreateFromAlert(ctx, rule.TenantID, rule.ID, alertEventID, title, detail, rule.Severity)
 	}
 	return nil

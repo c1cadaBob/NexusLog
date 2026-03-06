@@ -342,6 +342,115 @@ export async function disableAlertRule(id: string): Promise<void> {
   });
 }
 
+// ============================================================================
+// Alert Silences API
+// ============================================================================
+
+/** Backend silence response */
+interface BackendSilence {
+  id: string;
+  tenant_id?: string;
+  matchers: Record<string, string>;
+  reason: string;
+  starts_at: string;
+  ends_at: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Create silence payload */
+export interface CreateAlertSilencePayload {
+  matchers: Record<string, string>;
+  reason: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+/** Update silence payload */
+export interface UpdateAlertSilencePayload {
+  matchers?: Record<string, string>;
+  reason?: string;
+  starts_at?: string;
+  ends_at?: string;
+}
+
+/** Silence for frontend (matches SilencePolicy) */
+export interface AlertSilence {
+  id: string;
+  matchers: Record<string, string>;
+  reason: string;
+  startsAt: number;
+  endsAt: number;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function mapBackendSilenceToFrontend(b: BackendSilence): AlertSilence {
+  return {
+    id: b.id,
+    matchers: b.matchers ?? {},
+    reason: b.reason ?? '',
+    startsAt: b.starts_at ? new Date(b.starts_at).getTime() : 0,
+    endsAt: b.ends_at ? new Date(b.ends_at).getTime() : 0,
+    createdBy: b.created_by ?? '',
+    createdAt: b.created_at ? new Date(b.created_at).getTime() : 0,
+    updatedAt: b.updated_at ? new Date(b.updated_at).getTime() : 0,
+  };
+}
+
+/** Fetch alert silences (active only) */
+export async function fetchAlertSilences(): Promise<AlertSilence[]> {
+  const envelope = await requestAlertApi<{ items?: BackendSilence[] }>('/silences', { method: 'GET' });
+  const raw = envelope.data;
+  const items = Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw) ? raw : []);
+  return items.map(mapBackendSilenceToFrontend);
+}
+
+/** Create alert silence */
+export async function createAlertSilence(data: CreateAlertSilencePayload): Promise<AlertSilence> {
+  const envelope = await requestAlertApi<BackendSilence>('/silences', {
+    method: 'POST',
+    body: {
+      matchers: data.matchers ?? {},
+      reason: data.reason ?? '',
+      starts_at: data.starts_at,
+      ends_at: data.ends_at,
+    },
+  });
+  const created = envelope.data;
+  if (!created) throw new Error('创建成功但未返回静默策略');
+  return mapBackendSilenceToFrontend(created);
+}
+
+/** Update alert silence */
+export async function updateAlertSilence(id: string, data: UpdateAlertSilencePayload): Promise<AlertSilence> {
+  const envelope = await requestAlertApi<BackendSilence>(`/silences/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: {
+      ...(data.matchers != null && { matchers: data.matchers }),
+      ...(data.reason != null && { reason: data.reason }),
+      ...(data.starts_at != null && { starts_at: data.starts_at }),
+      ...(data.ends_at != null && { ends_at: data.ends_at }),
+    },
+  });
+  const updated = envelope.data;
+  if (!updated) throw new Error('更新成功但未返回静默策略');
+  return mapBackendSilenceToFrontend(updated);
+}
+
+/** Delete alert silence */
+export async function deleteAlertSilence(id: string): Promise<void> {
+  await requestAlertApi<{ id: string }>(`/silences/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+// ============================================================================
+// Alert Events
+// ============================================================================
+
 /** Alert event summary for list (matches AlertSummary) */
 export interface AlertEventSummary {
   id: string;

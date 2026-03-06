@@ -127,6 +127,15 @@ export interface SavedQueryUpsertPayload {
   filters?: Record<string, unknown>;
 }
 
+/** Dashboard overview stats from GET /api/v1/query/stats/overview */
+export interface DashboardOverviewStats {
+  total_logs: number;
+  level_distribution: Record<string, number>;
+  top_sources: Array<{ source: string; count: number }>;
+  alert_summary: { total: number; firing: number; resolved: number };
+  log_trend: Array<{ time: string; count: number }>;
+}
+
 type QueryApiAuthErrorCode =
   | 'AUTH_UNAUTHORIZED';
 
@@ -651,6 +660,22 @@ function shouldUseQueryCollectionFallback(): boolean {
   return accessToken.startsWith(EMERGENCY_ACCESS_TOKEN_PREFIX);
 }
 
+/** Fetch dashboard overview stats */
+export async function fetchDashboardOverview(): Promise<DashboardOverviewStats> {
+  const envelope = await requestQueryApi<DashboardOverviewStats>('/stats/overview', { method: 'GET' });
+  const data = envelope.data;
+  if (!data) {
+    throw new QueryApiRequestError(500, 'QUERY_STATS_EMPTY', 'Overview stats empty');
+  }
+  return {
+    total_logs: Number(data.total_logs) || 0,
+    level_distribution: data.level_distribution ?? {},
+    top_sources: data.top_sources ?? [],
+    alert_summary: data.alert_summary ?? { total: 0, firing: 0, resolved: 0 },
+    log_trend: data.log_trend ?? [],
+  };
+}
+
 export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<QueryLogsResult> {
   const envelope = await requestQueryApi<QueryLogsApiData>('/logs', {
     method: 'POST',
@@ -874,6 +899,39 @@ export async function updateSavedQuery(savedQueryID: string, payload: SavedQuery
     }
     throw error;
   }
+}
+
+/** Aggregate stats request for POST /api/v1/query/stats/aggregate */
+export interface FetchAggregateStatsParams {
+  groupBy: 'level' | 'source' | 'hour';
+  timeRange: '1h' | '6h' | '24h' | '7d';
+  filters?: Record<string, unknown>;
+}
+
+/** Aggregate bucket from API */
+export interface AggregateBucket {
+  key: string;
+  count: number;
+}
+
+/** Aggregate stats result */
+export interface FetchAggregateStatsResult {
+  buckets: AggregateBucket[];
+}
+
+/** Fetch aggregate stats from query API */
+export async function fetchAggregateStats(params: FetchAggregateStatsParams): Promise<FetchAggregateStatsResult> {
+  const envelope = await requestQueryApi<{ buckets?: AggregateBucket[] }>('/stats/aggregate', {
+    method: 'POST',
+    body: {
+      group_by: params.groupBy,
+      time_range: params.timeRange,
+      filters: params.filters ?? {},
+    },
+  });
+
+  const buckets = envelope.data?.buckets ?? [];
+  return { buckets };
 }
 
 export async function deleteSavedQuery(savedQueryID: string): Promise<boolean> {
