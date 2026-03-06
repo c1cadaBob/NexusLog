@@ -20,6 +20,12 @@
 | `process/12-current-project-api-interface-design.md` | 当前 API 契约设计（路径、字段、错误码、冻结点） | 前后端联调、接口评审 |
 | `process/13-current-project-full-api-blueprint.md` | 全项目 API 蓝图（MVP~P2、同步+异步接口） | 中长期规划、架构评审 |
 | `process/10-current-project-tasks.md` | 可执行任务清单（M1~M3） | 开发执行、验收打勾 |
+| `process/20-log-ingest-e2e-workflow-v2.md` | 日志采集全链路规范（15 步 + 字段模型） | 采集链路设计评审 |
+| `process/21-log-ingest-e2e-implementation-taskbook.md` | 采集改进任务书（13 + 6 项） | 采集链路代码实现 |
+| `process/22-full-requirements-and-6week-plan.md` | 完整需求与 6 周实施规划（Phase 1 执行版） | 近期执行、周级计划 |
+| `process/23-project-master-plan-and-task-registry.md` | 项目整体规划与任务登记表（25 模块 / 4 Phase） | 全局视角、长期路线图、接口总表 |
+| `process/24-sdlc-development-process.md` | 开发流程规范（SDLC / 代码约束 / 质量门禁） | 开发过程约束、Mock 追踪、验收标准模板 |
+| `process/25-full-lifecycle-task-registry.md` | 全生命周期任务清单（166 个任务卡片 / 4 Phase） | Agent 执行任务、依赖图、里程碑、集成测试矩阵 |
 
 ## 3. 推荐阅读顺序（执行导向）
 

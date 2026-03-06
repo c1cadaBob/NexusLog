@@ -29,6 +29,12 @@
 11. `process/11-current-project-overall-planning.md`
 12. `process/12-current-project-api-interface-design.md`
 13. `process/13-current-project-full-api-blueprint.md`
+14. `process/20-log-ingest-e2e-workflow-v2.md`
+15. `process/21-log-ingest-e2e-implementation-taskbook.md`
+16. `process/22-full-requirements-and-6week-plan.md`
+17. `process/23-project-master-plan-and-task-registry.md`
+18. `process/24-sdlc-development-process.md`
+19. `process/25-full-lifecycle-task-registry.md`
 14. `database/01-flyway-v2-v5-migrations.md`
 15. `database/02-flyway-compatibility-and-v6-sla.md`
 16. `database/03-v7-rls-multitenancy.md`
