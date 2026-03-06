@@ -153,7 +153,7 @@ function extractErrorMessage(errorBody: ApiErrorEnvelope | null, fallback: strin
 
 const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, disabled }) => {
   const [form] = Form.useForm();
-  const { login, isLoading, setLoading } = useAuthStore();
+  const { login, isLoading, setLoading, syncPermissions, setPermissions } = useAuthStore();
   const { message } = App.useApp();
   const isDisabled = isLoading || disabled;
 
@@ -191,6 +191,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, dis
           email: `${normalizedUsername || 'emergency-user'}@nexuslog.local`,
           role: 'admin',
         });
+        setPermissions(['*']);
         message.warning('应急模式已启用：当前使用本地模拟登录');
       } finally {
         setLoading(false);
@@ -261,6 +262,9 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, dis
         email: successBody.data.user.email || `${successBody.data.user.username}@nexuslog.local`,
         role: mapRole(successBody.data.user.role),
       });
+
+      // 获取当前用户权限
+      await syncPermissions();
 
       // 提示登录成功
       message.success('登录成功');

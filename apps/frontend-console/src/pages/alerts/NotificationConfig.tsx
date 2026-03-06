@@ -1,34 +1,34 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Button, Card, Tag, Modal, Form, Input, Select, Checkbox, Space, message } from 'antd';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Button, Card, Tag, Modal, Form, Input, Select, Checkbox, Space, message, Spin, Empty } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
-import type { NotificationChannel, NotificationChannelType } from '../../types/alert';
+import type { NotificationChannel } from '../../types/alert';
+import {
+  fetchNotificationChannels,
+  createNotificationChannel,
+  updateNotificationChannel,
+  deleteNotificationChannel,
+  testNotificationChannel,
+} from '../../api/notification';
 
-// ============================================================================
-// 模拟数据
-// ============================================================================
+type SupportedChannelType = 'email' | 'dingtalk' | 'sms';
 
-const mockChannels: NotificationChannel[] = [
-  { id: '1', name: '邮件通知 (SMTP)', type: 'email', config: { server: 'smtp.company.net', sender: 'alerts@system.io', recipients: ['admin@company.com'] }, enabled: true, createdAt: Date.now() - 86400000 * 30, updatedAt: Date.now() - 7200000 },
-  { id: '2', name: 'DevOps Slack', type: 'slack', config: { workspace: 'acme-corp', channel: '#critical-alerts', webhookUrl: 'https://hooks.slack.com/...' }, enabled: true, createdAt: Date.now() - 86400000 * 20, updatedAt: Date.now() - 86400000 },
-  { id: '3', name: 'Custom Webhook', type: 'webhook', config: { url: 'https://api.example.com/v2/ingest', method: 'POST' }, enabled: false, createdAt: Date.now() - 86400000 * 10, updatedAt: Date.now() - 86400000 * 2 },
-  { id: '4', name: '钉钉机器人', type: 'dingtalk', config: { webhookUrl: 'https://oapi.dingtalk.com/robot/send?access_token=...' }, enabled: true, createdAt: Date.now() - 86400000 * 5, updatedAt: Date.now() - 3600000 },
-];
-
-// ============================================================================
-// 辅助函数
-// ============================================================================
-
-const channelIconMap: Record<NotificationChannelType, string> = {
-  email: 'mail', slack: 'groups', webhook: 'webhook', dingtalk: 'chat', wechat: 'forum',
+const channelIconMap: Record<SupportedChannelType, string> = {
+  email: 'mail',
+  dingtalk: 'chat',
+  sms: 'sms',
 };
 
-const channelColorMap: Record<NotificationChannelType, string> = {
-  email: COLORS.info, slack: '#E01E5A', webhook: '#f97316', dingtalk: '#0ea5e9', wechat: COLORS.success,
+const channelColorMap: Record<SupportedChannelType, string> = {
+  email: COLORS.info,
+  dingtalk: '#0ea5e9',
+  sms: COLORS.success,
 };
 
-const channelTypeName: Record<NotificationChannelType, string> = {
-  email: '邮件', slack: 'Slack', webhook: 'Webhook', dingtalk: '钉钉', wechat: '企业微信',
+const channelTypeName: Record<SupportedChannelType, string> = {
+  email: '邮件',
+  dingtalk: '钉钉',
+  sms: '短信',
 };
 
 const formatTimeAgo = (timestamp: number): string => {
@@ -49,21 +49,45 @@ const NotificationConfig: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const [form] = Form.useForm();
 
-  const [channels, setChannels] = useState<NotificationChannel[]>(mockChannels);
+  const [channels, setChannels] = useState<NotificationChannel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [currentChannel, setCurrentChannel] = useState<NotificationChannel | null>(null);
-  const [channelType, setChannelType] = useState<NotificationChannelType>('email');
+  const [channelType, setChannelType] = useState<SupportedChannelType>('email');
   const [testingId, setTestingId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Map<string, { success: boolean; message: string }>>(new Map());
+  const [submitting, setSubmitting] = useState(false);
 
-  const stats = useMemo(() => ({
-    active: channels.filter(c => c.enabled).length,
-    inactive: channels.filter(c => !c.enabled).length,
-  }), [channels]);
+  const loadChannels = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const items = await fetchNotificationChannels();
+      setChannels(items);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '加载通知渠道失败';
+      setError(msg);
+      message.error(msg);
+      setChannels([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  // 打开创建
+  useEffect(() => {
+    loadChannels();
+  }, [loadChannels]);
+
+  const stats = useMemo(
+    () => ({
+      active: channels.filter((c) => c.enabled).length,
+      inactive: channels.filter((c) => !c.enabled).length,
+    }),
+    [channels],
+  );
+
   const openCreate = useCallback(() => {
     setModalMode('create');
     setCurrentChannel(null);
@@ -73,86 +97,152 @@ const NotificationConfig: React.FC = () => {
     setModalOpen(true);
   }, [form]);
 
-  // 打开编辑
-  const openEdit = useCallback((channel: NotificationChannel) => {
-    setModalMode('edit');
-    setCurrentChannel(channel);
-    setChannelType(channel.type);
-    const config = channel.config as Record<string, unknown>;
-    form.setFieldsValue({
-      name: channel.name,
-      type: channel.type,
-      enabled: channel.enabled,
-      emailServer: config.server,
-      emailSender: config.sender,
-      emailRecipients: Array.isArray(config.recipients) ? (config.recipients as string[]).join(', ') : '',
-      slackWebhookUrl: config.webhookUrl,
-      slackChannel: config.channel,
-      webhookUrl: config.url,
-      webhookMethod: config.method || 'POST',
-      dingtalkWebhookUrl: config.webhookUrl,
-    });
-    setModalOpen(true);
-  }, [form]);
+  const openEdit = useCallback(
+    (channel: NotificationChannel) => {
+      setModalMode('edit');
+      setCurrentChannel(channel);
+      setChannelType(channel.type as SupportedChannelType);
+      const config = channel.config as Record<string, unknown>;
+      form.setFieldsValue({
+        name: channel.name,
+        type: channel.type,
+        enabled: channel.enabled,
+        smtpHost: config.smtp_host,
+        smtpPort: config.smtp_port,
+        smtpUsername: config.smtp_username,
+        smtpPassword: config.smtp_password,
+        fromEmail: config.from_email,
+        fromName: config.from_name,
+        useTls: config.use_tls ?? true,
+        webhookUrl: config.webhook_url,
+        accessToken: config.access_token,
+        provider: config.provider,
+      });
+      setModalOpen(true);
+    },
+    [form],
+  );
 
-  // 构建配置
   const buildConfig = useCallback((values: Record<string, unknown>): Record<string, unknown> => {
-    switch (values.type) {
-      case 'email': return { server: values.emailServer, sender: values.emailSender, recipients: (values.emailRecipients as string)?.split(',').map((s: string) => s.trim()).filter(Boolean) || [] };
-      case 'slack': return { webhookUrl: values.slackWebhookUrl, channel: values.slackChannel };
-      case 'webhook': return { url: values.webhookUrl, method: values.webhookMethod || 'POST' };
-      case 'dingtalk': return { webhookUrl: values.dingtalkWebhookUrl };
-      default: return {};
+    const t = (values.type as string) || 'email';
+    if (t === 'email') {
+      return {
+        smtp_host: values.smtpHost,
+        smtp_port: values.smtpPort ? Number(values.smtpPort) : 587,
+        smtp_username: values.smtpUsername,
+        smtp_password: values.smtpPassword,
+        from_email: values.fromEmail,
+        from_name: values.fromName,
+        use_tls: values.useTls ?? true,
+      };
     }
+    if (t === 'dingtalk') {
+      const cfg: Record<string, unknown> = {};
+      if (values.webhookUrl) cfg.webhook_url = values.webhookUrl;
+      if (values.accessToken) cfg.access_token = values.accessToken;
+      return cfg;
+    }
+    if (t === 'sms') {
+      return { provider: values.provider };
+    }
+    return {};
   }, []);
 
-  // 提交
-  const handleSubmit = useCallback(() => {
-    form.validateFields().then(values => {
+  const handleSubmit = useCallback(async () => {
+    try {
+      await form.validateFields();
+    } catch {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const values = form.getFieldsValue();
+      const config = buildConfig(values);
       if (modalMode === 'create') {
-        const newChannel: NotificationChannel = {
-          id: `channel-${Date.now()}`, name: values.name, type: values.type,
-          config: buildConfig(values), enabled: values.enabled ?? true,
-          createdAt: Date.now(), updatedAt: Date.now(),
-        };
-        setChannels(prev => [...prev, newChannel]);
+        await createNotificationChannel({
+          name: values.name,
+          type: values.type as SupportedChannelType,
+          config,
+          enabled: values.enabled ?? true,
+        });
         message.success(`通知渠道 "${values.name}" 已创建`);
       } else if (currentChannel) {
-        setChannels(prev => prev.map(c => c.id === currentChannel.id ? {
-          ...c, name: values.name, type: values.type, config: buildConfig(values),
-          enabled: values.enabled ?? c.enabled, updatedAt: Date.now(),
-        } : c));
+        await updateNotificationChannel(currentChannel.id, {
+          name: values.name,
+          config,
+          enabled: values.enabled,
+        });
         message.success(`通知渠道 "${values.name}" 已更新`);
       }
       setModalOpen(false);
-    });
-  }, [form, modalMode, currentChannel, buildConfig]);
+      await loadChannels();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '操作失败');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [form, modalMode, currentChannel, buildConfig, loadChannels]);
 
-  // 删除
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!currentChannel) return;
-    setChannels(prev => prev.filter(c => c.id !== currentChannel.id));
-    setDeleteModalOpen(false);
-    message.success(`通知渠道 "${currentChannel.name}" 已删除`);
-    setCurrentChannel(null);
-  }, [currentChannel]);
+    setSubmitting(true);
+    try {
+      await deleteNotificationChannel(currentChannel.id);
+      setDeleteModalOpen(false);
+      message.success(`通知渠道 "${currentChannel.name}" 已删除`);
+      setCurrentChannel(null);
+      await loadChannels();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [currentChannel, loadChannels]);
 
-  // 测试
   const handleTest = useCallback(async (channel: NotificationChannel) => {
     setTestingId(channel.id);
-    message.info(`正在测试 "${channel.name}"...`);
-    await new Promise(r => setTimeout(r, 1500));
-    const success = Math.random() > 0.3;
-    setTestResults(prev => new Map(prev).set(channel.id, { success, message: success ? '测试消息发送成功' : '连接超时，请检查配置' }));
-    setTestingId(null);
-    message[success ? 'success' : 'error'](success ? '测试成功' : '测试失败：连接超时');
+    try {
+      const to = channel.type === 'email' ? (channel.config as Record<string, unknown>).from_email as string : undefined;
+      await testNotificationChannel(channel.id, to);
+      message.success('测试成功');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '测试失败');
+    } finally {
+      setTestingId(null);
+    }
   }, []);
 
-  // 切换启用
-  const toggleEnabled = useCallback((channel: NotificationChannel) => {
-    setChannels(prev => prev.map(c => c.id === channel.id ? { ...c, enabled: !c.enabled, updatedAt: Date.now() } : c));
-    message.success(`通知渠道 "${channel.name}" 已${channel.enabled ? '禁用' : '启用'}`);
-  }, []);
+  const toggleEnabled = useCallback(
+    async (channel: NotificationChannel) => {
+      try {
+        await updateNotificationChannel(channel.id, { enabled: !channel.enabled });
+        message.success(`通知渠道 "${channel.name}" 已${channel.enabled ? '禁用' : '启用'}`);
+        await loadChannels();
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : '操作失败');
+      }
+    },
+    [loadChannels],
+  );
+
+  if (loading && channels.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (error && channels.length === 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 16 }}>
+        <Empty description={error} />
+        <Button type="primary" onClick={loadChannels}>
+          重试
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
@@ -182,19 +272,33 @@ const NotificationConfig: React.FC = () => {
 
       {/* 渠道卡片网格 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
-        {channels.map(channel => {
-          const testResult = testResults.get(channel.id);
+        {channels.map((channel) => {
           const isTesting = testingId === channel.id;
-          const iconColor = channelColorMap[channel.type];
+          const iconColor = channelColorMap[channel.type as SupportedChannelType] ?? COLORS.primary;
+          const icon = channelIconMap[channel.type as SupportedChannelType] ?? 'hub';
+          const typeLabel = channelTypeName[channel.type as SupportedChannelType] ?? channel.type;
 
           return (
-            <Card key={channel.id} hoverable style={{ display: 'flex', flexDirection: 'column' }}
-              styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', padding: 20 } }}>
-              {/* 头部 */}
+            <Card
+              key={channel.id}
+              hoverable
+              style={{ display: 'flex', flexDirection: 'column' }}
+              styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', padding: 20 } }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${iconColor}1a` }}>
-                    <span className="material-symbols-outlined" style={{ color: iconColor }}>{channelIconMap[channel.type]}</span>
+                  <div
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 8,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: `${iconColor}1a`,
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ color: iconColor }}>{icon}</span>
                   </div>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 15 }}>{channel.name}</div>
@@ -219,11 +323,10 @@ const NotificationConfig: React.FC = () => {
                 </Space>
               </div>
 
-              {/* 详情 */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                   <span style={{ color: '#94a3b8' }}>类型</span>
-                  <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{channelTypeName[channel.type]}</span>
+                  <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{typeLabel}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                   <span style={{ color: '#94a3b8' }}>更新时间</span>
@@ -231,17 +334,21 @@ const NotificationConfig: React.FC = () => {
                 </div>
               </div>
 
-              {/* 底部 */}
-              <div style={{ paddingTop: 16, borderTop: `1px solid ${isDark ? '#334155' : '#f1f5f9'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                {testResult ? (
-                  <span style={{ fontSize: 12, fontWeight: 500, color: testResult.success ? COLORS.success : COLORS.danger, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{testResult.success ? 'check_circle' : 'error'}</span>
-                    {testResult.success ? '测试通过' : '测试失败'}
-                  </span>
-                ) : (
-                  <span style={{ fontSize: 12, color: '#94a3b8' }}>未测试</span>
-                )}
-                <Button type="link" size="small" loading={isTesting} disabled={!channel.enabled}
+              <div
+                style={{
+                  paddingTop: 16,
+                  borderTop: `1px solid ${isDark ? '#334155' : '#f1f5f9'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>测试连接</span>
+                <Button
+                  type="link"
+                  size="small"
+                  loading={isTesting}
+                  disabled={!channel.enabled}
                   onClick={() => handleTest(channel)}
                   icon={!isTesting ? <span className="material-symbols-outlined" style={{ fontSize: 16 }}>bolt</span> : undefined}
                 >
@@ -260,11 +367,10 @@ const NotificationConfig: React.FC = () => {
             <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#94a3b8' }}>add_circle</span>
           </div>
           <div style={{ fontWeight: 600, fontSize: 14, color: '#94a3b8' }}>添加新渠道</div>
-          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>配置 Webhook、邮件或即时通讯</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>配置邮件、钉钉或短信通知</div>
         </Card>
       </div>
 
-      {/* 创建/编辑模态框 */}
       <Modal
         open={modalOpen}
         title={modalMode === 'create' ? '新建通知渠道' : '编辑通知渠道'}
@@ -272,51 +378,68 @@ const NotificationConfig: React.FC = () => {
         onOk={handleSubmit}
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
-        destroyOnHidden
+        destroyOnClose
+        confirmLoading={submitting}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}
-          onValuesChange={(changed) => { if (changed.type) setChannelType(changed.type); }}>
+        <Form
+          form={form}
+          layout="vertical"
+          style={{ marginTop: 16 }}
+          onValuesChange={(changed) => {
+            if (changed.type) setChannelType(changed.type as SupportedChannelType);
+          }}
+        >
           <Form.Item name="name" label="渠道名称" rules={[{ required: true, message: '请输入渠道名称' }]}>
             <Input placeholder="输入渠道名称" />
           </Form.Item>
           <Form.Item name="type" label="渠道类型" initialValue="email">
-            <Select options={[
-              { value: 'email', label: '邮件 (Email)' },
-              { value: 'slack', label: 'Slack' },
-              { value: 'webhook', label: 'Webhook' },
-              { value: 'dingtalk', label: '钉钉 (DingTalk)' },
-              { value: 'wechat', label: '企业微信 (WeChat Work)' },
-            ]} />
+            <Select
+              options={[
+                { value: 'email', label: '邮件 (Email)' },
+                { value: 'dingtalk', label: '钉钉 (DingTalk)' },
+                { value: 'sms', label: '短信 (SMS)' },
+              ]}
+            />
           </Form.Item>
 
-          {/* Email 配置 */}
           {channelType === 'email' && (
             <>
-              <Form.Item name="emailServer" label="SMTP 服务器"><Input placeholder="smtp.example.com" /></Form.Item>
-              <Form.Item name="emailSender" label="发件人地址"><Input placeholder="alerts@example.com" /></Form.Item>
-              <Form.Item name="emailRecipients" label="收件人（多个用逗号分隔）"><Input placeholder="admin@example.com, ops@example.com" /></Form.Item>
-            </>
-          )}
-          {/* Slack 配置 */}
-          {channelType === 'slack' && (
-            <>
-              <Form.Item name="slackWebhookUrl" label="Webhook URL"><Input placeholder="https://hooks.slack.com/services/..." /></Form.Item>
-              <Form.Item name="slackChannel" label="频道"><Input placeholder="#alerts" /></Form.Item>
-            </>
-          )}
-          {/* Webhook 配置 */}
-          {channelType === 'webhook' && (
-            <>
-              <Form.Item name="webhookUrl" label="Webhook URL"><Input placeholder="https://api.example.com/webhook" /></Form.Item>
-              <Form.Item name="webhookMethod" label="HTTP 方法" initialValue="POST">
-                <Select options={[{ value: 'GET', label: 'GET' }, { value: 'POST', label: 'POST' }, { value: 'PUT', label: 'PUT' }]} />
+              <Form.Item name="smtpHost" label="SMTP 服务器" rules={[{ required: true, message: '请输入 SMTP 服务器' }]}>
+                <Input placeholder="smtp.example.com" />
+              </Form.Item>
+              <Form.Item name="smtpPort" label="SMTP 端口" rules={[{ required: true, message: '请输入端口' }]} initialValue={587}>
+                <Input type="number" placeholder="587" />
+              </Form.Item>
+              <Form.Item name="smtpUsername" label="SMTP 用户名">
+                <Input placeholder="user@example.com" />
+              </Form.Item>
+              <Form.Item name="smtpPassword" label="SMTP 密码">
+                <Input.Password placeholder="密码" />
+              </Form.Item>
+              <Form.Item name="fromEmail" label="发件人地址" rules={[{ required: true, message: '请输入发件人地址' }]}>
+                <Input placeholder="alerts@example.com" />
+              </Form.Item>
+              <Form.Item name="fromName" label="发件人名称">
+                <Input placeholder="NexusLog Alerts" />
+              </Form.Item>
+              <Form.Item name="useTls" valuePropName="checked" initialValue={true}>
+                <Checkbox>使用 TLS</Checkbox>
               </Form.Item>
             </>
           )}
-          {/* DingTalk 配置 */}
           {channelType === 'dingtalk' && (
-            <Form.Item name="dingtalkWebhookUrl" label="机器人 Webhook URL">
-              <Input placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
+            <>
+              <Form.Item name="webhookUrl" label="Webhook URL">
+                <Input placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
+              </Form.Item>
+              <Form.Item name="accessToken" label="Access Token（二选一）">
+                <Input placeholder="机器人 access_token" />
+              </Form.Item>
+            </>
+          )}
+          {channelType === 'sms' && (
+            <Form.Item name="provider" label="提供商" rules={[{ required: true, message: '请输入提供商' }]}>
+              <Input placeholder="如: aliyun, tencent" />
             </Form.Item>
           )}
 
@@ -326,7 +449,6 @@ const NotificationConfig: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 删除确认 */}
       <Modal
         open={deleteModalOpen}
         title="删除通知渠道"
@@ -335,6 +457,7 @@ const NotificationConfig: React.FC = () => {
         okText="删除"
         okButtonProps={{ danger: true }}
         cancelText="取消"
+        confirmLoading={submitting}
       >
         <p style={{ color: '#94a3b8' }}>
           确定要删除通知渠道 <span style={{ fontWeight: 500 }}>"{currentChannel?.name}"</span> 吗？此操作不可撤销。

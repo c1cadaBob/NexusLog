@@ -507,7 +507,7 @@ func buildRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	authRepo := repository.NewAuthRepository(db)
-	authSvc := service.NewAuthService(authRepo)
+	authSvc := service.NewAuthService(authRepo, "integration-test-secret")
 	authH := handler.NewAuthHandler(authSvc)
 	r.POST("/api/v1/auth/register", authH.Register)
 	r.POST("/api/v1/auth/login", authH.Login)

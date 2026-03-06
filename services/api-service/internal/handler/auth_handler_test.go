@@ -106,7 +106,7 @@ func (m *handlerRepoMock) RecordLoginAttempt(_ context.Context, _ repository.Log
 func TestRegisterInvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
 	router.POST("/api/v1/auth/register", h.Register)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString("{bad json"))
@@ -134,7 +134,7 @@ func TestRegisterInvalidBody(t *testing.T) {
 func TestRegisterSuccessEnvelope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true, userID: uuid.New(), username: "alice"}))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true, userID: uuid.New(), username: "alice"}, "test-secret"))
 	router.POST("/api/v1/auth/register", h.Register)
 
 	payload := model.RegisterRequest{
@@ -175,7 +175,7 @@ func TestRegisterSuccessEnvelope(t *testing.T) {
 func TestLoginInvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
 	router.POST("/api/v1/auth/login", h.Login)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString("{bad json"))
@@ -217,7 +217,7 @@ func TestLoginSuccessEnvelope(t *testing.T) {
 			PasswordHash: string(hash),
 		},
 	}
-	h := NewAuthHandler(service.NewAuthService(mock))
+	h := NewAuthHandler(service.NewAuthService(mock, "test-secret"))
 	router.POST("/api/v1/auth/login", h.Login)
 
 	payload := model.LoginRequest{
@@ -266,7 +266,7 @@ func TestLoginErrorEnvelopeIncludesDetails(t *testing.T) {
 		tenantExists: true,
 		loginErr:     repository.ErrInvalidCredentials,
 	}
-	h := NewAuthHandler(service.NewAuthService(mock))
+	h := NewAuthHandler(service.NewAuthService(mock, "test-secret"))
 	router.POST("/api/v1/auth/login", h.Login)
 
 	payload := model.LoginRequest{
@@ -300,7 +300,7 @@ func TestLoginErrorEnvelopeIncludesDetails(t *testing.T) {
 func TestRefreshInvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
 	router.POST("/api/v1/auth/refresh", h.Refresh)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewBufferString("{bad json"))
@@ -326,7 +326,7 @@ func TestRefreshSuccessEnvelope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	mock := &handlerRepoMock{tenantExists: true}
-	h := NewAuthHandler(service.NewAuthService(mock))
+	h := NewAuthHandler(service.NewAuthService(mock, "test-secret"))
 	router.POST("/api/v1/auth/refresh", h.Refresh)
 
 	payload := model.RefreshRequest{RefreshToken: "rt-valid"}
@@ -367,7 +367,7 @@ func TestRefreshSuccessEnvelope(t *testing.T) {
 func TestLogoutInvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
 	router.POST("/api/v1/auth/logout", h.Logout)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", bytes.NewBufferString("{bad json"))
@@ -393,7 +393,7 @@ func TestLogoutSuccessEnvelope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	mock := &handlerRepoMock{tenantExists: true}
-	h := NewAuthHandler(service.NewAuthService(mock))
+	h := NewAuthHandler(service.NewAuthService(mock, "test-secret"))
 	router.POST("/api/v1/auth/logout", h.Logout)
 
 	payload := model.LogoutRequest{RefreshToken: "rt-valid"}
@@ -433,7 +433,7 @@ func TestLogoutSuccessEnvelope(t *testing.T) {
 func TestPasswordResetRequestInvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
 	router.POST("/api/v1/auth/password/reset-request", h.PasswordResetRequest)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-request", bytes.NewBufferString("{bad json"))
@@ -467,7 +467,7 @@ func TestPasswordResetRequestSuccessEnvelope(t *testing.T) {
 			Status:   "active",
 		},
 	}
-	h := NewAuthHandler(service.NewAuthService(mock))
+	h := NewAuthHandler(service.NewAuthService(mock, "test-secret"))
 	router.POST("/api/v1/auth/password/reset-request", h.PasswordResetRequest)
 
 	payload := model.PasswordResetRequestRequest{EmailOrUsername: "alice"}
@@ -507,7 +507,7 @@ func TestPasswordResetRequestSuccessEnvelope(t *testing.T) {
 func TestPasswordResetConfirmInvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
 	router.POST("/api/v1/auth/password/reset-confirm", h.PasswordResetConfirm)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-confirm", bytes.NewBufferString("{bad json"))
@@ -533,7 +533,7 @@ func TestPasswordResetConfirmSuccessEnvelope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	mock := &handlerRepoMock{tenantExists: true}
-	h := NewAuthHandler(service.NewAuthService(mock))
+	h := NewAuthHandler(service.NewAuthService(mock, "test-secret"))
 	router.POST("/api/v1/auth/password/reset-confirm", h.PasswordResetConfirm)
 
 	payload := model.PasswordResetConfirmRequest{

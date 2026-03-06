@@ -1,25 +1,45 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '../types/user';
+import { fetchCurrentUser } from '../api/user';
 
 export interface AuthState {
   isAuthenticated: boolean;
   user: User | null;
+  permissions: string[];
   isLoading: boolean;
   login: (user: User) => void;
   logout: () => void;
   setLoading: (loading: boolean) => void;
+  setPermissions: (permissions: string[]) => void;
+  /** Fetch current user permissions (call after login or on app load when authenticated) */
+  syncPermissions: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       isAuthenticated: false,
       user: null,
+      permissions: [],
       isLoading: false,
       login: (user) => set({ isAuthenticated: true, user, isLoading: false }),
-      logout: () => set({ isAuthenticated: false, user: null }),
+      logout: () => set({ isAuthenticated: false, user: null, permissions: [] }),
       setLoading: (isLoading) => set({ isLoading }),
+      setPermissions: (permissions) => set({ permissions }),
+      syncPermissions: async () => {
+        const token = typeof window !== 'undefined' ? window.localStorage.getItem('nexuslog-access-token')?.trim() : '';
+        if (!token) {
+          set({ permissions: [] });
+          return;
+        }
+        try {
+          const me = await fetchCurrentUser();
+          set({ permissions: me.permissions ?? [] });
+        } catch {
+          set({ permissions: [] });
+        }
+      },
     }),
     {
       name: 'nexuslog-auth',

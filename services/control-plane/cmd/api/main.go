@@ -20,7 +20,10 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	"github.com/nexuslog/control-plane/internal/alert"
 	"github.com/nexuslog/control-plane/internal/ingest"
+	"github.com/nexuslog/control-plane/internal/middleware"
+	"github.com/nexuslog/control-plane/internal/notification"
 )
 
 func main() {
@@ -56,6 +59,10 @@ func main() {
 		}
 	} else {
 		log.Printf("ingest store backend: memory")
+	}
+
+	if pgDB != nil {
+		router.Use(middleware.AuditMiddleware(pgDB))
 	}
 
 	var (
@@ -171,6 +178,36 @@ func main() {
 
 	ingest.RegisterPullSourceRoutes(router, pullSourceStore)
 	ingest.RegisterPullTaskRoutes(router, pullSourceStore, pullTaskStore)
+
+	// Alert rules API (requires PostgreSQL)
+	if pgDB != nil {
+		alertRuleRepo := alert.NewRuleRepositoryPG(pgDB)
+		alertRuleService := alert.NewRuleService(alertRuleRepo)
+		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
+		alert.RegisterAlertRuleRoutes(router, alertRuleHandler)
+
+		// Alert evaluation engine (runs every 30s)
+		if isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "true")) {
+			esEndpoint := getEnv("INGEST_ES_ENDPOINT", getEnv("ELASTICSEARCH_URL", "http://localhost:9200"))
+			esIndex := getEnv("INGEST_ES_INDEX", "logs-remote")
+			esClient := alert.NewHTTPESSearchClient(
+				esEndpoint,
+				getEnv("INGEST_ES_USERNAME", ""),
+				getEnv("INGEST_ES_PASSWORD", ""),
+				time.Duration(parseEnvInt("INGEST_ES_TIMEOUT_SEC", 15))*time.Second,
+			)
+			evaluator := alert.NewEvaluator(alertRuleRepo, esClient, pgDB, esIndex)
+			go evaluator.Start()
+			log.Printf("alert evaluator enabled (interval=30s)")
+		}
+	}
+
+	// Notification channels (requires pgDB)
+	if pgDB != nil {
+		channelRepo := notification.NewChannelRepository(pgDB)
+		smtpSender := notification.NewSMTPSender()
+		notification.RegisterChannelRoutes(router, channelRepo, smtpSender)
+	}
 	ingest.RegisterPullPackageRoutes(router, pullPackageStore)
 	ingest.RegisterReceiptRoutes(router, pullPackageStore, receiptStore, deadLetterStore)
 	ingest.RegisterDeadLetterRoutes(router, deadLetterStore)

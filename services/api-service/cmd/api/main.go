@@ -30,10 +30,16 @@ func main() {
 
 	router := gin.Default()
 	router.Use(gin.Recovery())
+	router.Use(handler.AuditMiddleware(db))
 
+	jwtSecret := getEnv("JWT_SECRET", "nexuslog-dev-secret-change-in-production")
 	authRepo := repository.NewAuthRepository(db)
-	authService := service.NewAuthService(authRepo)
+	authService := service.NewAuthService(authRepo, jwtSecret)
 	authHandler := handler.NewAuthHandler(authService)
+
+	userRepo := repository.NewUserRepository(db)
+	userService := service.NewUserService(userRepo)
+	userHandler := handler.NewUserHandler(userService)
 
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {
@@ -54,6 +60,8 @@ func main() {
 	})
 
 	apiV1 := router.Group("/api/v1")
+
+	// Public routes (no auth)
 	authV1 := apiV1.Group("/auth")
 	authV1.POST("/register", authHandler.Register)
 	authV1.POST("/login", authHandler.Login)
@@ -61,6 +69,25 @@ func main() {
 	authV1.POST("/logout", authHandler.Logout)
 	authV1.POST("/password/reset-request", authHandler.PasswordResetRequest)
 	authV1.POST("/password/reset-confirm", authHandler.PasswordResetConfirm)
+
+	// Protected routes
+	protected := apiV1.Group("")
+	protected.Use(handler.AuthRequired(db, jwtSecret))
+
+	// User management (users:read, users:write)
+	userV1 := protected.Group("/users")
+	userV1.GET("/me", handler.RequirePermission("users:read"), userHandler.GetMe)
+	userV1.GET("", handler.RequirePermission("users:read"), userHandler.List)
+	userV1.GET("/:id", handler.RequirePermission("users:read"), userHandler.Get)
+	userV1.POST("", handler.RequirePermission("users:write"), userHandler.Create)
+	userV1.PUT("/:id", handler.RequirePermission("users:write"), userHandler.Update)
+	userV1.DELETE("/:id", handler.RequirePermission("users:write"), userHandler.Delete)
+	userV1.POST("/:id/roles", handler.RequirePermission("users:write"), userHandler.AssignRole)
+	userV1.DELETE("/:id/roles/:roleId", handler.RequirePermission("users:write"), userHandler.RemoveRole)
+
+	// Roles (users:read to list)
+	roleV1 := protected.Group("/roles")
+	roleV1.GET("", handler.RequirePermission("users:read"), userHandler.ListRoles)
 
 	server := &http.Server{
 		Addr:              ":" + port,

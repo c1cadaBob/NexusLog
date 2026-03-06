@@ -42,7 +42,7 @@ describe('Property 4: 路由匹配自动展开父级菜单', () => {
 
     fc.assert(
       fc.property(entryArb, (entry) => {
-        const openKeys = getOpenKeysForPath(entry.path);
+        const openKeys = getOpenKeysForPath(entry.path, MENU_SECTIONS);
         return openKeys.includes(entry.parentKey);
       }),
       { numRuns: 100 },
@@ -50,7 +50,7 @@ describe('Property 4: 路由匹配自动展开父级菜单', () => {
   });
 
   it('根路径 "/" 的 openKeys 为空（概览无父级菜单）', () => {
-    const openKeys = getOpenKeysForPath('/');
+    const openKeys = getOpenKeysForPath('/', MENU_SECTIONS);
     return openKeys.length === 0;
   });
 });

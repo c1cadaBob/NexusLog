@@ -126,7 +126,7 @@ func (m *mockAuthRepository) RecordLoginAttempt(_ context.Context, input reposit
 }
 
 func TestRegisterValidationAndTenantErrors(t *testing.T) {
-	svc := NewAuthService(&mockAuthRepository{tenantExists: true})
+	svc := NewAuthService(&mockAuthRepository{tenantExists: true}, "test-secret")
 
 	_, err := svc.Register(context.Background(), "", model.RegisterRequest{})
 	if err == nil || err.Code != "AUTH_REGISTER_TENANT_REQUIRED" {
@@ -157,32 +157,32 @@ func TestRegisterValidationAndTenantErrors(t *testing.T) {
 func TestRegisterConflictAndSuccess(t *testing.T) {
 	tenantID := uuid.NewString()
 
-	svc := NewAuthService(&mockAuthRepository{tenantExists: false})
+	svc := NewAuthService(&mockAuthRepository{tenantExists: false}, "test-secret")
 	_, err := svc.Register(context.Background(), tenantID, model.RegisterRequest{Username: "valid_user", Password: "Password123", Email: "a@example.com"})
 	if err == nil || err.Code != "AUTH_REGISTER_TENANT_NOT_FOUND" {
 		t.Fatalf("expected tenant not found, got %#v", err)
 	}
 
-	svc = NewAuthService(&mockAuthRepository{tenantExists: true, registerErr: repository.ErrUsernameConflict})
+	svc = NewAuthService(&mockAuthRepository{tenantExists: true, registerErr: repository.ErrUsernameConflict}, "test-secret")
 	_, err = svc.Register(context.Background(), tenantID, model.RegisterRequest{Username: "valid_user", Password: "Password123", Email: "a@example.com"})
 	if err == nil || err.Code != "AUTH_REGISTER_USERNAME_CONFLICT" {
 		t.Fatalf("expected username conflict, got %#v", err)
 	}
 
-	svc = NewAuthService(&mockAuthRepository{tenantExists: true, registerErr: repository.ErrEmailConflict})
+	svc = NewAuthService(&mockAuthRepository{tenantExists: true, registerErr: repository.ErrEmailConflict}, "test-secret")
 	_, err = svc.Register(context.Background(), tenantID, model.RegisterRequest{Username: "valid_user", Password: "Password123", Email: "a@example.com"})
 	if err == nil || err.Code != "AUTH_REGISTER_EMAIL_CONFLICT" {
 		t.Fatalf("expected email conflict, got %#v", err)
 	}
 
-	svc = NewAuthService(&mockAuthRepository{tenantExists: true, checkErr: errors.New("db error")})
+	svc = NewAuthService(&mockAuthRepository{tenantExists: true, checkErr: errors.New("db error")}, "test-secret")
 	_, err = svc.Register(context.Background(), tenantID, model.RegisterRequest{Username: "valid_user", Password: "Password123", Email: "a@example.com"})
 	if err == nil || err.Code != "AUTH_REGISTER_INTERNAL_ERROR" {
 		t.Fatalf("expected internal error on tenant check, got %#v", err)
 	}
 
 	expectedUserID := uuid.New()
-	svc = NewAuthService(&mockAuthRepository{tenantExists: true, userID: expectedUserID, username: "valid_user"})
+	svc = NewAuthService(&mockAuthRepository{tenantExists: true, userID: expectedUserID, username: "valid_user"}, "test-secret")
 	resp, err := svc.Register(context.Background(), tenantID, model.RegisterRequest{
 		Username:    " valid_user ",
 		Password:    "Password123",
@@ -198,7 +198,7 @@ func TestRegisterConflictAndSuccess(t *testing.T) {
 }
 
 func TestLoginValidationAndTenantErrors(t *testing.T) {
-	svc := NewAuthService(&mockAuthRepository{tenantExists: true})
+	svc := NewAuthService(&mockAuthRepository{tenantExists: true}, "test-secret")
 
 	_, err := svc.Login(context.Background(), "", model.LoginRequest{}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_LOGIN_TENANT_REQUIRED" {
@@ -220,7 +220,7 @@ func TestLoginValidationAndTenantErrors(t *testing.T) {
 		t.Fatalf("expected invalid argument for password, got %#v", err)
 	}
 
-	svc = NewAuthService(&mockAuthRepository{tenantExists: false})
+	svc = NewAuthService(&mockAuthRepository{tenantExists: false}, "test-secret")
 	_, err = svc.Login(context.Background(), uuid.NewString(), model.LoginRequest{Username: "valid_user", Password: "Password123"}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_LOGIN_TENANT_NOT_FOUND" {
 		t.Fatalf("expected tenant not found, got %#v", err)
@@ -240,7 +240,7 @@ func TestLoginInvalidCredentialsAndSuccess(t *testing.T) {
 		tenantExists: true,
 		loginUserErr: repository.ErrInvalidCredentials,
 	}
-	svc := NewAuthService(repoMock)
+	svc := NewAuthService(repoMock, "test-secret")
 	_, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "valid_user", Password: "Password123"}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_LOGIN_INVALID_CREDENTIALS" {
 		t.Fatalf("expected invalid credentials, got %#v", err)
@@ -260,7 +260,7 @@ func TestLoginInvalidCredentialsAndSuccess(t *testing.T) {
 			PasswordHash: string(hash),
 		},
 	}
-	svc = NewAuthService(repoMock)
+	svc = NewAuthService(repoMock, "test-secret")
 	resp, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "valid_user", Password: "Password123", RememberMe: true}, "127.0.0.1", "ua")
 	if err != nil {
 		t.Fatalf("expected success, got %#v", err)
@@ -290,7 +290,7 @@ func TestLoginInvalidCredentialsAndSuccess(t *testing.T) {
 		},
 		createSessionErr: errors.New("session failed"),
 	}
-	svc = NewAuthService(repoMock)
+	svc = NewAuthService(repoMock, "test-secret")
 	_, err = svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "valid_user", Password: "Password123"}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_LOGIN_INTERNAL_ERROR" {
 		t.Fatalf("expected internal error on session create, got %#v", err)
@@ -301,7 +301,7 @@ func TestRefreshValidationAndRotation(t *testing.T) {
 	tenantID := uuid.NewString()
 
 	repoMock := &mockAuthRepository{tenantExists: true}
-	svc := NewAuthService(repoMock)
+	svc := NewAuthService(repoMock, "test-secret")
 
 	_, err := svc.Refresh(context.Background(), "", model.RefreshRequest{}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_REFRESH_TENANT_REQUIRED" {
@@ -348,7 +348,7 @@ func TestLogoutValidationAndSuccess(t *testing.T) {
 	userID := uuid.NewString()
 
 	repoMock := &mockAuthRepository{tenantExists: true}
-	svc := NewAuthService(repoMock)
+	svc := NewAuthService(repoMock, "test-secret")
 
 	_, err := svc.Logout(context.Background(), "", "", model.LogoutRequest{})
 	if err == nil || err.Code != "AUTH_LOGOUT_TENANT_REQUIRED" {
@@ -406,7 +406,7 @@ func TestPasswordResetRequestValidationAndSuccess(t *testing.T) {
 	userID := uuid.New()
 
 	repoMock := &mockAuthRepository{tenantExists: true}
-	svc := NewAuthService(repoMock)
+	svc := NewAuthService(repoMock, "test-secret")
 
 	_, err := svc.PasswordResetRequest(context.Background(), "", model.PasswordResetRequestRequest{}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_RESET_REQUEST_TENANT_REQUIRED" {
@@ -461,7 +461,7 @@ func TestPasswordResetRequestValidationAndSuccess(t *testing.T) {
 func TestPasswordResetConfirmValidationAndSuccess(t *testing.T) {
 	tenantID := uuid.NewString()
 	repoMock := &mockAuthRepository{tenantExists: true}
-	svc := NewAuthService(repoMock)
+	svc := NewAuthService(repoMock, "test-secret")
 
 	_, err := svc.PasswordResetConfirm(context.Background(), "", model.PasswordResetConfirmRequest{})
 	if err == nil || err.Code != "AUTH_RESET_CONFIRM_TENANT_REQUIRED" {

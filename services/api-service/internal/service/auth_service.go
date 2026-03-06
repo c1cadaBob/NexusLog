@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/google/uuid"
@@ -57,11 +58,52 @@ type authRepository interface {
 
 // AuthService handles auth business logic.
 type AuthService struct {
-	repo authRepository
+	repo      authRepository
+	jwtSecret string
 }
 
-func NewAuthService(repo authRepository) *AuthService {
-	return &AuthService{repo: repo}
+func NewAuthService(repo authRepository, jwtSecret string) *AuthService {
+	return &AuthService{repo: repo, jwtSecret: jwtSecret}
+}
+
+// GenerateAccessToken creates a JWT access token for the given user and tenant.
+func (s *AuthService) GenerateAccessToken(userID, tenantID uuid.UUID) (string, error) {
+	if s.jwtSecret == "" {
+		return "", errors.New("jwt secret not configured")
+	}
+	now := time.Now().UTC()
+	claims := &model.JWTClaims{
+		UserID:   userID.String(),
+		TenantID: tenantID.String(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(defaultAccessTTL)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        uuid.NewString(),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.jwtSecret))
+}
+
+// ValidateAccessToken parses and validates a JWT access token, returning claims or error.
+func (s *AuthService) ValidateAccessToken(tokenString string) (*model.JWTClaims, error) {
+	if s.jwtSecret == "" {
+		return nil, errors.New("jwt secret not configured")
+	}
+	token, err := jwt.ParseWithClaims(tokenString, &model.JWTClaims{}, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return []byte(s.jwtSecret), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(*model.JWTClaims)
+	if !ok || !token.Valid {
+		return nil, errors.New("invalid token claims")
+	}
+	return claims, nil
 }
 
 func (s *AuthService) Register(ctx context.Context, tenantHeader string, req model.RegisterRequest) (model.RegisterResponseData, *model.APIError) {
@@ -221,15 +263,6 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 		return model.RefreshResponseData{}, apiErr
 	}
 
-	accessToken, err := newOpaqueToken()
-	if err != nil {
-		return model.RefreshResponseData{}, &model.APIError{
-			HTTPStatus: http.StatusInternalServerError,
-			Code:       "AUTH_REFRESH_INTERNAL_ERROR",
-			Message:    "internal error",
-		}
-	}
-
 	refreshToken, err := newOpaqueToken()
 	if err != nil {
 		return model.RefreshResponseData{}, &model.APIError{
@@ -239,7 +272,7 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 		}
 	}
 
-	rotateErr := s.rotateSession(ctx, tenantID, normalizedReq.RefreshToken, refreshToken, clientIP, userAgent)
+	userID, rotateErr := s.rotateSession(ctx, tenantID, normalizedReq.RefreshToken, refreshToken, clientIP, userAgent)
 	if rotateErr != nil {
 		if errors.Is(rotateErr, repository.ErrInvalidRefreshToken) {
 			return model.RefreshResponseData{}, &model.APIError{
@@ -248,6 +281,15 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 				Message:    "refresh token invalid or expired",
 			}
 		}
+		return model.RefreshResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_REFRESH_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	accessToken, err := s.GenerateAccessToken(userID, tenantID)
+	if err != nil {
 		return model.RefreshResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,
 			Code:       "AUTH_REFRESH_INTERNAL_ERROR",
@@ -434,9 +476,9 @@ func (s *AuthService) PasswordResetConfirm(
 	return model.PasswordResetConfirmResponseData{Reset: true}, nil
 }
 
-func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, currentRefreshToken, newRefreshToken, clientIP, userAgent string) error {
+func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, currentRefreshToken, newRefreshToken, clientIP, userAgent string) (uuid.UUID, error) {
 	jti := uuid.NewString()
-	_, err := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
+	userID, err := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
 		TenantID:       tenantID,
 		CurrentRefresh: currentRefreshToken,
 		NewRefresh:     newRefreshToken,
@@ -446,15 +488,15 @@ func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, cur
 		ExpiresAt:      time.Now().UTC().Add(defaultRefreshTTL),
 	})
 	if err == nil {
-		return nil
+		return userID, nil
 	}
 
 	if errors.Is(err, repository.ErrSessionTokenConflict) {
 		retryRefresh, retryErr := newOpaqueToken()
 		if retryErr != nil {
-			return err
+			return uuid.Nil, err
 		}
-		_, retryRotateErr := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
+		userID, retryRotateErr := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
 			TenantID:       tenantID,
 			CurrentRefresh: currentRefreshToken,
 			NewRefresh:     retryRefresh,
@@ -463,14 +505,14 @@ func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, cur
 			UserAgent:      userAgent,
 			ExpiresAt:      time.Now().UTC().Add(defaultRefreshTTL),
 		})
-		return retryRotateErr
+		return userID, retryRotateErr
 	}
 
-	return err
+	return uuid.Nil, err
 }
 
 func (s *AuthService) issueSessionTokens(ctx context.Context, tenantID, userID uuid.UUID, refreshTTL time.Duration, clientIP, userAgent string) (string, string, *model.APIError) {
-	accessToken, err := newOpaqueToken()
+	accessToken, err := s.GenerateAccessToken(userID, tenantID)
 	if err != nil {
 		return "", "", &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,
@@ -488,6 +530,7 @@ func (s *AuthService) issueSessionTokens(ctx context.Context, tenantID, userID u
 		}
 	}
 
+	// Extract JTI from JWT for session tracking (optional; access token is self-contained)
 	jti := uuid.NewString()
 	if err := s.repo.CreateUserSession(ctx, repository.CreateSessionInput{
 		TenantID:       tenantID,

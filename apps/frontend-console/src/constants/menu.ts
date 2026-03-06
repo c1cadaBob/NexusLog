@@ -36,6 +36,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         icon: 'notifications_active',
         label: '告警中心',
+        requiredPermission: 'alerts:read',
         children: [
           { icon: 'list', label: '告警列表', path: '/alerts/list' },
           { icon: 'rule', label: '告警规则', path: '/alerts/rules' },
@@ -46,6 +47,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         icon: 'assignment',
         label: '事件管理',
+        requiredPermission: 'incidents:read',
         children: [
           { icon: 'local_fire_department', label: '事件列表', path: '/incidents/list' },
           { icon: 'timeline', label: '全流程时间线', path: '/incidents/timeline' },
@@ -136,10 +138,10 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: 'admin_panel_settings',
         label: '安全与审计',
         children: [
-          { icon: 'people', label: '用户管理', path: '/security/users' },
-          { icon: 'shield', label: '角色权限', path: '/security/roles' },
-          { icon: 'receipt_long', label: '审计日志', path: '/security/audit' },
-          { icon: 'policy', label: '登录策略', path: '/security/login-policy' },
+          { icon: 'people', label: '用户管理', path: '/security/users', requiredPermission: 'users:write' },
+          { icon: 'shield', label: '角色权限', path: '/security/roles', requiredPermission: 'users:read' },
+          { icon: 'receipt_long', label: '审计日志', path: '/security/audit', requiredPermission: 'audit:read' },
+          { icon: 'policy', label: '登录策略', path: '/security/login-policy', requiredPermission: 'users:write' },
         ],
       },
       {
@@ -169,6 +171,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       {
         icon: 'settings',
         label: '系统设置',
+        requiredPermission: 'users:write',
         children: [
           { icon: 'tune', label: '系统参数', path: '/settings/parameters' },
           { icon: 'toggle_on', label: '全局配置', path: '/settings/global' },

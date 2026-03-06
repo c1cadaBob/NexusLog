@@ -1,46 +1,30 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Input, Select, Table, Tag, Button, Card, Space, Modal, Form, message } from 'antd';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Input, Select, Table, Tag, Button, Space, Modal, Form, Spin, Empty, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
-
-// ============================================================================
-// 类型定义
-// ============================================================================
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  lastLogin: string;
-  status: 'Active' | 'Disabled';
-  avatar: string;
-}
-
-// ============================================================================
-// 模拟数据
-// ============================================================================
-
-const roleOptions = ['Admin', 'SRE', 'Developer', 'Viewer'];
-
-const initialUsers: User[] = [
-  { id: '84920', name: '王伟 (Wang Wei)', email: 'wang.wei@company.com', role: 'Admin', lastLogin: '2023-10-24 09:30', status: 'Active', avatar: 'https://ui-avatars.com/api/?name=Wang+Wei&background=6366f1&color=fff' },
-  { id: '84921', name: '李娜 (Li Na)', email: 'li.na@company.com', role: 'SRE', lastLogin: '2023-10-23 18:45', status: 'Active', avatar: 'https://ui-avatars.com/api/?name=Li+Na&background=f97316&color=fff' },
-  { id: '84899', name: '张强 (Zhang Qiang)', email: 'zhang.q@company.com', role: 'Developer', lastLogin: '2023-09-15 10:00', status: 'Disabled', avatar: 'https://ui-avatars.com/api/?name=Zhang+Qiang&background=64748b&color=fff' },
-  { id: '84905', name: '刘燕 (Liu Yan)', email: 'liu.y@company.com', role: 'Developer', lastLogin: '2023-10-20 14:20', status: 'Active', avatar: 'https://ui-avatars.com/api/?name=Liu+Yan&background=10b981&color=fff' },
-  { id: '84933', name: '陈博 (Chen Bo)', email: 'chen.bo@company.com', role: 'SRE', lastLogin: '2023-10-24 11:15', status: 'Active', avatar: 'https://ui-avatars.com/api/?name=Chen+Bo&background=3b82f6&color=fff' },
-];
+import {
+  fetchUsers,
+  createUser,
+  updateUser,
+  disableUser,
+  assignRole,
+  removeRole,
+  fetchRoles,
+  type UserData,
+  type RoleData,
+} from '../../api/user';
 
 // ============================================================================
 // 角色颜色映射
 // ============================================================================
 
 const roleColorMap: Record<string, string> = {
-  Admin: 'purple',
-  SRE: 'blue',
-  Developer: 'default',
-  Viewer: 'cyan',
+  admin: 'purple',
+  sre: 'blue',
+  developer: 'default',
+  viewer: 'cyan',
+  operator: 'orange',
 };
 
 // ============================================================================
@@ -48,102 +32,215 @@ const roleColorMap: Record<string, string> = {
 // ============================================================================
 
 const UserManagement: React.FC = () => {
+  const { message: messageApi } = App.useApp();
   const isDark = useThemeStore((s) => s.isDark);
   const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
 
-  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [users, setUsers] = useState<UserData[]>([]);
+  const [roles, setRoles] = useState<RoleData[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserData | null>(null);
   const [form] = Form.useForm();
+  const [createForm] = Form.useForm();
+  const [actionLoading, setActionLoading] = useState(false);
 
-  // 过滤用户
-  const filteredUsers = useMemo(() => users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = !roleFilter || user.role === roleFilter;
-    const matchesStatus = !statusFilter || user.status === statusFilter;
-    return matchesSearch && matchesRole && matchesStatus;
-  }), [users, searchTerm, roleFilter, statusFilter]);
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetchUsers(page, pageSize);
+      setUsers(res.users);
+      setTotal(res.total);
+    } catch (err) {
+      messageApi.error((err as Error).message || '加载用户列表失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, messageApi]);
 
-  // 创建用户
-  const handleCreateUser = useCallback(() => {
-    form.validateFields().then(values => {
-      const newUser: User = {
-        id: String(Date.now()),
-        name: values.name,
-        email: values.email,
-        role: values.role,
-        lastLogin: '-',
-        status: 'Active',
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(values.name)}&background=random&color=fff`,
-      };
-      setUsers(prev => [...prev, newUser]);
-      setIsCreateModalOpen(false);
-      form.resetFields();
-      message.success('用户创建成功');
+  const loadRoles = useCallback(async () => {
+    try {
+      const list = await fetchRoles();
+      setRoles(list);
+    } catch (err) {
+      messageApi.error((err as Error).message || '加载角色列表失败');
+    }
+  }, [messageApi]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  useEffect(() => {
+    loadRoles();
+  }, [loadRoles]);
+
+  const roleOptions = useMemo(
+    () => roles.map((r) => ({ value: r.id, label: r.name })),
+    [roles],
+  );
+
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) => {
+      const name = user.display_name || user.username;
+      const matchesSearch =
+        name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email.toLowerCase().includes(searchTerm.toLowerCase());
+      const primaryRole = user.roles?.[0]?.name;
+      const matchesRole = !roleFilter || primaryRole === roleFilter || user.roles?.some((r) => r.name === roleFilter);
+      const matchesStatus = !statusFilter || user.status === statusFilter;
+      return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [form]);
+  }, [users, searchTerm, roleFilter, statusFilter]);
 
-  // 编辑用户
-  const handleEditUser = useCallback(() => {
+  const handleCreateUser = useCallback(async () => {
+    try {
+      const values = await createForm.validateFields();
+      setActionLoading(true);
+      await createUser({
+        username: values.username,
+        password: values.password,
+        email: values.email,
+        display_name: values.display_name || values.username,
+        role_id: values.role_id,
+      });
+      setIsCreateModalOpen(false);
+      createForm.resetFields();
+      messageApi.success('用户创建成功');
+      loadUsers();
+    } catch (err) {
+      if ((err as { errorFields?: unknown[] })?.errorFields) return;
+      messageApi.error((err as Error).message || '创建用户失败');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [createForm, loadUsers, messageApi]);
+
+  const handleEditUser = useCallback(async () => {
     if (!currentUser) return;
-    form.validateFields().then(values => {
-      setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, name: values.name, email: values.email, role: values.role } : u));
+    try {
+      const values = await form.validateFields();
+      setActionLoading(true);
+      await updateUser(currentUser.id, {
+        display_name: values.display_name,
+        email: values.email,
+      });
+      const roleId = values.role_id;
+      const currentRoleId = currentUser.roles?.[0]?.id;
+      if (roleId && roleId !== currentRoleId) {
+        if (currentRoleId) await removeRole(currentUser.id, currentRoleId);
+        await assignRole(currentUser.id, roleId);
+      }
       setIsEditModalOpen(false);
       setCurrentUser(null);
       form.resetFields();
-      message.success('用户信息已更新');
-    });
-  }, [currentUser, form]);
+      messageApi.success('用户信息已更新');
+      loadUsers();
+    } catch (err) {
+      if ((err as { errorFields?: unknown[] })?.errorFields) return;
+      messageApi.error((err as Error).message || '更新用户失败');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [currentUser, form, loadUsers, messageApi]);
 
-  // 删除用户
-  const handleDeleteUser = useCallback(() => {
+  const handleDeleteUser = useCallback(async () => {
     if (!currentUser) return;
-    setUsers(prev => prev.filter(u => u.id !== currentUser.id));
-    setIsDeleteModalOpen(false);
-    setCurrentUser(null);
-    message.success('用户已删除');
-  }, [currentUser]);
+    try {
+      setActionLoading(true);
+      await disableUser(currentUser.id);
+      setIsDeleteModalOpen(false);
+      setCurrentUser(null);
+      messageApi.success('用户已禁用');
+      loadUsers();
+    } catch (err) {
+      messageApi.error((err as Error).message || '禁用用户失败');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [currentUser, loadUsers, messageApi]);
 
-  // 切换用户状态
-  const handleToggleStatus = useCallback((userId: string) => {
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: u.status === 'Active' ? 'Disabled' : 'Active' } : u));
-  }, []);
+  const handleToggleStatus = useCallback(
+    async (user: UserData) => {
+      const newStatus = user.status === 'active' ? 'disabled' : 'active';
+      try {
+        setActionLoading(true);
+        await updateUser(user.id, { status: newStatus });
+        messageApi.success(newStatus === 'active' ? '用户已启用' : '用户已禁用');
+        loadUsers();
+      } catch (err) {
+        messageApi.error((err as Error).message || '操作失败');
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    [loadUsers, messageApi],
+  );
 
-  // 打开编辑模态框
-  const openEditModal = useCallback((user: User) => {
-    setCurrentUser(user);
-    form.setFieldsValue({ name: user.name, email: user.email, role: user.role });
-    setIsEditModalOpen(true);
-  }, [form]);
+  const openEditModal = useCallback(
+    (user: UserData) => {
+      setCurrentUser(user);
+      form.setFieldsValue({
+        display_name: user.display_name || user.username,
+        email: user.email,
+        role_id: user.roles?.[0]?.id,
+      });
+      setIsEditModalOpen(true);
+    },
+    [form],
+  );
 
-  // 打开删除模态框
-  const openDeleteModal = useCallback((user: User) => {
+  const openDeleteModal = useCallback((user: UserData) => {
     setCurrentUser(user);
     setIsDeleteModalOpen(true);
   }, []);
 
-  // 表格列定义
-  const columns: ColumnsType<User> = [
+  const formatLastLogin = (lastLogin?: string) => {
+    if (!lastLogin) return '-';
+    try {
+      const d = new Date(lastLogin);
+      return Number.isNaN(d.getTime()) ? lastLogin : d.toLocaleString('zh-CN');
+    } catch {
+      return lastLogin;
+    }
+  };
+
+  const columns: ColumnsType<UserData> = [
     {
       title: '用户 (USER)',
-      dataIndex: 'name',
+      dataIndex: 'display_name',
       key: 'name',
       render: (_, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img
-            alt={`${record.name} Avatar`}
-            src={record.avatar}
-            style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: `1px solid ${palette.border}` }}
-          />
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              background: `${COLORS.primary}20`,
+              color: COLORS.primary,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 600,
+              fontSize: 14,
+            }}
+          >
+            {(record.display_name || record.username || '?').charAt(0).toUpperCase()}
+          </div>
           <div>
-            <div style={{ fontWeight: 500 }}>{record.name}</div>
-            <div style={{ fontSize: 12, color: palette.textSecondary, fontFamily: 'JetBrains Mono, monospace' }}>ID: {record.id}</div>
+            <div style={{ fontWeight: 500 }}>{record.display_name || record.username}</div>
+            <div style={{ fontSize: 12, color: palette.textSecondary, fontFamily: 'JetBrains Mono, monospace' }}>
+              ID: {record.id}
+            </div>
           </div>
         </div>
       ),
@@ -156,15 +253,20 @@ const UserManagement: React.FC = () => {
     },
     {
       title: '角色 (ROLE)',
-      dataIndex: 'role',
       key: 'role',
-      render: (role: string) => <Tag color={roleColorMap[role] || 'default'}>{role}</Tag>,
+      render: (_, record) => {
+        const roleName = record.roles?.[0]?.name || '-';
+        return <Tag color={roleColorMap[roleName.toLowerCase()] || 'default'}>{roleName}</Tag>;
+      },
     },
     {
       title: '最后登录 (LAST LOGIN)',
-      dataIndex: 'lastLogin',
       key: 'lastLogin',
-      render: (text: string) => <span style={{ fontFamily: 'JetBrains Mono, monospace', color: palette.textSecondary }}>{text}</span>,
+      render: (_, record) => (
+        <span style={{ fontFamily: 'JetBrains Mono, monospace', color: palette.textSecondary }}>
+          {formatLastLogin(record.last_login_at)}
+        </span>
+      ),
     },
     {
       title: '状态 (STATUS)',
@@ -172,8 +274,8 @@ const UserManagement: React.FC = () => {
       key: 'status',
       align: 'center',
       render: (status: string) => (
-        <Tag color={status === 'Active' ? 'success' : 'error'}>
-          {status === 'Active' ? '启用' : '禁用'}
+        <Tag color={status === 'active' ? 'success' : 'error'}>
+          {status === 'active' ? '启用' : '禁用'}
         </Tag>
       ),
     },
@@ -183,12 +285,32 @@ const UserManagement: React.FC = () => {
       align: 'right',
       render: (_, record) => (
         <Space size={4}>
-          <Button type="text" size="small" title="编辑用户" onClick={() => openEditModal(record)}
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>} />
-          <Button type="text" size="small" title={record.status === 'Active' ? '禁用用户' : '启用用户'} onClick={() => handleToggleStatus(record.id)}
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>{record.status === 'Active' ? 'block' : 'check_circle'}</span>} />
-          <Button type="text" size="small" danger title="删除用户" onClick={() => openDeleteModal(record)}
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>} />
+          <Button
+            type="text"
+            size="small"
+            title="编辑用户"
+            onClick={() => openEditModal(record)}
+            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>}
+          />
+          <Button
+            type="text"
+            size="small"
+            title={record.status === 'active' ? '禁用用户' : '启用用户'}
+            onClick={() => handleToggleStatus(record)}
+            icon={
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                {record.status === 'active' ? 'block' : 'check_circle'}
+              </span>
+            }
+          />
+          <Button
+            type="text"
+            size="small"
+            danger
+            title="禁用用户"
+            onClick={() => openDeleteModal(record)}
+            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>}
+          />
         </Space>
       ),
     },
@@ -197,85 +319,143 @@ const UserManagement: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* 顶部栏 */}
-      <div style={{ padding: '16px 24px', borderBottom: `1px solid ${palette.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: isDark ? '#111722' : palette.bgContainer }}>
+      <div
+        style={{
+          padding: '16px 24px',
+          borderBottom: `1px solid ${palette.border}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+          background: isDark ? '#111722' : palette.bgContainer,
+        }}
+      >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: palette.textSecondary, marginBottom: 4 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12,
+              color: palette.textSecondary,
+              marginBottom: 4,
+            }}
+          >
             <span>安全与审计</span>
             <span className="material-symbols-outlined" style={{ fontSize: 10 }}>chevron_right</span>
             <span style={{ color: COLORS.primary, fontWeight: 500 }}>用户管理</span>
           </div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>用户管理</h2>
         </div>
-        <Space>
-          <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>}>导出</Button>
-          <Button type="primary" onClick={() => { form.resetFields(); setIsCreateModalOpen(true); }}
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>}
-          >新增用户</Button>
-        </Space>
+        <Button
+          type="primary"
+          onClick={() => {
+            createForm.resetFields();
+            setIsCreateModalOpen(true);
+          }}
+          icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>}
+        >
+          新增用户
+        </Button>
       </div>
 
       {/* 筛选栏 */}
-      <div style={{ padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: isDark ? palette.bgContainer : '#fff', borderBottom: `1px solid ${palette.border}` }}>
+      <div
+        style={{
+          padding: '12px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          flexShrink: 0,
+          background: isDark ? palette.bgContainer : '#fff',
+          borderBottom: `1px solid ${palette.border}`,
+        }}
+      >
         <Input
           prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: palette.textSecondary }}>search</span>}
           placeholder="按用户名、邮箱搜索..."
           value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
+          onChange={(e) => setSearchTerm(e.target.value)}
           style={{ width: 280 }}
           allowClear
         />
         <Select
           placeholder="所有角色"
           value={roleFilter}
-          onChange={v => setRoleFilter(v)}
+          onChange={(v) => setRoleFilter(v)}
           allowClear
           style={{ width: 140 }}
-          options={roleOptions.map(r => ({ value: r, label: r }))}
+          options={roleOptions}
         />
         <Select
           placeholder="所有状态"
           value={statusFilter}
-          onChange={v => setStatusFilter(v)}
+          onChange={(v) => setStatusFilter(v)}
           allowClear
           style={{ width: 140 }}
-          options={[{ value: 'Active', label: '启用' }, { value: 'Disabled', label: '禁用' }]}
+          options={[
+            { value: 'active', label: '启用' },
+            { value: 'disabled', label: '禁用' },
+          ]}
         />
       </div>
 
       {/* 表格 */}
       <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-        <Table<User>
-          columns={columns}
-          dataSource={filteredUsers}
-          rowKey="id"
-          size="middle"
-          pagination={{
-            showTotal: (total, range) => `显示 ${range[0]} 到 ${range[1]} 条，共 ${total} 条记录`,
-            pageSize: 10,
-            showSizeChanger: false,
-          }}
-        />
+        <Spin spinning={loading}>
+          <Table<UserData>
+            columns={columns}
+            dataSource={filteredUsers}
+            rowKey="id"
+            size="middle"
+            loading={false}
+            pagination={{
+              current: page,
+              pageSize,
+              total,
+              showTotal: (t, range) => `显示 ${range[0]} 到 ${range[1]} 条，共 ${t} 条记录`,
+              showSizeChanger: true,
+              onChange: (p, ps) => {
+                setPage(p);
+                setPageSize(ps ?? 10);
+              },
+            }}
+            locale={{
+              emptyText: <Empty description="暂无用户数据" />,
+            }}
+          />
+        </Spin>
       </div>
 
       {/* 创建用户模态框 */}
       <Modal
         open={isCreateModalOpen}
         title="新增用户"
-        onCancel={() => { setIsCreateModalOpen(false); form.resetFields(); }}
+        onCancel={() => {
+          setIsCreateModalOpen(false);
+          createForm.resetFields();
+        }}
         onOk={handleCreateUser}
         okText="创建"
         cancelText="取消"
         width={480}
+        confirmLoading={actionLoading}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input placeholder="输入用户名" />
+        <Form form={createForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
+            <Input placeholder="输入登录用户名" />
+          </Form.Item>
+          <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }, { min: 8, message: '密码至少 8 位' }]}>
+            <Input.Password placeholder="输入密码" />
+          </Form.Item>
+          <Form.Item name="display_name" label="显示名称">
+            <Input placeholder="输入显示名称（可选）" />
           </Form.Item>
           <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱地址' }, { type: 'email', message: '请输入有效的邮箱地址' }]}>
             <Input placeholder="输入邮箱地址" />
           </Form.Item>
-          <Form.Item name="role" label="角色" initialValue="Developer">
-            <Select options={roleOptions.map(r => ({ value: r, label: r }))} />
+          <Form.Item name="role_id" label="角色">
+            <Select placeholder="选择角色" allowClear options={roleOptions} />
           </Form.Item>
         </Form>
       </Modal>
@@ -284,21 +464,26 @@ const UserManagement: React.FC = () => {
       <Modal
         open={isEditModalOpen}
         title="编辑用户"
-        onCancel={() => { setIsEditModalOpen(false); setCurrentUser(null); form.resetFields(); }}
+        onCancel={() => {
+          setIsEditModalOpen(false);
+          setCurrentUser(null);
+          form.resetFields();
+        }}
         onOk={handleEditUser}
         okText="保存"
         cancelText="取消"
         width={480}
+        confirmLoading={actionLoading}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
+          <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}>
             <Input />
           </Form.Item>
           <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱地址' }, { type: 'email', message: '请输入有效的邮箱地址' }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="role" label="角色">
-            <Select options={roleOptions.map(r => ({ value: r, label: r }))} />
+          <Form.Item name="role_id" label="角色">
+            <Select placeholder="选择角色" allowClear options={roleOptions} />
           </Form.Item>
         </Form>
       </Modal>
@@ -306,16 +491,22 @@ const UserManagement: React.FC = () => {
       {/* 删除确认模态框 */}
       <Modal
         open={isDeleteModalOpen}
-        title="确认删除"
-        onCancel={() => { setIsDeleteModalOpen(false); setCurrentUser(null); }}
+        title="确认禁用"
+        onCancel={() => {
+          setIsDeleteModalOpen(false);
+          setCurrentUser(null);
+        }}
         onOk={handleDeleteUser}
-        okText="删除"
+        okText="禁用"
         cancelText="取消"
         okButtonProps={{ danger: true }}
         width={420}
+        confirmLoading={actionLoading}
       >
         <p style={{ color: palette.textSecondary }}>
-          确定要删除用户 <span style={{ fontWeight: 500, color: palette.text }}>{currentUser?.name}</span> 吗？此操作不可撤销。
+          确定要禁用用户{' '}
+          <span style={{ fontWeight: 500, color: palette.text }}>{currentUser?.display_name || currentUser?.username}</span>{' '}
+          吗？
         </p>
       </Modal>
     </div>

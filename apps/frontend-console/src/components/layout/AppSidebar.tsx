@@ -4,17 +4,25 @@ import type { MenuProps } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MENU_SECTIONS } from '../../constants/menu';
 import { useAlertStore } from '../../stores/alertStore';
+import { useAuthStore } from '../../stores/authStore';
 import type { MenuItem as MenuItemType } from '../../types/navigation';
+
+function hasPermission(userPermissions: string[], required?: string | string[]): boolean {
+  if (!required) return true;
+  if (userPermissions.includes('*')) return true;
+  const arr = Array.isArray(required) ? required : [required];
+  return arr.some((p) => userPermissions.includes(p));
+}
 
 interface AppSidebarProps {
   collapsed: boolean;
   onToggleCollapse?: () => void;
 }
 
-/** 根据路径查找父级菜单 key，用于自动展开 */
-export function getOpenKeysForPath(pathname: string): string[] {
+/** 根据路径查找父级菜单 key，用于自动展开（基于已过滤的 sections） */
+export function getOpenKeysForPath(pathname: string, sections: typeof MENU_SECTIONS): string[] {
   const openKeys: string[] = [];
-  for (const section of MENU_SECTIONS) {
+  for (const section of sections) {
     for (const item of section.items) {
       if (item.children) {
         for (const child of item.children) {
@@ -28,21 +36,19 @@ export function getOpenKeysForPath(pathname: string): string[] {
   return openKeys;
 }
 
-/** 获取当前选中的菜单 key */
-function getSelectedKey(pathname: string): string {
-  // 精确匹配
-  for (const section of MENU_SECTIONS) {
+/** 获取当前选中的菜单 key（基于已过滤的 sections） */
+function getSelectedKey(pathname: string, sections: typeof MENU_SECTIONS): string {
+  for (const section of sections) {
     for (const item of section.items) {
-      if (item.path === pathname) return item.path;
+      if (item.path === pathname) return item.path!;
       if (item.children) {
         for (const child of item.children) {
-          if (child.path === pathname) return child.path;
+          if (child.path === pathname) return child.path!;
         }
       }
     }
   }
-  // 前缀匹配
-  for (const section of MENU_SECTIONS) {
+  for (const section of sections) {
     for (const item of section.items) {
       if (item.children) {
         for (const child of item.children) {
@@ -54,6 +60,34 @@ function getSelectedKey(pathname: string): string {
   return '/';
 }
 
+/** 按权限过滤菜单 sections。权限未加载时显示全部菜单，避免闪烁。 */
+function filterSectionsByPermission(
+  sections: typeof MENU_SECTIONS,
+  permissions: string[],
+): typeof MENU_SECTIONS {
+  if (permissions.length === 0) return sections;
+  return sections
+    .map((section) => ({
+      ...section,
+      items: section.items
+        .map((item) => {
+          if (item.requiredPermission && !hasPermission(permissions, item.requiredPermission)) {
+            return null;
+          }
+          if (item.children) {
+            const filteredChildren = item.children.filter(
+              (child) => !child.requiredPermission || hasPermission(permissions, child.requiredPermission),
+            );
+            if (filteredChildren.length === 0) return null;
+            return { ...item, children: filteredChildren };
+          }
+          return item;
+        })
+        .filter((i): i is NonNullable<typeof i> => i !== null),
+    }))
+    .filter((s) => s.items.length > 0);
+}
+
 /** 构建 AntD Menu items */
 function buildMenuItems(
   sections: typeof MENU_SECTIONS,
@@ -63,7 +97,6 @@ function buildMenuItems(
   const items: MenuProps['items'] = [];
 
   for (const section of sections) {
-    // 分组标题
     items.push({
       type: 'group',
       label: section.title,
@@ -124,12 +157,27 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggleCollapse }) 
   const navigate = useNavigate();
   const location = useLocation();
   const unreadCount = useAlertStore((s) => s.unreadCount);
+  const permissions = useAuthStore((s) => s.permissions);
   const { token } = theme.useToken();
 
-  const selectedKey = useMemo(() => getSelectedKey(location.pathname), [location.pathname]);
-  const defaultOpenKeys = useMemo(() => getOpenKeysForPath(location.pathname), [location.pathname]);
+  const filteredSections = useMemo(
+    () => filterSectionsByPermission(MENU_SECTIONS, permissions),
+    [permissions],
+  );
 
-  const menuItems = useMemo(() => buildMenuItems(MENU_SECTIONS, unreadCount, collapsed), [unreadCount, collapsed]);
+  const selectedKey = useMemo(
+    () => getSelectedKey(location.pathname, filteredSections),
+    [location.pathname, filteredSections],
+  );
+  const defaultOpenKeys = useMemo(
+    () => getOpenKeysForPath(location.pathname, filteredSections),
+    [location.pathname, filteredSections],
+  );
+
+  const menuItems = useMemo(
+    () => buildMenuItems(filteredSections, unreadCount, collapsed),
+    [filteredSections, unreadCount, collapsed],
+  );
 
   const handleClick: MenuProps['onClick'] = ({ key }) => {
     navigate(key);

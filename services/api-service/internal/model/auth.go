@@ -1,6 +1,10 @@
 package model
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/golang-jwt/jwt/v5"
+)
 
 // RegisterRequest defines request payload for POST /api/v1/auth/register.
 type RegisterRequest struct {
@@ -80,6 +84,13 @@ type PasswordResetConfirmRequest struct {
 // PasswordResetConfirmResponseData defines successful reset-confirm response payload.
 type PasswordResetConfirmResponseData struct {
 	Reset bool `json:"reset"`
+}
+
+// JWTClaims defines JWT access token claims for auth middleware.
+type JWTClaims struct {
+	UserID   string `json:"user_id"`
+	TenantID string `json:"tenant_id"`
+	jwt.RegisteredClaims
 }
 
 // APIError defines unified API error envelope fields.
