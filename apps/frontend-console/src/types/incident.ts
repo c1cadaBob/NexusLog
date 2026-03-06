@@ -68,6 +68,9 @@ export interface Incident {
   tags: string[];
   createdAt: number;
   updatedAt: number;
+
+  /** 归档时的研判结论（仅当 status=archived 时有效） */
+  verdict?: string;
 }
 
 

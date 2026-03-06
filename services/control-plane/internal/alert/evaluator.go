@@ -77,53 +77,68 @@ func (c *httpESSearchClient) Search(ctx context.Context, index string, body []by
 	return result.Hits.Total.Value, nil
 }
 
+// IncidentCreator creates incidents from critical alerts.
+type IncidentCreator interface {
+	CreateFromAlert(ctx context.Context, tenantID, ruleID, alertEventID, title, detail, severity string) error
+}
+
 // Evaluator runs the alert evaluation loop.
 type Evaluator struct {
-	ruleRepo   RuleRepository
-	esClient   ESSearchClient
-	db         *sql.DB
-	indexName  string
-	interval   time.Duration
-	stopCh     chan struct{}
-	suppressor *Suppressor
+	ruleRepo        RuleRepository
+	esClient        ESSearchClient
+	db              *sql.DB
+	indexName       string
+	interval        time.Duration
+	stopCh          chan struct{}
+	suppressor      *Suppressor
+	incidentCreator IncidentCreator
 }
 
 // NewEvaluator creates a new evaluator.
 func NewEvaluator(ruleRepo RuleRepository, esClient ESSearchClient, db *sql.DB, indexName string) *Evaluator {
 	return &Evaluator{
-		ruleRepo:   ruleRepo,
-		esClient:   esClient,
-		db:         db,
-		indexName:  indexName,
-		interval:   30 * time.Second,
-		stopCh:     make(chan struct{}),
-		suppressor: NewSuppressor(5 * time.Minute),
+		ruleRepo:        ruleRepo,
+		esClient:        esClient,
+		db:              db,
+		indexName:       indexName,
+		interval:        30 * time.Second,
+		stopCh:          make(chan struct{}),
+		suppressor:      NewSuppressor(5 * time.Minute),
+		incidentCreator: nil,
 	}
+}
+
+// WithIncidentCreator sets the incident creator for auto-creating incidents from critical alerts.
+func (e *Evaluator) WithIncidentCreator(ic IncidentCreator) *Evaluator {
+	e.incidentCreator = ic
+	return e
 }
 
 // WithInterval sets the evaluation interval.
 func (e *Evaluator) WithInterval(d time.Duration) *Evaluator {
 	return &Evaluator{
-		ruleRepo:   e.ruleRepo,
-		esClient:   e.esClient,
-		db:         e.db,
-		indexName:  e.indexName,
-		interval:   d,
-		stopCh:     e.stopCh,
-		suppressor: e.suppressor,
+		ruleRepo:        e.ruleRepo,
+		esClient:        e.esClient,
+		db:              e.db,
+		indexName:       e.indexName,
+		interval:        d,
+		stopCh:          e.stopCh,
+		suppressor:      e.suppressor,
+		incidentCreator: e.incidentCreator,
 	}
 }
 
 // WithSuppressor sets the suppressor.
 func (e *Evaluator) WithSuppressor(s *Suppressor) *Evaluator {
 	return &Evaluator{
-		ruleRepo:   e.ruleRepo,
-		esClient:   e.esClient,
-		db:         e.db,
-		indexName:  e.indexName,
-		interval:   e.interval,
-		stopCh:     e.stopCh,
-		suppressor: s,
+		ruleRepo:        e.ruleRepo,
+		esClient:        e.esClient,
+		db:              e.db,
+		indexName:       e.indexName,
+		interval:        e.interval,
+		stopCh:          e.stopCh,
+		suppressor:      s,
+		incidentCreator: e.incidentCreator,
 	}
 }
 
@@ -194,12 +209,19 @@ func (e *Evaluator) evaluateRule(ctx context.Context, rule *AlertRule) error {
 	query := `
 INSERT INTO alert_events (tenant_id, rule_id, severity, title, detail, source_id, status, fired_at)
 VALUES ($1::uuid, $2::uuid, $3, $4, NULLIF($5,''), NULLIF($6,''), 'firing', NOW())
+RETURNING id::text
 `
-	_, err = e.db.ExecContext(ctx, query, rule.TenantID, rule.ID, rule.Severity, title, detail, sourceID)
+	var alertEventID string
+	err = e.db.QueryRowContext(ctx, query, rule.TenantID, rule.ID, rule.Severity, title, detail, sourceID).Scan(&alertEventID)
 	if err != nil {
 		return err
 	}
 	alertEventsTotal.Inc()
+
+	// Auto-create incident for critical alerts
+	if e.incidentCreator != nil {
+		_ = e.incidentCreator.CreateFromAlert(ctx, rule.TenantID, rule.ID, alertEventID, title, detail, rule.Severity)
+	}
 	return nil
 }
 

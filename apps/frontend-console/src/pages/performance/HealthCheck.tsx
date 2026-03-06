@@ -1,5 +1,48 @@
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  Table,
+  Button,
+  Space,
+  Spin,
+  Empty,
+  message,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  Switch,
+  Popconfirm,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
+import {
+  fetchResourceThresholds,
+  createResourceThreshold,
+  updateResourceThreshold,
+  deleteResourceThreshold,
+  type ResourceThreshold,
+  type CreateResourceThresholdPayload,
+} from '@/api/metrics';
+
+const METRIC_OPTIONS = [
+  { label: 'CPU 使用率', value: 'cpu_usage_pct' },
+  { label: '内存使用率', value: 'memory_usage_pct' },
+  { label: '磁盘使用率', value: 'disk_usage_pct' },
+];
+
+const COMPARISON_OPTIONS = [
+  { label: '>', value: '>' },
+  { label: '>=', value: '>=' },
+  { label: '<', value: '<' },
+  { label: '<=', value: '<=' },
+];
+
+const SEVERITY_OPTIONS = [
+  { label: '警告', value: 'warning' },
+  { label: '严重', value: 'critical' },
+  { label: '信息', value: 'info' },
+];
 
 const HealthCheck: React.FC = () => {
   const { isDark } = useThemeStore();
@@ -11,331 +54,243 @@ const HealthCheck: React.FC = () => {
   const textSecondary = isDark ? 'text-slate-400' : 'text-slate-600';
   const tableHeaderBg = isDark ? 'bg-[#111722]' : 'bg-slate-100';
   const rowHoverBg = isDark ? 'hover:bg-[#1a2333]' : 'hover:bg-slate-50';
-  const iconBg = isDark ? 'bg-[#232f48]' : 'bg-slate-100';
-  const progressBg = isDark ? 'bg-[#232f48]' : 'bg-slate-200';
-  const paginationBg = isDark ? 'bg-[#111722]/30' : 'bg-slate-50';
+
+  const [thresholds, setThresholds] = useState<ResourceThreshold[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingThreshold, setEditingThreshold] = useState<ResourceThreshold | null>(null);
+  const [form] = Form.useForm();
+
+  const loadThresholds = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { items } = await fetchResourceThresholds({ page_size: 200 });
+      setThresholds(items);
+    } catch (err) {
+      message.error('加载阈值失败：' + (err instanceof Error ? err.message : String(err)));
+      setThresholds([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadThresholds();
+  }, [loadThresholds]);
+
+  const handleCreate = () => {
+    setEditingThreshold(null);
+    form.resetFields();
+    setModalOpen(true);
+  };
+
+  const handleEdit = (record: ResourceThreshold) => {
+    setEditingThreshold(record);
+    form.setFieldsValue({
+      metric_name: record.metric_name,
+      threshold_value: record.threshold_value,
+      comparison: record.comparison,
+      alert_severity: record.alert_severity,
+      enabled: record.enabled,
+      agent_id: record.agent_id ?? undefined,
+    });
+    setModalOpen(true);
+  };
+
+  const handleModalOk = async () => {
+    try {
+      const values = await form.validateFields();
+      if (editingThreshold) {
+        await updateResourceThreshold(editingThreshold.id, {
+          metric_name: values.metric_name,
+          threshold_value: values.threshold_value,
+          comparison: values.comparison,
+          alert_severity: values.alert_severity,
+          enabled: values.enabled,
+          agent_id: values.agent_id || null,
+        });
+        message.success('更新成功');
+      } else {
+        await createResourceThreshold({
+          metric_name: values.metric_name,
+          threshold_value: values.threshold_value,
+          comparison: values.comparison,
+          alert_severity: values.alert_severity ?? 'warning',
+          enabled: values.enabled ?? true,
+          agent_id: values.agent_id || null,
+        } as CreateResourceThresholdPayload);
+        message.success('创建成功');
+      }
+      setModalOpen(false);
+      loadThresholds();
+    } catch (err) {
+      if (err instanceof Error && err.message !== 'Validation failed') {
+        message.error((err as Error).message);
+      }
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteResourceThreshold(id);
+      message.success('删除成功');
+      loadThresholds();
+    } catch (err) {
+      message.error('删除失败：' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleToggleEnabled = async (record: ResourceThreshold) => {
+    try {
+      await updateResourceThreshold(record.id, { enabled: !record.enabled });
+      message.success(record.enabled ? '已禁用' : '已启用');
+      loadThresholds();
+    } catch (err) {
+      message.error('操作失败：' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const columns: ColumnsType<ResourceThreshold> = [
+    {
+      title: '指标',
+      dataIndex: 'metric_name',
+      key: 'metric_name',
+      render: (v: string) => METRIC_OPTIONS.find((o) => o.value === v)?.label ?? v,
+    },
+    {
+      title: 'Agent ID',
+      dataIndex: 'agent_id',
+      key: 'agent_id',
+      render: (v: string | null) => v ?? '—',
+    },
+    {
+      title: '阈值',
+      key: 'threshold',
+      render: (_, r) => `${r.comparison} ${r.threshold_value}`,
+    },
+    {
+      title: '严重程度',
+      dataIndex: 'alert_severity',
+      key: 'alert_severity',
+    },
+    {
+      title: '启用',
+      dataIndex: 'enabled',
+      key: 'enabled',
+      render: (v: boolean, record) => (
+        <Switch checked={v} onChange={() => handleToggleEnabled(record)} size="small" />
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      render: (_, record) => (
+        <Space>
+          <Button type="link" size="small" onClick={() => handleEdit(record)}>
+            编辑
+          </Button>
+          <Popconfirm
+            title="确定删除此阈值？"
+            onConfirm={() => handleDelete(record.id)}
+          >
+            <Button type="link" size="small" danger>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <div className="flex flex-col h-full gap-6">
-      {/* Top Header */}
-      <div className={`h-16 border-b ${borderColor} ${headerBg} backdrop-blur flex items-center justify-between px-8 shrink-0 -mx-6 -mt-6`}>
+      {/* Header */}
+      <div
+        className={`h-16 border-b ${borderColor} ${headerBg} backdrop-blur flex items-center justify-between px-8 shrink-0 -mx-6 -mt-6`}
+      >
         <div className={`flex items-center gap-2 ${textSecondary}`}>
           <span className="text-sm">性能与高可用</span>
           <span className="material-symbols-outlined text-sm">chevron_right</span>
-          <span className={`${textColor} text-sm font-medium`}>健康检查</span>
+          <span className={`${textColor} text-sm font-medium`}>健康检查阈值配置</span>
         </div>
-        <div className="flex items-center gap-4">
-          <button className={`flex items-center gap-2 ${textSecondary} transition-colors`}>
-            <span className="material-symbols-outlined">notifications</span>
-          </button>
-          <button className={`flex items-center gap-2 ${textSecondary} transition-colors`}>
-            <span className="material-symbols-outlined">help</span>
-          </button>
-        </div>
+        <Button type="primary" onClick={handleCreate}>
+          新建阈值
+        </Button>
       </div>
 
-      {/* Scrollable Content */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-
-          {/* Cluster Status Banner */}
-          <div className={`flex flex-col md:flex-row items-start md:items-center justify-between gap-6 rounded-xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/10 ${isDark ? 'to-[#111722]' : 'to-white'} p-6 shadow-lg shadow-green-900/10`}>
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-500 shrink-0 animate-pulse">
-                <span className="material-symbols-outlined text-3xl">check_circle</span>
-              </div>
-              <div className="flex flex-col">
-                <h2 className={`text-xl font-bold ${textColor} tracking-tight`}>集群健康状态: 运行正常 (Green)</h2>
-                <p className={`${textSecondary} text-sm mt-1`}>所有核心服务均在线，上次检查时间：刚刚</p>
-              </div>
+        <div className={`${cardBg} rounded-xl border ${borderColor} overflow-hidden`}>
+          {loading ? (
+            <div className="flex justify-center py-24">
+              <Spin tip="加载中..." size="large" />
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex flex-col items-end mr-4 hidden lg:flex">
-                <span className={`text-xs ${textSecondary}`}>健康评分</span>
-                <span className={`text-xl font-bold ${textColor}`}>98/100</span>
-              </div>
-              <div className={`h-8 w-px ${borderColor} mx-2 hidden lg:block`}></div>
-              <button className="flex h-10 items-center justify-center gap-2 rounded-lg bg-[#135bec] px-5 text-sm font-medium text-white hover:bg-[#1a6fff] transition-all shadow-lg shadow-blue-900/20 active:scale-95">
-                <span className="material-symbols-outlined text-[20px]">refresh</span>
-                <span>执行全量诊断</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Engines Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            {/* Ingestion Engine */}
-            <div className={`group flex flex-col gap-4 rounded-xl border ${borderColor} ${cardBg} p-5 hover:border-[#135bec]/50 transition-all hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded ${iconBg} ${textSecondary} group-hover:text-white group-hover:bg-[#135bec] transition-colors`}>
-                    <span className="material-symbols-outlined text-[20px]">input</span>
-                  </div>
-                  <p className={`${textColor} text-sm font-medium leading-normal`}>采集引擎</p>
-                </div>
-                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-baseline justify-between">
-                  <span className={`${textSecondary} text-xs`}>在线率 (Uptime)</span>
-                  <span className={`${textColor} font-mono font-bold`}>99.99%</span>
-                </div>
-                <div className={`w-full ${progressBg} rounded-full h-1.5`}>
-                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '99.99%' }}></div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-baseline justify-between">
-                  <span className={`${textSecondary} text-xs`}>响应延迟</span>
-                  <span className="text-emerald-500 font-mono font-bold text-sm">+24ms</span>
-                </div>
-                <div className="flex items-end gap-[2px] h-6 pt-1 opacity-70">
-                  <div className="w-1 bg-emerald-500 h-[40%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[60%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[50%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[70%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[45%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[30%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[60%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[80%] rounded-t-sm"></div>
-                </div>
-              </div>
-              <div className={`pt-3 border-t ${borderColor} flex items-center justify-between text-xs`}>
-                <span className={textSecondary}>依赖组件</span>
-                <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Kafka: 正常</span>
-              </div>
-            </div>
-            {/* Storage Engine */}
-            <div className={`group flex flex-col gap-4 rounded-xl border ${borderColor} ${cardBg} p-5 hover:border-[#135bec]/50 transition-all hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded ${iconBg} ${textSecondary} group-hover:text-white group-hover:bg-[#135bec] transition-colors`}>
-                    <span className="material-symbols-outlined text-[20px]">database</span>
-                  </div>
-                  <p className={`${textColor} text-sm font-medium leading-normal`}>存储引擎</p>
-                </div>
-                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-baseline justify-between">
-                  <span className={`${textSecondary} text-xs`}>在线率 (Uptime)</span>
-                  <span className={`${textColor} font-mono font-bold`}>99.95%</span>
-                </div>
-                <div className={`w-full ${progressBg} rounded-full h-1.5`}>
-                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '99.95%' }}></div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-baseline justify-between">
-                  <span className={`${textSecondary} text-xs`}>响应延迟</span>
-                  <span className="text-amber-500 font-mono font-bold text-sm">+45ms</span>
-                </div>
-                <div className="flex items-end gap-[2px] h-6 pt-1 opacity-70">
-                  <div className="w-1 bg-amber-500 h-[50%] rounded-t-sm"></div>
-                  <div className="w-1 bg-amber-500 h-[60%] rounded-t-sm"></div>
-                  <div className="w-1 bg-amber-500 h-[90%] rounded-t-sm"></div>
-                  <div className="w-1 bg-amber-500 h-[70%] rounded-t-sm"></div>
-                  <div className="w-1 bg-amber-500 h-[85%] rounded-t-sm"></div>
-                  <div className="w-1 bg-amber-500 h-[60%] rounded-t-sm"></div>
-                  <div className="w-1 bg-amber-500 h-[50%] rounded-t-sm"></div>
-                  <div className="w-1 bg-amber-500 h-[55%] rounded-t-sm"></div>
-                </div>
-              </div>
-              <div className={`pt-3 border-t ${borderColor} flex items-center justify-between text-xs`}>
-                <span className={textSecondary}>依赖组件</span>
-                <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Elastic: 正常</span>
-              </div>
-            </div>
-            {/* Alerting Engine */}
-            <div className={`group flex flex-col gap-4 rounded-xl border ${borderColor} ${cardBg} p-5 hover:border-[#135bec]/50 transition-all hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded ${iconBg} ${textSecondary} group-hover:text-white group-hover:bg-[#135bec] transition-colors`}>
-                    <span className="material-symbols-outlined text-[20px]">notifications_active</span>
-                  </div>
-                  <p className={`${textColor} text-sm font-medium leading-normal`}>告警引擎</p>
-                </div>
-                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-baseline justify-between">
-                  <span className={`${textSecondary} text-xs`}>在线率 (Uptime)</span>
-                  <span className={`${textColor} font-mono font-bold`}>100.00%</span>
-                </div>
-                <div className={`w-full ${progressBg} rounded-full h-1.5`}>
-                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '100%' }}></div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-baseline justify-between">
-                  <span className={`${textSecondary} text-xs`}>响应延迟</span>
-                  <span className="text-emerald-500 font-mono font-bold text-sm">+12ms</span>
-                </div>
-                <div className="flex items-end gap-[2px] h-6 pt-1 opacity-70">
-                  <div className="w-1 bg-emerald-500 h-[30%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[30%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[40%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[35%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[30%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[30%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[40%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[30%] rounded-t-sm"></div>
-                </div>
-              </div>
-              <div className={`pt-3 border-t ${borderColor} flex items-center justify-between text-xs`}>
-                <span className={textSecondary}>依赖组件</span>
-                <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Redis: 正常</span>
-              </div>
-            </div>
-            {/* API Gateway */}
-            <div className={`group flex flex-col gap-4 rounded-xl border ${borderColor} ${cardBg} p-5 hover:border-[#135bec]/50 transition-all hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded ${iconBg} ${textSecondary} group-hover:text-white group-hover:bg-[#135bec] transition-colors`}>
-                    <span className="material-symbols-outlined text-[20px]">hub</span>
-                  </div>
-                  <p className={`${textColor} text-sm font-medium leading-normal`}>API 网关</p>
-                </div>
-                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-baseline justify-between">
-                  <span className={`${textSecondary} text-xs`}>在线率 (Uptime)</span>
-                  <span className={`${textColor} font-mono font-bold`}>99.90%</span>
-                </div>
-                <div className={`w-full ${progressBg} rounded-full h-1.5`}>
-                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '99.90%' }}></div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-baseline justify-between">
-                  <span className={`${textSecondary} text-xs`}>响应延迟</span>
-                  <span className="text-emerald-500 font-mono font-bold text-sm">+15ms</span>
-                </div>
-                <div className="flex items-end gap-[2px] h-6 pt-1 opacity-70">
-                  <div className="w-1 bg-emerald-500 h-[40%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[50%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[45%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[60%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[50%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[40%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[55%] rounded-t-sm"></div>
-                  <div className="w-1 bg-emerald-500 h-[45%] rounded-t-sm"></div>
-                </div>
-              </div>
-              <div className={`pt-3 border-t ${borderColor} flex items-center justify-between text-xs`}>
-                <span className={textSecondary}>依赖组件</span>
-                <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Nginx: 正常</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Health Event Log Table */}
-          <div className={`rounded-xl border ${borderColor} ${cardBg} overflow-hidden flex flex-col shadow-xl`}>
-            <div className={`px-6 py-4 border-b ${borderColor} flex items-center justify-between ${isDark ? 'bg-[#111722]/50' : 'bg-slate-50'}`}>
-              <h3 className={`${textColor} text-base font-bold flex items-center gap-2`}>
-                <span className={`material-symbols-outlined ${textSecondary} text-[20px]`}>history</span>
-                健康事件日志
-              </h3>
-              <div className="flex gap-2">
-                <button className={`px-3 py-1.5 rounded text-xs font-medium ${iconBg} ${textColor} ${isDark ? 'hover:bg-[#324467]' : 'hover:bg-slate-200'} transition-colors`}>导出日志</button>
-                <button className={`px-3 py-1.5 rounded text-xs font-medium ${textSecondary} transition-colors`}>配置通知</button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className={`${tableHeaderBg} ${textSecondary} text-xs uppercase font-medium`}>
-                  <tr>
-                    <th className="px-6 py-3 tracking-wider">时间戳</th>
-                    <th className="px-6 py-3 tracking-wider">组件</th>
-                    <th className="px-6 py-3 tracking-wider">事件类型</th>
-                    <th className="px-6 py-3 tracking-wider w-1/2">消息内容</th>
-                    <th className="px-6 py-3 tracking-wider text-right">操作</th>
-                  </tr>
-                </thead>
-                <tbody className={`divide-y ${isDark ? 'divide-[#232f48]' : 'divide-slate-200'} text-sm`}>
-                  <tr className={`${rowHoverBg} transition-colors`}>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textSecondary} font-mono text-xs`}>2023-10-27 10:45:00</td>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textColor}`}>存储引擎</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-500 border border-blue-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>Info
-                      </span>
-                    </td>
-                    <td className={`px-6 py-4 ${isDark ? 'text-[#d1d5db]' : 'text-slate-600'}`}>自动扩容已触发: 节点 storage-node-04 已加入集群，正在同步数据。</td>
-                    <td className="px-6 py-4 text-right">
-                      <span className={`material-symbols-outlined ${textSecondary} cursor-pointer text-[18px]`}>visibility</span>
-                    </td>
-                  </tr>
-                  <tr className={`${rowHoverBg} transition-colors`}>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textSecondary} font-mono text-xs`}>2023-10-27 10:42:12</td>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textColor}`}>API 网关</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-500 border border-emerald-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Success
-                      </span>
-                    </td>
-                    <td className={`px-6 py-4 ${isDark ? 'text-[#d1d5db]' : 'text-slate-600'}`}>定期健康检查通过: 所有端点响应时间 &lt; 200ms。</td>
-                    <td className="px-6 py-4 text-right">
-                      <span className={`material-symbols-outlined ${textSecondary} cursor-pointer text-[18px]`}>visibility</span>
-                    </td>
-                  </tr>
-                  <tr className={`${rowHoverBg} transition-colors`}>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textSecondary} font-mono text-xs`}>2023-10-27 10:30:05</td>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textColor}`}>采集引擎</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-500 border border-amber-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>Warning
-                      </span>
-                    </td>
-                    <td className={`px-6 py-4 ${isDark ? 'text-[#d1d5db]' : 'text-slate-600'}`}>检测到轻微延迟增加: Kafka 消费者组 lag &gt; 1000 msg。</td>
-                    <td className="px-6 py-4 text-right">
-                      <span className={`material-symbols-outlined ${textSecondary} cursor-pointer text-[18px]`}>visibility</span>
-                    </td>
-                  </tr>
-                  <tr className={`${rowHoverBg} transition-colors`}>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textSecondary} font-mono text-xs`}>2023-10-27 09:15:22</td>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textColor}`}>系统核心</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-500 border border-emerald-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Success
-                      </span>
-                    </td>
-                    <td className={`px-6 py-4 ${isDark ? 'text-[#d1d5db]' : 'text-slate-600'}`}>每日备份任务完成: Backup ID #99283712。</td>
-                    <td className="px-6 py-4 text-right">
-                      <span className={`material-symbols-outlined ${textSecondary} cursor-pointer text-[18px]`}>visibility</span>
-                    </td>
-                  </tr>
-                  <tr className={`${rowHoverBg} transition-colors`}>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textSecondary} font-mono text-xs`}>2023-10-27 08:00:00</td>
-                    <td className={`px-6 py-4 whitespace-nowrap ${textColor}`}>告警引擎</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-500 border border-blue-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>Info
-                      </span>
-                    </td>
-                    <td className={`px-6 py-4 ${isDark ? 'text-[#d1d5db]' : 'text-slate-600'}`}>规则重载: 更新了 5 个新的告警规则。</td>
-                    <td className="px-6 py-4 text-right">
-                      <span className={`material-symbols-outlined ${textSecondary} cursor-pointer text-[18px]`}>visibility</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div className={`px-6 py-3 border-t ${isDark ? 'border-[#232f48]' : 'border-slate-200'} ${paginationBg} flex items-center justify-between text-xs ${textSecondary}`}>
-              <span>显示 1 至 5 条，共 142 条记录</span>
-              <div className="flex gap-1">
-                <button className={`p-1 rounded ${isDark ? 'hover:bg-[#232f48]' : 'hover:bg-slate-200'} disabled:opacity-50`} disabled>
-                  <span className="material-symbols-outlined text-sm">chevron_left</span>
-                </button>
-                <button className={`p-1 rounded ${isDark ? 'hover:bg-[#232f48]' : 'hover:bg-slate-200'}`}>
-                  <span className="material-symbols-outlined text-sm">chevron_right</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          ) : thresholds.length === 0 ? (
+            <Empty
+              description="暂无阈值配置"
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              style={{ padding: 48 }}
+            >
+              <Button type="primary" onClick={handleCreate}>
+                新建阈值
+              </Button>
+            </Empty>
+          ) : (
+            <Table<ResourceThreshold>
+              dataSource={thresholds}
+              columns={columns}
+              rowKey="id"
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showTotal: (t) => `共 ${t} 条`,
+              }}
+              className={`${rowHoverBg}`}
+            />
+          )}
         </div>
       </div>
+
+      <Modal
+        title={editingThreshold ? '编辑阈值' : '新建阈值'}
+        open={modalOpen}
+        onOk={handleModalOk}
+        onCancel={() => setModalOpen(false)}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item
+            name="metric_name"
+            label="指标"
+            rules={[{ required: true, message: '请选择指标' }]}
+          >
+            <Select options={METRIC_OPTIONS} placeholder="选择指标" />
+          </Form.Item>
+          <Form.Item name="agent_id" label="Agent ID（可选，留空表示全局）">
+            <Input placeholder="例如: 192.168.1.1:8080" allowClear />
+          </Form.Item>
+          <Form.Item
+            name="threshold_value"
+            label="阈值"
+            rules={[{ required: true, message: '请输入阈值' }]}
+          >
+            <InputNumber min={0} max={100} style={{ width: '100%' }} placeholder="0-100" />
+          </Form.Item>
+          <Form.Item
+            name="comparison"
+            label="比较符"
+            rules={[{ required: true, message: '请选择比较符' }]}
+          >
+            <Select options={COMPARISON_OPTIONS} placeholder="选择比较符" />
+          </Form.Item>
+          <Form.Item name="alert_severity" label="严重程度" initialValue="warning">
+            <Select options={SEVERITY_OPTIONS} />
+          </Form.Item>
+          <Form.Item name="enabled" label="启用" valuePropName="checked" initialValue={true}>
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };

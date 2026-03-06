@@ -21,9 +21,12 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/nexuslog/control-plane/internal/alert"
+	"github.com/nexuslog/control-plane/internal/incident"
 	"github.com/nexuslog/control-plane/internal/ingest"
+	"github.com/nexuslog/control-plane/internal/metrics"
 	"github.com/nexuslog/control-plane/internal/middleware"
 	"github.com/nexuslog/control-plane/internal/notification"
+	"github.com/nexuslog/control-plane/internal/resource"
 )
 
 func main() {
@@ -179,12 +182,35 @@ func main() {
 	ingest.RegisterPullSourceRoutes(router, pullSourceStore)
 	ingest.RegisterPullTaskRoutes(router, pullSourceStore, pullTaskStore)
 
+	// Metrics report + query API (W3-B6, W3-B8)
+	if pgDB != nil {
+		metricsRepo := metrics.NewRepository(pgDB)
+		metricsSvc := metrics.NewService(metricsRepo)
+		// Threshold evaluator for alert triggering (W3-B7)
+		thresholdRepo := resource.NewThresholdRepository(pgDB)
+		evaluator := resource.NewThresholdEvaluator(thresholdRepo, pgDB)
+		metricsSvc.WithEvaluator(evaluator)
+		metricsHandler := metrics.NewHandler(metricsSvc)
+		metrics.RegisterRoutes(router, metricsHandler)
+		// Background cleanup: delete metrics older than 30 days, run daily
+		metrics.StartCleanupJob(workerCtx, metricsRepo, 30, 24*time.Hour)
+		// Resource threshold CRUD (W3-B7)
+		resource.RegisterRoutes(router, resource.NewThresholdHandler(thresholdRepo))
+	}
+
 	// Alert rules API (requires PostgreSQL)
 	if pgDB != nil {
 		alertRuleRepo := alert.NewRuleRepositoryPG(pgDB)
 		alertRuleService := alert.NewRuleService(alertRuleRepo)
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
 		alert.RegisterAlertRuleRoutes(router, alertRuleHandler)
+
+		// Incident API
+		incidentRepo := incident.NewRepositoryPG(pgDB)
+		incidentTimeline := incident.NewTimelineStorePG(pgDB)
+		incidentService := incident.NewService(incidentRepo, incidentTimeline)
+		incidentHandler := incident.NewHandler(incidentService)
+		incident.RegisterIncidentRoutes(router, incidentHandler)
 
 		// Alert evaluation engine (runs every 30s)
 		if isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "true")) {
@@ -196,7 +222,8 @@ func main() {
 				getEnv("INGEST_ES_PASSWORD", ""),
 				time.Duration(parseEnvInt("INGEST_ES_TIMEOUT_SEC", 15))*time.Second,
 			)
-			evaluator := alert.NewEvaluator(alertRuleRepo, esClient, pgDB, esIndex)
+			incidentCreator := alert.NewIncidentCreator(pgDB)
+			evaluator := alert.NewEvaluator(alertRuleRepo, esClient, pgDB, esIndex).WithIncidentCreator(incidentCreator)
 			go evaluator.Start()
 			log.Printf("alert evaluator enabled (interval=30s)")
 		}

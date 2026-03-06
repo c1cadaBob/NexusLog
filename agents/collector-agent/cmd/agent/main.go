@@ -19,6 +19,7 @@ import (
 
 	"github.com/nexuslog/collector-agent/internal/checkpoint"
 	"github.com/nexuslog/collector-agent/internal/collector"
+	"github.com/nexuslog/collector-agent/internal/metrics"
 	"github.com/nexuslog/collector-agent/internal/pipeline"
 	"github.com/nexuslog/collector-agent/internal/pullapi"
 	"github.com/nexuslog/collector-agent/internal/retry"
@@ -178,9 +179,14 @@ func main() {
 		log.Println("采集分发已启动：pull-only")
 	}
 
-	// 7. 启动健康检查与 Agent Pull API HTTP 端点
+	// 7. 启动系统资源指标采集器（每 30s 采集一次）
+	sysMetrics := metrics.NewCollector(30 * time.Second)
+	sysMetrics.Start()
+	defer sysMetrics.Stop()
+
+	// 8. 启动健康检查与 Agent Pull API HTTP 端点
 	httpPort := getEnv("HTTP_PORT", "9091")
-	httpServer := startHTTPServer(httpPort, pullService, buildMetaInfo(sourceConfigs), authConfig)
+	httpServer := startHTTPServer(httpPort, pullService, buildMetaInfo(sourceConfigs), authConfig, sysMetrics)
 
 	// 优雅关闭
 	quit := make(chan os.Signal, 1)
@@ -357,8 +363,10 @@ func buildMetaInfo(sourceConfigs []collector.SourceConfig) pullapi.MetaInfo {
 }
 
 // startHTTPServer 启动健康检查与 agent pull API 服务。
-func startHTTPServer(port string, pullService *pullapi.Service, meta pullapi.MetaInfo, auth pullapi.AuthConfig) *http.Server {
+func startHTTPServer(port string, pullService *pullapi.Service, meta pullapi.MetaInfo, auth pullapi.AuthConfig, sysMetrics *metrics.Collector) *http.Server {
 	mux := http.NewServeMux()
+
+	mux.Handle("/agent/v1/metrics", metrics.MetricsHandler(sysMetrics))
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
