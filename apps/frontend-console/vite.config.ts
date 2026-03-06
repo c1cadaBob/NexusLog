@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => {
   const ingestProxyTarget = process.env.VITE_DEV_INGEST_PROXY_TARGET || apiProxyTarget
   // query 接口默认独立走 query-api，避免被 api-service 代理吞掉
   const queryProxyTarget = process.env.VITE_DEV_QUERY_PROXY_TARGET || 'http://localhost:8082'
+  // audit-api 审计服务
+  const auditProxyTarget = process.env.VITE_DEV_AUDIT_PROXY_TARGET || 'http://localhost:8083'
+  // export-api 导出服务
+  const exportProxyTarget = process.env.VITE_DEV_EXPORT_PROXY_TARGET || 'http://localhost:8084'
   // agent 拉取接口由 collector-agent 提供，默认回退到本机 9091
   const agentProxyTarget = process.env.VITE_DEV_AGENT_PROXY_TARGET || 'http://localhost:9091'
   // 支持覆盖 Vite 缓存目录，避免容器/主机混跑时 node_modules/.vite 权限冲突
@@ -53,13 +57,20 @@ export default defineConfig(({ mode }) => {
         allow: [path.resolve(__dirname)],
       },
       proxy: {
-        // 优先匹配 ingest，避免被通用 /api 代理吞掉
         '/api/v1/ingest': {
           target: ingestProxyTarget,
           changeOrigin: true,
         },
         '/api/v1/query': {
           target: queryProxyTarget,
+          changeOrigin: true,
+        },
+        '/api/v1/audit': {
+          target: auditProxyTarget,
+          changeOrigin: true,
+        },
+        '/api/v1/export': {
+          target: exportProxyTarget,
           changeOrigin: true,
         },
         '/agent/v1': {

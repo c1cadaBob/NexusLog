@@ -31,6 +31,10 @@ services:
       - VITE_DEV_INGEST_PROXY_TARGET=http://control-plane:8080
       # query 接口走 query-api，避免被 api-service 兜底转发
       - VITE_DEV_QUERY_PROXY_TARGET=http://query-api:8082
+      # audit 接口走 audit-api
+      - VITE_DEV_AUDIT_PROXY_TARGET=http://audit-api:8083
+      # export 接口走 export-api
+      - VITE_DEV_EXPORT_PROXY_TARGET=http://export-api:8084
       # agent 拉取接口走 collector-agent
       - VITE_DEV_AGENT_PROXY_TARGET=http://collector-agent:9091
       - VITE_DEV_WS_PROXY_TARGET=ws://api-service:8080
