@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useCallback, useState } from 'react';
-import { Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, message } from 'antd';
+import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import { Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, message, Select, Collapse } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useThemeStore } from '../../stores/themeStore';
@@ -30,53 +30,6 @@ function formatLookbackWindow(windowMS: number): string {
     return '最近 24 小时';
   }
   return '最近 30 分钟';
-}
-
-function parseJSONStringIfPossible(text: string): unknown | null {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const isJSONObject = trimmed.startsWith('{') && trimmed.endsWith('}');
-  const isJSONArray = trimmed.startsWith('[') && trimmed.endsWith(']');
-  if (!isJSONObject && !isJSONArray) {
-    return null;
-  }
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeStructuredValue(value: unknown, depth = 0): unknown {
-  // 防止极端数据导致深层递归。
-  if (depth > 8) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const parsed = parseJSONStringIfPossible(value);
-    if (parsed === null) {
-      return value;
-    }
-    return normalizeStructuredValue(parsed, depth + 1);
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeStructuredValue(item, depth + 1));
-  }
-
-  if (value && typeof value === 'object') {
-    const source = value as Record<string, unknown>;
-    const normalized: Record<string, unknown> = {};
-    Object.entries(source).forEach(([key, item]) => {
-      normalized[key] = normalizeStructuredValue(item, depth + 1);
-    });
-    return normalized;
-  }
-
-  return value;
 }
 
 /** 构建近 30 分钟直方图（使用当前查询结果统计） */
@@ -143,6 +96,10 @@ const RealtimeSearch: React.FC = () => {
   const [activeQuery, setActiveQuery] = useState('');
   const [isLive, setIsLive] = useState(true);
 
+  // 筛选器
+  const [levelFilter, setLevelFilter] = useState<string>('');
+  const [sourceFilter, setSourceFilter] = useState<string>('');
+
   // 日志详情抽屉
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
@@ -184,6 +141,10 @@ const RealtimeSearch: React.FC = () => {
           keywords: options.queryText,
           page: options.page,
           pageSize: options.pageSize,
+          filters: {
+            level: levelFilter || undefined,
+            service: sourceFilter || undefined,
+          },
           timeRange: {
             from: new Date(now.getTime() - windowMS).toISOString(),
             to: now.toISOString(),
@@ -231,7 +192,7 @@ const RealtimeSearch: React.FC = () => {
     } finally {
       setTableLoading(false);
     }
-  }, []);
+  }, [levelFilter, sourceFilter]);
 
   useEffect(() => {
     // 页面首次加载执行一次真实查询。
@@ -283,24 +244,38 @@ const RealtimeSearch: React.FC = () => {
     navigate(location.pathname, { replace: true, state: null });
   }, [executeQuery, location.pathname, location.state, lookbackWindowMS, navigate, pageSize]);
 
+  // 筛选器变化时重新执行查询（跳过首次挂载，避免与初始查询重复）
+  const filterEffectMounted = useRef(false);
+  useEffect(() => {
+    if (!filterEffectMounted.current) {
+      filterEffectMounted.current = true;
+      return;
+    }
+    void executeQuery({
+      queryText: activeQuery,
+      page: 1,
+      pageSize,
+      silent: true,
+      lookbackWindowMS,
+      allowAutoWindowFallback: false,
+    });
+  }, [levelFilter, sourceFilter, executeQuery, activeQuery, pageSize, lookbackWindowMS]);
+
   // 直方图数据
   const histogramData = useMemo(() => buildHistogramData(logs), [logs]);
+  const uniqueSources = useMemo(() => {
+    const seen = new Set<string>();
+    logs.forEach((log) => {
+      const s = log.service?.trim();
+      if (s) seen.add(s);
+    });
+    return Array.from(seen).sort();
+  }, [logs]);
   const totalEvents = useMemo(
     () => histogramData.reduce((sum, d) => sum + d.normal + d.error, 0),
     [histogramData],
   );
   const lookbackWindowLabel = useMemo(() => formatLookbackWindow(lookbackWindowMS), [lookbackWindowMS]);
-  const normalizedStructuredFields = useMemo(() => {
-    const normalized = normalizeStructuredValue(selectedLog?.fields ?? {});
-    if (normalized && typeof normalized === 'object' && !Array.isArray(normalized)) {
-      return normalized as Record<string, unknown>;
-    }
-    return {};
-  }, [selectedLog?.fields]);
-  const normalizedStructuredFieldsText = useMemo(
-    () => JSON.stringify(normalizedStructuredFields, null, 2),
-    [normalizedStructuredFields],
-  );
 
   // 打开日志详情
   const handleRowClick = useCallback((record: LogEntry) => {
@@ -465,6 +440,38 @@ const RealtimeSearch: React.FC = () => {
             </Tag>
           ))}
         </div>
+
+        {/* 级别 / 来源筛选 */}
+        <Space wrap>
+          <Select
+            placeholder="级别"
+            allowClear
+            value={levelFilter || undefined}
+            onChange={(v) => setLevelFilter(v ?? '')}
+            style={{ minWidth: 120 }}
+            options={[
+              { value: '', label: 'ALL' },
+              { value: 'debug', label: 'DEBUG' },
+              { value: 'info', label: 'INFO' },
+              { value: 'warn', label: 'WARN' },
+              { value: 'error', label: 'ERROR' },
+              { value: 'fatal', label: 'FATAL' },
+            ]}
+          />
+          <Select
+            placeholder="来源/服务"
+            allowClear
+            showSearch
+            value={sourceFilter || undefined}
+            onChange={(v) => setSourceFilter(v ?? '')}
+            style={{ minWidth: 180 }}
+            optionFilterProp="label"
+            options={[
+              { value: '', label: 'ALL' },
+              ...uniqueSources.map((s) => ({ value: s, label: s })),
+            ]}
+          />
+        </Space>
       </div>
 
       {/* 事件量直方图 */}
@@ -604,104 +611,136 @@ const RealtimeSearch: React.FC = () => {
       >
         {selectedLog && (
           <div className="flex flex-col gap-0">
-            {/* 基础信息 */}
-            <Divider orientation="left" orientationMargin={0} style={{ margin: '0 0 12px' }}>
-              <span className="flex items-center gap-1 text-xs">
-                <span className="material-symbols-outlined text-sm">info</span>
-                基础信息
-              </span>
-            </Divider>
-            <Descriptions column={2} size="small" bordered>
-              <Descriptions.Item label="日志 ID" span={2}>
-                <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
-                  {selectedLog.id}
-                </Typography.Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="时间戳">
-                <span className="font-mono text-xs">
-                  {new Date(selectedLog.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}
-                </span>
-              </Descriptions.Item>
-              <Descriptions.Item label="级别">
-                <Tag color={LEVEL_CONFIG[selectedLog.level]?.tagColor || 'default'} style={{ margin: 0 }}>
-                  {selectedLog.level.toUpperCase()}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="服务名称">
-                <Tag color="blue" style={{ margin: 0 }}>{selectedLog.service}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="主机">
-                <span className="font-mono text-xs">{String(selectedLog.fields?.host ?? '-')}</span>
-              </Descriptions.Item>
-              <Descriptions.Item label="环境">
-                <Tag color="cyan" style={{ margin: 0 }}>{String(selectedLog.fields?.env ?? '-')}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="区域">
-                <span className="text-xs">{String(selectedLog.fields?.region ?? '-')}</span>
-              </Descriptions.Item>
-            </Descriptions>
-
-            {/* 请求信息 */}
-            <Divider orientation="left" orientationMargin={0} style={{ margin: '16px 0 12px' }}>
-              <span className="flex items-center gap-1 text-xs">
-                <span className="material-symbols-outlined text-sm">http</span>
-                请求信息
-              </span>
-            </Divider>
-            <Descriptions column={2} size="small" bordered>
-              <Descriptions.Item label="HTTP 方法">
-                <Tag
-                  color={
-                    String(selectedLog.fields?.method) === 'GET' ? 'green'
-                    : String(selectedLog.fields?.method) === 'POST' ? 'blue'
-                    : String(selectedLog.fields?.method) === 'DELETE' ? 'red'
-                    : 'orange'
-                  }
-                  style={{ margin: 0 }}
-                >
-                  {String(selectedLog.fields?.method ?? '-')}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="状态码">
-                <Tag
-                  color={Number(selectedLog.fields?.statusCode) >= 500 ? 'error' : Number(selectedLog.fields?.statusCode) >= 400 ? 'warning' : 'success'}
-                  style={{ margin: 0 }}
-                >
-                  {String(selectedLog.fields?.statusCode ?? '-')}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="请求路径" span={2}>
-                <span className="font-mono text-xs">{String(selectedLog.fields?.path ?? '-')}</span>
-              </Descriptions.Item>
-              <Descriptions.Item label="耗时">
-                <span className="font-mono text-xs" style={{ color: parseInt(String(selectedLog.fields?.duration)) > 1000 ? COLORS.danger : parseInt(String(selectedLog.fields?.duration)) > 500 ? COLORS.warning : COLORS.success }}>
-                  {String(selectedLog.fields?.duration ?? '-')}
-                </span>
-              </Descriptions.Item>
-              <Descriptions.Item label="客户端 IP">
-                <span className="font-mono text-xs">{String(selectedLog.fields?.clientIp ?? '-')}</span>
-              </Descriptions.Item>
-              <Descriptions.Item label="请求大小">
-                <span className="text-xs">{String(selectedLog.fields?.requestSize ?? '-')}</span>
-              </Descriptions.Item>
-              <Descriptions.Item label="响应大小">
-                <span className="text-xs">{String(selectedLog.fields?.responseSize ?? '-')}</span>
-              </Descriptions.Item>
-            </Descriptions>
-
-            {/* 消息内容 */}
-            <Divider orientation="left" orientationMargin={0} style={{ margin: '16px 0 12px' }}>
-              <span className="flex items-center gap-1 text-xs">
-                <span className="material-symbols-outlined text-sm">chat</span>
-                消息内容
-              </span>
-            </Divider>
-            <div
-              className="p-3 rounded text-xs font-mono whitespace-pre-wrap break-all leading-relaxed"
-              style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
-            >
-              {selectedLog.message}
-            </div>
+            {/* 五层字段详情 */}
+            <Collapse
+              defaultActiveKey={['raw', 'event', 'transport', 'ingest', 'governance']}
+              items={[
+                {
+                  key: 'raw',
+                  label: (
+                    <span className="flex items-center gap-1 text-xs">
+                      <span className="material-symbols-outlined text-sm">article</span>
+                      原始层 (Raw Layer)
+                    </span>
+                  ),
+                  children: (
+                    <div
+                      className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all"
+                      style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
+                    >
+                      {(() => {
+                        const raw = selectedLog.rawLog ?? selectedLog.fields?.raw_message;
+                        if (raw == null || raw === '') return '—';
+                        return typeof raw === 'string' ? raw : JSON.stringify(raw);
+                      })()}
+                    </div>
+                  ),
+                },
+                {
+                  key: 'event',
+                  label: (
+                    <span className="flex items-center gap-1 text-xs">
+                      <span className="material-symbols-outlined text-sm">event</span>
+                      事件层 (Event Layer)
+                    </span>
+                  ),
+                  children: (
+                    <Descriptions column={2} size="small" bordered>
+                      <Descriptions.Item label="event_id">
+                        <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
+                          {selectedLog.id ?? selectedLog.fields?.event_id ?? '—'}
+                        </Typography.Text>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="level">
+                        <Tag color={LEVEL_CONFIG[selectedLog.level]?.tagColor || 'default'} style={{ margin: 0 }}>
+                          {(selectedLog.level ?? selectedLog.fields?.level ?? '—').toString().toUpperCase()}
+                        </Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="timestamp">
+                        <span className="font-mono text-xs">
+                          {(selectedLog.timestamp ?? selectedLog.fields?.timestamp ?? '—').toString()}
+                        </span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="message">
+                        <span className="text-xs">{selectedLog.message ?? selectedLog.fields?.message ?? '—'}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="source" span={2}>
+                        <span className="text-xs">{selectedLog.service ?? selectedLog.fields?.source ?? '—'}</span>
+                      </Descriptions.Item>
+                    </Descriptions>
+                  ),
+                },
+                {
+                  key: 'transport',
+                  label: (
+                    <span className="flex items-center gap-1 text-xs">
+                      <span className="material-symbols-outlined text-sm">swap_horiz</span>
+                      传输层 (Transport Layer)
+                    </span>
+                  ),
+                  children: (
+                    <Descriptions column={2} size="small" bordered>
+                      <Descriptions.Item label="agent_id">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.agent_id ?? '—')}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="batch_id">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.batch_id ?? '—')}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="collect_time">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.collect_time ?? '—')}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="sequence">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.sequence ?? '—')}</span>
+                      </Descriptions.Item>
+                    </Descriptions>
+                  ),
+                },
+                {
+                  key: 'ingest',
+                  label: (
+                    <span className="flex items-center gap-1 text-xs">
+                      <span className="material-symbols-outlined text-sm">input</span>
+                      接入层 (Ingest Layer)
+                    </span>
+                  ),
+                  children: (
+                    <Descriptions column={2} size="small" bordered>
+                      <Descriptions.Item label="ingested_at">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.ingested_at ?? '—')}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="schema_version">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.schema_version ?? '—')}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="pipeline_version">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.pipeline_version ?? '—')}</span>
+                      </Descriptions.Item>
+                    </Descriptions>
+                  ),
+                },
+                {
+                  key: 'governance',
+                  label: (
+                    <span className="flex items-center gap-1 text-xs">
+                      <span className="material-symbols-outlined text-sm">admin_panel_settings</span>
+                      治理层 (Governance Layer)
+                    </span>
+                  ),
+                  children: (
+                    <Descriptions column={2} size="small" bordered>
+                      <Descriptions.Item label="tenant_id">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.tenant_id ?? '—')}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="retention_policy">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.retention_policy ?? '—')}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="pii_masked">
+                        <span className="font-mono text-xs">{String(selectedLog.fields?.pii_masked ?? '—')}</span>
+                      </Descriptions.Item>
+                    </Descriptions>
+                  ),
+                },
+              ]}
+            />
 
             {/* 标签 */}
             <Divider orientation="left" orientationMargin={0} style={{ margin: '16px 0 12px' }}>
@@ -745,77 +784,6 @@ const RealtimeSearch: React.FC = () => {
               </Descriptions.Item>
             </Descriptions>
 
-            {/* 结构化字段 */}
-            <Divider orientation="left" orientationMargin={0} style={{ margin: '16px 0 12px' }}>
-              <span className="flex items-center gap-1 text-xs">
-                <span className="material-symbols-outlined text-sm">data_object</span>
-                结构化字段
-              </span>
-            </Divider>
-            <div style={{ position: 'relative' }}>
-              <Tooltip title="复制 JSON">
-                <Button
-                  size="small"
-                  type="default"
-                  style={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}
-                  icon={<span className="material-symbols-outlined text-sm">content_copy</span>}
-                  onClick={() => {
-                    navigator.clipboard.writeText(normalizedStructuredFieldsText).then(() => message.success('已复制 JSON'));
-                  }}
-                >
-                  复制 JSON
-                </Button>
-              </Tooltip>
-              <div
-                className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all"
-                style={{
-                  backgroundColor: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
-                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-                  maxHeight: 300,
-                  overflow: 'auto',
-                }}
-              >
-                {normalizedStructuredFieldsText}
-              </div>
-            </div>
-
-            {/* 原始日志 */}
-            {selectedLog.rawLog && (
-              <>
-                <Divider orientation="left" orientationMargin={0} style={{ margin: '16px 0 12px' }}>
-                  <span className="flex items-center gap-1 text-xs">
-                    <span className="material-symbols-outlined text-sm">article</span>
-                    原始日志
-                  </span>
-                </Divider>
-                <div style={{ position: 'relative' }}>
-                  <Tooltip title="复制原始日志">
-                    <Button
-                      size="small"
-                      type="default"
-                      style={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}
-                      icon={<span className="material-symbols-outlined text-sm">content_copy</span>}
-                      onClick={() => {
-                        navigator.clipboard.writeText(selectedLog.rawLog!).then(() => message.success('已复制原始日志'));
-                      }}
-                    >
-                      复制
-                    </Button>
-                  </Tooltip>
-                  <div
-                    className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all"
-                    style={{
-                      backgroundColor: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
-                      border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-                      maxHeight: 300,
-                      overflow: 'auto',
-                    }}
-                  >
-                    {selectedLog.rawLog}
-                  </div>
-                </div>
-              </>
-            )}
           </div>
         )}
       </Drawer>
