@@ -21,7 +21,7 @@
   - `cd /opt/projects/NexusLog/services/control-plane && go test ./internal/ingest -run PullSource -v`
 - 结果：`PASS`
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-6.1-control-plane-pull-sources-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-6.1-control-plane-pull-sources-20260302.log`
 
 ## 备注
 

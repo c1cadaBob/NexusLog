@@ -30,7 +30,7 @@
   - `TestResolveCheckpointOffset`
   - `TestProcessBatchSavesLatestOffsetPerSource`
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-7.1-agent-incremental-read-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-7.1-agent-incremental-read-20260302.log`
 
 ## 备注
 

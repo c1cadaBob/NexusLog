@@ -2076,7 +2076,7 @@ graph TD
 
 - **阶段**: Phase 3 / W13 | **优先级**: P0 | **工时**: 6h
 - **依赖**: P3-HA-01, P3-HA-02 | **服务**: 全部 | **SDLC**: 1→6
-- **变更**: `docs/runbooks/failover-drill.md` — 新增
+- **变更**: `docs/02-operations/runbooks/failover-drill.md` — 新增
 - **验收**:
   - [ ] 有回放脚本和恢复手册
   - [ ] 演练成功

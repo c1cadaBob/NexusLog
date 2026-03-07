@@ -3,7 +3,7 @@
 - 日期：2026-03-02
 - 任务：`6.7 对齐请求字段、分页与错误码（按 12 文档）`
 - 服务：`services/control-plane`
-- 对齐基线：`docs/NexusLog/process/12-current-project-api-interface-design.md`
+- 对齐基线：`docs/NexusLog/10-process/12-current-project-api-interface-design.md`
 
 ## 本次对齐内容
 
@@ -32,7 +32,7 @@
   - `TestPullSourceCreateAndList/TestListPullTasksPagination/TestListPullPackagesPagination`（`has_next` 分页元信息）
   - `TestCreateReceipt*`、`TestReplayDeadLetters*`（写接口与错误码场景回归）
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-6.7-control-plane-contract-alignment-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-6.7-control-plane-contract-alignment-20260302.log`
 
 ## 备注
 

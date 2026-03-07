@@ -21,9 +21,9 @@
     - 创建 `configs/common/`、`configs/dev/`、`configs/staging/`、`configs/prod/`（三环境目录结构一致）
     - _需求: 1_
   - [x] 1.2 创建项目文档体系目录结构
-    - 创建 `docs/architecture/`（含 5 篇架构文档模板）
-    - 创建 `docs/adr/ADR-0001-monorepo.md`
-    - 创建 `docs/runbooks/`、`docs/oncall/`、`docs/security/`、`docs/sla-slo/` 目录
+    - 创建 `docs/01-architecture/core/`（含 5 篇架构文档模板）
+    - 创建 `docs/01-architecture/adr/ADR-0001-monorepo.md`
+    - 创建 `docs/02-operations/runbooks/`、`docs/oncall/`、`docs/security/`、`docs/sla-slo/` 目录
     - 创建变更管理规范文档（三级审批体系 + CAB 判定规则 + 风险评分矩阵）
     - _需求: 6_
   - [x] 1.3 创建脚本和测试目录
@@ -338,10 +338,10 @@
 
 - [ ] 24. 文档体系完善
   - [ ] 24.1 完善架构文档
-    - 完善 `docs/architecture/` 下全部 5 篇架构文档
+    - 完善 `docs/01-architecture/core/` 下全部 5 篇架构文档
     - _需求: 24_
   - [ ] 24.2 创建运维手册和规范文档
-    - 创建 `docs/runbooks/` 下至少 10 个运维手册
+    - 创建 `docs/02-operations/runbooks/` 下至少 10 个运维手册
     - 创建 `docs/oncall/` 值班手册
     - 创建 `docs/sla-slo/` SLA/SLO 定义
     - 创建 `docs/security/` 安全规范

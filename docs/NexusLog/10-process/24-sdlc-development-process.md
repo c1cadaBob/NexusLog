@@ -1402,7 +1402,7 @@ Control-plane 当前不再依赖旧的扁平 pull 字段，而是直接消费 Ag
 
 > 本章用于给第 13 章的字段契约补一张端到端执行图，帮助在实施、联调、排障与验收时统一理解“日志何时被清洗、何时被聚合、何时进入告警与生命周期迁移”。
 >
-> 详细 UML 与存储生命周期说明见：`docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
+> 详细 UML 与存储生命周期说明见：`docs/NexusLog/10-process/31-log-end-to-end-lifecycle-and-uml.md`
 
 ### 14.1 在线主链路
 
@@ -1450,7 +1450,7 @@ Control-plane 当前不再依赖旧的扁平 pull 字段，而是直接消费 Ag
 - `storage/elasticsearch/ilm/nexuslog-logs-ilm.json`
 - `storage/elasticsearch/snapshots/snapshot-policy.json`
 - `storage/glacier/archive-policies/archive-policy.yaml`
-- `docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
+- `docs/NexusLog/10-process/31-log-end-to-end-lifecycle-and-uml.md`
 
 ## 变更记录
 

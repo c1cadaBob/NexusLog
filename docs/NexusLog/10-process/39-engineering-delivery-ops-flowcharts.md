@@ -11,7 +11,7 @@
 
 ## 1. 项目 SDLC 完整流程图
 
-> 参考：`docs/NexusLog/process/02-end-to-end-development-workflow.md`
+> 参考：`docs/NexusLog/10-process/02-end-to-end-development-workflow.md`
 
 ```mermaid
 flowchart TD
@@ -345,11 +345,11 @@ flowchart TD
 
 ## 参考资料
 
-- `docs/NexusLog/process/02-end-to-end-development-workflow.md`
-- `docs/NexusLog/process/23-project-master-plan-and-task-registry.md`
-- `docs/NexusLog/process/24-sdlc-development-process.md`
-- `docs/NexusLog/process/25-full-lifecycle-task-registry.md`
-- `docs/NexusLog/process/30-development-issues-and-solutions.md`
+- `docs/NexusLog/10-process/02-end-to-end-development-workflow.md`
+- `docs/NexusLog/10-process/23-project-master-plan-and-task-registry.md`
+- `docs/NexusLog/10-process/24-sdlc-development-process.md`
+- `docs/NexusLog/10-process/25-full-lifecycle-task-registry.md`
+- `docs/NexusLog/10-process/30-development-issues-and-solutions.md`
 
 ---
 

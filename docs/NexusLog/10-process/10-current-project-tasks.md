@@ -63,17 +63,17 @@
 2. `scripts/check-migration-single-source.sh`
 3. `.github/workflows/db-migration-guard.yml`
 4. `Makefile`（`db-migrate-*` 目标）
-5. `docs/runbooks/rollback-playbook.md`
-6. `docs/NexusLog/process/evidence/task-1.2-migration-up-20260228.log`（首次执行，发现阻塞）
-7. `docs/NexusLog/process/evidence/task-1.2-migration-up-remediation-20260228.log`（修复后通过）
+5. `docs/02-operations/runbooks/rollback-playbook.md`
+6. `docs/NexusLog/10-process/evidence/task-1.2-migration-up-20260228.log`（首次执行，发现阻塞）
+7. `docs/NexusLog/10-process/evidence/task-1.2-migration-up-remediation-20260228.log`（修复后通过）
 8. `storage/postgresql/migrations/000013_mvp_ingest_pull_and_incremental_package.up.sql`（阻塞修复）
-9. `docs/NexusLog/process/evidence/task-1.2-migration-up-recheck-20260228.log`（二次复核通过）
-10. `docs/NexusLog/process/evidence/task-1.3-migration-down-rollback-20260228.log`（回滚演练、恢复与健康检查日志）
-11. `docs/NexusLog/process/16-task-1.4-migration-execution-record.md`（任务 1.4 执行记录文档）
-12. `docs/NexusLog/process/evidence/task-1.4-migration-command-sequence-20260301.log`（迁移命令顺序与执行结果重跑日志）
-13. `docs/NexusLog/process/evidence/task-1.4-migration-failure-recovery-20260301.log`（失败恢复步骤与可执行参考日志）
-14. `docs/NexusLog/process/17-migration-execution-state-baseline.md`（迁移执行态基线文档，区分文件态/执行态）
-15. `docs/NexusLog/process/evidence/task-1.5-migration-execution-state-sync-20260301.log`（任务 1.5 执行态同步证据）
+9. `docs/NexusLog/10-process/evidence/task-1.2-migration-up-recheck-20260228.log`（二次复核通过）
+10. `docs/NexusLog/10-process/evidence/task-1.3-migration-down-rollback-20260228.log`（回滚演练、恢复与健康检查日志）
+11. `docs/NexusLog/10-process/16-task-1.4-migration-execution-record.md`（任务 1.4 执行记录文档）
+12. `docs/NexusLog/10-process/evidence/task-1.4-migration-command-sequence-20260301.log`（迁移命令顺序与执行结果重跑日志）
+13. `docs/NexusLog/10-process/evidence/task-1.4-migration-failure-recovery-20260301.log`（失败恢复步骤与可执行参考日志）
+14. `docs/NexusLog/10-process/17-migration-execution-state-baseline.md`（迁移执行态基线文档，区分文件态/执行态）
+15. `docs/NexusLog/10-process/evidence/task-1.5-migration-execution-state-sync-20260301.log`（任务 1.5 执行态同步证据）
 
 关联差异：`GAP-015`
 
@@ -242,7 +242,7 @@
 4. 风险说明：当前会话未挂载 `puppeteer-debugger-mcp`（`unknown MCP server`），本次使用 Playwright 作为等价浏览器调试手段；后续可在 MCP 会话恢复后补跑同一用例集。
 
 证据链接（本次补充）：
-1. `docs/NexusLog/process/evidence/task-1-7-frontend-debug-20260303.md`
+1. `docs/NexusLog/10-process/evidence/task-1-7-frontend-debug-20260303.md`
 2. `tests/e2e/tests/tasks1-7-debug.spec.js`
 3. `tests/e2e/tests/auth.spec.js`
 4. `tests/e2e/playwright-report/index.html`
@@ -289,8 +289,8 @@
 6. `services/control-plane/internal/ingest/pull_cursors_pg.go`
 7. `services/control-plane/internal/ingest/pull_auth_keys_pg.go`
 8. `services/control-plane/cmd/api/main.go`
-9. `docs/NexusLog/process/evidence/task-8-real-pull-es-ack-20260304-122352.log`（含失败定位、修复过程、最终成功链路 API/SQL/ES/日志证据）
-10. `docs/NexusLog/process/evidence/task-8-real-pull-es-ack-20260304-summary.md`（任务 8 真实联调结构化摘要）
+9. `docs/NexusLog/10-process/evidence/task-8-real-pull-es-ack-20260304-122352.log`（含失败定位、修复过程、最终成功链路 API/SQL/ES/日志证据）
+10. `docs/NexusLog/10-process/evidence/task-8-real-pull-es-ack-20260304-summary.md`（任务 8 真实联调结构化摘要）
 
 #### 任务 9（R8）：健康检测目标动态化
 

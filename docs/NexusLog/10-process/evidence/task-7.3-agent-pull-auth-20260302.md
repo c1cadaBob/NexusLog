@@ -35,7 +35,7 @@
   - `TestAuthInvalidKey`
   - `TestPullAndAckFlow`
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-7.3-agent-pull-auth-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-7.3-agent-pull-auth-20260302.log`
 
 ## 备注
 

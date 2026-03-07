@@ -7,7 +7,7 @@
 - Elasticsearch `logs-remote` 在 5 秒粒度采样中持续增长，验证“自动拉取 -> 入库 ES”链路有效。
 
 ## 关键证据
-- 原始日志文件：`docs/NexusLog/process/evidence/task-8-scheduler-5s-20260304-162158.log`
+- 原始日志文件：`docs/NexusLog/10-process/evidence/task-8-scheduler-5s-20260304-162158.log`
 - pull source 配置证据：`pull_interval_sec=5`（见日志 `## pull_sources` 区段）
 - 任务成功证据：两个 source 最近 10 条任务均为 `scheduled + success`（见日志 `## pull_tasks_source_31f0` / `## pull_tasks_source_0cfa`）
 - 调度周期证据：control-plane 连续输出 `interval_sec=5`（见日志 `## control_plane_scheduler_logs`）

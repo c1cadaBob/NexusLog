@@ -33,7 +33,7 @@
   - `TestPullAndAckFlow`
   - `TestPullInvalidArgument`
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-7.2-agent-pull-api-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-7.2-agent-pull-api-20260302.log`
 
 ## 备注
 

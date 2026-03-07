@@ -1,7 +1,7 @@
 # 数据表完善与扩展预留方案（面向下一阶段开发）
 
 > 目标：基于当前仓库真实状态，检查数据模型可完善点，并给出可扩展设计。  
-> 范围：`storage/postgresql/migrations`、`docs/NexusLog/database/sql`、前端 59 页业务需求、Agent/Query/Gateway 代码现状。
+> 范围：`storage/postgresql/migrations`、`docs/NexusLog/20-database/sql`、前端 59 页业务需求、Agent/Query/Gateway 代码现状。
 
 ## 1. 现状结论（必须先统一）
 
@@ -9,13 +9,13 @@
 
 - 运行时迁移（`storage/postgresql/migrations/000001_init_schema.up.sql`）：当前仅 `6` 张表。
   - `obs.tenant/users/roles/user_roles/alert_rules/audit_logs`
-- 文档迁移（`docs/NexusLog/database/sql/V1~V11`）：共 `87` 张表（含增量迁移新增表）。
+- 文档迁移（`docs/NexusLog/20-database/sql/V1~V11`）：共 `87` 张表（含增量迁移新增表）。
 
 结论：如果不先统一迁移真相源，后续业务开发会出现“页面需求 > API > 表结构”无法稳定对齐的问题。
 
 ### 1.2 与前端业务覆盖存在结构性缺口
 
-结合 `docs/NexusLog/process/04-frontend-pages-functional-workflow-dataflow.md`：
+结合 `docs/NexusLog/10-process/04-frontend-pages-functional-workflow-dataflow.md`：
 
 - 前端页面已覆盖 59 路由页面。
 - 后端业务接口大多占位（`query-api/audit-api/export-api` 仅返回“待实现”）。

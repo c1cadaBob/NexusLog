@@ -25,7 +25,7 @@
   - `TestListPullTasksPagination`
   - `TestListPullTasksInvalidArgument`
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-6.3-control-plane-pull-tasks-query-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-6.3-control-plane-pull-tasks-query-20260302.log`
 
 ## 备注
 

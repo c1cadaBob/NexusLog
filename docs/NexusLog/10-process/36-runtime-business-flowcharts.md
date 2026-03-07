@@ -247,10 +247,10 @@ flowchart TD
 
 ## 参考资料
 
-- `docs/NexusLog/process/04-frontend-pages-functional-workflow-dataflow.md`
-- `docs/NexusLog/process/20-log-ingest-e2e-workflow-v2.md`
-- `docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
-- `docs/NexusLog/process/32-log-sequence-diagram-mermaid.md`
+- `docs/NexusLog/10-process/04-frontend-pages-functional-workflow-dataflow.md`
+- `docs/NexusLog/10-process/20-log-ingest-e2e-workflow-v2.md`
+- `docs/NexusLog/10-process/31-log-end-to-end-lifecycle-and-uml.md`
+- `docs/NexusLog/10-process/32-log-sequence-diagram-mermaid.md`
 - `apps/frontend-console/src/pages/search/RealtimeSearch.tsx`
 - `services/data-services/query-api/internal/service/service.go`
 

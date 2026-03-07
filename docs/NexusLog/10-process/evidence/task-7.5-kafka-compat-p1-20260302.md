@@ -33,7 +33,7 @@
   - `/agent/v1/meta` 正常；
   - 运行日志出现 `处理管道初始化失败，降级为 pull-only 模式`。
 - 日志：
-  - `docs/NexusLog/process/evidence/task-7.5-kafka-p1-fallback-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-7.5-kafka-p1-fallback-20260302.log`
 
 ## 备注
 

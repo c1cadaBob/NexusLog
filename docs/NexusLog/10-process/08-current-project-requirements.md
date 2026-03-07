@@ -12,7 +12,7 @@
 ## 2. 输入来源
 
 1. 项目初期文档：`.kiro/specs/project-scaffold/*`、`.kiro/specs/project-roadmap/*`
-2. 当前项目文档：`docs/NexusLog/process/02~07`、`docs/NexusLog/database/08-schema-gap-and-extension-plan.md`
+2. 当前项目文档：`docs/NexusLog/10-process/02~07`、`docs/NexusLog/20-database/08-schema-gap-and-extension-plan.md`
 3. 当前代码与配置：`apps/*`、`services/*`、`agents/*`、`gateway/*`、`storage/postgresql/migrations/*`
 
 ## 3. 适配原则

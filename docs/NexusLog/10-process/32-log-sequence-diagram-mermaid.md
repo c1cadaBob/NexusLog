@@ -9,7 +9,7 @@
 - 热 / 温 / 冷 / 归档 / 恢复在链路中的位置与触发时机
 
 > 本文档只描述**文档视图**，不改任何运行时代码、接口或 ES 模板。  
-> 如果图示与代码实现存在冲突，以代码和 `docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md` 为准。
+> 如果图示与代码实现存在冲突，以代码和 `docs/NexusLog/10-process/31-log-end-to-end-lifecycle-and-uml.md` 为准。
 
 ---
 

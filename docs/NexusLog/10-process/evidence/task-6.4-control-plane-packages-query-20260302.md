@@ -26,7 +26,7 @@
   - `TestListPullPackagesPagination`
   - `TestListPullPackagesInvalidArgument`
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-6.4-control-plane-packages-query-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-6.4-control-plane-packages-query-20260302.log`
 
 ## 备注
 

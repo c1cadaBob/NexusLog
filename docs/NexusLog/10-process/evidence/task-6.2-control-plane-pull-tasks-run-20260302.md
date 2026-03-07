@@ -20,7 +20,7 @@
   - `cd /opt/projects/NexusLog/services/control-plane && go test ./internal/ingest -run RunPullTask -v`
 - 结果：`PASS`
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-6.2-control-plane-pull-tasks-run-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-6.2-control-plane-pull-tasks-run-20260302.log`
 
 ## 备注
 

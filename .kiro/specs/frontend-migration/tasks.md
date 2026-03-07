@@ -16,9 +16,9 @@
     - _需求: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
 
   - [x] 1.2 创建项目文档体系目录结构
-    - 创建 `docs/architecture/`（含 01-system-context.md、02-logical-architecture.md、03-deployment-architecture.md、04-dataflow.md、05-security-architecture.md 模板）
-    - 创建 `docs/adr/ADR-0001-monorepo.md`
-    - 创建 `docs/runbooks/`（含 kafka-lag-high.md、es-write-reject.md、rollback-playbook.md 模板）
+    - 创建 `docs/01-architecture/core/`（含 01-system-context.md、02-logical-architecture.md、03-deployment-architecture.md、04-dataflow.md、05-security-architecture.md 模板）
+    - 创建 `docs/01-architecture/adr/ADR-0001-monorepo.md`
+    - 创建 `docs/02-operations/runbooks/`（含 kafka-lag-high.md、es-write-reject.md、rollback-playbook.md 模板）
     - 创建 `docs/oncall/`、`docs/security/`、`docs/sla-slo/` 目录
     - _需求: 25.1, 25.2, 25.3, 25.4_
 
@@ -520,7 +520,7 @@
 
 - [x] 29. 变更管理规范文档
   - [x] 29.1 创建变更管理规范文档
-    - 创建 `docs/change-management.md`
+    - 创建 `docs/00-governance/01-change-management.md`
     - 包含三级审批体系定义（none/normal/cab）
     - 包含 CAB 判定规则表（7 条硬规则）
     - 包含风险评分矩阵（5 维度，各 0-3 分）
@@ -529,7 +529,7 @@
     - _需求: 23.1, 23.2, 23.3, 23.4, 23.5_
 
   - [x] 29.2 创建技术栈总览文档
-    - 创建 `docs/tech-stack.md`
+    - 创建 `docs/01-architecture/00-tech-stack.md`
     - _需求: 23.6_
 
 - [x] 30. CI/CD 和 GitOps 配置

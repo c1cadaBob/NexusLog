@@ -22,7 +22,7 @@
 ## 3. 标准执行顺序（按主证据日志）
 
 执行日期：`2026-03-01`  
-主证据日志：`docs/NexusLog/process/evidence/task-1.4-migration-command-sequence-20260301.log`
+主证据日志：`docs/NexusLog/10-process/evidence/task-1.4-migration-command-sequence-20260301.log`
 
 1. 进入仓库并设置连接串：
    - `cd /opt/projects/NexusLog`
@@ -65,12 +65,12 @@
 
 ## 6. 证据索引
 
-1. `docs/NexusLog/process/evidence/task-1.2-migration-up-20260228.log`
-2. `docs/NexusLog/process/evidence/task-1.2-migration-up-remediation-20260228.log`
-3. `docs/NexusLog/process/evidence/task-1.2-migration-up-recheck-20260228.log`
-4. `docs/NexusLog/process/evidence/task-1.3-migration-down-rollback-20260228.log`
-5. `docs/NexusLog/process/evidence/task-1.4-migration-command-sequence-20260301.log`
-6. `docs/NexusLog/process/evidence/task-1.4-migration-failure-recovery-20260301.log`
+1. `docs/NexusLog/10-process/evidence/task-1.2-migration-up-20260228.log`
+2. `docs/NexusLog/10-process/evidence/task-1.2-migration-up-remediation-20260228.log`
+3. `docs/NexusLog/10-process/evidence/task-1.2-migration-up-recheck-20260228.log`
+4. `docs/NexusLog/10-process/evidence/task-1.3-migration-down-rollback-20260228.log`
+5. `docs/NexusLog/10-process/evidence/task-1.4-migration-command-sequence-20260301.log`
+6. `docs/NexusLog/10-process/evidence/task-1.4-migration-failure-recovery-20260301.log`
 
 ## 7. 结论与边界
 

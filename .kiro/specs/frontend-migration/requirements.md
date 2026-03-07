@@ -358,7 +358,7 @@
 
 #### 验收标准
 
-1. THE Target_Project SHALL 在 `docs/architecture/` 目录下包含系统上下文、逻辑架构、部署架构、数据流、安全架构文档模板
-2. THE Target_Project SHALL 在 `docs/adr/` 目录下包含 ADR-0001-monorepo 架构决策记录
-3. THE Target_Project SHALL 在 `docs/runbooks/` 目录下包含 Kafka 消费延迟、ES 写入拒绝、回滚操作手册模板
+1. THE Target_Project SHALL 在 `docs/01-architecture/core/` 目录下包含系统上下文、逻辑架构、部署架构、数据流、安全架构文档模板
+2. THE Target_Project SHALL 在 `docs/01-architecture/adr/` 目录下包含 ADR-0001-monorepo 架构决策记录
+3. THE Target_Project SHALL 在 `docs/02-operations/runbooks/` 目录下包含 Kafka 消费延迟、ES 写入拒绝、回滚操作手册模板
 4. THE Target_Project SHALL 在 `docs/` 目录下包含 `oncall/`、`security/`、`sla-slo/` 子目录

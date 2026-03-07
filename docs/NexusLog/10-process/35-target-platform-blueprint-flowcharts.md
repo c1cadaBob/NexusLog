@@ -7,14 +7,14 @@
 
 > 蓝图基线来源：
 >
-> - `docs/architecture/01-system-context.md`
-> - `docs/architecture/02-logical-architecture.md`
-> - `docs/architecture/03-deployment-architecture.md`
-> - `docs/architecture/04-dataflow.md`
-> - `docs/architecture/05-security-architecture.md`
+> - `docs/01-architecture/core/01-system-context.md`
+> - `docs/01-architecture/core/02-logical-architecture.md`
+> - `docs/01-architecture/core/03-deployment-architecture.md`
+> - `docs/01-architecture/core/04-dataflow.md`
+> - `docs/01-architecture/core/05-security-architecture.md`
 > - `.kiro/specs/docs/designs/api-design.md`
-> - `docs/NexusLog/process/23-project-master-plan-and-task-registry.md`
-> - `docs/NexusLog/process/25-full-lifecycle-task-registry.md`
+> - `docs/NexusLog/10-process/23-project-master-plan-and-task-registry.md`
+> - `docs/NexusLog/10-process/25-full-lifecycle-task-registry.md`
 
 ---
 
@@ -264,14 +264,14 @@ flowchart TB
 
 ## 参考资料
 
-- `docs/architecture/01-system-context.md`
-- `docs/architecture/02-logical-architecture.md`
-- `docs/architecture/03-deployment-architecture.md`
-- `docs/architecture/04-dataflow.md`
-- `docs/architecture/05-security-architecture.md`
+- `docs/01-architecture/core/01-system-context.md`
+- `docs/01-architecture/core/02-logical-architecture.md`
+- `docs/01-architecture/core/03-deployment-architecture.md`
+- `docs/01-architecture/core/04-dataflow.md`
+- `docs/01-architecture/core/05-security-architecture.md`
 - `.kiro/specs/docs/designs/api-design.md`
-- `docs/NexusLog/process/23-project-master-plan-and-task-registry.md`
-- `docs/NexusLog/process/25-full-lifecycle-task-registry.md`
+- `docs/NexusLog/10-process/23-project-master-plan-and-task-registry.md`
+- `docs/NexusLog/10-process/25-full-lifecycle-task-registry.md`
 
 ---
 

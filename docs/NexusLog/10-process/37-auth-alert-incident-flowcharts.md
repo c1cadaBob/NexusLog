@@ -293,10 +293,10 @@ stateDiagram-v2
 
 ## 参考资料
 
-- `docs/NexusLog/process/04-frontend-pages-functional-workflow-dataflow.md`
-- `docs/NexusLog/process/23-project-master-plan-and-task-registry.md`
-- `docs/NexusLog/process/25-full-lifecycle-task-registry.md`
-- `docs/architecture/05-security-architecture.md`
+- `docs/NexusLog/10-process/04-frontend-pages-functional-workflow-dataflow.md`
+- `docs/NexusLog/10-process/23-project-master-plan-and-task-registry.md`
+- `docs/NexusLog/10-process/25-full-lifecycle-task-registry.md`
+- `docs/01-architecture/core/05-security-architecture.md`
 - `services/control-plane/internal/alert/evaluator.go`
 
 ---

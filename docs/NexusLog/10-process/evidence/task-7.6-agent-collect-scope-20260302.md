@@ -30,7 +30,7 @@
   - `TestCollectFilesIncrementalFromCheckpoint`
   - `TestCollectFilesResumeAfterRestart`
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-7.6-agent-collect-scope-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-7.6-agent-collect-scope-20260302.log`
 
 ## 双模式配置验证
 
@@ -39,7 +39,7 @@
    - `COLLECTOR_EXCLUDE_PATHS=/var/log/wtmp,/data/app/debug-*.log`
 2. Docker 配置渲染验证：
    - 命令：`docker compose -f deploy/docker/docker-compose.agent.yml config`
-   - 日志：`docs/NexusLog/process/evidence/task-7.6-agent-collect-scope-compose-20260302.log`
+   - 日志：`docs/NexusLog/10-process/evidence/task-7.6-agent-collect-scope-compose-20260302.log`
    - 已确认 compose 输出包含 `COLLECTOR_INCLUDE_PATHS/COLLECTOR_EXCLUDE_PATHS`。
 
 ## 备注

@@ -516,8 +516,8 @@ make db-migrate-down STEPS=1
 make db-migrate-create NAME=add_xxx
 ```
 
-说明：`docs/NexusLog/database/sql` 下文件属于设计/历史参考，不作为运行时迁移入口。
-执行态基线：见 `docs/NexusLog/process/17-migration-execution-state-baseline.md`（区分“文件存在态”与“环境执行态”）。
+说明：`docs/NexusLog/20-database/sql` 下文件属于设计/历史参考，不作为运行时迁移入口。
+执行态基线：见 `docs/NexusLog/10-process/17-migration-execution-state-baseline.md`（区分“文件存在态”与“环境执行态”）。
 
 ### 前端开发
 
@@ -588,21 +588,21 @@ google-chrome --headless --remote-debugging-port=9222 --disable-gpu \
 | 常规审批 | `normal` | 技术负责人审批 | 服务配置、API 变更、前端发版 |
 | 高危变更 | `cab` | CAB 委员会审批 | 认证链路、存储拓扑、网关策略、密钥证书 |
 
-详见 [变更管理规范](docs/change-management.md)
+详见 [变更管理规范](docs/00-governance/01-change-management.md)
 
 ## 文档
 
 | 文档 | 说明 |
 |------|------|
-| [系统上下文](docs/architecture/01-system-context.md) | 系统边界与外部交互 |
-| [逻辑架构](docs/architecture/02-logical-architecture.md) | 分层架构与模块划分 |
-| [部署架构](docs/architecture/03-deployment-architecture.md) | K8s 部署拓扑 |
-| [数据流](docs/architecture/04-dataflow.md) | 日志数据流转路径 |
-| [安全架构](docs/architecture/05-security-architecture.md) | 认证授权与安全策略 |
-| [ADR-0001](docs/adr/ADR-0001-monorepo.md) | Monorepo 架构决策 |
-| [Kafka 延迟处理](docs/runbooks/kafka-lag-high.md) | 运维手册 |
-| [ES 写入拒绝](docs/runbooks/es-write-reject.md) | 运维手册 |
-| [回滚操作手册](docs/runbooks/rollback-playbook.md) | 运维手册 |
+| [系统上下文](docs/01-architecture/core/01-system-context.md) | 系统边界与外部交互 |
+| [逻辑架构](docs/01-architecture/core/02-logical-architecture.md) | 分层架构与模块划分 |
+| [部署架构](docs/01-architecture/core/03-deployment-architecture.md) | K8s 部署拓扑 |
+| [数据流](docs/01-architecture/core/04-dataflow.md) | 日志数据流转路径 |
+| [安全架构](docs/01-architecture/core/05-security-architecture.md) | 认证授权与安全策略 |
+| [ADR-0001](docs/01-architecture/adr/ADR-0001-monorepo.md) | Monorepo 架构决策 |
+| [Kafka 延迟处理](docs/02-operations/runbooks/kafka-lag-high.md) | 运维手册 |
+| [ES 写入拒绝](docs/02-operations/runbooks/es-write-reject.md) | 运维手册 |
+| [回滚操作手册](docs/02-operations/runbooks/rollback-playbook.md) | 运维手册 |
 
 ## 许可证
 

@@ -292,7 +292,7 @@ flowchart TD
 - `storage/elasticsearch/snapshots/snapshot-policy.json`
 - `storage/glacier/archive-policies/archive-policy.yaml`
 - `storage/minio/lifecycle/lifecycle-rules.yaml`
-- `docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
+- `docs/NexusLog/10-process/31-log-end-to-end-lifecycle-and-uml.md`
 
 ---
 

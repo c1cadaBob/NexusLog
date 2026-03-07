@@ -22,16 +22,16 @@
 
 1. 预编译打包验证（通过）：
    - 命令：`cd /opt/projects/NexusLog/agents/collector-agent && bash scripts/package-agent.sh`
-   - 日志：`docs/NexusLog/process/evidence/task-7.4-agent-package-build-20260302.log`
+   - 日志：`docs/NexusLog/10-process/evidence/task-7.4-agent-package-build-20260302.log`
 2. 本地二进制启动冒烟（通过）：
    - 验证项：`/healthz`、`/agent/v1/meta`、鉴权失败 401
-   - 日志：`docs/NexusLog/process/evidence/task-7.4-agent-systemd-like-smoke-20260302.log`
+   - 日志：`docs/NexusLog/10-process/evidence/task-7.4-agent-systemd-like-smoke-20260302.log`
 3. Docker Compose 结构校验（通过）：
    - 命令：`docker compose -f deploy/docker/docker-compose.agent.yml config`
-   - 日志：`docs/NexusLog/process/evidence/task-7.4-agent-docker-compose-config-20260302.log`
+   - 日志：`docs/NexusLog/10-process/evidence/task-7.4-agent-docker-compose-config-20260302.log`
 4. Docker 镜像构建尝试（受环境网络限制失败）：
    - 失败原因：`go mod download` 访问 `proxy.golang.org` 超时
-   - 日志：`docs/NexusLog/process/evidence/task-7.4-agent-docker-build-20260302.log`
+   - 日志：`docs/NexusLog/10-process/evidence/task-7.4-agent-docker-build-20260302.log`
 
 ## 备注
 

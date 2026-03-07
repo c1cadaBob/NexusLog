@@ -11,7 +11,7 @@
 
 > 生效日期：2026-03-07  
 > 当前基线：以 `agents/collector-agent/internal/pullapi`、`services/control-plane/internal/ingest`、`storage/elasticsearch/*/nexuslog-logs-v2.json` 的当前实现为准。  
-> 如果本文与代码实现冲突，以代码与 `docs/NexusLog/process/24-sdlc-development-process.md` 第 13 章为准。
+> 如果本文与代码实现冲突，以代码与 `docs/NexusLog/10-process/24-sdlc-development-process.md` 第 13 章为准。
 
 本方案的目标：
 
@@ -604,7 +604,7 @@ ES 最终结构（nexuslog-logs-v2 document）
 | 多行合并 | Agent 优先做；Control-plane 当前主要依赖 Agent 结果 |
 | 前端折叠展示 | 本阶段不做 |
 | 标签策略 | 当前仅允许 `label.*` 前缀映射到 `labels.*`，并补 `labels.env` |
-| 模板安装与校验 | 参考 `docs/runbooks/es-template-v2-install-and-validate.md` |
+| 模板安装与校验 | 参考 `docs/02-operations/runbooks/es-template-v2-install-and-validate.md` |
 
 ---
 
@@ -745,7 +745,7 @@ ES 最终结构（nexuslog-logs-v2 document）
 > - 什么时候进入告警与分析
 > - 多久从热数据迁移到温 / 冷 / 归档
 >
-> 详细说明与 UML 见：`docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
+> 详细说明与 UML 见：`docs/NexusLog/10-process/31-log-end-to-end-lifecycle-and-uml.md`
 
 ### 12.1 在线主链路
 
@@ -794,7 +794,7 @@ ES 最终结构（nexuslog-logs-v2 document）
 - `storage/elasticsearch/ilm/nexuslog-logs-ilm.json`
 - `storage/elasticsearch/snapshots/snapshot-policy.json`
 - `storage/glacier/archive-policies/archive-policy.yaml`
-- `docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
+- `docs/NexusLog/10-process/31-log-end-to-end-lifecycle-and-uml.md`
 
 ---
 
@@ -807,5 +807,5 @@ ES 最终结构（nexuslog-logs-v2 document）
 - `services/control-plane/internal/ingest/es_sink.go`
 - `storage/elasticsearch/index-templates/nexuslog-logs-v2.json`
 - `storage/elasticsearch/templates/nexuslog-logs-v2.json`
-- `docs/NexusLog/process/24-sdlc-development-process.md`
-- `docs/runbooks/es-template-v2-install-and-validate.md`
+- `docs/NexusLog/10-process/24-sdlc-development-process.md`
+- `docs/02-operations/runbooks/es-template-v2-install-and-validate.md`

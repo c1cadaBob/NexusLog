@@ -30,7 +30,7 @@
   - `TestReplayDeadLettersNotFound`
   - `TestCreateReceiptNack`（验证 `nack` 会写入死信）
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-6.6-control-plane-dead-letters-replay-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-6.6-control-plane-dead-letters-replay-20260302.log`
 
 ## 备注
 

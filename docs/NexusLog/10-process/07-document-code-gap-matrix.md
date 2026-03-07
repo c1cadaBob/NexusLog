@@ -1,7 +1,7 @@
 # 文档与代码差异表（按文件逐条列差）
 
 > 评估日期：2026-02-28  
-> 评估范围：`docs/NexusLog/process/*.md`、`README.md`、`apps/*`、`services/*`、`agents/*`、`gateway/*`、`storage/postgresql/migrations/*`、`docker-compose.yml`  
+> 评估范围：`docs/NexusLog/10-process/*.md`、`README.md`、`apps/*`、`services/*`、`agents/*`、`gateway/*`、`storage/postgresql/migrations/*`、`docker-compose.yml`
 > 评估目标：将“文档目标”与“仓库代码现实”逐条对齐，识别阻塞交付的关键差异。
 
 ## 1. 结论摘要
@@ -87,7 +87,7 @@
 | GAP-012 | P0 | M1 | Week1 | BE + DevOps | open | upstream 服务名与端口映射与 compose 一致，冒烟通过 | TBD |
 | GAP-013 | P1 | M1 | Week1~Week2 | DevOps + Docs | open | 本地编排与 README 网关入口说明一致（加服务或加说明） | TBD |
 | GAP-014 | P2 | M1 | Week2 | FE + Docs | open | README 前端目录结构更新为仓库真实结构 | TBD |
-| GAP-015 | P1 | M1 | Week1 | DBA + Docs | closed | 03/17 文档已区分“文件存在态”和“环境执行态”，并补齐 2026-03-01 证据 | `docs/NexusLog/process/03-frontend-api-data-coverage-matrix.md`；`docs/NexusLog/process/17-migration-execution-state-baseline.md`；`docs/NexusLog/process/evidence/task-1.5-migration-execution-state-sync-20260301.log` |
+| GAP-015 | P1 | M1 | Week1 | DBA + Docs | closed | 03/17 文档已区分“文件存在态”和“环境执行态”，并补齐 2026-03-01 证据 | `docs/NexusLog/10-process/03-frontend-api-data-coverage-matrix.md`；`docs/NexusLog/10-process/17-migration-execution-state-baseline.md`；`docs/NexusLog/10-process/evidence/task-1.5-migration-execution-state-sync-20260301.log` |
 | GAP-016 | P1 | M1~M3 | Week1~Week6 | QA + BE + FE | open | 每周链路补齐最小自动化测试（成功/失败各 1） | TBD |
 | GAP-017 | P1 | M2 | Week4 | BE | open | Health Worker 支持动态目标来源，不再返回空目标列表 | TBD |
 | GAP-018 | P1 | M2 | Week4 | BE | open | Agent 主路径 TODO 清零（文件增量/syslog/Kafka）并通过链路验证 | TBD |

@@ -30,7 +30,7 @@
   - `TestCreateReceiptPackageNotFound`
   - `TestCreateReceiptChecksumMismatch`
 - 测试日志：
-  - `docs/NexusLog/process/evidence/task-6.5-control-plane-receipts-20260302.log`
+  - `docs/NexusLog/10-process/evidence/task-6.5-control-plane-receipts-20260302.log`
 
 ## 备注
 

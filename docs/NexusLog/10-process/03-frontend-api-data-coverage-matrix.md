@@ -1,7 +1,7 @@
 # 前端-接口-数据表覆盖矩阵（基于当前代码）
 
 > 评估日期：2026-03-01  
-> 评估范围：`apps/frontend-console`、`services/*`、`apps/bff-service`、`storage/postgresql/migrations`、`docs/NexusLog/database/sql`
+> 评估范围：`apps/frontend-console`、`services/*`、`apps/bff-service`、`storage/postgresql/migrations`、`docs/NexusLog/20-database/sql`
 
 ## 1. 基线事实
 
@@ -46,7 +46,7 @@
 ## 3. 关键不一致
 
 1. 任务文档中“API 服务层迁移完成”，但当前前端源码未形成可见 `services/hooks/utils` 业务调用层，页面仍以本地状态为主。  
-2. 数据层运行时真相源已统一到 `storage/postgresql/migrations`；`docs/NexusLog/database/sql` 保留为设计/历史参考，文档需持续区分“文件态”与“执行态”。  
+2. 数据层运行时真相源已统一到 `storage/postgresql/migrations`；`docs/NexusLog/20-database/sql` 保留为设计/历史参考，文档需持续区分“文件态”与“执行态”。
 3. 前端 API 文档页展示的接口与后端真实可调用接口不一致（文档接口多，落地接口少）。
 
 ## 4. 流程可完善点（建议加入强门禁）
