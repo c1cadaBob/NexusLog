@@ -301,14 +301,21 @@ func buildESQuery(in SearchLogsInput) map[string]any {
 				"query":            keywords,
 				"default_operator": "and",
 				"fields": []string{
-					"message^2",
-					"raw_log",
-					"source_ref",
-					"source_path",
-					"agent_id",
-					"record_id",
-					"batch_id",
-					"service",
+					"message^3",
+					"event.original",
+					"error.message^2",
+					"error.stack_trace",
+					"service.name^2",
+					"service.instance.id",
+					"container.name",
+					"log.file.path",
+					"source.path",
+					"agent.id",
+					"event.record_id",
+					"nexuslog.transport.batch_id",
+					"trace.id",
+					"span.id",
+					"request.id",
 				},
 			},
 		})
@@ -332,8 +339,13 @@ func buildESQuery(in SearchLogsInput) map[string]any {
 		})
 	}
 	for key, value := range in.Filters {
-		field := strings.TrimSpace(key)
+		rawKey := strings.TrimSpace(key)
+		field := normalizeFilterField(rawKey)
 		if field == "" || value == nil {
+			continue
+		}
+		if fields := compatibilityFilterFields(rawKey, field); len(fields) > 1 {
+			filterClauses = append(filterClauses, buildCompatibilityFilterClause(fields, value))
 			continue
 		}
 		if terms := normalizeTerms(value); len(terms) > 0 {
@@ -416,5 +428,66 @@ func normalizeTerms(value any) []any {
 		return out
 	default:
 		return nil
+	}
+}
+
+func buildCompatibilityFilterClause(fields []string, value any) map[string]any {
+	should := make([]map[string]any, 0, len(fields))
+	if terms := normalizeTerms(value); len(terms) > 0 {
+		for _, field := range fields {
+			should = append(should, map[string]any{
+				"terms": map[string]any{
+					field: terms,
+				},
+			})
+		}
+	} else {
+		for _, field := range fields {
+			should = append(should, map[string]any{
+				"term": map[string]any{
+					field: value,
+				},
+			})
+		}
+	}
+	return map[string]any{
+		"bool": map[string]any{
+			"should":               should,
+			"minimum_should_match": 1,
+		},
+	}
+}
+
+func compatibilityFilterFields(rawKey, normalizedField string) []string {
+	switch rawKey {
+	case "service":
+		return []string{"service.name", "service.instance.id", "container.name", "agent.id"}
+	case "source":
+		return []string{"source.path", "log.file.path"}
+	default:
+		return []string{normalizedField}
+	}
+}
+
+func normalizeFilterField(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "level":
+		return "log.level"
+	case "service":
+		return "service.name"
+	case "source":
+		return "source.path"
+	case "agent_id":
+		return "agent.id"
+	case "batch_id":
+		return "nexuslog.transport.batch_id"
+	case "traceId":
+		return "trace.id"
+	case "spanId":
+		return "span.id"
+	case "statusCode":
+		return "http.response.status_code"
+	default:
+		return strings.TrimSpace(raw)
 	}
 }

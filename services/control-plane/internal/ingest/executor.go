@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -179,8 +180,9 @@ func (e *PullTaskExecutor) Execute(task PullTask) {
 
 	retryCount := 0
 	if err := e.writeToESWithRetry(ctx, task, source, agentID, pullResp, &retryCount); err != nil {
+		failurePayload := extractFailureDetailPayload(err)
 		_ = e.batchStore.MarkStatus(createdBatch.BatchID, createdBatch.Checksum, string(PullBatchStatusFailed), ErrorCodeExecutorESWriteFailed, err.Error(), retryCount, nil)
-		e.handleNack(task, source, credential, createdPkg, createdBatch, retryCount, ErrorCodeExecutorESWriteFailed, err.Error())
+		e.handleNack(task, source, credential, createdPkg, createdBatch, retryCount, ErrorCodeExecutorESWriteFailed, err.Error(), failurePayload)
 		return
 	}
 
@@ -190,7 +192,7 @@ func (e *PullTaskExecutor) Execute(task PullTask) {
 		CommittedCursor: createdPkg.NextCursor,
 	}, task.RequestID); err != nil {
 		_ = e.batchStore.MarkStatus(createdBatch.BatchID, createdBatch.Checksum, string(PullBatchStatusFailed), ErrorCodeExecutorAckFailed, err.Error(), retryCount, nil)
-		e.handleNack(task, source, credential, createdPkg, createdBatch, retryCount, ErrorCodeExecutorAckFailed, err.Error())
+		e.handleNack(task, source, credential, createdPkg, createdBatch, retryCount, ErrorCodeExecutorAckFailed, err.Error(), nil)
 		return
 	}
 
@@ -213,7 +215,7 @@ func (e *PullTaskExecutor) Execute(task PullTask) {
 	taskOutcome = "success"
 }
 
-func (e *PullTaskExecutor) handleNack(task PullTask, source PullSource, credential AgentAuthCredential, pkg PullPackage, batch PullBatch, retryCount int, errorCode, errorMessage string) {
+func (e *PullTaskExecutor) handleNack(task PullTask, source PullSource, credential AgentAuthCredential, pkg PullPackage, batch PullBatch, retryCount int, errorCode, errorMessage string, failurePayload map[string]any) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -228,7 +230,7 @@ func (e *PullTaskExecutor) handleNack(task PullTask, source PullSource, credenti
 		ReceivedAt: now,
 		CreatedAt:  now,
 	})
-	_, _ = e.deadLetterStore.CreateFromReceipt(pkg, errorMessage)
+	_, _ = e.deadLetterStore.CreateFromReceipt(pkg, errorMessage, failurePayload)
 	_ = e.batchStore.MarkStatus(batch.BatchID, batch.Checksum, string(PullBatchStatusDeadLettered), errorCode, errorMessage, retryCount, nil)
 	_ = e.agentClient.Ack(ctx, source, credential, AgentAckRequestPayload{
 		BatchID: pkg.BatchID,
@@ -365,6 +367,18 @@ func (e *PullTaskExecutor) observeTaskLatency(task PullTask, status string) {
 		snapshot.P99MS,
 		snapshot.MaxMS,
 	)
+}
+
+type errorDetailPayloadCarrier interface {
+	DetailPayload() map[string]any
+}
+
+func extractFailureDetailPayload(err error) map[string]any {
+	var carrier errorDetailPayloadCarrier
+	if !errors.As(err, &carrier) {
+		return nil
+	}
+	return carrier.DetailPayload()
 }
 
 func resolveStringOption(options map[string]any, key string) string {

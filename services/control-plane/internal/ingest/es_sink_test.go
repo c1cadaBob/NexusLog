@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -68,4 +69,69 @@ func TestESSinkApplySemanticDedup(t *testing.T) {
 	if second.NexusLog.Dedup.Count != 2 || second.NexusLog.Dedup.SuppressedCount != 1 {
 		t.Fatalf("unexpected dedup aggregation: %+v", second.NexusLog.Dedup)
 	}
+}
+
+func TestFirstBulkFailureDetail_ExtractsMappingConflict(t *testing.T) {
+	resp := esBulkResponse{
+		Errors: true,
+		Items: []esBulkItemRaw{
+			{
+				"index": esBulkItem{
+					Status: 400,
+					Index:  "nexuslog-logs-v2",
+					ID:     "event-1",
+					Error: &esBulkItemError{
+						Type:   "mapper_parsing_exception",
+						Reason: "object mapping for [service] tried to parse field [service] as object, but found a concrete value",
+					},
+				},
+			},
+		},
+	}
+
+	detail := firstBulkFailureDetail(resp)
+	if detail == nil {
+		t.Fatal("expected first bulk failure detail")
+	}
+	if detail.Index != "nexuslog-logs-v2" {
+		t.Fatalf("detail.Index=%q, want nexuslog-logs-v2", detail.Index)
+	}
+	if detail.DocumentID != "event-1" {
+		t.Fatalf("detail.DocumentID=%q, want event-1", detail.DocumentID)
+	}
+	if detail.ErrorType != "mapper_parsing_exception" {
+		t.Fatalf("detail.ErrorType=%q, want mapper_parsing_exception", detail.ErrorType)
+	}
+	if detail.Field != "service" {
+		t.Fatalf("detail.Field=%q, want service", detail.Field)
+	}
+
+	writeErr := (&ESBulkWriteError{Indexed: 0, Failed: 1, FirstFailure: detail}).Error()
+	if writeErr == "" || !containsAll(writeErr, []string{"indexed=0", "failed=1", "mapper_parsing_exception", "service"}) {
+		t.Fatalf("unexpected error message: %s", writeErr)
+	}
+}
+
+func TestIsIgnorableBulkConflict_VersionConflictIsTreatedAsIdempotentSuccess(t *testing.T) {
+	if !isIgnorableBulkConflict(esBulkItem{
+		Status: 409,
+		Error:  &esBulkItemError{Type: "version_conflict_engine_exception"},
+	}) {
+		t.Fatal("expected version conflict to be ignorable")
+	}
+	if isIgnorableBulkConflict(esBulkItem{
+		Status: 400,
+		Error:  &esBulkItemError{Type: "mapper_parsing_exception"},
+	}) {
+		t.Fatal("expected mapper parsing exception to remain non-ignorable")
+	}
+}
+
+func containsAll(raw string, fragments []string) bool {
+	for _, fragment := range fragments {
+		if !strings.Contains(raw, fragment) {
+			return false
+		}
+	}
+	return true
 }

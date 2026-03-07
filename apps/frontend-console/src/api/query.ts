@@ -1,5 +1,5 @@
 import { getRuntimeConfig } from '../config/runtime-config';
-import type { LogEntry, QueryHistory, SavedQuery } from '../types/log';
+import type { LogEntry, QueryHistory, RealtimeLogFields, SavedQuery } from '../types/log';
 import { getAuthStorageItem } from '../utils/authStorage';
 
 const ACCESS_TOKEN_KEY = 'nexuslog-access-token';
@@ -35,7 +35,7 @@ interface QueryLogsApiHit {
   service?: string;
   message?: string;
   raw_log?: string;
-  fields?: Record<string, unknown>;
+  fields?: RealtimeLogFields & Record<string, unknown>;
 }
 
 interface QueryLogsApiData {
@@ -297,18 +297,27 @@ function normalizeLevel(rawLevel: unknown, message: unknown): LogEntry['level'] 
 }
 
 function normalizeHit(hit: QueryLogsApiHit, index: number): LogEntry {
-  const timestamp = String(hit.timestamp ?? '').trim() || new Date().toISOString();
-  const sourceMessage = String(hit.message ?? '').trim();
-  const message = normalizeDisplayMessage(sourceMessage) || '(empty message)';
-  const fields = hit.fields ?? {};
-  const service = String(hit.service ?? fields['service'] ?? fields['agent_id'] ?? fields['source_id'] ?? 'unknown').trim() || 'unknown';
-  const rawLogSource = hit.raw_log ?? fields['raw_log'] ?? fields['data'] ?? sourceMessage;
-  const rawLog = String(rawLogSource || message);
+  const fields = (hit.fields ?? {}) as RealtimeLogFields & Record<string, unknown>;
+  const timestamp = String(hit.timestamp ?? fields.timestamp ?? fields.collect_time ?? '').trim() || new Date().toISOString();
+  const sourceMessage = String(hit.message ?? fields.message ?? '').trim();
+  const rawLogSource = hit.raw_log ?? fields.raw_message ?? fields.raw_log ?? fields['data'] ?? sourceMessage;
+  const rawLog = String(rawLogSource || sourceMessage).trim();
+  const message = normalizeDisplayMessage(sourceMessage || rawLog) || '(empty message)';
+  const service = String(
+    hit.service
+      ?? fields.service_name
+      ?? fields.service
+      ?? fields.service_instance_id
+      ?? fields.container_name
+      ?? fields.agent_id
+      ?? fields['source_id']
+      ?? 'unknown',
+  ).trim() || 'unknown';
 
   return {
-    id: String(hit.id ?? fields['record_id'] ?? `log-${index + 1}`).trim() || `log-${index + 1}`,
+    id: String(hit.id ?? fields.event_id ?? fields['record_id'] ?? `log-${index + 1}`).trim() || `log-${index + 1}`,
     timestamp,
-    level: normalizeLevel(hit.level, sourceMessage || message),
+    level: normalizeLevel(hit.level ?? fields.level, sourceMessage || rawLog || message),
     service,
     message,
     rawLog,
@@ -690,6 +699,7 @@ export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<Quer
         to: payload.timeRange?.to ?? '',
       },
       sort: [{ field: '@timestamp', order: 'desc' }],
+      record_history: payload.recordHistory === true,
     },
   });
 

@@ -59,12 +59,13 @@ type SortField struct {
 
 // SearchLogsRequest 定义日志查询请求。
 type SearchLogsRequest struct {
-	TimeRange TimeRange      `json:"time_range"`
-	Keywords  string         `json:"keywords"`
-	Filters   map[string]any `json:"filters"`
-	Sort      []SortField    `json:"sort"`
-	Page      int            `json:"page"`
-	PageSize  int            `json:"page_size"`
+	TimeRange     TimeRange      `json:"time_range"`
+	Keywords      string         `json:"keywords"`
+	Filters       map[string]any `json:"filters"`
+	Sort          []SortField    `json:"sort"`
+	Page          int            `json:"page"`
+	PageSize      int            `json:"page_size"`
+	RecordHistory bool           `json:"record_history"`
 }
 
 // SearchLogHit 定义单条日志查询结果。
@@ -475,6 +476,9 @@ func (s *QueryService) tryRecordQueryHistory(
 	result SearchLogsResult,
 	queryErr error,
 ) {
+	if !req.RecordHistory {
+		return
+	}
 	if s == nil || s.metadataRepo == nil || !s.metadataRepo.IsConfigured() {
 		return
 	}
@@ -598,29 +602,33 @@ func mapRawHit(raw repository.RawLogHit) SearchLogHit {
 		fields = map[string]any{}
 	}
 	fields["_index"] = raw.Index
+	populateDisplayFieldAliases(fields, raw.Source)
 	normalizeSourceFieldsForDisplay(fields)
 
-	timestamp := firstString(raw.Source, "@timestamp", "timestamp", "collected_at")
-	sourceMessage := firstString(raw.Source, "message", "data", "raw_log")
+	timestamp := firstPathString(raw.Source, "@timestamp", "timestamp", "collected_at")
+	sourceMessage := firstPathString(raw.Source, "message", "error.message", "data", "raw_log")
 	if sourceMessage == "" {
 		sourceMessage = marshalMapOrEmpty(raw.Source)
 	}
-	rawLog := firstString(raw.Source, "raw_log", "data")
+	rawLog := firstPathString(raw.Source, "event.original", "error.stack_trace", "raw_log", "data", "message")
 	if rawLog == "" {
 		rawLog = sourceMessage
 	}
 	message := normalizeDisplayMessage(sourceMessage)
 	if message == "" {
+		message = normalizeDisplayMessage(rawLog)
+	}
+	if message == "" {
 		message = sourceMessage
 	}
-	level := normalizeLevel(firstString(raw.Source, "level", "severity"), sourceMessage)
-	service := firstString(raw.Source, "service", "service_name", "app", "agent_id", "source_id")
+	level := normalizeLevel(firstPathString(raw.Source, "log.level", "level", "severity", "severity.text"), sourceMessage)
+	service := firstPathString(raw.Source, "service.name", "service.instance.id", "container.name", "service", "service_name", "app", "agent.id", "agent_id", "source_id")
 	if service == "" {
 		service = "unknown"
 	}
-	id := strings.TrimSpace(raw.ID)
+	id := strings.TrimSpace(firstPathString(raw.Source, "event.id", "event_id", "event.record_id", "record_id"))
 	if id == "" {
-		id = firstString(raw.Source, "record_id")
+		id = strings.TrimSpace(raw.ID)
 	}
 	if id == "" {
 		id = fmt.Sprintf("%s:%s", service, timestamp)
@@ -657,6 +665,44 @@ func normalizeSourceFieldsForDisplay(fields map[string]any) {
 	fields["source_path"] = display
 	if display != original {
 		fields["source_internal"] = original
+	}
+}
+
+func populateDisplayFieldAliases(fields map[string]any, source map[string]any) {
+	if fields == nil {
+		return
+	}
+	setAliasString(fields, "event_id", source, "event.id", "event_id")
+	setAliasString(fields, "level", source, "log.level", "level", "severity")
+	setAliasString(fields, "timestamp", source, "@timestamp", "timestamp")
+	setAliasString(fields, "service_name", source, "service.name", "service_name", "service")
+	setAliasString(fields, "service_instance_id", source, "service.instance.id")
+	setAliasString(fields, "container_name", source, "container.name")
+	setAliasString(fields, "agent_id", source, "agent.id", "agent_id")
+	setAliasString(fields, "batch_id", source, "nexuslog.transport.batch_id", "batch_id")
+	setAliasValue(fields, "sequence", source, "event.sequence", "sequence")
+	setAliasString(fields, "ingested_at", source, "nexuslog.ingest.received_at", "ingested_at")
+	setAliasString(fields, "schema_version", source, "nexuslog.ingest.schema_version", "schema_version")
+	setAliasString(fields, "pipeline_version", source, "nexuslog.ingest.pipeline_version", "pipeline_version")
+	setAliasString(fields, "tenant_id", source, "nexuslog.governance.tenant_id", "tenant_id")
+	setAliasString(fields, "retention_policy", source, "nexuslog.governance.retention_policy", "retention_policy")
+	setAliasValue(fields, "pii_masked", source, "nexuslog.governance.pii_masked", "pii_masked")
+	setAliasString(fields, "host", source, "host.name", "host")
+	setAliasString(fields, "env", source, "service.environment", "labels.env", "env")
+	setAliasString(fields, "method", source, "http.request.method", "method")
+	setAliasValue(fields, "statusCode", source, "http.response.status_code", "statusCode")
+	setAliasString(fields, "traceId", source, "trace.id", "traceId")
+	setAliasString(fields, "spanId", source, "span.id", "spanId")
+	setAliasString(fields, "error_type", source, "error.type", "error_type")
+	setAliasString(fields, "error_message", source, "error.message", "error_message")
+	setAliasString(fields, "raw_message", source, "event.original", "error.stack_trace", "raw_log", "raw_message")
+	setAliasString(fields, "collect_time", source, "@timestamp", "collect_time")
+	setAliasString(fields, "message", source, "message")
+
+	sourceDisplay := firstPathString(source, "source.path", "log.file.path", "source_path", "source")
+	if sourceDisplay != "" {
+		fields["source"] = sourceDisplay
+		fields["source_path"] = sourceDisplay
 	}
 }
 
@@ -699,6 +745,64 @@ func firstString(source map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstPathValue(source map[string]any, paths ...string) (any, bool) {
+	for _, path := range paths {
+		value, ok := lookupPathValue(source, path)
+		if !ok || value == nil {
+			continue
+		}
+		text := strings.TrimSpace(fmt.Sprintf("%v", value))
+		if text == "" || text == "<nil>" {
+			continue
+		}
+		return value, true
+	}
+	return nil, false
+}
+
+func firstPathString(source map[string]any, paths ...string) string {
+	value, ok := firstPathValue(source, paths...)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
+}
+
+func lookupPathValue(source map[string]any, path string) (any, bool) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" || source == nil {
+		return nil, false
+	}
+	if value, ok := source[trimmed]; ok {
+		return value, true
+	}
+	current := any(source)
+	for _, part := range strings.Split(trimmed, ".") {
+		asMap, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		value, exists := asMap[part]
+		if !exists {
+			return nil, false
+		}
+		current = value
+	}
+	return current, true
+}
+
+func setAliasString(target map[string]any, alias string, source map[string]any, paths ...string) {
+	if value := firstPathString(source, paths...); value != "" {
+		target[alias] = value
+	}
+}
+
+func setAliasValue(target map[string]any, alias string, source map[string]any, paths ...string) {
+	if value, ok := firstPathValue(source, paths...); ok {
+		target[alias] = value
+	}
 }
 
 func normalizeLevel(rawLevel string, message string) string {

@@ -11,10 +11,10 @@ import type { LogEntry } from '../../types/log';
 import { queryRealtimeLogs } from '../../api/query';
 
 // ============================================================================
-// 模拟数据
+// 本地 UI 辅助数据
 // ============================================================================
 
-/** 最近查询标签 */
+/** 最近查询建议标签，仅用于快速填充查询条件，不是日志列表数据源 */
 const RECENT_QUERIES = [
   'level:error AND service:payment',
   'status:500',
@@ -30,6 +30,17 @@ function formatLookbackWindow(windowMS: number): string {
     return '最近 24 小时';
   }
   return '最近 30 分钟';
+}
+
+function toDisplayText(value: unknown, fallback = '—'): string {
+  if (value == null) {
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized || fallback;
+  }
+  return String(value);
 }
 
 /** 构建近 30 分钟直方图（使用当前查询结果统计） */
@@ -237,7 +248,6 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: false,
-      recordHistory: true,
       lookbackWindowMS,
       allowAutoWindowFallback: true,
     });
@@ -283,8 +293,7 @@ const RealtimeSearch: React.FC = () => {
     setDrawerOpen(true);
   }, []);
 
-  // 执行检索（手动触发）
-  const handleSearch = useCallback((value: string) => {
+  const runSearch = useCallback((value: string, recordHistory: boolean) => {
     const keyword = value.trim();
     setQuery(keyword);
     setActiveQuery(keyword);
@@ -293,11 +302,16 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: false,
-      recordHistory: true,
+      recordHistory,
       lookbackWindowMS,
       allowAutoWindowFallback: true,
     });
   }, [executeQuery, lookbackWindowMS, pageSize]);
+
+  // 执行检索（仅手动点击执行/回车时写入历史）
+  const handleSearch = useCallback((value: string) => {
+    runSearch(value, true);
+  }, [runSearch]);
 
   const resetToRealtimeWindow = useCallback(() => {
     setLookbackWindowMS(DEFAULT_LOOKBACK_WINDOW_MS);
@@ -395,6 +409,15 @@ const RealtimeSearch: React.FC = () => {
     },
   ], []);
 
+  const selectedFields = selectedLog?.fields;
+  const drawerEventID = toDisplayText(selectedFields?.event_id ?? selectedLog?.id);
+  const drawerLevel = toDisplayText(selectedFields?.level ?? selectedLog?.level);
+  const drawerTimestamp = toDisplayText(selectedFields?.timestamp ?? selectedLog?.timestamp ?? selectedFields?.collect_time);
+  const drawerMessage = toDisplayText(selectedLog?.message ?? selectedFields?.message);
+  const drawerSource = toDisplayText(selectedFields?.source ?? selectedFields?.source_path ?? selectedFields?.source_internal);
+  const drawerService = toDisplayText(selectedFields?.service_name ?? selectedLog?.service);
+  const drawerRawLog = selectedLog?.rawLog ?? selectedFields?.raw_message ?? selectedFields?.raw_log ?? drawerMessage;
+
   return (
     <div className="flex flex-col gap-4">
       {/* 查询栏 */}
@@ -434,7 +457,7 @@ const RealtimeSearch: React.FC = () => {
               key={q}
               className="cursor-pointer"
               style={{ fontSize: 11, margin: 0 }}
-              onClick={() => handleSearch(q)}
+              onClick={() => runSearch(q, false)}
             >
               {q}
             </Tag>
@@ -629,7 +652,7 @@ const RealtimeSearch: React.FC = () => {
                       style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
                     >
                       {(() => {
-                        const raw = selectedLog.rawLog ?? selectedLog.fields?.raw_message;
+                        const raw = drawerRawLog;
                         if (raw == null || raw === '') return '—';
                         return typeof raw === 'string' ? raw : JSON.stringify(raw);
                       })()}
@@ -648,24 +671,24 @@ const RealtimeSearch: React.FC = () => {
                     <Descriptions column={2} size="small" bordered>
                       <Descriptions.Item label="event_id">
                         <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
-                          {selectedLog.id ?? selectedLog.fields?.event_id ?? '—'}
+                          {drawerEventID}
                         </Typography.Text>
                       </Descriptions.Item>
                       <Descriptions.Item label="level">
                         <Tag color={LEVEL_CONFIG[selectedLog.level]?.tagColor || 'default'} style={{ margin: 0 }}>
-                          {(selectedLog.level ?? selectedLog.fields?.level ?? '—').toString().toUpperCase()}
+                          {drawerLevel.toUpperCase()}
                         </Tag>
                       </Descriptions.Item>
                       <Descriptions.Item label="timestamp">
                         <span className="font-mono text-xs">
-                          {(selectedLog.timestamp ?? selectedLog.fields?.timestamp ?? '—').toString()}
+                          {drawerTimestamp}
                         </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="message">
-                        <span className="text-xs">{selectedLog.message ?? selectedLog.fields?.message ?? '—'}</span>
+                        <span className="text-xs">{drawerMessage}</span>
                       </Descriptions.Item>
                       <Descriptions.Item label="source" span={2}>
-                        <span className="text-xs">{selectedLog.service ?? selectedLog.fields?.source ?? '—'}</span>
+                        <span className="text-xs">{drawerSource}</span>
                       </Descriptions.Item>
                     </Descriptions>
                   ),
@@ -681,16 +704,16 @@ const RealtimeSearch: React.FC = () => {
                   children: (
                     <Descriptions column={2} size="small" bordered>
                       <Descriptions.Item label="agent_id">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.agent_id ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.agent_id)}</span>
                       </Descriptions.Item>
                       <Descriptions.Item label="batch_id">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.batch_id ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.batch_id)}</span>
                       </Descriptions.Item>
                       <Descriptions.Item label="collect_time">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.collect_time ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.collect_time ?? selectedLog?.timestamp)}</span>
                       </Descriptions.Item>
                       <Descriptions.Item label="sequence">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.sequence ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.sequence)}</span>
                       </Descriptions.Item>
                     </Descriptions>
                   ),
@@ -706,13 +729,13 @@ const RealtimeSearch: React.FC = () => {
                   children: (
                     <Descriptions column={2} size="small" bordered>
                       <Descriptions.Item label="ingested_at">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.ingested_at ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.ingested_at)}</span>
                       </Descriptions.Item>
                       <Descriptions.Item label="schema_version">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.schema_version ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.schema_version)}</span>
                       </Descriptions.Item>
                       <Descriptions.Item label="pipeline_version">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.pipeline_version ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.pipeline_version)}</span>
                       </Descriptions.Item>
                     </Descriptions>
                   ),
@@ -728,13 +751,13 @@ const RealtimeSearch: React.FC = () => {
                   children: (
                     <Descriptions column={2} size="small" bordered>
                       <Descriptions.Item label="tenant_id">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.tenant_id ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.tenant_id)}</span>
                       </Descriptions.Item>
                       <Descriptions.Item label="retention_policy">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.retention_policy ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.retention_policy)}</span>
                       </Descriptions.Item>
                       <Descriptions.Item label="pii_masked">
-                        <span className="font-mono text-xs">{String(selectedLog.fields?.pii_masked ?? '—')}</span>
+                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.pii_masked)}</span>
                       </Descriptions.Item>
                     </Descriptions>
                   ),
@@ -750,15 +773,15 @@ const RealtimeSearch: React.FC = () => {
               </span>
             </Divider>
             <div className="flex flex-wrap gap-2">
-              <Tag>service={selectedLog.service}</Tag>
-              <Tag>level={selectedLog.level}</Tag>
-              {selectedLog.fields?.host != null && <Tag>host={String(selectedLog.fields.host)}</Tag>}
-              {selectedLog.fields?.env != null && <Tag color="cyan">env={String(selectedLog.fields.env)}</Tag>}
-              {selectedLog.fields?.region != null && <Tag>region={String(selectedLog.fields.region)}</Tag>}
-              {selectedLog.fields?.method != null && <Tag>method={String(selectedLog.fields.method)}</Tag>}
-              {selectedLog.fields?.statusCode != null && <Tag color={Number(selectedLog.fields.statusCode) >= 500 ? 'error' : Number(selectedLog.fields.statusCode) >= 400 ? 'warning' : 'success'}>status={String(selectedLog.fields.statusCode)}</Tag>}
-              {selectedLog.fields?.traceId != null && <Tag color="purple">trace={String(selectedLog.fields.traceId)}</Tag>}
-              {selectedLog.fields?.spanId != null && <Tag color="purple">span={String(selectedLog.fields.spanId)}</Tag>}
+              <Tag>service={drawerService}</Tag>
+              <Tag>level={drawerLevel}</Tag>
+              {selectedFields?.host != null && <Tag>host={toDisplayText(selectedFields.host)}</Tag>}
+              {selectedFields?.env != null && <Tag color="cyan">env={toDisplayText(selectedFields.env)}</Tag>}
+              {selectedFields?.region != null && <Tag>region={toDisplayText(selectedFields.region)}</Tag>}
+              {selectedFields?.method != null && <Tag>method={toDisplayText(selectedFields.method)}</Tag>}
+              {selectedFields?.statusCode != null && <Tag color={Number(selectedFields.statusCode) >= 500 ? 'error' : Number(selectedFields.statusCode) >= 400 ? 'warning' : 'success'}>status={toDisplayText(selectedFields.statusCode)}</Tag>}
+              {selectedFields?.traceId != null && <Tag color="purple">trace={toDisplayText(selectedFields.traceId)}</Tag>}
+              {selectedFields?.spanId != null && <Tag color="purple">span={toDisplayText(selectedFields.spanId)}</Tag>}
             </div>
 
             {/* 追踪信息 */}
@@ -771,16 +794,16 @@ const RealtimeSearch: React.FC = () => {
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="Trace ID">
                 <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
-                  {String(selectedLog.fields?.traceId ?? '-')}
+                  {toDisplayText(selectedFields?.traceId, '-')}
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="Span ID">
                 <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
-                  {String(selectedLog.fields?.spanId ?? '-')}
+                  {toDisplayText(selectedFields?.spanId, '-')}
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="User-Agent">
-                <span className="font-mono text-xs">{String(selectedLog.fields?.userAgent ?? '-')}</span>
+                <span className="font-mono text-xs">{toDisplayText(selectedFields?.userAgent, '-')}</span>
               </Descriptions.Item>
             </Descriptions>
 

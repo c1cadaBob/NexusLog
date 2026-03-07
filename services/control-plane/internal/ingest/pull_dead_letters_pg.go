@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func (s *DeadLetterStore) createFromReceiptFromDB(ctx context.Context, pkg PullPackage, reason string) (DeadLetterRecord, error) {
+func (s *DeadLetterStore) createFromReceiptFromDB(ctx context.Context, pkg PullPackage, reason string, payload map[string]any) (DeadLetterRecord, error) {
 	seed := DeadLetterRecord{
 		PackageID:    strings.TrimSpace(pkg.PackageID),
 		SourceRef:    strings.TrimSpace(pkg.SourceRef),
@@ -24,6 +24,7 @@ func (s *DeadLetterStore) createFromReceiptFromDB(ctx context.Context, pkg PullP
 		TaskID:    strings.TrimSpace(pkg.TaskID),
 		BatchID:   strings.TrimSpace(pkg.BatchID),
 		RequestID: strings.TrimSpace(pkg.RequestID),
+		Payload:   payload,
 	})
 }
 
@@ -32,6 +33,7 @@ type withDeadLetterExtra struct {
 	TaskID    string
 	BatchID   string
 	RequestID string
+	Payload   map[string]any
 }
 
 func (s *DeadLetterStore) createRecordFromDB(ctx context.Context, record DeadLetterRecord, extras ...withDeadLetterExtra) (DeadLetterRecord, error) {
@@ -55,13 +57,18 @@ func (s *DeadLetterStore) createRecordFromDB(ctx context.Context, record DeadLet
 		extra = extras[0]
 	}
 
-	payloadRaw, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"package_id":  strings.TrimSpace(record.PackageID),
 		"source_ref":  strings.TrimSpace(record.SourceRef),
 		"error_code":  strings.TrimSpace(record.ErrorCode),
 		"error_msg":   strings.TrimSpace(record.ErrorMessage),
 		"retry_count": record.RetryCount,
-	})
+	}
+	if len(extra.Payload) > 0 {
+		payload["first_failure"] = extra.Payload
+	}
+
+	payloadRaw, err := json.Marshal(payload)
 	if err != nil {
 		payloadRaw = []byte(`{}`)
 	}

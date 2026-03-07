@@ -6,13 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
 
 const defaultSemanticDedupWindow = 10 * time.Second
+
+var esBulkFieldPattern = regexp.MustCompile(`(?:for|field) \[([^\]]+)\]`)
 
 // ESSink 定义写入 Elasticsearch 的最小能力。
 type ESSink struct {
@@ -47,8 +51,75 @@ type esBulkResponse struct {
 type esBulkItemRaw map[string]esBulkItem
 
 type esBulkItem struct {
-	Status int `json:"status"`
-	Error  any `json:"error"`
+	Status int              `json:"status"`
+	Index  string           `json:"_index"`
+	ID     string           `json:"_id"`
+	Error  *esBulkItemError `json:"error,omitempty"`
+}
+
+type esBulkItemError struct {
+	Type     string           `json:"type"`
+	Reason   string           `json:"reason"`
+	CausedBy *esBulkItemError `json:"caused_by,omitempty"`
+}
+
+type ESBulkFailureDetail struct {
+	Action      string
+	Index       string
+	DocumentID  string
+	Status      int
+	ErrorType   string
+	ErrorReason string
+	Field       string
+}
+
+type ESBulkWriteError struct {
+	Indexed      int
+	Failed       int
+	FirstFailure *ESBulkFailureDetail
+}
+
+func (e *ESBulkWriteError) Error() string {
+	if e == nil {
+		return "es bulk write failed"
+	}
+	message := fmt.Sprintf("es bulk contains failed items: indexed=%d failed=%d", e.Indexed, e.Failed)
+	if e.FirstFailure == nil {
+		return message
+	}
+
+	detail := fmt.Sprintf(
+		"index=%s id=%s status=%d error_type=%s reason=%s",
+		firstNonEmpty(e.FirstFailure.Index, "unknown"),
+		firstNonEmpty(e.FirstFailure.DocumentID, "unknown"),
+		e.FirstFailure.Status,
+		firstNonEmpty(e.FirstFailure.ErrorType, "unknown"),
+		firstNonEmpty(e.FirstFailure.ErrorReason, "unknown"),
+	)
+	if field := strings.TrimSpace(e.FirstFailure.Field); field != "" {
+		detail += fmt.Sprintf(" field=%s", field)
+	}
+	return message + " first_failure[" + detail + "]"
+}
+
+func (e *ESBulkWriteError) DetailPayload() map[string]any {
+	if e == nil || e.FirstFailure == nil {
+		return nil
+	}
+	payload := map[string]any{
+		"index":        e.FirstFailure.Index,
+		"document_id":  e.FirstFailure.DocumentID,
+		"status":       e.FirstFailure.Status,
+		"error_type":   e.FirstFailure.ErrorType,
+		"error_reason": e.FirstFailure.ErrorReason,
+	}
+	if field := strings.TrimSpace(e.FirstFailure.Field); field != "" {
+		payload["field"] = field
+	}
+	if action := strings.TrimSpace(e.FirstFailure.Action); action != "" {
+		payload["action"] = action
+	}
+	return payload
 }
 
 // NewESSink 创建 ES 批量写入器。
@@ -116,7 +187,7 @@ func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSou
 	for _, eventID := range orderedIDs {
 		item := itemsByID[eventID]
 		action := map[string]any{
-			"index": map[string]any{
+			"create": map[string]any{
 				"_index": s.indexName,
 				"_id":    item.id,
 			},
@@ -164,15 +235,99 @@ func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSou
 		for _, item := range itemRaw {
 			if item.Status >= 200 && item.Status < 300 {
 				result.Indexed++
-			} else {
-				result.Failed++
+				continue
 			}
+			if isIgnorableBulkConflict(item) {
+				result.Indexed++
+				continue
+			}
+			result.Failed++
 		}
 	}
-	if bulkResp.Errors || result.Failed > 0 {
-		return result, fmt.Errorf("es bulk contains failed items: indexed=%d failed=%d", result.Indexed, result.Failed)
+	if result.Failed > 0 {
+		firstFailure := firstBulkFailureDetail(bulkResp)
+		if firstFailure != nil {
+			log.Printf(
+				"es bulk item failed index=%s id=%s status=%d error_type=%s error_reason=%s field=%s",
+				firstNonEmpty(firstFailure.Index, "unknown"),
+				firstNonEmpty(firstFailure.DocumentID, "unknown"),
+				firstFailure.Status,
+				firstNonEmpty(firstFailure.ErrorType, "unknown"),
+				firstNonEmpty(firstFailure.ErrorReason, "unknown"),
+				firstNonEmpty(firstFailure.Field, ""),
+			)
+		}
+		return result, &ESBulkWriteError{
+			Indexed:      result.Indexed,
+			Failed:       result.Failed,
+			FirstFailure: firstFailure,
+		}
 	}
 	return result, nil
+}
+
+func firstBulkFailureDetail(resp esBulkResponse) *ESBulkFailureDetail {
+	for _, itemRaw := range resp.Items {
+		for action, item := range itemRaw {
+			if item.Status >= 200 && item.Status < 300 {
+				continue
+			}
+			if isIgnorableBulkConflict(item) {
+				continue
+			}
+			detail := &ESBulkFailureDetail{
+				Action:      strings.TrimSpace(action),
+				Index:       strings.TrimSpace(item.Index),
+				DocumentID:  strings.TrimSpace(item.ID),
+				Status:      item.Status,
+				ErrorType:   strings.TrimSpace(firstBulkErrorType(item.Error)),
+				ErrorReason: strings.TrimSpace(firstBulkErrorReason(item.Error)),
+			}
+			detail.Field = extractESConflictField(detail.ErrorReason)
+			return detail
+		}
+	}
+	return nil
+}
+
+func isIgnorableBulkConflict(item esBulkItem) bool {
+	if item.Status != http.StatusConflict {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(firstBulkErrorType(item.Error)), "version_conflict_engine_exception")
+}
+
+func firstBulkErrorType(err *esBulkItemError) string {
+	if err == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(err.Type); value != "" {
+		return value
+	}
+	return firstBulkErrorType(err.CausedBy)
+}
+
+func firstBulkErrorReason(err *esBulkItemError) string {
+	if err == nil {
+		return ""
+	}
+	current := strings.TrimSpace(err.Reason)
+	child := strings.TrimSpace(firstBulkErrorReason(err.CausedBy))
+	if current == "" {
+		return child
+	}
+	if child == "" || child == current {
+		return current
+	}
+	return current + "; caused_by=" + child
+}
+
+func extractESConflictField(reason string) string {
+	matches := esBulkFieldPattern.FindStringSubmatch(strings.TrimSpace(reason))
+	if len(matches) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
 }
 
 func (s *ESSink) applySemanticDedup(doc LogDocument) LogDocument {

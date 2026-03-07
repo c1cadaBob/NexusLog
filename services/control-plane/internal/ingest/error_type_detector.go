@@ -105,7 +105,7 @@ var (
 	// Go 错误模式
 	goPatterns = []*regexp.Regexp{
 		// 标准库错误
-		regexp.MustCompile(`(errors\.|fmt\.Errorf|fmt\.(Sprintf|Fprintf)|strconv\.(Atoi|ParseInt|ParseFloat)|json\.(Unmarshal|Marshal)`),
+		regexp.MustCompile(`(errors\.|fmt\.Errorf|fmt\.(Sprintf|Fprintf)|strconv\.(Atoi|ParseInt|ParseFloat)|json\.(Unmarshal|Marshal))`),
 		// 常见第三方库
 		regexp.MustCompile(`(github\.com|golang\.org|x/crypto|go\.uber\.org/zap|gorm\.io|labstack/echo)`),
 		// Go 特有错误信息

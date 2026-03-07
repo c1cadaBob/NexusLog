@@ -31,6 +31,21 @@ require_file() {
 require_file "$ILM_POLICY_FILE"
 require_file "$INDEX_TEMPLATE_FILE"
 
+if ! command -v jq >/dev/null 2>&1; then
+  error "required command not found: jq"
+  exit 1
+fi
+
+TMP_ILM_POLICY="$(mktemp)"
+TMP_INDEX_TEMPLATE="$(mktemp)"
+cleanup() {
+  rm -f "$TMP_ILM_POLICY" "$TMP_INDEX_TEMPLATE"
+}
+trap cleanup EXIT
+
+jq 'walk(if type == "object" then with_entries(select(.key != "_comment" and .key != "_description")) else . end)' "$ILM_POLICY_FILE" > "$TMP_ILM_POLICY"
+jq 'walk(if type == "object" then with_entries(select(.key != "_comment" and .key != "_description")) else . end)' "$INDEX_TEMPLATE_FILE" > "$TMP_INDEX_TEMPLATE"
+
 info "checking Elasticsearch connectivity: $ES_HOST"
 curl -fsS "$ES_HOST" >/dev/null
 
@@ -38,13 +53,13 @@ info "installing ILM policy: $ILM_POLICY_NAME"
 curl -fsS \
   -X PUT "$ES_HOST/_ilm/policy/$ILM_POLICY_NAME" \
   -H 'Content-Type: application/json' \
-  --data-binary "@$ILM_POLICY_FILE" >/dev/null
+  --data-binary "@$TMP_ILM_POLICY" >/dev/null
 
 info "installing index template: $INDEX_TEMPLATE_NAME"
 curl -fsS \
   -X PUT "$ES_HOST/_index_template/$INDEX_TEMPLATE_NAME" \
   -H 'Content-Type: application/json' \
-  --data-binary "@$INDEX_TEMPLATE_FILE" >/dev/null
+  --data-binary "@$TMP_INDEX_TEMPLATE" >/dev/null
 
 info "installed Elasticsearch v2 template successfully"
 echo "OK: ILM=$ILM_POLICY_NAME TEMPLATE=$INDEX_TEMPLATE_NAME ES_HOST=$ES_HOST"

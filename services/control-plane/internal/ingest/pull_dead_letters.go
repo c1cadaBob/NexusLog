@@ -64,9 +64,13 @@ func NewDeadLetterStoreWithPG(backend *PGBackend) *DeadLetterStore {
 }
 
 // CreateFromReceipt 在 NACK 回执后写入一条死信记录。
-func (s *DeadLetterStore) CreateFromReceipt(pkg PullPackage, reason string) (DeadLetterRecord, error) {
+func (s *DeadLetterStore) CreateFromReceipt(pkg PullPackage, reason string, payloads ...map[string]any) (DeadLetterRecord, error) {
+	var payload map[string]any
+	if len(payloads) > 0 {
+		payload = payloads[0]
+	}
 	if s.backend != nil {
-		return s.createFromReceiptFromDB(context.Background(), pkg, reason)
+		return s.createFromReceiptFromDB(context.Background(), pkg, reason, payload)
 	}
 
 	s.mu.Lock()

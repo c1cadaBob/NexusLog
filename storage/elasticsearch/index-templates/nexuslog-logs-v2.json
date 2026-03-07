@@ -1,6 +1,4 @@
 {
-  "_comment": "NexusLog v2 日志索引模板",
-  "_description": "Agent → Control-Plane → ES 结构化日志字段映射，支持多行合并与双层去重。",
   "index_patterns": ["nexuslog-logs-v2", "nexuslog-logs-v2-*"],
   "priority": 260,
   "data_stream": {},
