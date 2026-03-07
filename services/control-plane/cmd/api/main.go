@@ -38,7 +38,6 @@ func main() {
 	// HTTP server (Gin)
 	router := gin.Default()
 	router.Use(gin.Recovery())
-	legacyLogPipelineEnabled := isTruthy(getEnv("LEGACY_LOG_PIPELINE_ENABLED", "false"))
 
 	// ingest 仓储默认使用 PostgreSQL；连接失败时可按配置降级为内存模式。
 	backendMode := strings.ToLower(strings.TrimSpace(getEnv("INGEST_STORE_BACKEND", "postgres")))
@@ -71,116 +70,18 @@ func main() {
 		router.Use(middleware.AuditMiddleware(pgDB))
 	}
 
-	var (
-		pullSourceStore  *ingest.PullSourceStore
-		pullTaskStore    *ingest.PullTaskStore
-		pullPackageStore *ingest.PullPackageStore
-		receiptStore     *ingest.ReceiptStore
-		deadLetterStore  *ingest.DeadLetterStore
-		pullBatchStore   *ingest.PullBatchStore
-		pullCursorStore  *ingest.PullCursorStore
-		authKeyStore     *ingest.AgentAuthKeyStore
-	)
+	var pullCursorStore *ingest.PullCursorStore
 	if pgBackend != nil {
-		pullSourceStore = ingest.NewPullSourceStoreWithPG(pgBackend)
-		pullTaskStore = ingest.NewPullTaskStoreWithPG(pgBackend)
-		pullPackageStore = ingest.NewPullPackageStoreWithPG(pgBackend)
-		receiptStore = ingest.NewReceiptStoreWithPG(pgBackend)
-		deadLetterStore = ingest.NewDeadLetterStoreWithPG(pgBackend)
-		pullBatchStore = ingest.NewPullBatchStoreWithPG(pgBackend)
 		pullCursorStore = ingest.NewPullCursorStoreWithPG(pgBackend)
-		authKeyStore = ingest.NewAgentAuthKeyStoreWithPG(pgBackend)
 	} else {
-		pullSourceStore = ingest.NewPullSourceStore()
-		pullTaskStore = ingest.NewPullTaskStore()
-		pullPackageStore = ingest.NewPullPackageStore()
-		receiptStore = ingest.NewReceiptStore()
-		deadLetterStore = ingest.NewDeadLetterStore()
-		pullBatchStore = ingest.NewPullBatchStore()
 		pullCursorStore = ingest.NewPullCursorStore()
-		authKeyStore = ingest.NewAgentAuthKeyStore()
 	}
 
 	// 后台任务统一使用可取消上下文，便于服务优雅退出。
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 
-	// 执行引擎：run-task 异步触发 pull -> ES -> ack/nack -> dead-letter 主链路。
-	executorEnabled := legacyLogPipelineEnabled && isTruthy(getEnv("INGEST_EXECUTOR_ENABLED", "true"))
-	var latencyMonitor *ingest.PullLatencyMonitor
-	if executorEnabled {
-		latencyMonitor = ingest.NewPullLatencyMonitor(
-			parseEnvInt("INGEST_LATENCY_WINDOW_SIZE", 200),
-			int64(parseEnvInt("INGEST_LATENCY_ALERT_P95_MS", 3000)),
-			int64(parseEnvInt("INGEST_LATENCY_ALERT_P99_MS", 5000)),
-			time.Duration(parseEnvInt("INGEST_LATENCY_ALERT_COOLDOWN_SEC", 60))*time.Second,
-		)
-	}
-	if executorEnabled {
-		agentClient := ingest.NewAgentClient(time.Duration(parseEnvInt("INGEST_AGENT_TIMEOUT_SEC", 15)) * time.Second)
-		esSink := ingest.NewESSink(
-			getEnv("INGEST_ES_ENDPOINT", getEnv("ELASTICSEARCH_URL", "http://localhost:9200")),
-			getEnv("INGEST_ES_INDEX", "nexuslog-logs-v2"),
-			getEnv("INGEST_ES_USERNAME", ""),
-			getEnv("INGEST_ES_PASSWORD", ""),
-			time.Duration(parseEnvInt("INGEST_ES_TIMEOUT_SEC", 15))*time.Second,
-		)
-		executor := ingest.NewPullTaskExecutor(
-			pullSourceStore,
-			pullTaskStore,
-			pullPackageStore,
-			receiptStore,
-			deadLetterStore,
-			pullBatchStore,
-			pullCursorStore,
-			authKeyStore,
-			agentClient,
-			esSink,
-			ingest.PullTaskExecutorConfig{
-				MaxRetries:        parseEnvInt("INGEST_EXECUTOR_MAX_RETRIES", 2),
-				RetryBackoff:      time.Duration(parseEnvInt("INGEST_EXECUTOR_RETRY_BACKOFF_SEC", 3)) * time.Second,
-				ExecutionTimeout:  time.Duration(parseEnvInt("INGEST_EXECUTOR_TIMEOUT_SEC", 120)) * time.Second,
-				DefaultAgentKeyID: getEnv("INGEST_AGENT_API_KEY_ID", getEnv("AGENT_API_KEY_ACTIVE_ID", "active")),
-				DefaultAgentKey:   getEnv("INGEST_AGENT_API_KEY", getEnv("AGENT_API_KEY_ACTIVE", "")),
-				LatencyMonitor:    latencyMonitor,
-			},
-		)
-		pullTaskStore.SetExecutor(executor.Execute)
-		log.Printf("ingest executor enabled")
-	} else {
-		log.Printf("ingest executor disabled")
-	}
-
-	// 自动调度器：按 source.pull_interval_sec 定时创建 scheduled 任务。
-	schedulerEnabled := executorEnabled && isTruthy(getEnv("INGEST_SCHEDULER_ENABLED", "true"))
-	if schedulerEnabled {
-		schedulerCheckIntervalSec := parseEnvInt("INGEST_SCHEDULER_CHECK_INTERVAL_SEC", 1)
-		if schedulerCheckIntervalSec <= 0 {
-			schedulerCheckIntervalSec = 1
-		}
-		schedulerPageSize := parseEnvInt("INGEST_SCHEDULER_PAGE_SIZE", 200)
-		if schedulerPageSize <= 0 {
-			schedulerPageSize = 200
-		}
-		scheduler := ingest.NewPullTaskScheduler(
-			pullSourceStore,
-			pullTaskStore,
-			ingest.PullTaskSchedulerConfig{
-				CheckInterval:           time.Duration(schedulerCheckIntervalSec) * time.Second,
-				PageSize:                schedulerPageSize,
-				CriticalSourcePatterns:  parseCSV(getEnv("INGEST_CRITICAL_SOURCE_PATTERNS", "")),
-				CriticalPullIntervalSec: parseEnvInt("INGEST_CRITICAL_PULL_INTERVAL_SEC", 2),
-			},
-		)
-		go scheduler.Start(workerCtx)
-		log.Printf(
-			"ingest scheduler enabled (check_interval_sec=%d, page_size=%d)",
-			schedulerCheckIntervalSec,
-			schedulerPageSize,
-		)
-	} else {
-		log.Printf("ingest scheduler disabled")
-	}
+	log.Printf("legacy ingest executor and scheduler removed from control-plane runtime")
 
 	v3CursorAdapter := &ingestv3.LegacyCursorStoreAdapter{
 		Store:        pullCursorStore,
@@ -188,13 +89,8 @@ func main() {
 	}
 	registerIngestV3Routes(router, v3CursorAdapter, v3CursorAdapter)
 
-	if legacyLogPipelineEnabled {
-		ingest.RegisterPullSourceRoutes(router, pullSourceStore)
-		ingest.RegisterPullTaskRoutes(router, pullSourceStore, pullTaskStore)
-	} else {
-		log.Printf("legacy log pipeline disabled: ingest routes removed")
-		registerLegacyPipelineRemovedRoutes(router)
-	}
+	log.Printf("legacy ingest v1 routes removed: returning gone until rewrite lands")
+	registerLegacyPipelineRemovedRoutes(router)
 
 	// ES Snapshot Backup/Restore (W4-B3)
 	backupSvc := backup.NewService()
@@ -235,23 +131,7 @@ func main() {
 		incidentHandler := incident.NewHandler(incidentService)
 		incident.RegisterIncidentRoutes(router, incidentHandler)
 
-		// Alert evaluation engine (runs every 30s)
-		if legacyLogPipelineEnabled && isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "true")) {
-			esEndpoint := getEnv("INGEST_ES_ENDPOINT", getEnv("ELASTICSEARCH_URL", "http://localhost:9200"))
-			esIndex := getEnv("INGEST_ES_INDEX", "nexuslog-logs-v2")
-			esClient := alert.NewHTTPESSearchClient(
-				esEndpoint,
-				getEnv("INGEST_ES_USERNAME", ""),
-				getEnv("INGEST_ES_PASSWORD", ""),
-				time.Duration(parseEnvInt("INGEST_ES_TIMEOUT_SEC", 15))*time.Second,
-			)
-			incidentCreator := alert.NewIncidentCreator(pgDB)
-			evaluator := alert.NewEvaluator(alertRuleRepo, esClient, pgDB, esIndex).
-				WithIncidentCreator(incidentCreator).
-				WithSilenceChecker(silenceSvc)
-			go evaluator.Start()
-			log.Printf("alert evaluator enabled (interval=30s)")
-		}
+		log.Printf("legacy alert evaluator removed from control-plane runtime; rewrite pending")
 	}
 
 	// Notification channels (requires pgDB)
@@ -260,38 +140,7 @@ func main() {
 		smtpSender := notification.NewSMTPSender()
 		notification.RegisterChannelRoutes(router, channelRepo, smtpSender)
 	}
-	if legacyLogPipelineEnabled {
-		ingest.RegisterPullPackageRoutes(router, pullPackageStore)
-		ingest.RegisterReceiptRoutes(router, pullPackageStore, receiptStore, deadLetterStore)
-		ingest.RegisterDeadLetterRoutes(router, deadLetterStore)
-		router.GET("/api/v1/ingest/metrics/latency", func(c *gin.Context) {
-			if latencyMonitor == nil {
-				c.JSON(http.StatusOK, gin.H{
-					"code":       "OK",
-					"message":    "success",
-					"request_id": resolveRequestID(c),
-					"data":       gin.H{"enabled": false},
-					"meta":       gin.H{},
-				})
-				return
-			}
-			snapshot := latencyMonitor.Snapshot()
-			c.JSON(http.StatusOK, gin.H{
-				"code":       "OK",
-				"message":    "success",
-				"request_id": resolveRequestID(c),
-				"data": gin.H{
-					"enabled":  true,
-					"snapshot": snapshot,
-					"thresholds": gin.H{
-						"p95_ms": parseEnvInt("INGEST_LATENCY_ALERT_P95_MS", 3000),
-						"p99_ms": parseEnvInt("INGEST_LATENCY_ALERT_P99_MS", 5000),
-					},
-				},
-				"meta": gin.H{},
-			})
-		})
-	}
+	log.Printf("legacy ingest packages/receipts/dead-letters endpoints removed from control-plane runtime")
 
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {
