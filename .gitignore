@@ -75,3 +75,6 @@ charts/*/charts/
 # 本地配置覆盖
 *.local.yaml
 *.local.json
+
+# Collector runtime state
+agents/collector-agent/deploy/docker/state/

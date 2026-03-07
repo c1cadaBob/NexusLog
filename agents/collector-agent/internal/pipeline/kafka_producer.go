@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/nexuslog/collector-agent/plugins"
+	"github.com/segmentio/kafka-go"
 )
 
 // KafkaConfig Kafka 生产者配置
@@ -35,8 +37,7 @@ type SimpleKafkaProducer struct {
 	mu      sync.Mutex
 	config  KafkaConfig
 	closed  bool
-	// TODO: 添加真实的 Kafka writer
-	// writer  *kafka.Writer
+	writer  *kafka.Writer
 }
 
 // NewKafkaProducer 创建 Kafka 生产者
@@ -65,21 +66,21 @@ func NewKafkaProducer(cfg KafkaConfig) (*SimpleKafkaProducer, error) {
 	log.Printf("Kafka Producer 初始化: brokers=%v, topic=%s, compression=%s, batch=%d, acks=%d",
 		cfg.Brokers, cfg.Topic, cfg.Compression, cfg.BatchSize, cfg.Acks)
 
-	// TODO: 使用 segmentio/kafka-go 建立真实连接
-	// 示例代码：
-	// writer := &kafka.Writer{
-	//     Addr:         kafka.TCP(cfg.Brokers...),
-	//     Topic:        cfg.Topic,
-	//     Balancer:     &kafka.Hash{},
-	//     BatchSize:    cfg.BatchSize,
-	//     BatchBytes:   int64(cfg.FlushBytes),
-	//     BatchTimeout: time.Duration(cfg.FlushMs) * time.Millisecond,
-	//     Compression:  parseCompression(cfg.Compression),
-	//     RequiredAcks: kafka.RequiredAcks(cfg.Acks),
-	// }
+	// 使用 segmentio/kafka-go 建立真实连接
+	writer := &kafka.Writer{
+		Addr:         kafka.TCP(cfg.Brokers...),
+		Topic:        cfg.Topic,
+		Balancer:     &kafka.Hash{},
+		BatchSize:    cfg.BatchSize,
+		BatchBytes:   int64(cfg.FlushBytes),
+		BatchTimeout: time.Duration(cfg.FlushMs) * time.Millisecond,
+		Compression:  kafkaCompression(cfg.Compression),
+		RequiredAcks: kafka.RequiredAcks(cfg.Acks),
+	}
 
 	return &SimpleKafkaProducer{
 		config: cfg,
+		writer: writer,
 	}, nil
 }
 
@@ -100,27 +101,22 @@ func (p *SimpleKafkaProducer) Send(ctx context.Context, topic string, records []
 		topic = p.config.Topic
 	}
 
-	// TODO: 将 records 转换为 Kafka 消息并批量发送
-	// 每条 Record.Data 作为 Kafka 消息的 Value
-	// Record.Source 作为 Kafka 消息的 Key（用于分区）
-	// Record.Metadata 中的字段作为 Kafka 消息 Headers
+	// 转换为 Kafka 消息并发送
+	messages := make([]kafka.Message, 0, len(records))
+	for _, record := range records {
+		messages = append(messages, kafka.Message{
+			Key:   []byte(record.Source),
+			Value: record.Data,
+		})
+	}
 
-	// 示例代码：
-	// messages := make([]kafka.Message, 0, len(records))
-	// for _, record := range records {
-	//     msg := kafka.Message{
-	//         Topic: topic,
-	//         Key:   []byte(record.Source),
-	//         Value: record.Data,
-	//         Headers: []kafka.Header{
-	//             {Key: "level", Value: []byte(record.Metadata["level"])},
-	//         },
-	//     }
-	//     messages = append(messages, msg)
-	// }
-	// return p.writer.WriteMessages(ctx, messages)
+	err := p.writer.WriteMessages(ctx, messages...)
+	if err != nil {
+		log.Printf("发送 %d 条记录到 Kafka topic=%s 失败: %v", len(records), topic, err)
+		return fmt.Errorf("发送 Kafka 消息失败: %w", err)
+	}
 
-	log.Printf("发送 %d 条记录到 Kafka topic=%s (mock)", len(records), topic)
+	log.Printf("发送 %d 条记录到 Kafka topic=%s 成功", len(records), topic)
 	return nil
 }
 
@@ -134,11 +130,26 @@ func (p *SimpleKafkaProducer) Close() error {
 	}
 	p.closed = true
 
-	// TODO: 关闭真实的 Kafka 连接
-	// if p.writer != nil {
-	//     return p.writer.Close()
-	// }
+	if p.writer != nil {
+		return p.writer.Close()
+	}
 
 	log.Println("Kafka Producer 已关闭")
 	return nil
+}
+
+// parseCompression 解析压缩算法
+func kafkaCompression(compression string) kafka.Compression {
+	switch compression {
+	case "snappy":
+		return kafka.Snappy
+	case "gzip":
+		return kafka.Gzip
+	case "lz4":
+		return kafka.Lz4
+	case "zstd":
+		return kafka.Zstd
+	default:
+		return 0 // 无压缩
+	}
 }

@@ -1,0 +1,79 @@
+# Collector Agent 配置
+# change_level: none | normal | cab
+
+agent:
+  id: ""  # 自动生成，留空
+  name: "collector-agent"
+  change_level: normal
+  hot_reload: true
+
+collector:
+  # 采集源配置
+  sources:
+    - type: file
+      paths:
+        - /var/log/*.log
+      encoding: utf-8
+      multiline:
+        pattern: '^\d{4}-\d{2}-\d{2}'
+        negate: true
+        match: after
+    - type: syslog
+      protocol: udp
+      bind: "0.0.0.0:514"
+  change_level: normal
+  hot_reload: true
+
+pipeline:
+  # 处理管道配置
+  batch_size: 1000
+  flush_interval: 5s
+  workers: 4
+  buffer_size: 10000
+  change_level: normal
+  hot_reload: true
+
+checkpoint:
+  # 断点续传配置
+  storage: file
+  path: ./state/checkpoints
+  sync_interval: 10s
+  change_level: none
+  hot_reload: false
+
+retry:
+  # 重试策略
+  max_retries: 5
+  initial_backoff: 1s
+  max_backoff: 60s
+  backoff_multiplier: 2.0
+  change_level: none
+  hot_reload: true
+
+output:
+  # 输出目标
+  kafka:
+    brokers:
+      - localhost:9092
+    topic: nexuslog-raw-logs
+    compression: snappy
+    batch_size: 500
+    flush_interval: 3s
+  change_level: cab
+  hot_reload: partial
+
+plugins:
+  grpc:
+    enabled: false
+    listen: "0.0.0.0:9091"
+  wasm:
+    enabled: false
+    modules_dir: ./plugins/wasm
+  change_level: normal
+  hot_reload: true
+
+logging:
+  level: info
+  format: json
+  change_level: none
+  hot_reload: true
