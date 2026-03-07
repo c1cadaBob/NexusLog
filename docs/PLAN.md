@@ -1,4 +1,4 @@
-# NexusLog 日志结构重构 v1.1：分层字段方案、当前落地状态与最终结构定义
+# NexusLog 日志结构重构 v1.2：分层字段方案、当前落地状态、全链路生命周期与最终结构定义
 
 ## 摘要
 
@@ -733,6 +733,68 @@ ES 最终结构（nexuslog-logs-v2 document）
 | Phase 2 | `NL-LOG-V2-103` + `NL-LOG-V2-104` | 再收口部署一致性与多实例去重一致性 |
 | Phase 3 | `NL-LOG-V2-201` + `NL-LOG-V2-202` + `NL-LOG-V2-203` | 最后提升字段质量与治理能力 |
 | Phase 4 | `NL-LOG-V2-301` + `NL-LOG-V2-302` | 进入展示与分析增强阶段 |
+
+---
+
+## 十二、日志全链路与生命周期（生成 → 采集 → ES → 前端 → 温/冷/归档）
+
+> 本节用于给当前 v2 字段契约补一张“链路全景图”，强调日志不仅要写入 ES，还需要明确：
+>
+> - 日志从哪里产生
+> - 在哪一层进行清洗、合并、去重
+> - 什么时候进入告警与分析
+> - 多久从热数据迁移到温 / 冷 / 归档
+>
+> 详细说明与 UML 见：`docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
+
+### 12.1 在线主链路
+
+| 阶段 | 核心动作 | 当前实现 |
+|---|---|---|
+| 日志生成 | 应用 / 容器 / 系统文件写出原始日志 | 已存在 |
+| Agent 采集 | 增量读取日志源 | 已实现 |
+| Agent 预处理 | 空行过滤、服务拆分、多行合并、短窗去重 | 已实现 |
+| Control-plane 执行 | Pull / ACK / NACK / 游标推进 / 批次落库 | 已实现 |
+| Control-plane 归一化 | 生成 `event.id`、构建 `LogDocument`、语义去重 | 已实现 |
+| ES v2 入库 | 写入 `nexuslog-logs-v2` data stream | 已实现 |
+| Query API | 按 v2 字段查询并返回兼容前端的结构 | 已实现 |
+| 前端展示 | 实时检索页列表、详情抽屉展示真实日志 | 已实现 |
+
+### 12.2 聚合、去重、告警的推荐放置点
+
+| 能力 | 推荐层级 | 当前状态 |
+|---|---|---|
+| 多行异常块合并 | Agent | 已实现 |
+| 第一层短窗去重 | Agent | 已实现 |
+| 第二层语义去重 | Control-plane / ES sink | 已实现 |
+| 错误字段结构化 | Control-plane | 已实现（轻量） |
+| 规则告警 | ES 落库后独立 evaluator | 已实现 |
+| 静默 / 抑制 | 告警引擎层 | 已实现 |
+| 聚类分析 / 前端折叠 | Analysis / Frontend | 后续规划 |
+
+### 12.3 存储生命周期
+
+| 阶段 | 默认阈值 | 动作 |
+|---|---|---|
+| Hot | `0ms` 起 | 实时写入与检索 |
+| Warm | `3d` | readonly + shrink + forcemerge + warm 分配 |
+| Cold | `30d` | searchable snapshot + cold 分配 |
+| Delete | `90d` | `wait_for_snapshot` 后删除 |
+| Archive | `90d+` | 对象存储长期归档 |
+
+### 12.4 关键参考文件
+
+- `agents/collector-agent/internal/pullapi/normalize.go`
+- `services/control-plane/internal/ingest/executor.go`
+- `services/control-plane/internal/ingest/field_model.go`
+- `services/control-plane/internal/ingest/es_sink.go`
+- `services/control-plane/internal/alert/evaluator.go`
+- `services/data-services/query-api/internal/repository/repository.go`
+- `apps/frontend-console/src/pages/search/RealtimeSearch.tsx`
+- `storage/elasticsearch/ilm/nexuslog-logs-ilm.json`
+- `storage/elasticsearch/snapshots/snapshot-policy.json`
+- `storage/glacier/archive-policies/archive-policy.yaml`
+- `docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
 
 ---
 

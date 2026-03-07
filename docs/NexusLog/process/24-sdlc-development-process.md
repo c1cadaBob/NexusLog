@@ -1398,9 +1398,64 @@ Control-plane 当前不再依赖旧的扁平 pull 字段，而是直接消费 Ag
 | P2 | 建立 `labels.*` 白名单治理 | 避免字段膨胀 |
 | P3 | 前端聚类折叠展示 | 属于体验优化，已明确后置 |
 
+## 14. 日志全链路与生命周期参考
+
+> 本章用于给第 13 章的字段契约补一张端到端执行图，帮助在实施、联调、排障与验收时统一理解“日志何时被清洗、何时被聚合、何时进入告警与生命周期迁移”。
+>
+> 详细 UML 与存储生命周期说明见：`docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
+
+### 14.1 在线主链路
+
+| 阶段 | 关键动作 | 当前状态 |
+|------|------|------|
+| 日志生成 | 应用 / 容器 / 系统文件写出日志 | 已存在 |
+| Agent 采集 | 增量读取源数据 | 已实现 |
+| Agent 预处理 | 空行过滤、前缀拆分、多行合并、第一层去重 | 已实现 |
+| Control-plane 执行 | Pull / ACK / NACK / 游标推进 / 任务状态流转 | 已实现 |
+| Control-plane 归一化 | `event.id`、`fingerprint`、结构化文档构建、第二层去重 | 已实现 |
+| ES 写入 | 写入 `nexuslog-logs-v2` data stream | 已实现 |
+| Query API | 按 v2 字段查询并映射前端兼容结构 | 已实现 |
+| 前端展示 | 实时检索页与详情抽屉展示真实日志 | 已实现 |
+
+### 14.2 聚合 / 去重 / 告警放置点
+
+| 能力 | 推荐层级 | 原因 |
+|------|------|------|
+| 多行合并 | Agent | 最贴近原始日志块 |
+| 短窗完全相同去重 | Agent | 提前减少网络与写入压力 |
+| 语义去重 | Control-plane / ES sink | 统一 `event.id` 与 `fingerprint` |
+| 规则告警 | ES 落库后独立 evaluator | 依赖 ES 查询与窗口统计 |
+| 静默 / 抑制 | 告警引擎层 | 避免告警风暴 |
+| 聚类分析 / 前端折叠 | Analysis / Frontend | 属于读侧与展示增强 |
+
+### 14.3 存储生命周期
+
+| 阶段 | 默认阈值 | 关键动作 |
+|------|------|------|
+| Hot | `0ms` | 写入、实时查询、告警 |
+| Warm | `3d` | readonly / shrink / forcemerge / warm 分配 |
+| Cold | `30d` | searchable snapshot / cold 分配 |
+| Delete | `90d` | `wait_for_snapshot` 后删除 |
+| Archive | `90d+` | 对象存储长期归档与按需恢复 |
+
+### 14.4 关键实现锚点
+
+- `agents/collector-agent/internal/pullapi/normalize.go`
+- `services/control-plane/internal/ingest/executor.go`
+- `services/control-plane/internal/ingest/field_model.go`
+- `services/control-plane/internal/ingest/es_sink.go`
+- `services/control-plane/internal/alert/evaluator.go`
+- `services/data-services/query-api/internal/repository/repository.go`
+- `apps/frontend-console/src/pages/search/RealtimeSearch.tsx`
+- `storage/elasticsearch/ilm/nexuslog-logs-ilm.json`
+- `storage/elasticsearch/snapshots/snapshot-policy.json`
+- `storage/glacier/archive-policies/archive-policy.yaml`
+- `docs/NexusLog/process/31-log-end-to-end-lifecycle-and-uml.md`
+
 ## 变更记录
 
 | 日期 | 版本 | 变更内容 |
 |------|------|---------|
+| 2026-03-07 | v1.2 | 新增第 14 章：日志全链路与生命周期参考；补充生成 → 采集 → ES → 前端 → 温/冷/归档链路、聚合/告警放置点与独立 UML 文档引用 |
 | 2026-03-07 | v1.1 | 新增第 13 章：日志结构 v2 字段契约，并补充“当前实现 vs 原始设计差异清单”与后续建议优先级 |
 | 2026-03-06 | v1.0 | 初始版本。覆盖 12 章：SDLC 流程、代码约束、质量门禁、测试策略、部署管理、Git 工作流、验收规范、Mock 追踪、数据播种、前端调试 |
