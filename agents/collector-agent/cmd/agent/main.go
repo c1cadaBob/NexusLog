@@ -39,12 +39,12 @@ func main() {
 	defer cancel()
 
 	if !legacyPipelineEnabled {
-		log.Println("legacy log pipeline 已禁用，agent 仅暴露停用状态端点")
+		log.Println("legacy log pipeline 已禁用，agent 切换到 rewrite v2 HTTP 接口")
 		sysMetrics := metrics.NewCollector(30 * time.Second)
 		sysMetrics.Start()
 		defer sysMetrics.Stop()
 
-		httpServer := startDisabledHTTPServer(httpPort, sysMetrics)
+		httpServer := startRewriteHTTPServer(httpPort, sysMetrics)
 		waitForShutdown(cancel, httpServer, nil)
 		fmt.Println("Collector Agent 已停止")
 		return
@@ -391,42 +391,6 @@ func startHTTPServer(port string, pullService *pullapi.Service, meta pullapi.Met
 		}
 	}()
 
-	return server
-}
-
-func startDisabledHTTPServer(port string, sysMetrics *metrics.Collector) *http.Server {
-	mux := http.NewServeMux()
-	mux.Handle("/agent/v1/metrics", metrics.MetricsHandler(sysMetrics))
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"healthy","service":"collector-agent","legacy_pipeline_enabled":false,"time":"%s"}`,
-			time.Now().UTC().Format(time.RFC3339))
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"ready","service":"collector-agent","legacy_pipeline_enabled":false,"time":"%s"}`,
-			time.Now().UTC().Format(time.RFC3339))
-	})
-	for _, path := range []string{"/agent/v1/meta", "/agent/v1/logs/pull", "/agent/v1/logs/ack"} {
-		mux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusGone)
-			fmt.Fprint(w, `{"code":"LEGACY_PIPELINE_REMOVED","message":"legacy collector pipeline removed; rewrite in progress"}`)
-		})
-	}
-	server := &http.Server{
-		Addr:              ":" + port,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	go func() {
-		log.Printf("停用态 HTTP 服务监听端口 :%s", port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP 服务启动失败: %v", err)
-		}
-	}()
 	return server
 }
 

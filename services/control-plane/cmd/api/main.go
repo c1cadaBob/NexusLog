@@ -24,6 +24,7 @@ import (
 	"github.com/nexuslog/control-plane/internal/backup"
 	"github.com/nexuslog/control-plane/internal/incident"
 	"github.com/nexuslog/control-plane/internal/ingest"
+	"github.com/nexuslog/control-plane/internal/ingestv3"
 	"github.com/nexuslog/control-plane/internal/metrics"
 	"github.com/nexuslog/control-plane/internal/middleware"
 	"github.com/nexuslog/control-plane/internal/notification"
@@ -180,6 +181,12 @@ func main() {
 	} else {
 		log.Printf("ingest scheduler disabled")
 	}
+
+	v3CursorAdapter := &ingestv3.LegacyCursorStoreAdapter{
+		Store:        pullCursorStore,
+		DefaultAgent: getEnv("INGESTV3_DEFAULT_AGENT_ID", "ingestv3-rewrite"),
+	}
+	registerIngestV3Routes(router, v3CursorAdapter, v3CursorAdapter)
 
 	if legacyLogPipelineEnabled {
 		ingest.RegisterPullSourceRoutes(router, pullSourceStore)
