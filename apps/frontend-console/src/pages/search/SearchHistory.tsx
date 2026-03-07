@@ -18,6 +18,8 @@ const SearchHistory: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState('');
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchDeleting, setBatchDeleting] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['searchHistory'] ?? 15);
@@ -60,7 +62,36 @@ const SearchHistory: React.FC = () => {
     void loadHistory();
   }, [loadHistory]);
 
+  const selectedHistoryIDs = useMemo(() => selectedRowKeys.map((key) => String(key)), [selectedRowKeys]);
+  const visibleRange = useMemo(() => {
+    if (total === 0 || rows.length === 0) {
+      return { start: 0, end: 0 };
+    }
+    const start = (currentPage - 1) * pageSize + 1;
+    return {
+      start,
+      end: start + rows.length - 1,
+    };
+  }, [currentPage, pageSize, rows.length, total]);
+
+  const refreshAfterDelete = useCallback((deletedCount: number) => {
+    setSelectedRowKeys([]);
+    if (deletedCount <= 0) {
+      void loadHistory();
+      return;
+    }
+    const nextTotal = Math.max(0, total - deletedCount);
+    const maxPage = Math.max(1, Math.ceil(nextTotal / pageSize));
+    const nextPage = Math.min(currentPage, maxPage);
+    if (nextPage !== currentPage) {
+      setCurrentPage(nextPage);
+      return;
+    }
+    void loadHistory();
+  }, [currentPage, loadHistory, pageSize, total]);
+
   const handleSearch = useCallback((value: string) => {
+    setSelectedRowKeys([]);
     setCurrentPage(1);
     setKeyword(value.trim());
   }, []);
@@ -103,19 +134,67 @@ const SearchHistory: React.FC = () => {
         return;
       }
       message.success('已删除');
-      // 删除后刷新当前页数据，若当前页为空则回退一页。
-      if (rows.length === 1 && currentPage > 1) {
-        setCurrentPage(currentPage - 1);
-        return;
-      }
-      void loadHistory();
+      refreshAfterDelete(1);
     } catch (error) {
       const readable = error instanceof Error ? error.message : '删除失败';
       message.error(readable);
     }
-  }, [currentPage, loadHistory, message, rows.length]);
+  }, [message, refreshAfterDelete]);
+
+  const handleBatchDelete = useCallback(async () => {
+    if (selectedHistoryIDs.length === 0) {
+      return;
+    }
+    setBatchDeleting(true);
+    try {
+      const results = await Promise.allSettled(selectedHistoryIDs.map((historyID) => deleteQueryHistory(historyID)));
+      let deletedCount = 0;
+      let missingCount = 0;
+      let failedCount = 0;
+
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          if (result.value) {
+            deletedCount += 1;
+          } else {
+            missingCount += 1;
+          }
+          return;
+        }
+        failedCount += 1;
+      });
+
+      if (deletedCount > 0) {
+        message.success(`已删除 ${deletedCount} 条记录`);
+        refreshAfterDelete(deletedCount);
+      } else {
+        setSelectedRowKeys([]);
+        void loadHistory();
+      }
+
+      if (missingCount > 0) {
+        message.warning(`${missingCount} 条记录不存在或已被删除`);
+      }
+      if (failedCount > 0) {
+        message.error(`${failedCount} 条记录删除失败，请稍后重试`);
+      }
+    } finally {
+      setBatchDeleting(false);
+    }
+  }, [loadHistory, message, refreshAfterDelete, selectedHistoryIDs]);
 
   const columns: ColumnsType<QueryHistory> = useMemo(() => [
+    {
+      title: '序号',
+      key: 'index',
+      width: 80,
+      align: 'center',
+      render: (_: unknown, __: QueryHistory, index: number) => (
+        <span className="text-sm opacity-60">
+          {(currentPage - 1) * pageSize + index + 1}
+        </span>
+      ),
+    },
     {
       title: '查询语句',
       dataIndex: 'query',
@@ -193,7 +272,7 @@ const SearchHistory: React.FC = () => {
         </Space>
       ),
     },
-  ], [handleBookmark, handleDelete, handleReplay]);
+  ], [currentPage, handleBookmark, handleDelete, handleReplay, pageSize]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -213,6 +292,7 @@ const SearchHistory: React.FC = () => {
           showTime={{ format: 'HH:mm:ss' }}
           format="YYYY-MM-DD HH:mm:ss"
           onChange={(dates) => {
+            setSelectedRowKeys([]);
             setCurrentPage(1);
             setDateRange(dates as [Dayjs | null, Dayjs | null] | null);
           }}
@@ -220,6 +300,7 @@ const SearchHistory: React.FC = () => {
         />
         <Button
           onClick={() => {
+            setSelectedRowKeys([]);
             setKeywordInput('');
             setKeyword('');
             setDateRange(null);
@@ -228,9 +309,35 @@ const SearchHistory: React.FC = () => {
         >
           重置
         </Button>
+        <Popconfirm
+          title="确认批量删除"
+          description={`将删除选中的 ${selectedHistoryIDs.length} 条查询历史，删除后不可恢复，是否继续？`}
+          okText="删除"
+          cancelText="取消"
+          okButtonProps={{ danger: true, loading: batchDeleting }}
+          disabled={selectedHistoryIDs.length === 0}
+          onConfirm={() => void handleBatchDelete()}
+        >
+          <span>
+            <Button
+              danger
+              disabled={selectedHistoryIDs.length === 0}
+              loading={batchDeleting}
+              icon={<span className="material-symbols-outlined text-sm">delete_sweep</span>}
+            >
+              批量删除
+            </Button>
+          </span>
+        </Popconfirm>
         <span className="text-xs opacity-50">
           共 {total.toLocaleString()} 条记录
+          {total > 0 ? `（当前显示第 ${visibleRange.start}-${visibleRange.end} 条）` : ''}
         </span>
+        {selectedHistoryIDs.length > 0 && (
+          <span className="text-xs text-blue-500">
+            已选择 {selectedHistoryIDs.length} 项
+          </span>
+        )}
       </div>
 
       {errorText && (
@@ -247,8 +354,14 @@ const SearchHistory: React.FC = () => {
         dataSource={rows}
         columns={columns}
         rowKey="id"
+        rowSelection={{
+          selectedRowKeys,
+          onChange: setSelectedRowKeys,
+          preserveSelectedRowKeys: true,
+          getCheckboxProps: () => ({ disabled: batchDeleting }),
+        }}
         size="small"
-        loading={loading}
+        loading={loading || batchDeleting}
         locale={{ emptyText: <Empty description="暂无查询历史" /> }}
         pagination={{
           current: currentPage,
@@ -260,6 +373,7 @@ const SearchHistory: React.FC = () => {
           pageSizeOptions: ['10', '15', '20', '50', '100'],
           position: ['bottomLeft'],
           onChange: (page, size) => {
+            setSelectedRowKeys([]);
             setCurrentPage(page);
             setPageSize(size);
           },
