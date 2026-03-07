@@ -32,8 +32,7 @@ CREATE TABLE burst_alerts (
     last_error_time TIMESTAMP(3),
     error_count BIGINT,
     detected_at TIMESTAMP(3),
-    tenant_id STRING,
-    PRIMARY KEY (alert_id) NOT ENFORCED
+    tenant_id STRING
 ) WITH (
     'connector' = 'kafka',
     'topic' = 'nexuslog.alerts.events',
@@ -41,26 +40,32 @@ CREATE TABLE burst_alerts (
     'format' = 'json'
 );
 
--- CEP 模式：3 分钟内同一服务连续出现 10 次以上 ERROR/FATAL 日志
+-- 错误突增检测：3 分钟内同一服务出现 10 次以上 ERROR/FATAL 日志
 INSERT INTO burst_alerts
-SELECT *
-FROM log_stream
-MATCH_RECOGNIZE (
-    PARTITION BY service
-    ORDER BY event_time
-    MEASURES
-        UUID() AS alert_id,
-        FIRST(A.source) AS source,
-        A.service AS service,
-        'error_burst' AS pattern_type,
-        FIRST(A.event_time) AS first_error_time,
-        LAST(A.event_time) AS last_error_time,
-        COUNT(A.log_id) AS error_count,
-        CURRENT_TIMESTAMP AS detected_at,
-        FIRST(A.tenant_id) AS tenant_id
-    ONE ROW PER MATCH
-    AFTER MATCH SKIP PAST LAST ROW
-    PATTERN (A{10,}) WITHIN INTERVAL '3' MINUTE
-    DEFINE
-        A AS A.`level` IN ('ERROR', 'FATAL')
-) AS T;
+SELECT
+    UUID() AS alert_id,
+    source,
+    service,
+    'error_burst' AS pattern_type,
+    window_start AS first_error_time,
+    window_end AS last_error_time,
+    error_count,
+    CURRENT_TIMESTAMP AS detected_at,
+    tenant_id
+FROM (
+    SELECT
+        source,
+        service,
+        tenant_id,
+        TUMBLE_START(event_time, INTERVAL '3' MINUTE) AS window_start,
+        TUMBLE_END(event_time, INTERVAL '3' MINUTE) AS window_end,
+        COUNT(*) AS error_count
+    FROM log_stream
+    WHERE `level` IN ('ERROR', 'FATAL')
+    GROUP BY
+        TUMBLE(event_time, INTERVAL '3' MINUTE),
+        source,
+        service,
+        tenant_id
+) sub
+WHERE error_count >= 10;

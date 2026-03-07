@@ -29,8 +29,7 @@ CREATE TABLE metrics_sink (
     `level` STRING,
     log_count BIGINT,
     error_rate DOUBLE,
-    tenant_id STRING,
-    PRIMARY KEY (window_start, source, `level`) NOT ENFORCED
+    tenant_id STRING
 ) WITH (
     'connector' = 'kafka',
     'topic' = 'nexuslog.metrics.aggregated',

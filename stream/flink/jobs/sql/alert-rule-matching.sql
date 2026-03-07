@@ -37,8 +37,7 @@ CREATE TABLE alert_events (
     message STRING,
     labels MAP<STRING, STRING>,
     source_logs ARRAY<STRING>,
-    tenant_id STRING,
-    PRIMARY KEY (id) NOT ENFORCED
+    tenant_id STRING
 ) WITH (
     'connector' = 'kafka',
     'topic' = 'nexuslog.alerts.events',

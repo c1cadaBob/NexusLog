@@ -33,8 +33,7 @@ CREATE TABLE anomaly_alerts (
     last_error_time TIMESTAMP(3),
     error_count BIGINT,
     detected_at TIMESTAMP(3),
-    tenant_id STRING,
-    PRIMARY KEY (alert_id) NOT ENFORCED
+    tenant_id STRING
 ) WITH (
     'connector' = 'kafka',
     'topic' = 'nexuslog.alerts.events',
@@ -42,25 +41,30 @@ CREATE TABLE anomaly_alerts (
     'format' = 'json'
 );
 
--- CEP 模式：5 分钟内同一来源连续出现 5 次以上 ERROR 级别日志
+-- 异常检测：5 分钟内同一来源出现 5 次以上 ERROR 级别日志
 INSERT INTO anomaly_alerts
-SELECT *
-FROM log_events
-MATCH_RECOGNIZE (
-    PARTITION BY source
-    ORDER BY event_time
-    MEASURES
-        UUID() AS alert_id,
-        A.source AS source,
-        'consecutive_errors' AS pattern_type,
-        FIRST(A.event_time) AS first_error_time,
-        LAST(A.event_time) AS last_error_time,
-        COUNT(A.log_id) AS error_count,
-        CURRENT_TIMESTAMP AS detected_at,
-        FIRST(A.tenant_id) AS tenant_id
-    ONE ROW PER MATCH
-    AFTER MATCH SKIP PAST LAST ROW
-    PATTERN (A{5,}) WITHIN INTERVAL '5' MINUTE
-    DEFINE
-        A AS A.`level` = 'ERROR'
-) AS T;
+SELECT
+    UUID() AS alert_id,
+    source,
+    'consecutive_errors' AS pattern_type,
+    window_start AS first_error_time,
+    window_end AS last_error_time,
+    error_count,
+    CURRENT_TIMESTAMP AS detected_at,
+    tenant_id
+FROM (
+    SELECT
+        window_start,
+        window_end,
+        source,
+        tenant_id,
+        COUNT(*) AS error_count
+    FROM TUMBLE(log_events, event_time, INTERVAL '5' MINUTE)
+    WHERE `level` = 'ERROR'
+    GROUP BY
+        window_start,
+        window_end,
+        source,
+        tenant_id
+) t
+WHERE error_count >= 5;
