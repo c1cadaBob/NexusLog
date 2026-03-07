@@ -51,6 +51,20 @@ export interface ListUsersResponse {
   limit: number;
 }
 
+export interface FetchUsersParams {
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  status?: string;
+  roleId?: string;
+}
+
+export interface BatchUpdateUsersStatusResponse {
+  requested: number;
+  updated: number;
+  status: string;
+}
+
 /** Create user payload */
 export interface CreateUserPayload {
   username: string;
@@ -178,10 +192,18 @@ async function requestRolesApi<TData>(
 }
 
 /** Fetch users list (paginated) */
-export async function fetchUsers(page = 1, pageSize = 10): Promise<ListUsersResponse> {
+export async function fetchUsers(params: FetchUsersParams = {}): Promise<ListUsersResponse> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 10;
   const envelope = await requestUserApi<ListUsersResponse>('', {
     method: 'GET',
-    query: { page, page_size: pageSize },
+    query: {
+      page,
+      page_size: pageSize,
+      query: params.query?.trim() || undefined,
+      status: params.status || undefined,
+      role_id: params.roleId || undefined,
+    },
   });
 
   const data = envelope.data;
@@ -190,6 +212,20 @@ export async function fetchUsers(page = 1, pageSize = 10): Promise<ListUsersResp
     total: data?.total ?? 0,
     page: data?.page ?? page,
     limit: data?.limit ?? pageSize,
+  };
+}
+
+/** Fetch user detail */
+export async function fetchUser(id: string): Promise<UserData> {
+  const envelope = await requestUserApi<UserData>(`/${encodeURIComponent(id)}`, {
+    method: 'GET',
+  });
+
+  const data = envelope.data;
+  if (!data?.id) throw new Error('获取用户详情失败');
+  return {
+    ...data,
+    roles: data.roles ?? [],
   };
 }
 
@@ -224,6 +260,24 @@ export async function disableUser(id: string): Promise<void> {
   await requestUserApi(`/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
+}
+
+/** Batch update users status */
+export async function batchUpdateUsersStatus(userIds: string[], status: 'active' | 'disabled'): Promise<BatchUpdateUsersStatusResponse> {
+  const envelope = await requestUserApi<BatchUpdateUsersStatusResponse>('/batch/status', {
+    method: 'POST',
+    body: {
+      user_ids: userIds,
+      status,
+    },
+  });
+
+  const data = envelope.data;
+  return {
+    requested: data?.requested ?? userIds.length,
+    updated: data?.updated ?? 0,
+    status: data?.status ?? status,
+  };
 }
 
 /** Assign role to user */

@@ -12,11 +12,11 @@ import (
 
 // OverviewStats represents dashboard overview statistics.
 type OverviewStats struct {
-	TotalLogs        int64                  `json:"total_logs"`
-	LevelDistribution map[string]int64      `json:"level_distribution"`
-	TopSources       []SourceCount          `json:"top_sources"`
-	AlertSummary     AlertSummary           `json:"alert_summary"`
-	LogTrend         []LogTrendPoint        `json:"log_trend"`
+	TotalLogs         int64            `json:"total_logs"`
+	LevelDistribution map[string]int64 `json:"level_distribution"`
+	TopSources        []SourceCount    `json:"top_sources"`
+	AlertSummary      AlertSummary     `json:"alert_summary"`
+	LogTrend          []LogTrendPoint  `json:"log_trend"`
 }
 
 // SourceCount represents source and count.
@@ -27,8 +27,8 @@ type SourceCount struct {
 
 // AlertSummary represents alert event summary.
 type AlertSummary struct {
-	Total   int64 `json:"total"`
-	Firing  int64 `json:"firing"`
+	Total    int64 `json:"total"`
+	Firing   int64 `json:"firing"`
 	Resolved int64 `json:"resolved"`
 }
 
@@ -77,9 +77,7 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, tenantID string) (*
 	filters := []map[string]any{
 		{"range": map[string]any{"@timestamp": map[string]any{"gte": from24h, "lte": to}}},
 	}
-	if tenantID != "" && tenantID != DefaultTenantID {
-		filters = append(filters, map[string]any{"term": map[string]any{"tenant_id": tenantID}})
-	}
+	filters = appendTenantFilter(filters, tenantID)
 	query := map[string]any{
 		"bool": map[string]any{"filter": filters},
 	}
@@ -88,23 +86,23 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, tenantID string) (*
 	aggs := map[string]any{
 		"by_level": map[string]any{
 			"terms": map[string]any{
-				"field": "level.keyword",
-				"size":  20,
+				"field":   "log.level",
+				"size":    20,
 				"missing": "info",
 			},
 		},
 		"by_source": map[string]any{
 			"terms": map[string]any{
-				"field": "source.keyword",
+				"field": "source.path",
 				"size":  10,
 				"order": map[string]any{"_count": "desc"},
 			},
 		},
 		"log_trend": map[string]any{
 			"date_histogram": map[string]any{
-				"field":    "@timestamp",
+				"field":             "@timestamp",
 				"calendar_interval": "hour",
-				"min_doc_count": 0,
+				"min_doc_count":     0,
 			},
 		},
 	}
@@ -219,7 +217,7 @@ WHERE tenant_id = $1::uuid
 // AggregateRequest for POST /api/v1/query/stats/aggregate
 type AggregateRequest struct {
 	GroupBy   string         `json:"group_by"`   // level|source|hour
-	TimeRange string         `json:"time_range"`  // 1h|6h|24h|7d
+	TimeRange string         `json:"time_range"` // 1h|6h|24h|7d
 	Filters   map[string]any `json:"filters"`
 }
 
@@ -266,9 +264,7 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 	filters := []map[string]any{
 		{"range": map[string]any{"@timestamp": map[string]any{"gte": from, "lte": to}}},
 	}
-	if tenantID != "" && tenantID != DefaultTenantID {
-		filters = append(filters, map[string]any{"term": map[string]any{"tenant_id": tenantID}})
-	}
+	filters = appendTenantFilter(filters, tenantID)
 	for k, v := range req.Filters {
 		if k == "" || v == nil {
 			continue
@@ -289,9 +285,9 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 	var interval string
 	switch groupBy {
 	case "level":
-		aggField = "level.keyword"
+		aggField = "log.level"
 	case "source":
-		aggField = "source.keyword"
+		aggField = "source.path"
 	case "hour":
 		aggField = "@timestamp"
 		interval = "hour"
@@ -305,7 +301,7 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 			"date_histogram": map[string]any{
 				"field":             aggField,
 				"calendar_interval": "hour",
-				"min_doc_count":    0,
+				"min_doc_count":     0,
 			},
 		}
 	} else {
@@ -355,4 +351,20 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 	}
 
 	return &AggregateResult{Buckets: buckets}, nil
+}
+
+func appendTenantFilter(filters []map[string]any, tenantID string) []map[string]any {
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" || tenantID == DefaultTenantID {
+		return filters
+	}
+	return append(filters, map[string]any{
+		"bool": map[string]any{
+			"should": []any{
+				map[string]any{"term": map[string]any{"tenant_id": tenantID}},
+				map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
+			},
+			"minimum_should_match": 1,
+		},
+	})
 }

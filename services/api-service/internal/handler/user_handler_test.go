@@ -19,27 +19,31 @@ import (
 )
 
 type userRepoMock struct {
-	tenantExists   bool
-	listUsers      []repository.UserRecord
-	listTotal      int
-	listErr        error
-	getUser        *repository.UserRecord
-	getUserErr     error
-	createUserID   string
-	createUserErr  error
-	updateUserErr  error
-	assignRoleErr  error
-	removeRoleErr  error
-	listRoles      []repository.RoleRecord
-	listRolesErr   error
-	getUserRoles   []repository.RoleRecord
+	tenantExists     bool
+	listUsers        []repository.UserRecord
+	listTotal        int
+	listErr          error
+	lastListFilter   repository.ListUsersFilter
+	getUser          *repository.UserRecord
+	getUserErr       error
+	createUserID     string
+	createUserErr    error
+	updateUserErr    error
+	batchUpdateCount int
+	batchUpdateErr   error
+	assignRoleErr    error
+	removeRoleErr    error
+	listRoles        []repository.RoleRecord
+	listRolesErr     error
+	getUserRoles     []repository.RoleRecord
 }
 
 func (m *userRepoMock) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
 	return m.tenantExists, nil
 }
 
-func (m *userRepoMock) ListUsers(_ context.Context, _ string, _, _ int) ([]repository.UserRecord, int, error) {
+func (m *userRepoMock) ListUsers(_ context.Context, _ string, _, _ int, filter repository.ListUsersFilter) ([]repository.UserRecord, int, error) {
+	m.lastListFilter = filter
 	if m.listErr != nil {
 		return nil, 0, m.listErr
 	}
@@ -74,6 +78,13 @@ func (m *userRepoMock) DisableUser(_ context.Context, _, _ string) error {
 	return m.updateUserErr
 }
 
+func (m *userRepoMock) BatchUpdateUsersStatus(_ context.Context, _ string, _ []uuid.UUID, _ string) (int, error) {
+	if m.batchUpdateErr != nil {
+		return 0, m.batchUpdateErr
+	}
+	return m.batchUpdateCount, nil
+}
+
 func (m *userRepoMock) AssignRole(_ context.Context, _, _ string) error {
 	return m.assignRoleErr
 }
@@ -103,6 +114,7 @@ func setupUserRouter(h *UserHandler) *gin.Engine {
 	apiV1 := router.Group("/api/v1")
 	userV1 := apiV1.Group("/users")
 	userV1.GET("", h.List)
+	userV1.POST("/batch/status", h.BatchUpdateStatus)
 	userV1.GET("/:id", h.Get)
 	userV1.POST("", h.Create)
 	userV1.PUT("/:id", h.Update)
@@ -116,8 +128,8 @@ func setupUserRouter(h *UserHandler) *gin.Engine {
 
 func TestCreateUserValidPassword(t *testing.T) {
 	mock := &userRepoMock{
-		tenantExists:  true,
-		createUserID:  uuid.NewString(),
+		tenantExists: true,
+		createUserID: uuid.NewString(),
 	}
 	h := NewUserHandler(service.NewUserService(mock))
 	router := setupUserRouter(h)
@@ -280,6 +292,48 @@ func TestListUsersPagination(t *testing.T) {
 	}
 }
 
+func TestListUsersWithServerFilters(t *testing.T) {
+	uid := uuid.New()
+	tenantID := uuid.New()
+	roleID := uuid.New()
+	now := time.Now()
+	mock := &userRepoMock{
+		tenantExists: true,
+		listUsers: []repository.UserRecord{
+			{
+				ID:          uid,
+				TenantID:    tenantID,
+				Username:    "demo-viewer",
+				Email:       "viewer@example.com",
+				DisplayName: sql.NullString{String: "Viewer", Valid: true},
+				Status:      "active",
+				LastLoginAt: sql.NullTime{},
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			},
+		},
+		listTotal: 1,
+	}
+	h := NewUserHandler(service.NewUserService(mock))
+	router := setupUserRouter(h)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users?page=1&page_size=10&query=viewer&status=active&role_id="+roleID.String(), nil)
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if mock.lastListFilter.Query != "viewer" || mock.lastListFilter.Status != "active" {
+		t.Fatalf("unexpected filter: %+v", mock.lastListFilter)
+	}
+	if mock.lastListFilter.RoleID == nil || mock.lastListFilter.RoleID.String() != roleID.String() {
+		t.Fatalf("unexpected role filter: %+v", mock.lastListFilter.RoleID)
+	}
+}
+
 func TestAssignRole(t *testing.T) {
 	uid := uuid.New()
 	tenantID := uuid.New()
@@ -405,6 +459,44 @@ func TestDeleteUser(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestBatchUpdateUsersStatus(t *testing.T) {
+	mock := &userRepoMock{
+		tenantExists:     true,
+		batchUpdateCount: 2,
+	}
+	h := NewUserHandler(service.NewUserService(mock))
+	router := setupUserRouter(h)
+
+	payload := model.BatchUpdateUsersStatusRequest{
+		UserIDs: []string{uuid.NewString(), uuid.NewString()},
+		Status:  "disabled",
+	}
+	raw, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/batch/status", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data")
+	}
+	if data["requested"].(float64) != 2 || data["updated"].(float64) != 2 || data["status"] != "disabled" {
+		t.Fatalf("unexpected data: %#v", data)
 	}
 }
 

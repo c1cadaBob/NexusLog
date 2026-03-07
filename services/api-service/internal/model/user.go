@@ -16,6 +16,26 @@ type UpdateUserRequest struct {
 	Status      *string `json:"status,omitempty"`
 }
 
+// ListUsersFilter defines query params for GET /api/v1/users.
+type ListUsersFilter struct {
+	Query  string
+	Status string
+	RoleID string
+}
+
+// BatchUpdateUsersStatusRequest defines request payload for POST /api/v1/users/batch/status.
+type BatchUpdateUsersStatusRequest struct {
+	UserIDs []string `json:"user_ids"`
+	Status  string   `json:"status"`
+}
+
+// BatchUpdateUsersStatusResponseData defines successful batch status update response.
+type BatchUpdateUsersStatusResponseData struct {
+	Requested int    `json:"requested"`
+	Updated   int    `json:"updated"`
+	Status    string `json:"status"`
+}
+
 // AssignRoleRequest defines request payload for POST /api/v1/users/:id/roles.
 type AssignRoleRequest struct {
 	RoleID string `json:"role_id"`
@@ -23,15 +43,15 @@ type AssignRoleRequest struct {
 
 // UserData defines user in list/detail response.
 type UserData struct {
-	ID          string       `json:"id"`
-	Username    string       `json:"username"`
-	Email       string       `json:"email"`
-	DisplayName string       `json:"display_name"`
-	Status      string       `json:"status"`
-	LastLoginAt *string      `json:"last_login_at,omitempty"`
-	CreatedAt   string       `json:"created_at"`
-	UpdatedAt   string       `json:"updated_at"`
-	Roles       []RoleData   `json:"roles,omitempty"`
+	ID          string     `json:"id"`
+	Username    string     `json:"username"`
+	Email       string     `json:"email"`
+	DisplayName string     `json:"display_name"`
+	Status      string     `json:"status"`
+	LastLoginAt *string    `json:"last_login_at,omitempty"`
+	CreatedAt   string     `json:"created_at"`
+	UpdatedAt   string     `json:"updated_at"`
+	Roles       []RoleData `json:"roles,omitempty"`
 }
 
 // RoleData defines role in response.
@@ -44,10 +64,10 @@ type RoleData struct {
 
 // ListUsersResponseData defines successful list users response.
 type ListUsersResponseData struct {
-	Users  []UserData `json:"users"`
-	Total  int        `json:"total"`
-	Page   int        `json:"page"`
-	Limit  int        `json:"limit"`
+	Users []UserData `json:"users"`
+	Total int        `json:"total"`
+	Page  int        `json:"page"`
+	Limit int        `json:"limit"`
 }
 
 // CreateUserResponseData defines successful create user response.

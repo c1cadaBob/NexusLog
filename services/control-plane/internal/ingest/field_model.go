@@ -293,6 +293,12 @@ func (d *LogDocument) ToESDocument() map[string]any {
 			},
 		},
 	}
+	if d.NexusLog.Governance.TenantID != "" {
+		m["tenant_id"] = d.NexusLog.Governance.TenantID
+	}
+	if d.NexusLog.Governance.RetentionPolicy != "" {
+		m["retention_policy"] = d.NexusLog.Governance.RetentionPolicy
+	}
 	if len(d.Labels) > 0 {
 		m["labels"] = d.Labels
 	}

@@ -302,11 +302,7 @@ func (e *Evaluator) checkKeyword(ctx context.Context, rule *AlertRule, m map[str
 			"match": map[string]interface{}{field: keyword},
 		},
 	}
-	if rule.TenantID != "" {
-		filters = append(filters, map[string]interface{}{
-			"term": map[string]interface{}{"tenant_id": rule.TenantID},
-		})
-	}
+	filters = appendTenantFilter(filters, rule.TenantID)
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{"filter": filters},
@@ -355,15 +351,9 @@ func (e *Evaluator) checkLevelCount(ctx context.Context, rule *AlertRule, m map[
 				"@timestamp": map[string]interface{}{"gte": from},
 			},
 		},
-		map[string]interface{}{
-			"term": map[string]interface{}{"level": strings.ToLower(level)},
-		},
+		buildLevelFilter(strings.ToLower(level)),
 	}
-	if rule.TenantID != "" {
-		filters = append(filters, map[string]interface{}{
-			"term": map[string]interface{}{"tenant_id": rule.TenantID},
-		})
-	}
+	filters = appendTenantFilter(filters, rule.TenantID)
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{"filter": filters},
@@ -424,11 +414,7 @@ func (e *Evaluator) checkThreshold(ctx context.Context, rule *AlertRule, m map[s
 			},
 		},
 	}
-	if rule.TenantID != "" {
-		filters = append(filters, map[string]interface{}{
-			"term": map[string]interface{}{"tenant_id": rule.TenantID},
-		})
-	}
+	filters = appendTenantFilter(filters, rule.TenantID)
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{"filter": filters},
@@ -459,4 +445,32 @@ func (e *Evaluator) checkThreshold(ctx context.Context, rule *AlertRule, m map[s
 	}
 	_ = metric
 	return matched, "", nil
+}
+
+func appendTenantFilter(filters []interface{}, tenantID string) []interface{} {
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		return filters
+	}
+	return append(filters, map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should": []interface{}{
+				map[string]interface{}{"term": map[string]interface{}{"tenant_id": tenantID}},
+				map[string]interface{}{"term": map[string]interface{}{"nexuslog.governance.tenant_id": tenantID}},
+			},
+			"minimum_should_match": 1,
+		},
+	})
+}
+
+func buildLevelFilter(level string) map[string]interface{} {
+	return map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should": []interface{}{
+				map[string]interface{}{"term": map[string]interface{}{"level": level}},
+				map[string]interface{}{"term": map[string]interface{}{"log.level": level}},
+			},
+			"minimum_should_match": 1,
+		},
+	}
 }

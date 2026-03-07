@@ -24,11 +24,12 @@ var userUsernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{2,31}$
 
 type userRepository interface {
 	CheckTenantExists(ctx context.Context, tenantID uuid.UUID) (bool, error)
-	ListUsers(ctx context.Context, tenantID string, page, pageSize int) ([]repository.UserRecord, int, error)
+	ListUsers(ctx context.Context, tenantID string, page, pageSize int, filter repository.ListUsersFilter) ([]repository.UserRecord, int, error)
 	GetUser(ctx context.Context, tenantID, userID string) (*repository.UserRecord, error)
 	CreateUser(ctx context.Context, input repository.CreateUserInput) (string, error)
 	UpdateUser(ctx context.Context, tenantID, userID string, input repository.UpdateUserInput) error
 	DisableUser(ctx context.Context, tenantID, userID string) error
+	BatchUpdateUsersStatus(ctx context.Context, tenantID string, userIDs []uuid.UUID, status string) (int, error)
 	AssignRole(ctx context.Context, userID, roleID string) error
 	RemoveRole(ctx context.Context, userID, roleID string) error
 	ListRoles(ctx context.Context, tenantID string) ([]repository.RoleRecord, error)
@@ -59,7 +60,7 @@ func (s *UserService) IsLoginLocked(ctx context.Context, tenantID, username stri
 	return locked, until, nil
 }
 
-func (s *UserService) ListUsers(ctx context.Context, tenantHeader string, page, pageSize int) (model.ListUsersResponseData, *model.APIError) {
+func (s *UserService) ListUsers(ctx context.Context, tenantHeader string, page, pageSize int, filter model.ListUsersFilter) (model.ListUsersResponseData, *model.APIError) {
 	tenantID, apiErr := parseAndCheckTenantUser(ctx, s.repo, tenantHeader, "USER")
 	if apiErr != nil {
 		return model.ListUsersResponseData{}, apiErr
@@ -75,7 +76,12 @@ func (s *UserService) ListUsers(ctx context.Context, tenantHeader string, page, 
 		pageSize = 100
 	}
 
-	users, total, err := s.repo.ListUsers(ctx, tenantID.String(), page, pageSize)
+	repoFilter, apiErr := normalizeListUsersFilter(filter)
+	if apiErr != nil {
+		return model.ListUsersResponseData{}, apiErr
+	}
+
+	users, total, err := s.repo.ListUsers(ctx, tenantID.String(), page, pageSize, repoFilter)
 	if err != nil {
 		return model.ListUsersResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,
@@ -238,6 +244,55 @@ func (s *UserService) UpdateUser(ctx context.Context, tenantHeader, userID strin
 
 func (s *UserService) DisableUser(ctx context.Context, tenantHeader, userID string) *model.APIError {
 	return s.UpdateUser(ctx, tenantHeader, userID, model.UpdateUserRequest{Status: ptr("disabled")})
+}
+
+func (s *UserService) BatchUpdateUsersStatus(ctx context.Context, tenantHeader string, req model.BatchUpdateUsersStatusRequest) (model.BatchUpdateUsersStatusResponseData, *model.APIError) {
+	tenantID, apiErr := parseAndCheckTenantUser(ctx, s.repo, tenantHeader, "USER")
+	if apiErr != nil {
+		return model.BatchUpdateUsersStatusResponseData{}, apiErr
+	}
+
+	normalizedStatus := strings.TrimSpace(req.Status)
+	if normalizedStatus != "active" && normalizedStatus != "disabled" {
+		return model.BatchUpdateUsersStatusResponseData{}, invalidFieldUser("status", "USER_BATCH_UPDATE_INVALID_ARGUMENT", "invalid status")
+	}
+
+	if len(req.UserIDs) == 0 {
+		return model.BatchUpdateUsersStatusResponseData{}, invalidFieldUser("user_ids", "USER_BATCH_UPDATE_INVALID_ARGUMENT", "user_ids required")
+	}
+
+	uniqueIDs := make([]uuid.UUID, 0, len(req.UserIDs))
+	seen := make(map[uuid.UUID]struct{}, len(req.UserIDs))
+	for _, rawID := range req.UserIDs {
+		trimmedID := strings.TrimSpace(rawID)
+		if trimmedID == "" {
+			return model.BatchUpdateUsersStatusResponseData{}, invalidFieldUser("user_ids", "USER_BATCH_UPDATE_INVALID_ARGUMENT", "user_ids contains empty value")
+		}
+		parsedID, err := uuid.Parse(trimmedID)
+		if err != nil {
+			return model.BatchUpdateUsersStatusResponseData{}, invalidFieldUser("user_ids", "USER_BATCH_UPDATE_INVALID_ARGUMENT", "user_ids contains invalid uuid")
+		}
+		if _, exists := seen[parsedID]; exists {
+			continue
+		}
+		seen[parsedID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, parsedID)
+	}
+
+	updated, err := s.repo.BatchUpdateUsersStatus(ctx, tenantID.String(), uniqueIDs, normalizedStatus)
+	if err != nil {
+		return model.BatchUpdateUsersStatusResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "USER_BATCH_UPDATE_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	return model.BatchUpdateUsersStatusResponseData{
+		Requested: len(uniqueIDs),
+		Updated:   updated,
+		Status:    normalizedStatus,
+	}, nil
 }
 
 func (s *UserService) AssignRole(ctx context.Context, tenantHeader, userID string, roleID string) *model.APIError {
@@ -449,6 +504,29 @@ func normalizeUpdateUser(req model.UpdateUserRequest) *repository.UpdateUserInpu
 		return nil
 	}
 	return &out
+}
+
+func normalizeListUsersFilter(filter model.ListUsersFilter) (repository.ListUsersFilter, *model.APIError) {
+	query := strings.TrimSpace(filter.Query)
+	status := strings.TrimSpace(filter.Status)
+	roleID := strings.TrimSpace(filter.RoleID)
+
+	if status != "" && status != "active" && status != "disabled" {
+		return repository.ListUsersFilter{}, invalidFieldUser("status", "USER_LIST_INVALID_ARGUMENT", "invalid status")
+	}
+
+	repoFilter := repository.ListUsersFilter{
+		Query:  query,
+		Status: status,
+	}
+	if roleID != "" {
+		parsedRoleID, err := uuid.Parse(roleID)
+		if err != nil {
+			return repository.ListUsersFilter{}, invalidFieldUser("role_id", "USER_LIST_INVALID_ARGUMENT", "invalid role_id")
+		}
+		repoFilter.RoleID = &parsedRoleID
+	}
+	return repoFilter, nil
 }
 
 // validatePassword: min 8 chars, must contain 3 of: uppercase, lowercase, digit, special char.

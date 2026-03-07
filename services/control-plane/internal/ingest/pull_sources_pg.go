@@ -27,6 +27,7 @@ WHERE tenant_id = $1::uuid
 
 	query := `
 SELECT
+	tenant_id::text,
     id::text,
     name,
     host,
@@ -60,6 +61,7 @@ LIMIT $4
 	for rows.Next() {
 		var item PullSource
 		if scanErr := rows.Scan(
+			&item.TenantID,
 			&item.SourceID,
 			&item.Name,
 			&item.Host,
@@ -159,6 +161,7 @@ INSERT INTO ingest_pull_sources (
     $13
 )
 RETURNING
+	tenant_id::text,
     id::text,
     name,
     host,
@@ -193,6 +196,7 @@ RETURNING
 		req.Status,
 		now,
 	).Scan(
+		&created.TenantID,
 		&created.SourceID,
 		&created.Name,
 		&created.Host,
@@ -256,6 +260,7 @@ SET
     updated_at = $13
 WHERE id = $1::uuid
 RETURNING
+	tenant_id::text,
     id::text,
     name,
     host,
@@ -290,6 +295,7 @@ RETURNING
 		derefString(req.Status),
 		now,
 	).Scan(
+		&updated.TenantID,
 		&updated.SourceID,
 		&updated.Name,
 		&updated.Host,
@@ -329,6 +335,7 @@ func (s *PullSourceStore) getByIDFromDB(ctx context.Context, sourceID string) (P
 	}
 	query := `
 SELECT
+	tenant_id::text,
     id::text,
     name,
     host,
@@ -348,6 +355,7 @@ WHERE id = $1::uuid
 `
 	var item PullSource
 	if err := s.backend.DB().QueryRowContext(ctx, query, sourceID).Scan(
+		&item.TenantID,
 		&item.SourceID,
 		&item.Name,
 		&item.Host,

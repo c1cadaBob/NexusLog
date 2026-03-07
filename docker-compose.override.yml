@@ -212,6 +212,7 @@ services:
   collector-agent:
     build: !reset null
     image: ${MIRROR_DOCKER_HUB}/golang:1.23-bullseye
+    user: root
     working_dir: /workspace/agents/collector-agent
     command:
       - /bin/bash
@@ -224,8 +225,17 @@ services:
       - HTTP_PORT=9091
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC=nexuslog-raw-logs
-      - CHECKPOINT_DIR=/var/lib/collector-agent/checkpoints
-      - CACHE_DIR=/var/lib/collector-agent/cache
+      - ENABLE_KAFKA_PIPELINE=false
+      - CHECKPOINT_DIR=/tmp/nexuslog-agent/checkpoints
+      - CACHE_DIR=/tmp/nexuslog-agent/cache
+      - COLLECTOR_INCLUDE_PATHS=/var/log/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/*/*.log,/var/log/*/*_log
+      - COLLECTOR_CRITICAL_INCLUDE_PATHS=/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler
+      - COLLECTOR_EXCLUDE_PATHS=/var/log/*.gz,/var/log/*/*.gz,/var/log/*.xz,/var/log/*/*.xz,/var/log/journal/*,/var/log/lastlog,/var/log/wtmp,/var/log/wtmp-*,/var/log/btmp,/var/log/btmp-*
+      - COLLECTOR_FLUSH_INTERVAL=5s
+      - COLLECTOR_CRITICAL_FLUSH_INTERVAL=500ms
+      - COLLECTOR_PER_FILE_READ_LIMIT=200
+      - COLLECTOR_ENABLE_FSNOTIFY=true
+      - COLLECTOR_EVENT_DEBOUNCE=200ms
       - CONFIG_PATH=/workspace/agents/collector-agent/configs/agent.yaml
       - GOPROXY=${GOPROXY:-https://goproxy.cn,direct}
       - GOSUMDB=off
@@ -236,6 +246,8 @@ services:
         condition: service_healthy
     volumes:
       - ./:/workspace
+      - /var/log:/var/log:ro
+      - /tmp/nexuslog-agent:/tmp/nexuslog-agent
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
       - collector-agent-data:/var/lib/collector-agent

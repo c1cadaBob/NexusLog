@@ -25,8 +25,13 @@ func (h *UserHandler) List(c *gin.Context) {
 	tenantID := c.GetHeader("X-Tenant-ID")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+	filter := model.ListUsersFilter{
+		Query:  strings.TrimSpace(c.Query("query")),
+		Status: strings.TrimSpace(c.Query("status")),
+		RoleID: strings.TrimSpace(c.Query("role_id")),
+	}
 
-	resp, apiErr := h.userService.ListUsers(c.Request.Context(), tenantID, page, pageSize)
+	resp, apiErr := h.userService.ListUsers(c.Request.Context(), tenantID, page, pageSize, filter)
 	if apiErr != nil {
 		httpx.Error(c, apiErr)
 		return
@@ -128,6 +133,28 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, gin.H{"disabled": true})
+}
+
+func (h *UserHandler) BatchUpdateStatus(c *gin.Context) {
+	tenantID := c.GetHeader("X-Tenant-ID")
+
+	var req model.BatchUpdateUsersStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Error(c, &model.APIError{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       "USER_BATCH_UPDATE_INVALID_ARGUMENT",
+			Message:    "invalid request",
+			Details:    map[string]any{"field": "body"},
+		})
+		return
+	}
+
+	resp, apiErr := h.userService.BatchUpdateUsersStatus(c.Request.Context(), tenantID, req)
+	if apiErr != nil {
+		httpx.Error(c, apiErr)
+		return
+	}
+	httpx.Success(c, http.StatusOK, resp)
 }
 
 func (h *UserHandler) AssignRole(c *gin.Context) {

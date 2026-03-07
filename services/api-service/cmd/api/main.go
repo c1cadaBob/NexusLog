@@ -78,6 +78,7 @@ func main() {
 	userV1 := protected.Group("/users")
 	userV1.GET("/me", handler.RequirePermission("users:read"), userHandler.GetMe)
 	userV1.GET("", handler.RequirePermission("users:read"), userHandler.List)
+	userV1.POST("/batch/status", handler.RequirePermission("users:write"), userHandler.BatchUpdateStatus)
 	userV1.GET("/:id", handler.RequirePermission("users:read"), userHandler.Get)
 	userV1.POST("", handler.RequirePermission("users:write"), userHandler.Create)
 	userV1.PUT("/:id", handler.RequirePermission("users:write"), userHandler.Update)
@@ -157,4 +158,3 @@ func getEnv(key, fallback string) string {
 	}
 	return fallback
 }
-

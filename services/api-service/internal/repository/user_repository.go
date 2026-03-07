@@ -56,6 +56,13 @@ type UpdateUserInput struct {
 	Status      *string
 }
 
+// ListUsersFilter defines supported filters for listing users.
+type ListUsersFilter struct {
+	Query  string
+	Status string
+	RoleID *uuid.UUID
+}
+
 // UserRepository handles user persistence.
 type UserRepository struct {
 	db *sql.DB
@@ -64,11 +71,12 @@ type UserRepository struct {
 // UserRepositoryInterface defines the user repository contract.
 type UserRepositoryInterface interface {
 	CheckTenantExists(ctx context.Context, tenantID uuid.UUID) (bool, error)
-	ListUsers(ctx context.Context, tenantID string, page, pageSize int) ([]UserRecord, int, error)
+	ListUsers(ctx context.Context, tenantID string, page, pageSize int, filter ListUsersFilter) ([]UserRecord, int, error)
 	GetUser(ctx context.Context, tenantID, userID string) (*UserRecord, error)
 	CreateUser(ctx context.Context, input CreateUserInput) (string, error)
 	UpdateUser(ctx context.Context, tenantID, userID string, input UpdateUserInput) error
 	DisableUser(ctx context.Context, tenantID, userID string) error
+	BatchUpdateUsersStatus(ctx context.Context, tenantID string, userIDs []uuid.UUID, status string) (int, error)
 	AssignRole(ctx context.Context, userID, roleID string) error
 	RemoveRole(ctx context.Context, userID, roleID string) error
 	ListRoles(ctx context.Context, tenantID string) ([]RoleRecord, error)
@@ -90,7 +98,7 @@ func (r *UserRepository) CheckTenantExists(ctx context.Context, tenantID uuid.UU
 	return exists, nil
 }
 
-func (r *UserRepository) ListUsers(ctx context.Context, tenantID string, page, pageSize int) ([]UserRecord, int, error) {
+func (r *UserRepository) ListUsers(ctx context.Context, tenantID string, page, pageSize int, filter ListUsersFilter) ([]UserRecord, int, error) {
 	tenantUUID, err := uuid.Parse(tenantID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("invalid tenant id: %w", err)
@@ -107,20 +115,43 @@ func (r *UserRepository) ListUsers(ctx context.Context, tenantID string, page, p
 		pageSize = 100
 	}
 
-	const countQ = `SELECT COUNT(*) FROM users WHERE tenant_id = $1`
+	whereClauses := []string{"u.tenant_id = $1"}
+	args := []any{tenantUUID}
+	argIdx := 2
+
+	if filter.Query != "" {
+		pattern := "%" + strings.ToLower(strings.TrimSpace(filter.Query)) + "%"
+		whereClauses = append(whereClauses, fmt.Sprintf("(LOWER(u.username) LIKE $%d OR LOWER(u.email) LIKE $%d OR LOWER(COALESCE(u.display_name, '')) LIKE $%d)", argIdx, argIdx, argIdx))
+		args = append(args, pattern)
+		argIdx++
+	}
+	if filter.Status != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("u.status = $%d", argIdx))
+		args = append(args, filter.Status)
+		argIdx++
+	}
+	if filter.RoleID != nil {
+		whereClauses = append(whereClauses, fmt.Sprintf("EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role_id = $%d)", argIdx))
+		args = append(args, *filter.RoleID)
+		argIdx++
+	}
+
+	whereSQL := strings.Join(whereClauses, " AND ")
+	countQ := fmt.Sprintf("SELECT COUNT(*) FROM users u WHERE %s", whereSQL)
 	var total int
-	if err := r.db.QueryRowContext(ctx, countQ, tenantUUID).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count users: %w", err)
 	}
 
-	const listQ = `
-		SELECT id, tenant_id, username, email, display_name, status, last_login_at, created_at, updated_at
-		FROM users
-		WHERE tenant_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
-	`
-	rows, err := r.db.QueryContext(ctx, listQ, tenantUUID, pageSize, offset)
+	listArgs := append(append([]any{}, args...), pageSize, offset)
+	listQ := fmt.Sprintf(`
+		SELECT u.id, u.tenant_id, u.username, u.email, u.display_name, u.status, u.last_login_at, u.created_at, u.updated_at
+		FROM users u
+		WHERE %s
+		ORDER BY u.created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereSQL, argIdx, argIdx+1)
+	rows, err := r.db.QueryContext(ctx, listQ, listArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list users: %w", err)
 	}
@@ -299,6 +330,35 @@ func (r *UserRepository) DisableUser(ctx context.Context, tenantID, userID strin
 	return r.UpdateUser(ctx, tenantID, userID, UpdateUserInput{Status: ptr("disabled")})
 }
 
+func (r *UserRepository) BatchUpdateUsersStatus(ctx context.Context, tenantID string, userIDs []uuid.UUID, status string) (int, error) {
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("invalid tenant id: %w", err)
+	}
+	if len(userIDs) == 0 {
+		return 0, nil
+	}
+
+	idStrings := make([]string, 0, len(userIDs))
+	for _, userID := range userIDs {
+		idStrings = append(idStrings, userID.String())
+	}
+
+	const q = `
+		UPDATE users
+		SET status = $1, updated_at = NOW()
+		WHERE tenant_id = $2
+		  AND id = ANY($3::uuid[])
+		  AND status <> $1
+	`
+	result, err := r.db.ExecContext(ctx, q, status, tenantUUID, pq.Array(idStrings))
+	if err != nil {
+		return 0, fmt.Errorf("batch update users status: %w", err)
+	}
+	updated, _ := result.RowsAffected()
+	return int(updated), nil
+}
+
 func (r *UserRepository) AssignRole(ctx context.Context, userID, roleID string) error {
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
@@ -438,7 +498,7 @@ func (r *UserRepository) IsLoginLocked(ctx context.Context, tenantID, username s
 	defer rows.Close()
 
 	var results []struct {
-		result   string
+		result    string
 		createdAt time.Time
 	}
 	for rows.Next() {
@@ -448,7 +508,7 @@ func (r *UserRepository) IsLoginLocked(ctx context.Context, tenantID, username s
 			return false, time.Time{}, fmt.Errorf("scan attempt: %w", err)
 		}
 		results = append(results, struct {
-			result   string
+			result    string
 			createdAt time.Time
 		}{res, at})
 	}

@@ -22,15 +22,8 @@ const RECENT_QUERIES = [
   'message:"timeout"',
   'level:warn',
 ];
-const DEFAULT_LOOKBACK_WINDOW_MS = 30 * 60 * 1000;
-const EXTENDED_LOOKBACK_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-function formatLookbackWindow(windowMS: number): string {
-  if (windowMS >= EXTENDED_LOOKBACK_WINDOW_MS) {
-    return '最近 24 小时';
-  }
-  return '最近 30 分钟';
-}
+const HISTOGRAM_WINDOW_MS = 30 * 60 * 1000;
+const HISTOGRAM_PAGE_SIZE = 200;
 
 function toDisplayText(value: unknown, fallback = '—'): string {
   if (value == null) {
@@ -121,8 +114,7 @@ const RealtimeSearch: React.FC = () => {
   const [queryTimeMS, setQueryTimeMS] = useState(0);
   const [queryTimedOut, setQueryTimedOut] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
-  const [lookbackWindowMS, setLookbackWindowMS] = useState(DEFAULT_LOOKBACK_WINDOW_MS);
-  const [isUsingExtendedWindow, setIsUsingExtendedWindow] = useState(false);
+  const [histogramLogs, setHistogramLogs] = useState<LogEntry[]>([]);
 
   // 分页（pageSize 持久化）
   const [currentPage, setCurrentPage] = useState(1);
@@ -140,54 +132,37 @@ const RealtimeSearch: React.FC = () => {
     pageSize: number;
     silent?: boolean;
     recordHistory?: boolean;
-    lookbackWindowMS?: number;
-    allowAutoWindowFallback?: boolean;
   }) => {
     setTableLoading(true);
-    const requestedWindowMS = options.lookbackWindowMS ?? DEFAULT_LOOKBACK_WINDOW_MS;
     try {
-      const runWithWindow = async (windowMS: number) => {
-        const now = new Date();
-        return queryRealtimeLogs({
+      const filters = {
+        level: levelFilter || undefined,
+        service: sourceFilter || undefined,
+      };
+      const now = new Date();
+      const [result, histogramResult] = await Promise.all([
+        queryRealtimeLogs({
           keywords: options.queryText,
           page: options.page,
           pageSize: options.pageSize,
-          filters: {
-            level: levelFilter || undefined,
-            service: sourceFilter || undefined,
-          },
+          filters,
+          recordHistory: options.recordHistory,
+        }),
+        queryRealtimeLogs({
+          keywords: options.queryText,
+          page: 1,
+          pageSize: HISTOGRAM_PAGE_SIZE,
+          filters,
           timeRange: {
-            from: new Date(now.getTime() - windowMS).toISOString(),
+            from: new Date(now.getTime() - HISTOGRAM_WINDOW_MS).toISOString(),
             to: now.toISOString(),
           },
-          recordHistory: options.recordHistory,
-        });
-      };
-
-      let usedWindowMS = requestedWindowMS;
-      let result = await runWithWindow(usedWindowMS);
-
-      const shouldAutoFallback =
-        options.allowAutoWindowFallback !== false &&
-        usedWindowMS === DEFAULT_LOOKBACK_WINDOW_MS &&
-        options.page === 1 &&
-        !options.queryText.trim() &&
-        result.total === 0;
-
-      if (shouldAutoFallback) {
-        usedWindowMS = EXTENDED_LOOKBACK_WINDOW_MS;
-        result = await runWithWindow(usedWindowMS);
-        setLookbackWindowMS(EXTENDED_LOOKBACK_WINDOW_MS);
-        setIsUsingExtendedWindow(true);
-        if (!options.silent) {
-          message.info('近 30 分钟暂无日志，已自动扩展到最近 24 小时');
-        }
-      } else {
-        setLookbackWindowMS(usedWindowMS);
-        setIsUsingExtendedWindow(usedWindowMS > DEFAULT_LOOKBACK_WINDOW_MS);
-      }
+          recordHistory: false,
+        }),
+      ]);
 
       setLogs(result.hits);
+      setHistogramLogs(histogramResult.hits);
       setTotal(result.total);
       setCurrentPage(result.page);
       setQueryTimeMS(result.queryTimeMS);
@@ -212,10 +187,8 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: true,
-      lookbackWindowMS,
-      allowAutoWindowFallback: true,
     });
-  }, [executeQuery, pageSize, lookbackWindowMS]);
+  }, [executeQuery, pageSize]);
 
   useEffect(() => {
     // 实时模式下按 5 秒轮询当前条件。
@@ -228,12 +201,10 @@ const RealtimeSearch: React.FC = () => {
         page: 1,
         pageSize,
         silent: true,
-        lookbackWindowMS,
-        allowAutoWindowFallback: false,
       });
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [activeQuery, executeQuery, isLive, lookbackWindowMS, pageSize]);
+  }, [activeQuery, executeQuery, isLive, pageSize]);
 
   useEffect(() => {
     const state = (location.state as RealtimeNavigationState | null) ?? null;
@@ -248,11 +219,9 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: false,
-      lookbackWindowMS,
-      allowAutoWindowFallback: true,
     });
     navigate(location.pathname, { replace: true, state: null });
-  }, [executeQuery, location.pathname, location.state, lookbackWindowMS, navigate, pageSize]);
+  }, [executeQuery, location.pathname, location.state, navigate, pageSize]);
 
   // 筛选器变化时重新执行查询（跳过首次挂载，避免与初始查询重复）
   const filterEffectMounted = useRef(false);
@@ -266,13 +235,11 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: true,
-      lookbackWindowMS,
-      allowAutoWindowFallback: false,
     });
-  }, [levelFilter, sourceFilter, executeQuery, activeQuery, pageSize, lookbackWindowMS]);
+  }, [levelFilter, sourceFilter, executeQuery, activeQuery, pageSize]);
 
   // 直方图数据
-  const histogramData = useMemo(() => buildHistogramData(logs), [logs]);
+  const histogramData = useMemo(() => buildHistogramData(histogramLogs), [histogramLogs]);
   const uniqueSources = useMemo(() => {
     const seen = new Set<string>();
     logs.forEach((log) => {
@@ -285,7 +252,6 @@ const RealtimeSearch: React.FC = () => {
     () => histogramData.reduce((sum, d) => sum + d.normal + d.error, 0),
     [histogramData],
   );
-  const lookbackWindowLabel = useMemo(() => formatLookbackWindow(lookbackWindowMS), [lookbackWindowMS]);
 
   // 打开日志详情
   const handleRowClick = useCallback((record: LogEntry) => {
@@ -303,28 +269,13 @@ const RealtimeSearch: React.FC = () => {
       pageSize,
       silent: false,
       recordHistory,
-      lookbackWindowMS,
-      allowAutoWindowFallback: true,
     });
-  }, [executeQuery, lookbackWindowMS, pageSize]);
+  }, [executeQuery, pageSize]);
 
   // 执行检索（仅手动点击执行/回车时写入历史）
   const handleSearch = useCallback((value: string) => {
     runSearch(value, true);
   }, [runSearch]);
-
-  const resetToRealtimeWindow = useCallback(() => {
-    setLookbackWindowMS(DEFAULT_LOOKBACK_WINDOW_MS);
-    setIsUsingExtendedWindow(false);
-    void executeQuery({
-      queryText: activeQuery,
-      page: 1,
-      pageSize,
-      silent: false,
-      lookbackWindowMS: DEFAULT_LOOKBACK_WINDOW_MS,
-      allowAutoWindowFallback: false,
-    });
-  }, [activeQuery, executeQuery, pageSize]);
 
   // 直方图 ECharts 配置
   const histogramOption: EChartsCoreOption = useMemo(() => ({
@@ -500,7 +451,7 @@ const RealtimeSearch: React.FC = () => {
       {/* 事件量直方图 */}
       <ChartWrapper
         title="事件量分布"
-        subtitle={`${lookbackWindowLabel}（当前页）· 共 ${totalEvents.toLocaleString()} 条`}
+        subtitle={`最近 30 分钟 · 共 ${totalEvents.toLocaleString()} 条`}
         option={histogramOption}
         height={160}
       />
@@ -525,16 +476,6 @@ const RealtimeSearch: React.FC = () => {
               共 {total.toLocaleString()} 条结果 · 耗时 {queryTimeMS}ms
             </span>
             {queryTimedOut && <Tag color="warning" style={{ margin: 0 }}>查询超时</Tag>}
-            {isUsingExtendedWindow && (
-              <Tag color="processing" style={{ margin: 0 }}>
-                当前窗口：最近 24 小时
-              </Tag>
-            )}
-            {isUsingExtendedWindow && (
-              <Button size="small" onClick={resetToRealtimeWindow}>
-                切回 30 分钟
-              </Button>
-            )}
           </div>
           <Space size="small">
             <Tooltip title="列设置">

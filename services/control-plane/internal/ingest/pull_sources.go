@@ -67,6 +67,7 @@ var (
 
 // PullSource 定义 pull-sources 列表/详情响应骨架。
 type PullSource struct {
+	TenantID        string    `json:"tenant_id,omitempty"`
 	SourceID        string    `json:"source_id"`
 	Name            string    `json:"name"`
 	Host            string    `json:"host"`

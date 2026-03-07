@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
   const ingestProxyTarget = process.env.VITE_DEV_INGEST_PROXY_TARGET || apiProxyTarget
   // query 接口默认独立走 query-api，避免被 api-service 代理吞掉
   const queryProxyTarget = process.env.VITE_DEV_QUERY_PROXY_TARGET || 'http://localhost:8082'
+  const controlPlaneProxyTarget = process.env.VITE_DEV_CONTROL_PLANE_PROXY_TARGET || ingestProxyTarget
   // audit-api 审计服务
   const auditProxyTarget = process.env.VITE_DEV_AUDIT_PROXY_TARGET || 'http://localhost:8083'
   // export-api 导出服务
@@ -63,6 +64,18 @@ export default defineConfig(({ mode }) => {
         },
         '/api/v1/query': {
           target: queryProxyTarget,
+          changeOrigin: true,
+        },
+        '/api/v1/alert': {
+          target: controlPlaneProxyTarget,
+          changeOrigin: true,
+        },
+        '/api/v1/notification': {
+          target: controlPlaneProxyTarget,
+          changeOrigin: true,
+        },
+        '/api/v1/incidents': {
+          target: controlPlaneProxyTarget,
           changeOrigin: true,
         },
         '/api/v1/audit': {

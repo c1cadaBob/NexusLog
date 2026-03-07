@@ -302,6 +302,14 @@ func (c *Collector) resolveSourcePaths(src SourceConfig) []string {
 			if cleaned == "" {
 				continue
 			}
+			info, statErr := os.Stat(cleaned)
+			if statErr != nil {
+				log.Printf("检查采集路径失败 [%s]: %v", cleaned, statErr)
+				continue
+			}
+			if info.IsDir() {
+				continue
+			}
 			if _, exists := seen[cleaned]; exists {
 				continue
 			}

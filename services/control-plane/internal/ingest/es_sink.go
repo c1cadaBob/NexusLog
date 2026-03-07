@@ -161,7 +161,7 @@ func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSou
 		agentID = strings.TrimSpace(source.SourceID)
 	}
 
-	tenantID, retentionPolicy := resolveGovernanceFromTask(task)
+	tenantID, retentionPolicy := resolveGovernance(task, source)
 	batchID := strings.TrimSpace(response.BatchID)
 
 	type bulkItem struct {
@@ -427,16 +427,19 @@ func parseRFC3339OrNow(raw string) time.Time {
 	return time.Now().UTC()
 }
 
-// resolveGovernanceFromTask 从 task.Options 解析 tenant_id 与 retention_policy。
-func resolveGovernanceFromTask(task PullTask) (tenantID, retentionPolicy string) {
+// resolveGovernance 优先从 task.Options 解析治理字段，缺失时回退到 source。
+func resolveGovernance(task PullTask, source PullSource) (tenantID, retentionPolicy string) {
 	if task.Options == nil {
-		return "", ""
+		return strings.TrimSpace(source.TenantID), ""
 	}
 	if v, ok := task.Options["tenant_id"].(string); ok {
 		tenantID = strings.TrimSpace(v)
 	}
 	if v, ok := task.Options["retention_policy"].(string); ok {
 		retentionPolicy = strings.TrimSpace(v)
+	}
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(source.TenantID)
 	}
 	return tenantID, retentionPolicy
 }

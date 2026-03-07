@@ -209,6 +209,7 @@ func main() {
 		alertRuleService := alert.NewRuleService(alertRuleRepo)
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
 		alert.RegisterAlertRuleRoutes(router, alertRuleHandler)
+		alert.RegisterAlertEventRoutes(router, alert.NewEventHandler(pgDB))
 
 		// Alert silence policy (W4-B6)
 		silenceSvc := alert.NewSilenceService(pgDB)
