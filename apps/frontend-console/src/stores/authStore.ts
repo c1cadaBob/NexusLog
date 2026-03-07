@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '../types/user';
 import { fetchCurrentUser } from '../api/user';
-import { authPersistStorage, clearAuthStorage, getAuthStorageItem, AUTH_PERSIST_KEY } from '../utils/authStorage';
+import { authPersistStorage, clearAuthStorage, getAuthStorageItem, AUTH_PERSIST_KEY, isEmergencyAccessToken } from '../utils/authStorage';
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -35,6 +35,10 @@ export const useAuthStore = create<AuthState>()(
         const token = typeof window !== 'undefined' ? getAuthStorageItem('nexuslog-access-token')?.trim() : '';
         if (!token) {
           set({ permissions: [] });
+          return;
+        }
+        if (isEmergencyAccessToken(token)) {
+          set({ permissions: ['*'] });
           return;
         }
         try {

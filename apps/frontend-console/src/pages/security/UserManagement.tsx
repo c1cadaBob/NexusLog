@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Input, Select, Table, Tag, Button, Space, Modal, Form, Spin, Empty, App } from 'antd';
+import { Alert, App, Button, Empty, Form, Input, Modal, Result, Select, Space, Spin, Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
@@ -15,9 +15,10 @@ import {
   type RoleData,
 } from '../../api/user';
 
-// ============================================================================
-// 角色颜色映射
-// ============================================================================
+interface LoadErrorState {
+  message: string;
+  status?: number;
+}
 
 const roleColorMap: Record<string, string> = {
   admin: 'purple',
@@ -27,9 +28,13 @@ const roleColorMap: Record<string, string> = {
   operator: 'orange',
 };
 
-// ============================================================================
-// 组件
-// ============================================================================
+function toLoadError(error: unknown, fallbackMessage: string): LoadErrorState {
+  const typedError = error as Error & { status?: number };
+  return {
+    message: typedError?.message || fallbackMessage,
+    status: typeof typedError?.status === 'number' ? typedError.status : undefined,
+  };
+}
 
 const UserManagement: React.FC = () => {
   const { message: messageApi } = App.useApp();
@@ -45,6 +50,8 @@ const UserManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [userLoadError, setUserLoadError] = useState<LoadErrorState | null>(null);
+  const [roleLoadError, setRoleLoadError] = useState<LoadErrorState | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -59,21 +66,26 @@ const UserManagement: React.FC = () => {
       const res = await fetchUsers(page, pageSize);
       setUsers(res.users);
       setTotal(res.total);
-    } catch (err) {
-      messageApi.error((err as Error).message || '加载用户列表失败');
+      setUserLoadError(null);
+    } catch (error) {
+      setUsers([]);
+      setTotal(0);
+      setUserLoadError(toLoadError(error, '加载用户列表失败'));
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, messageApi]);
+  }, [page, pageSize]);
 
   const loadRoles = useCallback(async () => {
     try {
       const list = await fetchRoles();
       setRoles(list);
-    } catch (err) {
-      messageApi.error((err as Error).message || '加载角色列表失败');
+      setRoleLoadError(null);
+    } catch (error) {
+      setRoles([]);
+      setRoleLoadError(toLoadError(error, '加载角色列表失败'));
     }
-  }, [messageApi]);
+  }, []);
 
   useEffect(() => {
     loadUsers();
@@ -84,22 +96,26 @@ const UserManagement: React.FC = () => {
   }, [loadRoles]);
 
   const roleOptions = useMemo(
-    () => roles.map((r) => ({ value: r.id, label: r.name })),
+    () => roles.map((role) => ({ value: role.id, label: role.name })),
     [roles],
   );
 
   const filteredUsers = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
     return users.filter((user) => {
-      const name = user.display_name || user.username;
-      const matchesSearch =
-        name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase());
-      const primaryRole = user.roles?.[0]?.name;
-      const matchesRole = !roleFilter || primaryRole === roleFilter || user.roles?.some((r) => r.name === roleFilter);
+      const name = (user.display_name || user.username || '').toLowerCase();
+      const email = (user.email || '').toLowerCase();
+      const matchesSearch = !keyword || name.includes(keyword) || email.includes(keyword);
+      const matchesRole = !roleFilter || Boolean(user.roles?.some((role) => role.id === roleFilter));
       const matchesStatus = !statusFilter || user.status === statusFilter;
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [users, searchTerm, roleFilter, statusFilter]);
+
+  const filtersActive = Boolean(searchTerm.trim() || roleFilter || statusFilter);
+  const currentPageSummary = filtersActive
+    ? `当前页筛选命中 ${filteredUsers.length} / ${users.length} 条；后端总数 ${total} 条`
+    : `当前页已加载 ${users.length} 条；后端总数 ${total} 条`;
 
   const handleCreateUser = useCallback(async () => {
     try {
@@ -115,10 +131,10 @@ const UserManagement: React.FC = () => {
       setIsCreateModalOpen(false);
       createForm.resetFields();
       messageApi.success('用户创建成功');
-      loadUsers();
-    } catch (err) {
-      if ((err as { errorFields?: unknown[] })?.errorFields) return;
-      messageApi.error((err as Error).message || '创建用户失败');
+      await loadUsers();
+    } catch (error) {
+      if ((error as { errorFields?: unknown[] })?.errorFields) return;
+      messageApi.error((error as Error).message || '创建用户失败');
     } finally {
       setActionLoading(false);
     }
@@ -135,18 +151,18 @@ const UserManagement: React.FC = () => {
       });
       const roleId = values.role_id;
       const currentRoleId = currentUser.roles?.[0]?.id;
-      if (roleId && roleId !== currentRoleId) {
+      if (roleId !== currentRoleId) {
         if (currentRoleId) await removeRole(currentUser.id, currentRoleId);
-        await assignRole(currentUser.id, roleId);
+        if (roleId) await assignRole(currentUser.id, roleId);
       }
       setIsEditModalOpen(false);
       setCurrentUser(null);
       form.resetFields();
       messageApi.success('用户信息已更新');
-      loadUsers();
-    } catch (err) {
-      if ((err as { errorFields?: unknown[] })?.errorFields) return;
-      messageApi.error((err as Error).message || '更新用户失败');
+      await loadUsers();
+    } catch (error) {
+      if ((error as { errorFields?: unknown[] })?.errorFields) return;
+      messageApi.error((error as Error).message || '更新用户失败');
     } finally {
       setActionLoading(false);
     }
@@ -160,9 +176,9 @@ const UserManagement: React.FC = () => {
       setIsDeleteModalOpen(false);
       setCurrentUser(null);
       messageApi.success('用户已禁用');
-      loadUsers();
-    } catch (err) {
-      messageApi.error((err as Error).message || '禁用用户失败');
+      await loadUsers();
+    } catch (error) {
+      messageApi.error((error as Error).message || '禁用用户失败');
     } finally {
       setActionLoading(false);
     }
@@ -175,9 +191,9 @@ const UserManagement: React.FC = () => {
         setActionLoading(true);
         await updateUser(user.id, { status: newStatus });
         messageApi.success(newStatus === 'active' ? '用户已启用' : '用户已禁用');
-        loadUsers();
-      } catch (err) {
-        messageApi.error((err as Error).message || '操作失败');
+        await loadUsers();
+      } catch (error) {
+        messageApi.error((error as Error).message || '操作失败');
       } finally {
         setActionLoading(false);
       }
@@ -203,17 +219,37 @@ const UserManagement: React.FC = () => {
     setIsDeleteModalOpen(true);
   }, []);
 
+  const goToLogin = useCallback(() => {
+    window.location.hash = '#/login';
+  }, []);
+
+  const retryAll = useCallback(() => {
+    void loadUsers();
+    void loadRoles();
+  }, [loadUsers, loadRoles]);
+
   const formatLastLogin = (lastLogin?: string) => {
     if (!lastLogin) return '-';
     try {
-      const d = new Date(lastLogin);
-      return Number.isNaN(d.getTime()) ? lastLogin : d.toLocaleString('zh-CN');
+      const date = new Date(lastLogin);
+      return Number.isNaN(date.getTime()) ? lastLogin : date.toLocaleString('zh-CN');
     } catch {
       return lastLogin;
     }
   };
 
   const columns: ColumnsType<UserData> = [
+    {
+      title: '序号',
+      key: 'index',
+      width: 80,
+      align: 'center',
+      render: (_, __, index) => (
+        <span style={{ fontFamily: 'JetBrains Mono, monospace', color: palette.textSecondary }}>
+          {(page - 1) * pageSize + index + 1}
+        </span>
+      ),
+    },
     {
       title: '用户 (USER)',
       dataIndex: 'display_name',
@@ -273,11 +309,7 @@ const UserManagement: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       align: 'center',
-      render: (status: string) => (
-        <Tag color={status === 'active' ? 'success' : 'error'}>
-          {status === 'active' ? '启用' : '禁用'}
-        </Tag>
-      ),
+      render: (status: string) => <Tag color={status === 'active' ? 'success' : 'error'}>{status === 'active' ? '启用' : '禁用'}</Tag>,
     },
     {
       title: '操作 (ACTIONS)',
@@ -316,9 +348,20 @@ const UserManagement: React.FC = () => {
     },
   ];
 
+  const userErrorPresentation = userLoadError?.status === 401
+    ? {
+        status: '403' as const,
+        title: '当前会话未登录或已失效',
+        subTitle: '用户管理接口返回 401。请先重新登录，再继续查看或维护用户信息。',
+      }
+    : {
+        status: 'warning' as const,
+        title: '加载用户数据失败',
+        subTitle: userLoadError?.message || '请稍后重试。',
+      };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* 顶部栏 */}
       <div
         style={{
           padding: '16px 24px',
@@ -349,6 +392,7 @@ const UserManagement: React.FC = () => {
         </div>
         <Button
           type="primary"
+          disabled={Boolean(userLoadError)}
           onClick={() => {
             createForm.resetFields();
             setIsCreateModalOpen(true);
@@ -359,7 +403,6 @@ const UserManagement: React.FC = () => {
         </Button>
       </div>
 
-      {/* 筛选栏 */}
       <div
         style={{
           padding: '12px 24px',
@@ -372,27 +415,31 @@ const UserManagement: React.FC = () => {
         }}
       >
         <Input
+          name="user_search"
           prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: palette.textSecondary }}>search</span>}
           placeholder="按用户名、邮箱搜索..."
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={(event) => setSearchTerm(event.target.value)}
           style={{ width: 280 }}
           allowClear
+          disabled={Boolean(userLoadError)}
         />
         <Select
           placeholder="所有角色"
           value={roleFilter}
-          onChange={(v) => setRoleFilter(v)}
+          onChange={(value) => setRoleFilter(value)}
           allowClear
-          style={{ width: 140 }}
+          style={{ width: 160 }}
           options={roleOptions}
+          disabled={Boolean(userLoadError) || Boolean(roleLoadError)}
         />
         <Select
           placeholder="所有状态"
           value={statusFilter}
-          onChange={(v) => setStatusFilter(v)}
+          onChange={(value) => setStatusFilter(value)}
           allowClear
           style={{ width: 140 }}
+          disabled={Boolean(userLoadError)}
           options={[
             { value: 'active', label: '启用' },
             { value: 'disabled', label: '禁用' },
@@ -400,34 +447,64 @@ const UserManagement: React.FC = () => {
         />
       </div>
 
-      {/* 表格 */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-        <Spin spinning={loading}>
-          <Table<UserData>
-            columns={columns}
-            dataSource={filteredUsers}
-            rowKey="id"
-            size="middle"
-            loading={false}
-            pagination={{
-              current: page,
-              pageSize,
-              total,
-              showTotal: (t, range) => `显示 ${range[0]} 到 ${range[1]} 条，共 ${t} 条记录`,
-              showSizeChanger: true,
-              onChange: (p, ps) => {
-                setPage(p);
-                setPageSize(ps ?? 10);
-              },
-            }}
-            locale={{
-              emptyText: <Empty description="暂无用户数据" />,
-            }}
+      <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
+        {roleLoadError ? (
+          <Alert
+            showIcon
+            type={roleLoadError.status === 401 ? 'warning' : 'error'}
+            message={roleLoadError.status === 401 ? '角色信息未授权，角色筛选与角色分配暂不可用' : '角色信息加载失败'}
+            description={roleLoadError.message}
+            action={<Button size="small" onClick={() => void loadRoles()}>重试角色加载</Button>}
           />
-        </Spin>
+        ) : (
+          <Alert showIcon type="info" message={currentPageSummary} description={filtersActive ? '搜索、角色与状态筛选当前只作用于已加载的这一页数据。' : undefined} />
+        )}
       </div>
 
-      {/* 创建用户模态框 */}
+      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+        {userLoadError ? (
+          <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Result
+              status={userErrorPresentation.status}
+              title={userErrorPresentation.title}
+              subTitle={userErrorPresentation.subTitle}
+              extra={[
+                <Button key="retry" onClick={retryAll}>重新加载</Button>,
+                userLoadError.status === 401 ? (
+                  <Button key="login" type="primary" onClick={goToLogin}>
+                    前往登录
+                  </Button>
+                ) : null,
+              ]}
+            />
+          </div>
+        ) : (
+          <Spin spinning={loading}>
+            <Table<UserData>
+              columns={columns}
+              dataSource={filteredUsers}
+              rowKey="id"
+              size="middle"
+              loading={false}
+              pagination={{
+                current: page,
+                pageSize,
+                total,
+                showTotal: (itemsTotal, range) => `显示 ${range[0]} 到 ${range[1]} 条，共 ${itemsTotal} 条记录`,
+                showSizeChanger: true,
+                onChange: (nextPage, nextPageSize) => {
+                  setPage(nextPage);
+                  setPageSize(nextPageSize ?? 10);
+                },
+              }}
+              locale={{
+                emptyText: <Empty description={filtersActive ? '当前页没有匹配条件的用户' : '暂无用户数据'} />,
+              }}
+            />
+          </Spin>
+        )}
+      </div>
+
       <Modal
         open={isCreateModalOpen}
         title="新增用户"
@@ -443,24 +520,23 @@ const UserManagement: React.FC = () => {
       >
         <Form form={createForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input placeholder="输入登录用户名" />
+            <Input name="create_username" placeholder="输入登录用户名" />
           </Form.Item>
           <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }, { min: 8, message: '密码至少 8 位' }]}>
             <Input.Password placeholder="输入密码" />
           </Form.Item>
           <Form.Item name="display_name" label="显示名称">
-            <Input placeholder="输入显示名称（可选）" />
+            <Input name="create_display_name" placeholder="输入显示名称（可选）" />
           </Form.Item>
           <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱地址' }, { type: 'email', message: '请输入有效的邮箱地址' }]}>
-            <Input placeholder="输入邮箱地址" />
+            <Input name="create_email" placeholder="输入邮箱地址" />
           </Form.Item>
           <Form.Item name="role_id" label="角色">
-            <Select placeholder="选择角色" allowClear options={roleOptions} />
+            <Select placeholder={roleLoadError ? '角色加载失败，暂不可选' : '选择角色'} allowClear options={roleOptions} disabled={Boolean(roleLoadError)} />
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* 编辑用户模态框 */}
       <Modal
         open={isEditModalOpen}
         title="编辑用户"
@@ -477,18 +553,17 @@ const UserManagement: React.FC = () => {
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}>
-            <Input />
+            <Input name="edit_display_name" />
           </Form.Item>
           <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱地址' }, { type: 'email', message: '请输入有效的邮箱地址' }]}>
-            <Input />
+            <Input name="edit_email" />
           </Form.Item>
           <Form.Item name="role_id" label="角色">
-            <Select placeholder="选择角色" allowClear options={roleOptions} />
+            <Select placeholder={roleLoadError ? '角色加载失败，暂不可选' : '选择角色'} allowClear options={roleOptions} disabled={Boolean(roleLoadError)} />
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* 删除确认模态框 */}
       <Modal
         open={isDeleteModalOpen}
         title="确认禁用"

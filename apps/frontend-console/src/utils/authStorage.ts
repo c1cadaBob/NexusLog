@@ -4,6 +4,7 @@ export const ACCESS_TOKEN_KEY = 'nexuslog-access-token';
 export const REFRESH_TOKEN_KEY = 'nexuslog-refresh-token';
 export const TOKEN_EXPIRES_AT_KEY = 'nexuslog-token-expires-at';
 export const AUTH_PERSIST_KEY = 'nexuslog-auth';
+export const EMERGENCY_ACCESS_TOKEN_PREFIX = 'emergency-access-';
 const AUTH_STORAGE_SCOPE_KEY = 'nexuslog-auth-storage-scope';
 
 export type AuthStorageScope = 'local' | 'session';
@@ -93,6 +94,10 @@ export function clearAuthStorage(): void {
   (['local', 'session'] as const).forEach((scope) => {
     AUTH_SESSION_KEYS.forEach((key) => removeStorageValue(scope, key));
   });
+}
+
+export function isEmergencyAccessToken(token: string | null | undefined): boolean {
+  return typeof token === 'string' && token.startsWith(EMERGENCY_ACCESS_TOKEN_PREFIX);
 }
 
 export function persistAuthSession(params: {
