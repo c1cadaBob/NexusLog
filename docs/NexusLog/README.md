@@ -1,94 +1,134 @@
 # NexusLog 文档索引（已整理）
 
-本文档用于说明 `docs/NexusLog` 目录的当前结构、阅读顺序和重命名映射。
+本文档用于说明 `docs/NexusLog` 的当前目录结构、核心入口与推荐阅读顺序。
+本页已经对齐最新文档重组结果，可作为 NexusLog 专题文档的统一导航入口。
 
-## 当前规格基线入口
+## 当前目录结构
 
-- `README-spec-baseline.md`：当前项目 M1~M3 及全量 API 蓝图索引（对应 `process/05~13`）。
+- `00-overview/`
+  - 总览与规格基线入口
+- `10-process/`
+  - 项目过程文档、流程图、任务分解、联调记录、证据留档
+- `20-database/`
+  - 数据库迁移、审计链路、分区、导出与 SQL 参考脚本
+- `30-delivery-security/`
+  - 发布、回滚、CI/CD、部署安全与交付治理
+- `40-monitoring/`
+  - 监控、告警、热更新与回滚观察手册
 
-## 目录结构
+---
 
-- `database/`: 数据库迁移、审计链路、分区与导出
-- `database/sql/`: 可执行 SQL 脚本与模板
-- `monitoring/`: 监控告警、热更新与回滚 Runbook
-- `delivery-security/`: 发布流程、CI/CD、权限与安全加固
-- `process/`: 项目开发策略与端到端开发流程
+## 核心入口
+
+### 1. 规格与总览入口
+
+- `00-overview/01-spec-baseline.md`
+  - 当前规格基线入口，适合先快速理解项目文档体系
+
+### 2. 当前实现与流程图库入口
+
+- `10-process/33-project-workflow-diagram-index.md`
+  - 双口径流程图库入口：当前真实实现 + 目标全平台蓝图
+- `10-process/34-current-real-implementation-flowcharts.md`
+  - 当前真实实现主链路事实图
+- `10-process/35-target-platform-blueprint-flowcharts.md`
+  - 目标全平台蓝图图集
+- `10-process/39-engineering-delivery-ops-flowcharts.md`
+  - 工程交付、发布、回滚、E2E 排障流程图
+
+### 3. 日志链路重点入口
+
+- `10-process/20-log-ingest-e2e-workflow-v2.md`
+- `10-process/24-sdlc-development-process.md`
+- `10-process/31-log-end-to-end-lifecycle-and-uml.md`
+- `10-process/32-log-sequence-diagram-mermaid.md`
+
+### 4. 数据库与治理入口
+
+- `20-database/01-flyway-v2-v5-migrations.md`
+- `20-database/08-schema-gap-and-extension-plan.md`
+- `20-database/sql/`
+
+### 5. 发布与监控入口
+
+- `30-delivery-security/01-deploy-script-hot-reload-and-auto-rollback.md`
+- `30-delivery-security/07-monitoring-release-workflow-final.md`
+- `40-monitoring/01-worker-implementation-and-metrics.md`
+- `40-monitoring/05-monitoring-rollback-runbook.md`
+
+---
 
 ## 推荐阅读顺序
 
-1. `process/01-project-development-strategy-and-phase-split.md`
-2. `process/02-end-to-end-development-workflow.md`
-3. `process/03-frontend-api-data-coverage-matrix.md`
-4. `process/04-frontend-pages-functional-workflow-dataflow.md`
-5. `process/05-next-priority-development-plan.md`
-6. `process/06-m1-m3-weekly-delivery-checklist.md`
-7. `process/07-document-code-gap-matrix.md`
-8. `process/08-current-project-requirements.md`
-9. `process/09-current-project-design.md`
-10. `process/10-current-project-tasks.md`
-11. `process/11-current-project-overall-planning.md`
-12. `process/12-current-project-api-interface-design.md`
-13. `process/13-current-project-full-api-blueprint.md`
-14. `process/20-log-ingest-e2e-workflow-v2.md`
-15. `process/21-log-ingest-e2e-implementation-taskbook.md`
-16. `process/22-full-requirements-and-6week-plan.md`
-17. `process/23-project-master-plan-and-task-registry.md`
-18. `process/24-sdlc-development-process.md`
-19. `process/25-full-lifecycle-task-registry.md`
-14. `database/01-flyway-v2-v5-migrations.md`
-15. `database/02-flyway-compatibility-and-v6-sla.md`
-16. `database/03-v7-rls-multitenancy.md`
-17. `database/04-v8-immutable-audit.md`
-18. `database/05-v9-audit-verify-export.md`
-19. `database/06-v10-partition-retention-and-worker-runbook.md`
-20. `database/07-v11-retry-dead-letter-observability.md`
-21. `database/08-schema-gap-and-extension-plan.md`
-22. `monitoring/01-worker-implementation-and-metrics.md`
-23. `monitoring/02-prometheus-alert-rules-and-grafana-dashboard.md`
-24. `monitoring/03-alertmanager-routing-template.md`
-25. `monitoring/04-hot-reload-guidelines.md`
-26. `monitoring/05-monitoring-rollback-runbook.md`
-27. `delivery-security/01-deploy-script-hot-reload-and-auto-rollback.md`
-28. `delivery-security/02-versioned-deploy-and-rollback.md`
-29. `delivery-security/03-github-actions-auto-deploy-and-rollback.md`
-30. `delivery-security/04-production-approval-and-auto-rollback.md`
-31. `delivery-security/05-sudoers-and-ssh-hardening.md`
-32. `delivery-security/06-hot-reload-first-deploy-strategy.md`
-33. `delivery-security/07-monitoring-release-workflow-final.md`
+### 路径 A：先看当前系统怎么跑
 
-## 重命名映射（旧 -> 新）
+1. `00-overview/01-spec-baseline.md`
+2. `10-process/33-project-workflow-diagram-index.md`
+3. `10-process/34-current-real-implementation-flowcharts.md`
+4. `10-process/32-log-sequence-diagram-mermaid.md`
+5. `10-process/36-runtime-business-flowcharts.md`
+6. `10-process/38-storage-backup-archive-flowcharts.md`
 
-| 旧文件 | 新文件 |
+### 路径 B：先看项目如何开发与交付
+
+1. `10-process/01-project-development-strategy-and-phase-split.md`
+2. `10-process/02-end-to-end-development-workflow.md`
+3. `10-process/23-project-master-plan-and-task-registry.md`
+4. `10-process/25-full-lifecycle-task-registry.md`
+5. `10-process/39-engineering-delivery-ops-flowcharts.md`
+
+### 路径 C：先看数据库与后端治理
+
+1. `20-database/01-flyway-v2-v5-migrations.md`
+2. `20-database/03-v7-rls-multitenancy.md`
+3. `20-database/04-v8-immutable-audit.md`
+4. `20-database/08-schema-gap-and-extension-plan.md`
+
+### 路径 D：先看发布、安全与监控
+
+1. `30-delivery-security/01-deploy-script-hot-reload-and-auto-rollback.md`
+2. `30-delivery-security/02-versioned-deploy-and-rollback.md`
+3. `30-delivery-security/07-monitoring-release-workflow-final.md`
+4. `40-monitoring/01-worker-implementation-and-metrics.md`
+5. `40-monitoring/05-monitoring-rollback-runbook.md`
+
+---
+
+## 目录用途说明
+
+| 目录 | 用途 | 典型内容 |
+|---|---|---|
+| `00-overview/` | 总入口 | 规格基线、阅读入口 |
+| `10-process/` | 过程与流程 | 计划、需求、设计、任务、流程图、证据 |
+| `10-process/evidence/` | 执行留档 | 联调日志、验证记录、排障证据 |
+| `20-database/` | 数据库专题 | Flyway、RLS、审计、导出、分区、SQL 参考 |
+| `30-delivery-security/` | 交付与安全 | 部署、回滚、审批、sudoers、SSH 加固 |
+| `40-monitoring/` | 运维与监控 | Metrics、Prometheus、Alertmanager、回滚观察 |
+
+---
+
+## 旧目录到新目录映射
+
+| 旧路径 | 新路径 |
 |---|---|
-| `a.md` | `database/01-flyway-v2-v5-migrations.md` |
-| `b.md` | `database/02-flyway-compatibility-and-v6-sla.md` |
-| `c.md` | `database/03-v7-rls-multitenancy.md` |
-| `d.md` | `database/04-v8-immutable-audit.md` |
-| `e.md` | `database/05-v9-audit-verify-export.md` |
-| `f.md` | `database/06-v10-partition-retention-and-worker-runbook.md` |
-| `g.md` | `database/07-v11-retry-dead-letter-observability.md` |
-| `h.md` | `monitoring/01-worker-implementation-and-metrics.md` |
-| `i.md` | `monitoring/02-prometheus-alert-rules-and-grafana-dashboard.md` |
-| `j.md` | `monitoring/03-alertmanager-routing-template.md` |
-| `k.md` | `monitoring/04-hot-reload-guidelines.md` |
-| `m.md` | `delivery-security/01-deploy-script-hot-reload-and-auto-rollback.md` |
-| `n.md` | `delivery-security/02-versioned-deploy-and-rollback.md` |
-| `o.md` | `delivery-security/03-github-actions-auto-deploy-and-rollback.md` |
-| `p.md` | `delivery-security/04-production-approval-and-auto-rollback.md` |
-| `q.md` | `delivery-security/05-sudoers-and-ssh-hardening.md` |
-| `r.md` | `delivery-security/06-hot-reload-first-deploy-strategy.md` |
-| `s.md` | `delivery-security/07-monitoring-release-workflow-final.md` |
-| `t.md` | `monitoring/05-monitoring-rollback-runbook.md` |
-| `u.md` | `process/01-project-development-strategy-and-phase-split.md` |
-| `v.md` | 已删除（空文件） |
-| `w.md` | 已删除（空文件） |
-| `x.md` | 已删除（空文件） |
-| `y.md` | 已删除（空文件） |
-| `z.md` | 已删除（空文件） |
+| `README-spec-baseline.md` | `00-overview/01-spec-baseline.md` |
+| `process/` | `10-process/` |
+| `database/` | `20-database/` |
+| `delivery-security/` | `30-delivery-security/` |
+| `monitoring/` | `40-monitoring/` |
 
-### SQL 文件重命名
+### 其他说明
 
-| 旧文件 | 新文件 |
-|---|---|
-| `sql/Migration 脚本模板（复制即用）.sql` | `database/sql/migration-script-template.sql` |
-| `sql/业务事务写法示例（建议你服务端照这个模式）.sql` | `database/sql/transaction-pattern-example.sql` |
+- `10-process/evidence/` 保留为执行态证据目录，用于保存联调摘要、验证记录和排障日志
+- `20-database/sql/` 保留为数据库设计 / 历史 SQL 参考目录，不等同于运行时迁移入口
+- 运行时数据库迁移真相源仍以 `storage/postgresql/migrations/` 为准
+
+---
+
+## 阅读与维护建议
+
+- 想看“当前真实实现”，优先从 `10-process/33 ~ 39` 开始
+- 想看“目标态蓝图”，优先从 `10-process/35` 开始
+- 想看“数据库与审计链路”，优先从 `20-database/` 开始
+- 想看“交付与运维闭环”，优先从 `30-delivery-security/` 和 `40-monitoring/` 开始
+- 如果发现旧路径引用，应优先收口到本页定义的新目录结构
