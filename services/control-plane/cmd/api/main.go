@@ -37,6 +37,7 @@ func main() {
 	// HTTP server (Gin)
 	router := gin.Default()
 	router.Use(gin.Recovery())
+	legacyLogPipelineEnabled := isTruthy(getEnv("LEGACY_LOG_PIPELINE_ENABLED", "false"))
 
 	// ingest 仓储默认使用 PostgreSQL；连接失败时可按配置降级为内存模式。
 	backendMode := strings.ToLower(strings.TrimSpace(getEnv("INGEST_STORE_BACKEND", "postgres")))
@@ -104,7 +105,7 @@ func main() {
 	defer workerCancel()
 
 	// 执行引擎：run-task 异步触发 pull -> ES -> ack/nack -> dead-letter 主链路。
-	executorEnabled := isTruthy(getEnv("INGEST_EXECUTOR_ENABLED", "true"))
+	executorEnabled := legacyLogPipelineEnabled && isTruthy(getEnv("INGEST_EXECUTOR_ENABLED", "true"))
 	var latencyMonitor *ingest.PullLatencyMonitor
 	if executorEnabled {
 		latencyMonitor = ingest.NewPullLatencyMonitor(
@@ -180,8 +181,13 @@ func main() {
 		log.Printf("ingest scheduler disabled")
 	}
 
-	ingest.RegisterPullSourceRoutes(router, pullSourceStore)
-	ingest.RegisterPullTaskRoutes(router, pullSourceStore, pullTaskStore)
+	if legacyLogPipelineEnabled {
+		ingest.RegisterPullSourceRoutes(router, pullSourceStore)
+		ingest.RegisterPullTaskRoutes(router, pullSourceStore, pullTaskStore)
+	} else {
+		log.Printf("legacy log pipeline disabled: ingest routes removed")
+		registerLegacyPipelineRemovedRoutes(router)
+	}
 
 	// ES Snapshot Backup/Restore (W4-B3)
 	backupSvc := backup.NewService()
@@ -223,7 +229,7 @@ func main() {
 		incident.RegisterIncidentRoutes(router, incidentHandler)
 
 		// Alert evaluation engine (runs every 30s)
-		if isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "true")) {
+		if legacyLogPipelineEnabled && isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "true")) {
 			esEndpoint := getEnv("INGEST_ES_ENDPOINT", getEnv("ELASTICSEARCH_URL", "http://localhost:9200"))
 			esIndex := getEnv("INGEST_ES_INDEX", "nexuslog-logs-v2")
 			esClient := alert.NewHTTPESSearchClient(
@@ -247,36 +253,38 @@ func main() {
 		smtpSender := notification.NewSMTPSender()
 		notification.RegisterChannelRoutes(router, channelRepo, smtpSender)
 	}
-	ingest.RegisterPullPackageRoutes(router, pullPackageStore)
-	ingest.RegisterReceiptRoutes(router, pullPackageStore, receiptStore, deadLetterStore)
-	ingest.RegisterDeadLetterRoutes(router, deadLetterStore)
-	router.GET("/api/v1/ingest/metrics/latency", func(c *gin.Context) {
-		if latencyMonitor == nil {
+	if legacyLogPipelineEnabled {
+		ingest.RegisterPullPackageRoutes(router, pullPackageStore)
+		ingest.RegisterReceiptRoutes(router, pullPackageStore, receiptStore, deadLetterStore)
+		ingest.RegisterDeadLetterRoutes(router, deadLetterStore)
+		router.GET("/api/v1/ingest/metrics/latency", func(c *gin.Context) {
+			if latencyMonitor == nil {
+				c.JSON(http.StatusOK, gin.H{
+					"code":       "OK",
+					"message":    "success",
+					"request_id": resolveRequestID(c),
+					"data":       gin.H{"enabled": false},
+					"meta":       gin.H{},
+				})
+				return
+			}
+			snapshot := latencyMonitor.Snapshot()
 			c.JSON(http.StatusOK, gin.H{
 				"code":       "OK",
 				"message":    "success",
 				"request_id": resolveRequestID(c),
-				"data":       gin.H{"enabled": false},
-				"meta":       gin.H{},
-			})
-			return
-		}
-		snapshot := latencyMonitor.Snapshot()
-		c.JSON(http.StatusOK, gin.H{
-			"code":       "OK",
-			"message":    "success",
-			"request_id": resolveRequestID(c),
-			"data": gin.H{
-				"enabled":  true,
-				"snapshot": snapshot,
-				"thresholds": gin.H{
-					"p95_ms": parseEnvInt("INGEST_LATENCY_ALERT_P95_MS", 3000),
-					"p99_ms": parseEnvInt("INGEST_LATENCY_ALERT_P99_MS", 5000),
+				"data": gin.H{
+					"enabled":  true,
+					"snapshot": snapshot,
+					"thresholds": gin.H{
+						"p95_ms": parseEnvInt("INGEST_LATENCY_ALERT_P95_MS", 3000),
+						"p99_ms": parseEnvInt("INGEST_LATENCY_ALERT_P99_MS", 5000),
+					},
 				},
-			},
-			"meta": gin.H{},
+				"meta": gin.H{},
+			})
 		})
-	})
+	}
 
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {
@@ -344,6 +352,32 @@ func main() {
 	}
 
 	fmt.Println("Servers stopped")
+}
+
+func registerLegacyPipelineRemovedRoutes(router *gin.Engine) {
+	if router == nil {
+		return
+	}
+	respondGone := func(c *gin.Context) {
+		c.JSON(http.StatusGone, gin.H{
+			"code":       "LEGACY_PIPELINE_REMOVED",
+			"message":    "legacy log pipeline removed; rewrite in progress",
+			"request_id": resolveRequestID(c),
+			"data":       gin.H{},
+			"meta":       gin.H{},
+		})
+	}
+	router.GET("/api/v1/ingest/pull-sources", respondGone)
+	router.POST("/api/v1/ingest/pull-sources", respondGone)
+	router.PUT("/api/v1/ingest/pull-sources", respondGone)
+	router.PUT("/api/v1/ingest/pull-sources/:source_id", respondGone)
+	router.GET("/api/v1/ingest/pull-tasks", respondGone)
+	router.POST("/api/v1/ingest/pull-tasks/run", respondGone)
+	router.GET("/api/v1/ingest/packages", respondGone)
+	router.POST("/api/v1/ingest/receipts", respondGone)
+	router.GET("/api/v1/ingest/dead-letters", respondGone)
+	router.POST("/api/v1/ingest/dead-letters/replay", respondGone)
+	router.GET("/api/v1/ingest/metrics/latency", respondGone)
 }
 
 func getEnv(key, fallback string) string {

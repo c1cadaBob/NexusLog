@@ -33,8 +33,22 @@ func main() {
 	configPath := getEnv("CONFIG_PATH", "./configs/agent.yaml")
 	log.Printf("加载配置: %s", configPath)
 
+	httpPort := getEnv("HTTP_PORT", "9091")
+	legacyPipelineEnabled := isTruthy(getEnv("LEGACY_LOG_PIPELINE_ENABLED", "false"))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	if !legacyPipelineEnabled {
+		log.Println("legacy log pipeline 已禁用，agent 仅暴露停用状态端点")
+		sysMetrics := metrics.NewCollector(30 * time.Second)
+		sysMetrics.Start()
+		defer sysMetrics.Stop()
+
+		httpServer := startDisabledHTTPServer(httpPort, sysMetrics)
+		waitForShutdown(cancel, httpServer, nil)
+		fmt.Println("Collector Agent 已停止")
+		return
+	}
 
 	// 1. 初始化 checkpoint 存储（at-least-once 语义保证）
 	ckpDir := getEnv("CHECKPOINT_DIR", "/var/lib/collector-agent/checkpoints")
@@ -188,31 +202,9 @@ func main() {
 	defer sysMetrics.Stop()
 
 	// 8. 启动健康检查与 Agent Pull API HTTP 端点
-	httpPort := getEnv("HTTP_PORT", "9091")
 	httpServer := startHTTPServer(httpPort, pullService, metaInfo, authConfig, sysMetrics)
 
-	// 优雅关闭
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Println("收到关闭信号，正在停止...")
-
-	cancel()
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("HTTP 服务关闭错误: %v", err)
-	}
-
-	if pipe != nil {
-		pipe.Wait()
-		if err := pipe.Close(); err != nil {
-			log.Printf("管道关闭错误: %v", err)
-		}
-	}
-
+	waitForShutdown(cancel, httpServer, pipe)
 	fmt.Println("Collector Agent 已停止")
 }
 
@@ -400,6 +392,65 @@ func startHTTPServer(port string, pullService *pullapi.Service, meta pullapi.Met
 	}()
 
 	return server
+}
+
+func startDisabledHTTPServer(port string, sysMetrics *metrics.Collector) *http.Server {
+	mux := http.NewServeMux()
+	mux.Handle("/agent/v1/metrics", metrics.MetricsHandler(sysMetrics))
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"healthy","service":"collector-agent","legacy_pipeline_enabled":false,"time":"%s"}`,
+			time.Now().UTC().Format(time.RFC3339))
+	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"ready","service":"collector-agent","legacy_pipeline_enabled":false,"time":"%s"}`,
+			time.Now().UTC().Format(time.RFC3339))
+	})
+	for _, path := range []string{"/agent/v1/meta", "/agent/v1/logs/pull", "/agent/v1/logs/ack"} {
+		mux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusGone)
+			fmt.Fprint(w, `{"code":"LEGACY_PIPELINE_REMOVED","message":"legacy collector pipeline removed; rewrite in progress"}`)
+		})
+	}
+	server := &http.Server{
+		Addr:              ":" + port,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		log.Printf("停用态 HTTP 服务监听端口 :%s", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP 服务启动失败: %v", err)
+		}
+	}()
+	return server
+}
+
+func waitForShutdown(cancel context.CancelFunc, httpServer *http.Server, pipe *pipeline.Pipeline) {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("收到关闭信号，正在停止...")
+
+	cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP 服务关闭错误: %v", err)
+	}
+
+	if pipe != nil {
+		pipe.Wait()
+		if err := pipe.Close(); err != nil {
+			log.Printf("管道关闭错误: %v", err)
+		}
+	}
 }
 
 func getEnv(key, fallback string) string {

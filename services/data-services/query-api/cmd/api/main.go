@@ -36,15 +36,16 @@ func main() {
 	}
 
 	server.Run(cfg, func(r *gin.Engine) {
-		esRepository := repository.NewElasticsearchRepositoryFromEnv()
 		metadataRepository := repository.NewQueryMetadataRepository(metadataDB)
-		queryService := service.NewQueryService(esRepository, metadataRepository)
-		queryHandler := handler.NewQueryHandler(queryService)
-		statsService := service.NewStatsService(esRepository, metadataDB)
-		statsHandler := handler.NewStatsHandler(statsService)
+		legacyLogPipelineEnabled := strings.EqualFold(getEnv("LEGACY_LOG_PIPELINE_ENABLED", "false"), "true")
 
 		v1 := r.Group("/api/v1/query")
-		{
+		if legacyLogPipelineEnabled {
+			esRepository := repository.NewElasticsearchRepositoryFromEnv()
+			queryService := service.NewQueryService(esRepository, metadataRepository)
+			queryHandler := handler.NewQueryHandler(queryService)
+			statsService := service.NewStatsService(esRepository, metadataDB)
+			statsHandler := handler.NewStatsHandler(statsService)
 			v1.POST("/logs", queryHandler.SearchLogs)
 			v1.GET("/stats/overview", statsHandler.GetOverviewStats)
 			v1.POST("/stats/aggregate", statsHandler.Aggregate)
@@ -54,7 +55,11 @@ func main() {
 			v1.POST("/saved", queryHandler.CreateSavedQuery)
 			v1.PUT("/saved/:saved_query_id", queryHandler.UpdateSavedQuery)
 			v1.DELETE("/saved/:saved_query_id", queryHandler.DeleteSavedQuery)
+			return
 		}
+
+		log.Printf("legacy log pipeline disabled: query log endpoints removed")
+		registerLegacyQueryPipelineRemovedRoutes(v1)
 	})
 }
 
@@ -90,6 +95,23 @@ func openAndPing(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func registerLegacyQueryPipelineRemovedRoutes(group *gin.RouterGroup) {
+	if group == nil {
+		return
+	}
+	respondGone := func(c *gin.Context) {
+		c.JSON(410, gin.H{
+			"code":    "LEGACY_PIPELINE_REMOVED",
+			"message": "legacy query pipeline removed; rewrite in progress",
+			"data":    gin.H{},
+			"meta":    gin.H{},
+		})
+	}
+	group.POST("/logs", respondGone)
+	group.GET("/stats/overview", respondGone)
+	group.POST("/stats/aggregate", respondGone)
 }
 
 func getEnv(key, fallback string) string {
