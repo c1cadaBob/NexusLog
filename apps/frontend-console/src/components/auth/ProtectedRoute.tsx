@@ -1,15 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
+import { clearAuthStorage, getAuthStorageItem, TOKEN_EXPIRES_AT_KEY, ACCESS_TOKEN_KEY } from '../../utils/authStorage';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
-
-/** 认证 token 本地存储键 */
-const ACCESS_TOKEN_KEY = 'nexuslog-access-token';
-const REFRESH_TOKEN_KEY = 'nexuslog-refresh-token';
-const TOKEN_EXPIRES_AT_KEY = 'nexuslog-token-expires-at';
 
 /** 过期判断冗余时间：避免边界时刻请求被后端判定已过期 */
 const TOKEN_EXPIRY_SKEW_MS = 5000;
@@ -23,7 +19,7 @@ interface TokenValidationResult {
 /** 读取本地 access token 到期时间（毫秒时间戳） */
 function getStoredExpiryMs(): number | null {
   try {
-    const raw = window.localStorage.getItem(TOKEN_EXPIRES_AT_KEY)?.trim();
+    const raw = getAuthStorageItem(TOKEN_EXPIRES_AT_KEY)?.trim();
     if (!raw) {
       return null;
     }
@@ -41,7 +37,7 @@ function getStoredExpiryMs(): number | null {
 /** 校验当前会话 token 是否可用于受保护路由 */
 function validateToken(nowMs: number): TokenValidationResult {
   try {
-    const accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY)?.trim();
+    const accessToken = getAuthStorageItem(ACCESS_TOKEN_KEY)?.trim();
     if (!accessToken) {
       return { isValid: false, reason: 'missing_token' };
     }
@@ -61,17 +57,6 @@ function validateToken(nowMs: number): TokenValidationResult {
   } catch (error) {
     console.warn('[ProtectedRoute] 校验 token 失败:', error);
     return { isValid: false, reason: 'missing_token' };
-  }
-}
-
-/** 清理认证相关本地缓存，避免过期会话残留 */
-function clearAuthStorage(): void {
-  try {
-    window.localStorage.removeItem(ACCESS_TOKEN_KEY);
-    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-    window.localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
-  } catch (error) {
-    console.warn('[ProtectedRoute] 清理认证缓存失败:', error);
   }
 }
 

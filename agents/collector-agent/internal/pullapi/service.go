@@ -17,27 +17,22 @@ import (
 )
 
 const (
-	// ErrorCodeInvalidParams 统一参数错误码。
-	ErrorCodeInvalidParams = "REQ_INVALID_PARAMS"
-	// ErrorCodeNotFound 统一资源不存在错误码。
-	ErrorCodeNotFound = "RES_NOT_FOUND"
-	// ErrorCodeInternalError 统一内部错误码。
-	ErrorCodeInternalError = "INTERNAL_ERROR"
-	// ErrorCodeAuthMissingToken 表示缺少鉴权头。
+	ErrorCodeInvalidParams    = "REQ_INVALID_PARAMS"
+	ErrorCodeNotFound         = "RES_NOT_FOUND"
+	ErrorCodeInternalError    = "INTERNAL_ERROR"
 	ErrorCodeAuthMissingToken = "AUTH_MISSING_TOKEN"
-	// ErrorCodeAuthInvalidToken 表示鉴权头非法。
 	ErrorCodeAuthInvalidToken = "AUTH_INVALID_TOKEN"
 )
 
 const (
-	defaultMaxRecords = 200
-	maxMaxRecords     = 1000
-	defaultMaxBytes   = 1 * 1024 * 1024
-	maxMaxBytes       = 5 * 1024 * 1024
-	maxBufferedRecord = 20000
+	defaultMaxRecords  = 200
+	maxMaxRecords      = 1000
+	defaultMaxBytes    = 1 * 1024 * 1024
+	maxMaxBytes        = 5 * 1024 * 1024
+	maxBufferedRecord  = 20000
+	defaultDedupWindow = 10 * time.Second
 )
 
-// MetaInfo 定义 /agent/v1/meta 响应骨架。
 type MetaInfo struct {
 	AgentID      string   `json:"agent_id"`
 	Version      string   `json:"version"`
@@ -46,12 +41,10 @@ type MetaInfo struct {
 	Capabilities []string `json:"capabilities"`
 }
 
-// AuthConfig 定义 X-Agent-Key / X-Key-Id 鉴权配置。
 type AuthConfig struct {
 	KeysByID map[string]string
 }
 
-// PullRequest 定义 /agent/v1/logs/pull 请求。
 type PullRequest struct {
 	Cursor     string `json:"cursor"`
 	MaxRecords int    `json:"max_records"`
@@ -59,15 +52,13 @@ type PullRequest struct {
 	TimeoutMS  int    `json:"timeout_ms"`
 }
 
-// PullResponse 定义 /agent/v1/logs/pull 响应。
 type PullResponse struct {
-	BatchID    string      `json:"batch_id"`
-	Records    []APIRecord `json:"records"`
-	NextCursor string      `json:"next_cursor"`
-	HasMore    bool        `json:"has_more"`
+	BatchID string      `json:"batch_id"`
+	Agent   APIAgent    `json:"agent,omitempty"`
+	Cursor  APICursor   `json:"cursor,omitempty"`
+	Records []APIRecord `json:"records"`
 }
 
-// AckRequest 定义 /agent/v1/logs/ack 请求。
 type AckRequest struct {
 	BatchID         string `json:"batch_id"`
 	Status          string `json:"status"`
@@ -75,32 +66,80 @@ type AckRequest struct {
 	Reason          string `json:"reason"`
 }
 
-// AckResponse 定义 /agent/v1/logs/ack 响应。
 type AckResponse struct {
 	Accepted          bool `json:"accepted"`
 	CheckpointUpdated bool `json:"checkpoint_updated"`
 }
 
-// APIRecord 定义 pull 返回的记录骨架。
+type APIAgent struct {
+	ID      string `json:"id,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+type APICursor struct {
+	Next    string `json:"next,omitempty"`
+	HasMore bool   `json:"has_more"`
+}
+
+type APISource struct {
+	Kind   string `json:"kind,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Offset int64  `json:"offset,omitempty"`
+	Stream string `json:"stream,omitempty"`
+}
+
+type APISeverity struct {
+	Text   string `json:"text,omitempty"`
+	Number int    `json:"number,omitempty"`
+}
+
+type APIServiceInstance struct {
+	ID string `json:"id,omitempty"`
+}
+
+type APIService struct {
+	Name        string             `json:"name,omitempty"`
+	Instance    APIServiceInstance `json:"instance,omitempty"`
+	Version     string             `json:"version,omitempty"`
+	Environment string             `json:"environment,omitempty"`
+}
+
+type APIContainer struct {
+	Name string `json:"name,omitempty"`
+}
+
+type APIMultiline struct {
+	Enabled                 bool  `json:"enabled"`
+	LineCount               int   `json:"line_count,omitempty"`
+	StartOffset             int64 `json:"start_offset,omitempty"`
+	EndOffset               int64 `json:"end_offset,omitempty"`
+	DroppedEmptyPrefixLines int   `json:"dropped_empty_prefix_lines,omitempty"`
+}
+
+type APIDedup struct {
+	Hit         bool   `json:"hit,omitempty"`
+	Count       int    `json:"count,omitempty"`
+	FirstSeenAt string `json:"first_seen_at,omitempty"`
+	LastSeenAt  string `json:"last_seen_at,omitempty"`
+	WindowSec   int    `json:"window_sec,omitempty"`
+	Strategy    string `json:"strategy,omitempty"`
+}
+
 type APIRecord struct {
-	// RecordID 为批次内记录标识，便于调用端做幂等追踪与问题排查。
 	RecordID string `json:"record_id"`
-	// Sequence 为 Agent 侧递增序号，可与 cursor 对照定位。
-	Sequence int64 `json:"sequence"`
-	// Source 为日志来源（通常是文件路径，也可为 syslog 等来源标识）。
-	Source string `json:"source"`
-	// Timestamp 为日志采集时间（Unix 纳秒）。
-	Timestamp int64 `json:"timestamp"`
-	// CollectedAt 为可读时间格式，便于直接展示与排障。
-	CollectedAt string `json:"collected_at"`
-	// Data 为日志原文。
-	Data string `json:"data"`
-	// SizeBytes 为日志原文字节数，便于上游估算带宽与批次大小。
-	SizeBytes int `json:"size_bytes"`
-	// Offset 为该条记录对应来源中的绝对偏移（行尾位置）。
-	Offset int64 `json:"offset"`
-	// Metadata 保留扩展元数据，至少保证 offset 可用（兼容历史调用方）。
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Sequence int64  `json:"sequence"`
+
+	ObservedAt string            `json:"observed_at,omitempty"`
+	Body       string            `json:"body,omitempty"`
+	SizeBytes  int               `json:"size_bytes"`
+	Source     APISource         `json:"source,omitempty"`
+	Severity   APISeverity       `json:"severity,omitempty"`
+	Service    APIService        `json:"service,omitempty"`
+	Container  APIContainer      `json:"container,omitempty"`
+	Attributes map[string]string `json:"attributes,omitempty"`
+	Multiline  APIMultiline      `json:"multiline"`
+	Dedup      APIDedup          `json:"dedup,omitempty"`
+	Original   string            `json:"original,omitempty"`
 }
 
 type internalRecord struct {
@@ -108,8 +147,18 @@ type internalRecord struct {
 	Source    string
 	Timestamp int64
 	Data      []byte
+	Original  string
 	Offset    int64
 	Metadata  map[string]string
+
+	SourceV2    APISource
+	Severity    APISeverity
+	Service     APIService
+	Container   APIContainer
+	Attributes  map[string]string
+	Multiline   APIMultiline
+	Dedup       APIDedup
+	Fingerprint string
 }
 
 type pendingBatch struct {
@@ -117,28 +166,43 @@ type pendingBatch struct {
 	NextCursor int64
 }
 
-// Service 提供 pull/ack 会话状态管理。
-type Service struct {
-	mu              sync.RWMutex
-	ckpStore        checkpoint.Store
-	records         []internalRecord
-	nextSeq         int64
-	committedCursor int64
-	pending         map[string]pendingBatch
-	notifyCh        chan struct{}
+type dedupCacheEntry struct {
+	Seq      int64
+	LastSeen time.Time
 }
 
-// New 创建 pull API 状态服务。
+type Service struct {
+	mu                  sync.RWMutex
+	ckpStore            checkpoint.Store
+	records             []internalRecord
+	nextSeq             int64
+	committedCursor     int64
+	pending             map[string]pendingBatch
+	notifyCh            chan struct{}
+	agentID             string
+	agentVersion        string
+	dedupWindow         time.Duration
+	recentByFingerprint map[string]dedupCacheEntry
+}
+
 func New(ckpStore checkpoint.Store) *Service {
 	return &Service{
-		ckpStore: ckpStore,
-		records:  make([]internalRecord, 0, 1024),
-		pending:  make(map[string]pendingBatch),
-		notifyCh: make(chan struct{}, 1),
+		ckpStore:            ckpStore,
+		records:             make([]internalRecord, 0, 1024),
+		pending:             make(map[string]pendingBatch),
+		notifyCh:            make(chan struct{}, 1),
+		dedupWindow:         defaultDedupWindow,
+		recentByFingerprint: make(map[string]dedupCacheEntry),
 	}
 }
 
-// NewAuthConfig 创建 pull API 鉴权配置。
+func (s *Service) SetAgentInfo(agentID, version string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agentID = strings.TrimSpace(agentID)
+	s.agentVersion = strings.TrimSpace(version)
+}
+
 func NewAuthConfig(activeID, activeKey, nextID, nextKey string) AuthConfig {
 	keys := make(map[string]string)
 	if id := strings.TrimSpace(activeID); id != "" && strings.TrimSpace(activeKey) != "" {
@@ -150,31 +214,33 @@ func NewAuthConfig(activeID, activeKey, nextID, nextKey string) AuthConfig {
 	return AuthConfig{KeysByID: keys}
 }
 
-// AddRecords 追加采集记录，供 pull 接口按 cursor 拉取。
 func (s *Service) AddRecords(batch []plugins.Record) {
 	if len(batch) == 0 {
+		return
+	}
+
+	normalized := normalizePluginBatch(batch)
+	if len(normalized) == 0 {
 		return
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, record := range batch {
+	for _, record := range normalized {
 		s.nextSeq++
-		s.records = append(s.records, internalRecord{
-			Seq:       s.nextSeq,
-			Source:    record.Source,
-			Timestamp: normalizeTimestamp(record.Timestamp),
-			Data:      append([]byte(nil), record.Data...),
-			Offset:    parseOffset(record),
-			Metadata:  cloneMetadata(record.Metadata),
-		})
+		record.Seq = s.nextSeq
+		if s.tryMergeDuplicateLocked(&record) {
+			continue
+		}
+		s.records = append(s.records, record)
+		s.recentByFingerprint[record.Fingerprint] = dedupCacheEntry{Seq: record.Seq, LastSeen: time.Unix(0, record.Timestamp).UTC()}
 	}
 
-	// 限制内存窗口，防止长时间运行无限增长。
 	if len(s.records) > maxBufferedRecord {
 		overflow := len(s.records) - maxBufferedRecord
 		s.records = append([]internalRecord(nil), s.records[overflow:]...)
+		s.rebuildRecentCacheLocked()
 	}
 
 	select {
@@ -183,7 +249,61 @@ func (s *Service) AddRecords(batch []plugins.Record) {
 	}
 }
 
-// Pull 按游标返回批次记录，支持短时等待新增数据。
+func (s *Service) tryMergeDuplicateLocked(record *internalRecord) bool {
+	if record == nil || record.Fingerprint == "" {
+		return false
+	}
+	entry, ok := s.recentByFingerprint[record.Fingerprint]
+	if !ok {
+		return false
+	}
+	currentSeen := time.Unix(0, record.Timestamp).UTC()
+	if currentSeen.Sub(entry.LastSeen) > s.dedupWindow {
+		return false
+	}
+	idx := s.findRecordIndexBySeqLocked(entry.Seq)
+	if idx < 0 {
+		return false
+	}
+	existing := &s.records[idx]
+	if existing.Dedup.Count <= 0 {
+		existing.Dedup.Count = 1
+		existing.Dedup.FirstSeenAt = formatTimestampRFC3339Nano(existing.Timestamp)
+		existing.Dedup.LastSeenAt = formatTimestampRFC3339Nano(existing.Timestamp)
+	}
+	existing.Dedup.Hit = true
+	existing.Dedup.Count++
+	existing.Dedup.LastSeenAt = formatTimestampRFC3339Nano(record.Timestamp)
+	existing.Dedup.WindowSec = int(s.dedupWindow.Seconds())
+	if existing.Multiline.Enabled || record.Multiline.Enabled {
+		existing.Dedup.Strategy = "multiline"
+	} else {
+		existing.Dedup.Strategy = "exact"
+	}
+	s.recentByFingerprint[record.Fingerprint] = dedupCacheEntry{Seq: existing.Seq, LastSeen: currentSeen}
+	return true
+}
+
+func (s *Service) findRecordIndexBySeqLocked(seq int64) int {
+	for i := len(s.records) - 1; i >= 0; i-- {
+		if s.records[i].Seq == seq {
+			return i
+		}
+	}
+	return -1
+}
+
+func (s *Service) rebuildRecentCacheLocked() {
+	s.recentByFingerprint = make(map[string]dedupCacheEntry)
+	for i := range s.records {
+		rec := s.records[i]
+		if rec.Fingerprint == "" {
+			continue
+		}
+		s.recentByFingerprint[rec.Fingerprint] = dedupCacheEntry{Seq: rec.Seq, LastSeen: time.Unix(0, rec.Timestamp).UTC()}
+	}
+}
+
 func (s *Service) Pull(req PullRequest) (PullResponse, error) {
 	normalized, err := normalizePullRequest(req)
 	if err != nil {
@@ -200,22 +320,11 @@ func (s *Service) Pull(req PullRequest) (PullResponse, error) {
 			return resp, nil
 		}
 		if normalized.TimeoutMS <= 0 || time.Now().After(deadline) {
-			return PullResponse{
-				BatchID:    "",
-				Records:    []APIRecord{},
-				NextCursor: normalized.Cursor,
-				HasMore:    false,
-			}, nil
+			return PullResponse{Cursor: APICursor{Next: normalized.Cursor, HasMore: false}, Records: []APIRecord{}}, nil
 		}
-
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return PullResponse{
-				BatchID:    "",
-				Records:    []APIRecord{},
-				NextCursor: normalized.Cursor,
-				HasMore:    false,
-			}, nil
+			return PullResponse{Cursor: APICursor{Next: normalized.Cursor, HasMore: false}, Records: []APIRecord{}}, nil
 		}
 		timer := time.NewTimer(remaining)
 		select {
@@ -231,7 +340,6 @@ func (s *Service) Pull(req PullRequest) (PullResponse, error) {
 	}
 }
 
-// Ack 处理 pull 批次确认，ACK 时回写 checkpoint。
 func (s *Service) Ack(req AckRequest) (AckResponse, int, error) {
 	normalized, err := normalizeAckRequest(req)
 	if err != nil {
@@ -273,8 +381,6 @@ func (s *Service) Ack(req AckRequest) (AckResponse, int, error) {
 				latestOffsets[record.Source] = record.Offset
 			}
 		}
-
-		// checkpoint 回写在锁内串行执行，保证 committed_cursor 与持久化语义一致。
 		for source, offset := range latestOffsets {
 			if saveErr := s.ckpStore.Save(source, offset); saveErr == nil {
 				checkpointUpdated = true
@@ -283,10 +389,7 @@ func (s *Service) Ack(req AckRequest) (AckResponse, int, error) {
 	}
 	s.mu.Unlock()
 
-	return AckResponse{
-		Accepted:          accepted,
-		CheckpointUpdated: checkpointUpdated,
-	}, http.StatusOK, nil
+	return AckResponse{Accepted: accepted, CheckpointUpdated: checkpointUpdated}, http.StatusOK, nil
 }
 
 func (s *Service) tryBuildPullResponse(req PullRequest) (PullResponse, bool, error) {
@@ -318,11 +421,9 @@ func (s *Service) tryBuildPullResponse(req PullRequest) (PullResponse, bool, err
 		selected = append(selected, record)
 		totalBytes += recordSize
 	}
-
 	if len(selected) == 0 {
 		return PullResponse{}, false, nil
 	}
-
 	lastSeq := selected[len(selected)-1].Seq
 	hasMore := false
 	for _, record := range s.records {
@@ -335,33 +436,32 @@ func (s *Service) tryBuildPullResponse(req PullRequest) (PullResponse, bool, err
 	apiRecords := make([]APIRecord, 0, len(selected))
 	for _, record := range selected {
 		apiRecords = append(apiRecords, APIRecord{
-			RecordID:    formatRecordID(record.Seq),
-			Sequence:    record.Seq,
-			Source:      record.Source,
-			Timestamp:   record.Timestamp,
-			CollectedAt: formatTimestampRFC3339Nano(record.Timestamp),
-			Data:        string(record.Data),
-			SizeBytes:   len(record.Data),
-			Offset:      record.Offset,
-			Metadata:    buildAPIMetadata(record),
+			RecordID:   formatRecordID(record.Seq),
+			Sequence:   record.Seq,
+			ObservedAt: formatTimestampRFC3339Nano(record.Timestamp),
+			Body:       string(record.Data),
+			SizeBytes:  len(record.Data),
+			Source:     record.SourceV2,
+			Severity:   record.Severity,
+			Service:    record.Service,
+			Container:  record.Container,
+			Attributes: cloneMetadata(record.Attributes),
+			Multiline:  record.Multiline,
+			Dedup:      record.Dedup,
+			Original:   record.Original,
 		})
 	}
 
 	batchID := newBatchID()
-	s.pending[batchID] = pendingBatch{
-		Records:    append([]internalRecord(nil), selected...),
-		NextCursor: lastSeq,
-	}
-
+	s.pending[batchID] = pendingBatch{Records: append([]internalRecord(nil), selected...), NextCursor: lastSeq}
 	return PullResponse{
-		BatchID:    batchID,
-		Records:    apiRecords,
-		NextCursor: strconv.FormatInt(lastSeq, 10),
-		HasMore:    hasMore,
+		BatchID: batchID,
+		Agent:   APIAgent{ID: s.agentID, Version: s.agentVersion},
+		Cursor:  APICursor{Next: strconv.FormatInt(lastSeq, 10), HasMore: hasMore},
+		Records: apiRecords,
 	}, true, nil
 }
 
-// RegisterRoutes 注册 agent pull 三个接口。
 func RegisterRoutes(mux *http.ServeMux, svc *Service, meta MetaInfo, auth AuthConfig) {
 	mux.HandleFunc("/agent/v1/meta", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -373,7 +473,6 @@ func RegisterRoutes(mux *http.ServeMux, svc *Service, meta MetaInfo, auth AuthCo
 		}
 		writeJSON(w, http.StatusOK, meta)
 	})
-
 	mux.HandleFunc("/agent/v1/logs/pull", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, ErrorCodeInvalidParams, "method not allowed")
@@ -394,7 +493,6 @@ func RegisterRoutes(mux *http.ServeMux, svc *Service, meta MetaInfo, auth AuthCo
 		}
 		writeJSONCompressed(w, http.StatusOK, resp, r)
 	})
-
 	mux.HandleFunc("/agent/v1/logs/ack", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, ErrorCodeInvalidParams, "method not allowed")
@@ -429,7 +527,6 @@ func authenticateRequest(w http.ResponseWriter, r *http.Request, auth AuthConfig
 		writeError(w, http.StatusUnauthorized, ErrorCodeAuthMissingToken, "unauthorized")
 		return false
 	}
-
 	keyID := strings.TrimSpace(r.Header.Get("X-Key-Id"))
 	if !auth.matches(keyID, agentKey) {
 		writeError(w, http.StatusUnauthorized, ErrorCodeAuthInvalidToken, "unauthorized")
@@ -442,12 +539,10 @@ func (a AuthConfig) matches(keyID, key string) bool {
 	if len(a.KeysByID) == 0 {
 		return false
 	}
-
 	if keyID != "" {
 		expected, ok := a.KeysByID[keyID]
 		return ok && expected == key
 	}
-
 	for _, expected := range a.KeysByID {
 		if expected == key {
 			return true
@@ -457,12 +552,7 @@ func (a AuthConfig) matches(keyID, key string) bool {
 }
 
 func normalizePullRequest(req PullRequest) (PullRequest, error) {
-	normalized := PullRequest{
-		Cursor:     strings.TrimSpace(req.Cursor),
-		MaxRecords: req.MaxRecords,
-		MaxBytes:   req.MaxBytes,
-		TimeoutMS:  req.TimeoutMS,
-	}
+	normalized := PullRequest{Cursor: strings.TrimSpace(req.Cursor), MaxRecords: req.MaxRecords, MaxBytes: req.MaxBytes, TimeoutMS: req.TimeoutMS}
 	if normalized.MaxRecords == 0 {
 		normalized.MaxRecords = defaultMaxRecords
 	}
@@ -488,12 +578,7 @@ func normalizePullRequest(req PullRequest) (PullRequest, error) {
 }
 
 func normalizeAckRequest(req AckRequest) (AckRequest, error) {
-	normalized := AckRequest{
-		BatchID:         strings.TrimSpace(req.BatchID),
-		Status:          strings.ToLower(strings.TrimSpace(req.Status)),
-		CommittedCursor: strings.TrimSpace(req.CommittedCursor),
-		Reason:          strings.TrimSpace(req.Reason),
-	}
+	normalized := AckRequest{BatchID: strings.TrimSpace(req.BatchID), Status: strings.ToLower(strings.TrimSpace(req.Status)), CommittedCursor: strings.TrimSpace(req.CommittedCursor), Reason: strings.TrimSpace(req.Reason)}
 	if normalized.BatchID == "" {
 		return AckRequest{}, fmt.Errorf("batch_id is required")
 	}
@@ -517,25 +602,6 @@ func parseCursor(cursor string) (int64, error) {
 	return parsed, nil
 }
 
-func parseOffset(record plugins.Record) int64 {
-	if record.Metadata != nil {
-		raw := strings.TrimSpace(record.Metadata["offset"])
-		if raw != "" {
-			if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed >= 0 {
-				return parsed
-			}
-		}
-	}
-	return int64(len(record.Data))
-}
-
-func normalizeTimestamp(ts int64) int64 {
-	if ts > 0 {
-		return ts
-	}
-	return time.Now().UTC().UnixNano()
-}
-
 func decodeJSON(r *http.Request, v any) error {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -552,10 +618,7 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]any{
-		"code":    code,
-		"message": message,
-	})
+	writeJSON(w, status, map[string]any{"code": code, "message": message})
 }
 
 func newBatchID() string {
@@ -577,30 +640,10 @@ func cloneMetadata(src map[string]string) map[string]string {
 	return dst
 }
 
-// buildAPIMetadata 构造 pull 返回元数据。
-// 兼容性要求：历史调用方依赖 metadata.offset，因此此处保证该字段始终可取。
-func buildAPIMetadata(record internalRecord) map[string]string {
-	metadata := cloneMetadata(record.Metadata)
-	if record.Offset > 0 {
-		if metadata == nil {
-			metadata = make(map[string]string, 1)
-		}
-		if strings.TrimSpace(metadata["offset"]) == "" {
-			metadata["offset"] = strconv.FormatInt(record.Offset, 10)
-		}
-	}
-	if len(metadata) == 0 {
-		return nil
-	}
-	return metadata
-}
-
-// formatRecordID 基于内部递增序号生成记录 ID。
 func formatRecordID(seq int64) string {
 	return "rec-" + strconv.FormatInt(seq, 10)
 }
 
-// formatTimestampRFC3339Nano 将 Unix 纳秒时间戳格式化为 UTC 字符串。
 func formatTimestampRFC3339Nano(ts int64) string {
 	if ts <= 0 {
 		return ""

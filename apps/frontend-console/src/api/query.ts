@@ -1,5 +1,6 @@
 import { getRuntimeConfig } from '../config/runtime-config';
 import type { LogEntry, QueryHistory, SavedQuery } from '../types/log';
+import { getAuthStorageItem } from '../utils/authStorage';
 
 const ACCESS_TOKEN_KEY = 'nexuslog-access-token';
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
@@ -575,11 +576,11 @@ function getQueryApiBasePath(): string {
 }
 
 function resolveAccessToken(): string {
-  const accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY)?.trim() ?? '';
+  const accessToken = getAuthStorageItem(ACCESS_TOKEN_KEY)?.trim() ?? '';
   if (!accessToken) {
     return '';
   }
-  const expiresAtRaw = window.localStorage.getItem(TOKEN_EXPIRES_AT_KEY)?.trim() ?? '';
+  const expiresAtRaw = getAuthStorageItem(TOKEN_EXPIRES_AT_KEY)?.trim() ?? '';
   if (expiresAtRaw) {
     const expiresAtMs = Number(expiresAtRaw);
     if (Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) {

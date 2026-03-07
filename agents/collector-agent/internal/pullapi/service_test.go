@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,8 +105,8 @@ func TestPullAndAckFlow(t *testing.T) {
 	if err := json.Unmarshal(pullResp.Body.Bytes(), &pullData); err != nil {
 		t.Fatalf("decode pull response failed: %v", err)
 	}
-	if pullData.BatchID == "" || pullData.NextCursor == "" {
-		t.Fatalf("expected non-empty batch_id/next_cursor: %+v", pullData)
+	if pullData.BatchID == "" || pullData.Cursor.Next == "" {
+		t.Fatalf("expected non-empty batch_id/cursor.next: %+v", pullData)
 	}
 	if len(pullData.Records) != 2 {
 		t.Fatalf("expected 2 records, got %d", len(pullData.Records))
@@ -117,29 +118,26 @@ func TestPullAndAckFlow(t *testing.T) {
 	if first.Sequence <= 0 {
 		t.Fatalf("expected positive sequence: %+v", first)
 	}
-	if first.Offset != 6 {
-		t.Fatalf("expected first record offset=6, got %d", first.Offset)
+	if first.Source.Offset != 6 {
+		t.Fatalf("expected first record source.offset=6, got %d", first.Source.Offset)
+	}
+	if first.Source.Path != "/var/log/app.log" {
+		t.Fatalf("expected first record source.path=/var/log/app.log, got %s", first.Source.Path)
 	}
 	if first.SizeBytes != len("line-a") {
 		t.Fatalf("expected first record size=%d, got %d", len("line-a"), first.SizeBytes)
 	}
-	if first.Metadata["offset"] != "6" {
-		t.Fatalf("expected first record metadata.offset=6, got %#v", first.Metadata["offset"])
+	if first.ObservedAt == "" {
+		t.Fatalf("expected non-empty observed_at: %+v", first)
 	}
-	if first.CollectedAt == "" {
-		t.Fatalf("expected non-empty collected_at: %+v", first)
-	}
-	if _, err := time.Parse(time.RFC3339Nano, first.CollectedAt); err != nil {
-		t.Fatalf("parse collected_at failed: %v value=%s", err, first.CollectedAt)
-	}
-	if first.Timestamp <= 0 {
-		t.Fatalf("expected positive timestamp: %+v", first)
+	if _, err := time.Parse(time.RFC3339Nano, first.ObservedAt); err != nil {
+		t.Fatalf("parse observed_at failed: %v value=%s", err, first.ObservedAt)
 	}
 
 	ackResp := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/ack", map[string]any{
 		"batch_id":         pullData.BatchID,
 		"status":           "ack",
-		"committed_cursor": pullData.NextCursor,
+		"committed_cursor": pullData.Cursor.Next,
 	}, map[string]string{
 		"X-Agent-Key": "test-active-key",
 	})
@@ -187,11 +185,11 @@ func TestPullRecordFallbackOffsetMetadata(t *testing.T) {
 		t.Fatalf("expected 1 record, got %d", len(pullData.Records))
 	}
 	got := pullData.Records[0]
-	if got.Offset != int64(len("hello")) {
-		t.Fatalf("expected offset=%d, got %d", len("hello"), got.Offset)
+	if got.Source.Offset != int64(len("hello")) {
+		t.Fatalf("expected source.offset=%d, got %d", len("hello"), got.Source.Offset)
 	}
-	if got.Metadata["offset"] != "5" {
-		t.Fatalf("expected metadata.offset=5, got %#v", got.Metadata["offset"])
+	if got.Source.Path != "syslog://local" {
+		t.Fatalf("expected source.path=syslog://local, got %s", got.Source.Path)
 	}
 }
 
@@ -215,6 +213,69 @@ func TestPullInvalidArgument(t *testing.T) {
 	}
 	if body["code"] != ErrorCodeInvalidParams {
 		t.Fatalf("unexpected error code: %#v", body["code"])
+	}
+}
+
+func TestPullStructuredMultilineAndDedup(t *testing.T) {
+	store := newMockCheckpointStore()
+	svc := New(store)
+	svc.SetAgentInfo("agent-structured", "2.0.0")
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, svc, MetaInfo{}, testAuthConfig())
+
+	now := time.Now().UTC().UnixNano()
+	svc.AddRecords([]plugins.Record{
+		{Source: "/var/lib/docker/containers/keycloak.log", Timestamp: now, Data: []byte("keycloak-1           | ERROR failed to start transaction"), Metadata: map[string]string{"offset": "100"}},
+		{Source: "/var/lib/docker/containers/keycloak.log", Timestamp: now + int64(time.Millisecond), Data: []byte("keycloak-1           | \tat org.hibernate.resource.transaction.backend.jta.internal.JtaIsolationDelegate.doTheWork(JtaIsolationDelegate.java:186)"), Metadata: map[string]string{"offset": "200"}},
+		{Source: "/var/lib/docker/containers/keycloak.log", Timestamp: now + 2*int64(time.Millisecond), Data: []byte("keycloak-1           |"), Metadata: map[string]string{"offset": "210"}},
+	})
+	svc.AddRecords([]plugins.Record{
+		{Source: "/var/lib/docker/containers/keycloak.log", Timestamp: now + 3*int64(time.Millisecond), Data: []byte("keycloak-1           | ERROR failed to start transaction"), Metadata: map[string]string{"offset": "300"}},
+		{Source: "/var/lib/docker/containers/keycloak.log", Timestamp: now + 4*int64(time.Millisecond), Data: []byte("keycloak-1           | \tat org.hibernate.resource.transaction.backend.jta.internal.JtaIsolationDelegate.doTheWork(JtaIsolationDelegate.java:186)"), Metadata: map[string]string{"offset": "400"}},
+	})
+
+	pullResp := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/pull", map[string]any{
+		"max_records": 10,
+		"max_bytes":   4096,
+	}, map[string]string{
+		"X-Agent-Key": "test-active-key",
+	})
+	if pullResp.Code != http.StatusOK {
+		t.Fatalf("pull failed: %d body=%s", pullResp.Code, pullResp.Body.String())
+	}
+
+	var pullData PullResponse
+	if err := json.Unmarshal(pullResp.Body.Bytes(), &pullData); err != nil {
+		t.Fatalf("decode pull response failed: %v", err)
+	}
+	if pullData.Agent.ID != "agent-structured" || pullData.Agent.Version != "2.0.0" {
+		t.Fatalf("unexpected agent info: %+v", pullData.Agent)
+	}
+	if len(pullData.Records) != 1 {
+		t.Fatalf("expected 1 merged record, got %d", len(pullData.Records))
+	}
+
+	record := pullData.Records[0]
+	if record.Service.Name != "keycloak" || record.Service.Instance.ID != "keycloak-1" {
+		t.Fatalf("unexpected service extraction: %+v", record.Service)
+	}
+	if record.Container.Name != "keycloak-1" {
+		t.Fatalf("unexpected container extraction: %+v", record.Container)
+	}
+	if !record.Multiline.Enabled || record.Multiline.LineCount != 2 {
+		t.Fatalf("expected multiline merge, got %+v", record.Multiline)
+	}
+	if strings.Contains(record.Body, "keycloak-1           |") {
+		t.Fatalf("expected body without service prefix, got %q", record.Body)
+	}
+	if record.Dedup.Count != 2 || !record.Dedup.Hit {
+		t.Fatalf("expected dedup hit count=2, got %+v", record.Dedup)
+	}
+	if record.Source.Path != "/var/lib/docker/containers/keycloak.log" {
+		t.Fatalf("unexpected source path: %+v", record.Source)
+	}
+	if record.Source.Offset != 200 {
+		t.Fatalf("unexpected source offset: %+v", record.Source)
 	}
 }
 

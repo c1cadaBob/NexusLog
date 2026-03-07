@@ -3,6 +3,7 @@ import { Form, Input, Button, Checkbox, App } from 'antd';
 import { useAuthStore } from '../../stores/authStore';
 import { getRuntimeConfig } from '../../config/runtime-config';
 import type { User } from '../../types/user';
+import { persistAuthSession } from '../../utils/authStorage';
 
 export interface LoginFormProps {
   onForgotPassword?: () => void;
@@ -59,10 +60,6 @@ interface LoginResponseData {
   };
 }
 
-/** 本地存储键：为后续 token 校验/刷新任务预留 */
-const ACCESS_TOKEN_KEY = 'nexuslog-access-token';
-const REFRESH_TOKEN_KEY = 'nexuslog-refresh-token';
-const TOKEN_EXPIRES_AT_KEY = 'nexuslog-token-expires-at';
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
 /** 前端会话有效期上限：6 小时（秒） */
 const MAX_FRONTEND_TOKEN_TTL_SECONDS = 6 * 60 * 60;
@@ -126,15 +123,15 @@ function isEmergencyMockEnabled(config: RuntimeConfigWithTenant): boolean {
 }
 
 /** 写入应急 mock 会话 token，兼容受保护路由的 token 检查逻辑 */
-function writeEmergencyMockSessionTokens(): void {
+function writeEmergencyMockSessionTokens(remember: boolean): void {
   const nowMs = Date.now();
   const randomSuffix = Math.random().toString(36).slice(2, 10);
-  window.localStorage.setItem(ACCESS_TOKEN_KEY, `emergency-access-${randomSuffix}`);
-  window.localStorage.setItem(REFRESH_TOKEN_KEY, `emergency-refresh-${randomSuffix}`);
-  window.localStorage.setItem(
-    TOKEN_EXPIRES_AT_KEY,
-    String(nowMs + MAX_FRONTEND_TOKEN_TTL_SECONDS * 1000),
-  );
+  persistAuthSession({
+    accessToken: `emergency-access-${randomSuffix}`,
+    refreshToken: `emergency-refresh-${randomSuffix}`,
+    expiresAtMs: nowMs + MAX_FRONTEND_TOKEN_TTL_SECONDS * 1000,
+    remember,
+  });
 }
 
 /** 提取后端错误并转换为可读中文提示 */
@@ -180,7 +177,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, dis
     if (isEmergencyMockEnabled(runtimeConfig)) {
       setLoading(true);
       try {
-        writeEmergencyMockSessionTokens();
+        writeEmergencyMockSessionTokens(values.remember);
         if (tenantId) {
           window.localStorage.setItem(TENANT_ID_KEY, tenantId);
         }
@@ -243,14 +240,13 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, dis
       }
 
       // 保存 token，为后续受保护路由与刷新逻辑提供基础数据
-      window.localStorage.setItem(ACCESS_TOKEN_KEY, successBody.data.access_token);
-      window.localStorage.setItem(REFRESH_TOKEN_KEY, successBody.data.refresh_token);
-      // 前端有效期限制为最多 6 小时，避免本地会话时间过长
       const tokenTtlSeconds = resolveTokenTtlSeconds(successBody.data.expires_in);
-      window.localStorage.setItem(
-        TOKEN_EXPIRES_AT_KEY,
-        String(Date.now() + tokenTtlSeconds * 1000),
-      );
+      persistAuthSession({
+        accessToken: successBody.data.access_token,
+        refreshToken: successBody.data.refresh_token,
+        expiresAtMs: Date.now() + tokenTtlSeconds * 1000,
+        remember: values.remember,
+      });
       if (tenantId) {
         window.localStorage.setItem(TENANT_ID_KEY, tenantId);
       }
@@ -291,12 +287,14 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, dis
       <Form.Item
         name="username"
         label="用户名"
+        htmlFor="login-username"
         rules={[{ required: true, message: '请输入用户名' }]}
       >
         <Input
           id="login-username"
           prefix={<span className="material-symbols-outlined text-base opacity-50">person</span>}
           placeholder="请输入用户名"
+          name="username"
           autoComplete="username"
         />
       </Form.Item>
@@ -309,6 +307,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, dis
         <Input.Password
           prefix={<span className="material-symbols-outlined text-base opacity-50">lock</span>}
           placeholder="请输入密码"
+          name="password"
           autoComplete="current-password"
         />
       </Form.Item>

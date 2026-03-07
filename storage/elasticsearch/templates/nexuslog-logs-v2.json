@@ -1,0 +1,37 @@
+{
+  "index_patterns": ["nexuslog-logs-v2", "nexuslog-logs-v2-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 3,
+      "number_of_replicas": 1,
+      "refresh_interval": "5s",
+      "codec": "best_compression",
+      "index.lifecycle.name": "nexuslog-logs-ilm",
+      "index.lifecycle.rollover_alias": "nexuslog-logs-v2"
+    },
+    "mappings": {
+      "dynamic": true,
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "message": { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 1024 } } },
+        "event": { "properties": { "id": { "type": "keyword" }, "record_id": { "type": "keyword" }, "sequence": { "type": "long" }, "original": { "type": "text" }, "kind": { "type": "keyword" }, "category": { "type": "keyword" }, "type": { "type": "keyword" }, "severity": { "type": "short" } } },
+        "log": { "properties": { "level": { "type": "keyword" }, "offset": { "type": "long" }, "file": { "properties": { "path": { "type": "keyword" }, "name": { "type": "keyword" }, "directory": { "type": "keyword" } } } } },
+        "source": { "properties": { "kind": { "type": "keyword" }, "path": { "type": "keyword" }, "stream": { "type": "keyword" } } },
+        "agent": { "properties": { "id": { "type": "keyword" }, "version": { "type": "keyword" }, "hostname": { "type": "keyword" } } },
+        "service": { "properties": { "name": { "type": "keyword" }, "instance": { "properties": { "id": { "type": "keyword" } } }, "version": { "type": "keyword" }, "environment": { "type": "keyword" } } },
+        "container": { "properties": { "name": { "type": "keyword" } } },
+        "host": { "properties": { "name": { "type": "keyword" }, "ip": { "type": "ip" } } },
+        "process": { "properties": { "pid": { "type": "integer" }, "thread": { "properties": { "id": { "type": "long" } } } } },
+        "trace": { "properties": { "id": { "type": "keyword" } } },
+        "span": { "properties": { "id": { "type": "keyword" } } },
+        "request": { "properties": { "id": { "type": "keyword" } } },
+        "user": { "properties": { "id": { "type": "keyword" } } },
+        "http": { "properties": { "request": { "properties": { "method": { "type": "keyword" } } }, "response": { "properties": { "status_code": { "type": "short" } } } } },
+        "url": { "properties": { "path": { "type": "keyword" }, "full": { "type": "keyword", "ignore_above": 4096 } } },
+        "error": { "properties": { "type": { "type": "keyword" }, "message": { "type": "text" }, "stack_trace": { "type": "text" } } },
+        "nexuslog": { "properties": { "transport": { "properties": { "batch_id": { "type": "keyword" }, "channel": { "type": "keyword" }, "compressed": { "type": "boolean" }, "encrypted": { "type": "boolean" } } }, "ingest": { "properties": { "received_at": { "type": "date" }, "schema_version": { "type": "keyword" }, "pipeline_version": { "type": "keyword" }, "parse_status": { "type": "keyword" }, "parse_rule": { "type": "keyword" }, "retry_count": { "type": "short" } } }, "multiline": { "properties": { "enabled": { "type": "boolean" }, "line_count": { "type": "integer" }, "start_offset": { "type": "long" }, "end_offset": { "type": "long" }, "dropped_empty_prefix_lines": { "type": "integer" } } }, "dedup": { "properties": { "fingerprint": { "type": "keyword" }, "hit": { "type": "boolean" }, "count": { "type": "integer" }, "first_seen_at": { "type": "date" }, "last_seen_at": { "type": "date" }, "window_sec": { "type": "integer" }, "strategy": { "type": "keyword" }, "suppressed_count": { "type": "integer" } } }, "governance": { "properties": { "tenant_id": { "type": "keyword" }, "retention_policy": { "type": "keyword" }, "pii_masked": { "type": "boolean" }, "classification": { "type": "keyword" } } } } },
+        "labels": { "type": "object", "dynamic": true }
+      }
+    }
+  }
+}

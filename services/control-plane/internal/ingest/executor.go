@@ -130,7 +130,7 @@ func (e *PullTaskExecutor) Execute(task PullTask) {
 
 	// 空批次按成功处理，只更新游标字段。
 	if len(pullResp.Records) == 0 {
-		e.taskStore.MarkSuccess(task.TaskID, strings.TrimSpace(pullResp.BatchID), strings.TrimSpace(pullResp.NextCursor))
+		e.taskStore.MarkSuccess(task.TaskID, strings.TrimSpace(pullResp.BatchID), strings.TrimSpace(pullResp.Cursor.Next))
 		return
 	}
 

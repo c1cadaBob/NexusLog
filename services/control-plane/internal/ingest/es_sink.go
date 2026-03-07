@@ -8,16 +8,29 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
+const defaultSemanticDedupWindow = 10 * time.Second
+
 // ESSink 定义写入 Elasticsearch 的最小能力。
 type ESSink struct {
-	endpoint  string
-	indexName string
-	username  string
-	password  string
-	client    *http.Client
+	endpoint            string
+	indexName           string
+	username            string
+	password            string
+	client              *http.Client
+	semanticDedupWindow time.Duration
+	mu                  sync.Mutex
+	semanticCache       map[string]semanticDedupEntry
+}
+
+type semanticDedupEntry struct {
+	DocumentID  string
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+	Count       int
 }
 
 // ESSinkResult 返回写入统计结果。
@@ -44,11 +57,13 @@ func NewESSink(endpoint, indexName, username, password string, timeout time.Dura
 		timeout = 15 * time.Second
 	}
 	return &ESSink{
-		endpoint:  strings.TrimRight(strings.TrimSpace(endpoint), "/"),
-		indexName: strings.TrimSpace(indexName),
-		username:  strings.TrimSpace(username),
-		password:  strings.TrimSpace(password),
-		client:    &http.Client{Timeout: timeout},
+		endpoint:            strings.TrimRight(strings.TrimSpace(endpoint), "/"),
+		indexName:           strings.TrimSpace(indexName),
+		username:            strings.TrimSpace(username),
+		password:            strings.TrimSpace(password),
+		client:              &http.Client{Timeout: timeout},
+		semanticDedupWindow: defaultSemanticDedupWindow,
+		semanticCache:       make(map[string]semanticDedupEntry),
 	}
 }
 
@@ -69,33 +84,47 @@ func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSou
 
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
+		agentID = strings.TrimSpace(response.Agent.ID)
+	}
+	if agentID == "" {
 		agentID = strings.TrimSpace(source.SourceID)
 	}
 
 	tenantID, retentionPolicy := resolveGovernanceFromTask(task)
 	batchID := strings.TrimSpace(response.BatchID)
 
-	var payload bytes.Buffer
-	for _, record := range response.Records {
-		displaySourcePath := normalizeSourcePathForDisplay(strings.TrimSpace(record.Source))
-		doc := BuildLogDocument(record, agentID, batchID, displaySourcePath, tenantID, retentionPolicy)
-		eventID := doc.Event.EventID
+	type bulkItem struct {
+		id  string
+		doc map[string]any
+	}
+	itemsByID := make(map[string]bulkItem)
+	orderedIDs := make([]string, 0, len(response.Records))
 
+	for _, record := range response.Records {
+		displaySourcePath := normalizeSourcePathForDisplay(resolveRecordSourcePath(record))
+		doc := BuildLogDocument(record, response.Agent, agentID, batchID, displaySourcePath, tenantID, retentionPolicy)
+		doc = s.applySemanticDedup(doc)
+		eventID := doc.Event.ID
+		esDoc := doc.ToESDocument()
+		if _, exists := itemsByID[eventID]; !exists {
+			orderedIDs = append(orderedIDs, eventID)
+		}
+		itemsByID[eventID] = bulkItem{id: eventID, doc: esDoc}
+	}
+
+	var payload bytes.Buffer
+	for _, eventID := range orderedIDs {
+		item := itemsByID[eventID]
 		action := map[string]any{
 			"index": map[string]any{
 				"_index": s.indexName,
-				"_id":    eventID,
+				"_id":    item.id,
 			},
 		}
 		actionRaw, _ := json.Marshal(action)
 		payload.Write(actionRaw)
 		payload.WriteByte('\n')
-
-		esDoc := doc.ToESDocument()
-		if len(record.Metadata) > 0 {
-			esDoc["metadata"] = record.Metadata
-		}
-		docRaw, _ := json.Marshal(esDoc)
+		docRaw, _ := json.Marshal(item.doc)
 		payload.Write(docRaw)
 		payload.WriteByte('\n')
 	}
@@ -146,6 +175,62 @@ func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSou
 	return result, nil
 }
 
+func (s *ESSink) applySemanticDedup(doc LogDocument) LogDocument {
+	fingerprint := strings.TrimSpace(doc.NexusLog.Dedup.Fingerprint)
+	if fingerprint == "" {
+		return doc
+	}
+	seenAt := parseRFC3339OrNow(doc.Timestamp)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for key, entry := range s.semanticCache {
+		if seenAt.Sub(entry.LastSeenAt) > s.semanticDedupWindow {
+			delete(s.semanticCache, key)
+		}
+	}
+
+	entry, ok := s.semanticCache[fingerprint]
+	if !ok || seenAt.Sub(entry.LastSeenAt) > s.semanticDedupWindow {
+		count := doc.NexusLog.Dedup.Count
+		if count <= 0 {
+			count = 1
+		}
+		doc.NexusLog.Dedup.Count = count
+		doc.NexusLog.Dedup.FirstSeenAt = firstNonEmpty(doc.NexusLog.Dedup.FirstSeenAt, doc.Timestamp)
+		doc.NexusLog.Dedup.LastSeenAt = firstNonEmpty(doc.NexusLog.Dedup.LastSeenAt, doc.Timestamp)
+		doc.NexusLog.Dedup.WindowSec = int(s.semanticDedupWindow.Seconds())
+		doc.NexusLog.Dedup.SuppressedCount = maxInt(doc.NexusLog.Dedup.Count-1, 0)
+		s.semanticCache[fingerprint] = semanticDedupEntry{
+			DocumentID:  doc.Event.ID,
+			FirstSeenAt: parseRFC3339OrNow(doc.NexusLog.Dedup.FirstSeenAt),
+			LastSeenAt:  parseRFC3339OrNow(doc.NexusLog.Dedup.LastSeenAt),
+			Count:       doc.NexusLog.Dedup.Count,
+		}
+		return doc
+	}
+
+	entry.Count += maxInt(doc.NexusLog.Dedup.Count, 1)
+	entry.LastSeenAt = seenAt
+	doc.Event.ID = entry.DocumentID
+	doc.NexusLog.Dedup.Hit = true
+	doc.NexusLog.Dedup.Count = entry.Count
+	doc.NexusLog.Dedup.FirstSeenAt = entry.FirstSeenAt.UTC().Format(time.RFC3339Nano)
+	doc.NexusLog.Dedup.LastSeenAt = entry.LastSeenAt.UTC().Format(time.RFC3339Nano)
+	doc.NexusLog.Dedup.WindowSec = int(s.semanticDedupWindow.Seconds())
+	if doc.NexusLog.Dedup.Strategy == "" {
+		if doc.NexusLog.Multiline.Enabled {
+			doc.NexusLog.Dedup.Strategy = "multiline"
+		} else {
+			doc.NexusLog.Dedup.Strategy = "normalized"
+		}
+	}
+	doc.NexusLog.Dedup.SuppressedCount = maxInt(entry.Count-1, 0)
+	s.semanticCache[fingerprint] = entry
+	return doc
+}
+
 func normalizeSourcePathForDisplay(raw string) string {
 	path := strings.TrimSpace(raw)
 	if path == "" {
@@ -177,6 +262,14 @@ func toRFC3339Nano(ts int64) string {
 		return time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	return time.Unix(0, ts).UTC().Format(time.RFC3339Nano)
+}
+
+func parseRFC3339OrNow(raw string) time.Time {
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(raw))
+	if err == nil {
+		return parsed.UTC()
+	}
+	return time.Now().UTC()
 }
 
 // resolveGovernanceFromTask 从 task.Options 解析 tenant_id 与 retention_policy。

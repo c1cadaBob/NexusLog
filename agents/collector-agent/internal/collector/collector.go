@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -381,9 +382,20 @@ func (c *Collector) readFileIncremental(path string, startOffset int64, maxRecor
 			}
 			// 记录“已提交到该行末尾”的绝对偏移，供 pipeline 与 ack checkpoint 回写。
 			metadata["offset"] = strconv.FormatInt(currentOffset, 10)
+
+			level := DetectLevel(payload)
+			if level != LevelUnknown {
+				metadata["level"] = strings.ToLower(string(level))
+			}
+
+			ts := DetectTimestamp(payload)
+			if ts == 0 {
+				ts = time.Now().UTC().UnixNano()
+			}
+
 			record := plugins.Record{
 				Source:    path,
-				Timestamp: time.Now().UTC().UnixNano(),
+				Timestamp: ts,
 				Data:      append([]byte(nil), payload...),
 				Metadata:  metadata,
 			}
@@ -731,10 +743,360 @@ func hasWildcard(path string) bool {
 // collectSyslog 从 syslog 源采集日志
 func (c *Collector) collectSyslog(ctx context.Context, src SourceConfig) {
 	log.Printf("Syslog 采集器启动: %s://%s", src.Protocol, src.Bind)
-	// TODO: 启动 UDP/TCP syslog 监听器
-	// 接收到的日志封装为 Record 发送到 outputCh
+
+	// 解析协议和地址
+	protocol := strings.ToLower(strings.TrimSpace(src.Protocol))
+	bindAddr := strings.TrimSpace(src.Bind)
+	if bindAddr == "" {
+		bindAddr = "0.0.0.0:514" // 默认 syslog 端口
+	}
+
+	// 启动监听器
+	var listener net.Listener
+	var err error
+
+	if protocol == "udp" {
+		// UDP 监听
+		addr, err := net.ResolveUDPAddr("udp", bindAddr)
+		if err != nil {
+			log.Printf("Syslog UDP 地址解析失败: %v", err)
+			return
+		}
+		conn, err := net.ListenUDP("udp", addr)
+		if err != nil {
+			log.Printf("Syslog UDP 监听失败: %v", err)
+			return
+		}
+		defer conn.Close()
+		go c.handleUDPSyslog(ctx, conn, src)
+		log.Printf("Syslog UDP 监听器已启动: %s", bindAddr)
+	} else {
+		// TCP 监听
+		listener, err = net.Listen("tcp", bindAddr)
+		if err != nil {
+			log.Printf("Syslog TCP 监听失败: %v", err)
+			return
+		}
+		defer listener.Close()
+		go c.handleTCPSyslog(ctx, listener, src)
+		log.Printf("Syslog TCP 监听器已启动: %s", bindAddr)
+	}
+
 	<-ctx.Done()
 	log.Printf("Syslog 采集器已停止: %s", src.Bind)
+}
+
+// handleUDPSyslog 处理 UDP syslog 消息
+func (c *Collector) handleUDPSyslog(ctx context.Context, conn *net.UDPConn, src SourceConfig) {
+	buf := make([]byte, 65536) // 64KB UDP 最大包
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+			n, addr, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue
+				}
+				log.Printf("UDP 读取错误: %v", err)
+				continue
+			}
+			if n > 0 {
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				record := c.parseSyslogMessage(data, fmt.Sprintf("udp://%s", addr.String()), src)
+				select {
+				case c.outputCh <- []plugins.Record{record}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}
+}
+
+// handleTCPSyslog 处理 TCP syslog 消息
+func (c *Collector) handleTCPSyslog(ctx context.Context, listener net.Listener, src SourceConfig) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			listener.(*net.TCPListener).SetDeadline(time.Now().Add(1 * time.Second))
+			conn, err := listener.Accept()
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue
+				}
+				log.Printf("TCP Accept 错误: %v", err)
+				continue
+			}
+			go c.handleTCPConnection(ctx, conn, src)
+		}
+	}
+}
+
+// handleTCPConnection 处理单个 TCP 连接
+func (c *Collector) handleTCPConnection(ctx context.Context, conn net.Conn, src SourceConfig) {
+	defer conn.Close()
+	addr := conn.RemoteAddr().String()
+	reader := bufio.NewReader(conn)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("TCP 读取错误: %v", err)
+				}
+				return
+			}
+			if len(line) > 0 {
+				record := c.parseSyslogMessage([]byte(line), fmt.Sprintf("tcp://%s", addr), src)
+				select {
+				case c.outputCh <- []plugins.Record{record}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}
+}
+
+// parseSyslogMessage 解析 syslog 消息并转换为 Record
+func (c *Collector) parseSyslogMessage(data []byte, source string, src SourceConfig) plugins.Record {
+	metadata := make(map[string]string, 8)
+
+	// 解析 RFC3164 或 RFC5424 格式的 syslog 消息
+	// 简单实现：提取消息文本和基本字段
+	message := strings.TrimSpace(string(data))
+
+	// 提取 priority (如果有)
+	priority := extractSyslogPriority(message)
+	if priority != "" {
+		metadata["priority"] = priority
+		// 从 priority 提取 facility 和 severity
+		metadata["facility"] = extractFacility(priority)
+		metadata["severity"] = extractSeverity(priority)
+	}
+
+	// 提取主机名
+	hostname := extractSyslogHostname(message)
+	if hostname != "" {
+		metadata["hostname"] = hostname
+	}
+
+	// 提取应用名
+	appname := extractSyslogAppname(message)
+	if appname != "" {
+		metadata["appname"] = appname
+	}
+
+	// 提取进程 ID
+	procid := extractSyslogProcid(message)
+	if procid != "" {
+		metadata["proc_id"] = procid
+	}
+
+	// 提取消息内容
+	msgContent := extractSyslogMessage(message)
+	if msgContent != "" {
+		message = msgContent
+	}
+
+	// 检测日志级别
+	level := DetectLevel([]byte(message))
+	if level != LevelUnknown {
+		metadata["level"] = strings.ToLower(string(level))
+	}
+
+	// 路径标签
+	pathLabels := resolvePathLabels(source, src.PathLabelRules)
+	for k, v := range pathLabels {
+		if k != "offset" {
+			metadata[k] = v
+		}
+	}
+
+	record := plugins.Record{
+		Source:    source,
+		Timestamp: time.Now().UTC().UnixNano(),
+		Data:      []byte(message),
+		Metadata:  metadata,
+	}
+
+	// 添加 source.kind
+	if record.Metadata == nil {
+		record.Metadata = make(map[string]string)
+	}
+	record.Metadata["source_kind"] = "syslog"
+	record.Metadata["source_path"] = src.Bind
+
+	return record
+}
+
+// extractSyslogPriority 从 syslog 消息中提取 priority
+func extractSyslogPriority(msg string) string {
+	// RFC5424: <priority>version...
+	if len(msg) > 0 && msg[0] == '<' {
+		end := strings.Index(msg, ">")
+		if end > 0 {
+			return msg[1:end]
+		}
+	}
+	return ""
+}
+
+// extractFacility 从 priority 提取 facility
+func extractFacility(priority string) string {
+	p, err := strconv.Atoi(priority)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", p>>3)
+}
+
+// extractSeverity 从 priority 提取 severity
+func extractSeverity(priority string) string {
+	p, err := strconv.Atoi(priority)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", p&7)
+}
+
+// extractSyslogHostname 提取主机名
+func extractSyslogHostname(msg string) string {
+	// RFC3164: <timestamp> <hostname> <tag>: <message>
+	// RFC5424: <priority>version timestamp hostname app-name procid msgid structured-data message
+	if len(msg) > 0 && msg[0] == '<' {
+		// RFC5424 格式
+		end := strings.Index(msg, ">")
+		if end < 0 {
+			return ""
+		}
+		msg = msg[end+1:]
+		// 跳过 version
+		spaceIdx := strings.Index(msg, " ")
+		if spaceIdx < 0 {
+			return ""
+		}
+		msg = msg[spaceIdx+1:]
+		// 提取 timestamp
+		spaceIdx = strings.Index(msg, " ")
+		if spaceIdx < 0 {
+			return ""
+		}
+		hostname := msg[:spaceIdx]
+		if hostname == "-" {
+			return ""
+		}
+		return hostname
+	}
+	// RFC3164 格式 - 简化处理
+	parts := strings.Fields(msg)
+	if len(parts) >= 2 {
+		return parts[1]
+	}
+	return ""
+}
+
+// extractSyslogAppname 提取应用名
+func extractSyslogAppname(msg string) string {
+	if len(msg) > 0 && msg[0] == '<' {
+		// RFC5424 格式
+		end := strings.Index(msg, ">")
+		if end < 0 {
+			return ""
+		}
+		msg = msg[end+1:]
+		// 跳过 version, timestamp, hostname
+		for i := 0; i < 3; i++ {
+			spaceIdx := strings.Index(msg, " ")
+			if spaceIdx < 0 {
+				return ""
+			}
+			msg = msg[spaceIdx+1:]
+		}
+		// 提取 app-name
+		spaceIdx := strings.Index(msg, " ")
+		if spaceIdx < 0 {
+			return ""
+		}
+		appname := msg[:spaceIdx]
+		if appname == "-" {
+			return ""
+		}
+		return appname
+	}
+	return ""
+}
+
+// extractSyslogProcid 提取进程 ID
+func extractSyslogProcid(msg string) string {
+	if len(msg) > 0 && msg[0] == '<' {
+		// RFC5424 格式
+		end := strings.Index(msg, ">")
+		if end < 0 {
+			return ""
+		}
+		msg = msg[end+1:]
+		// 跳过 version, timestamp, hostname, app-name
+		for i := 0; i < 4; i++ {
+			spaceIdx := strings.Index(msg, " ")
+			if spaceIdx < 0 {
+				return ""
+			}
+			msg = msg[spaceIdx+1:]
+		}
+		// 提取 procid
+		spaceIdx := strings.Index(msg, " ")
+		if spaceIdx < 0 {
+			procid := strings.TrimSpace(msg)
+			if procid != "-" && procid != "" {
+				return procid
+			}
+			return ""
+		}
+		procid := msg[:spaceIdx]
+		if procid == "-" {
+			return ""
+		}
+		return procid
+	}
+	return ""
+}
+
+// extractSyslogMessage 提取消息内容
+func extractSyslogMessage(msg string) string {
+	if len(msg) > 0 && msg[0] == '<' {
+		// RFC5424 格式 - 跳过前面所有字段，找 message
+		end := strings.Index(msg, ">")
+		if end < 0 {
+			return msg
+		}
+		msg = msg[end+1:]
+		// 跳过 version, timestamp, hostname, app-name, procid, msgid, structured-data
+		for i := 0; i < 6; i++ {
+			spaceIdx := strings.Index(msg, " ")
+			if spaceIdx < 0 {
+				break
+			}
+			msg = msg[spaceIdx+1:]
+		}
+		return strings.TrimSpace(msg)
+	}
+	// RFC3164 格式 - 找第一个 : 之后的内容
+	if idx := strings.Index(msg, ":"); idx >= 0 {
+		return strings.TrimSpace(msg[idx+1:])
+	}
+	return msg
 }
 
 // Stop 停止采集器

@@ -11,25 +11,84 @@ import (
 )
 
 // AgentPullResponse 定义日志服务器调用 agent /logs/pull 的响应结构。
-// 该结构与 collector-agent 的公开契约保持一致，用于服务端解析与后续落库映射。
 type AgentPullResponse struct {
-	BatchID    string            `json:"batch_id"`
-	Records    []AgentPullRecord `json:"records"`
-	NextCursor string            `json:"next_cursor"`
-	HasMore    bool              `json:"has_more"`
+	BatchID string            `json:"batch_id"`
+	Agent   AgentPullAgent    `json:"agent,omitempty"`
+	Cursor  AgentPullCursor   `json:"cursor,omitempty"`
+	Records []AgentPullRecord `json:"records"`
+}
+
+type AgentPullAgent struct {
+	ID       string `json:"id,omitempty"`
+	Version  string `json:"version,omitempty"`
+	Hostname string `json:"hostname,omitempty"`
+}
+
+type AgentPullCursor struct {
+	Next    string `json:"next,omitempty"`
+	HasMore bool   `json:"has_more,omitempty"`
+}
+
+type AgentPullSource struct {
+	Kind   string `json:"kind,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Offset int64  `json:"offset,omitempty"`
+	Stream string `json:"stream,omitempty"`
+}
+
+type AgentPullSeverity struct {
+	Text   string `json:"text,omitempty"`
+	Number int    `json:"number,omitempty"`
+}
+
+type AgentPullServiceInstance struct {
+	ID string `json:"id,omitempty"`
+}
+
+type AgentPullService struct {
+	Name        string                   `json:"name,omitempty"`
+	Instance    AgentPullServiceInstance `json:"instance,omitempty"`
+	Version     string                   `json:"version,omitempty"`
+	Environment string                   `json:"environment,omitempty"`
+}
+
+type AgentPullContainer struct {
+	Name string `json:"name,omitempty"`
+}
+
+type AgentPullMultiline struct {
+	Enabled                 bool  `json:"enabled,omitempty"`
+	LineCount               int   `json:"line_count,omitempty"`
+	StartOffset             int64 `json:"start_offset,omitempty"`
+	EndOffset               int64 `json:"end_offset,omitempty"`
+	DroppedEmptyPrefixLines int   `json:"dropped_empty_prefix_lines,omitempty"`
+}
+
+type AgentPullDedup struct {
+	Hit         bool   `json:"hit,omitempty"`
+	Count       int    `json:"count,omitempty"`
+	FirstSeenAt string `json:"first_seen_at,omitempty"`
+	LastSeenAt  string `json:"last_seen_at,omitempty"`
+	WindowSec   int    `json:"window_sec,omitempty"`
+	Strategy    string `json:"strategy,omitempty"`
 }
 
 // AgentPullRecord 定义 agent 拉取返回的单条日志结构。
 type AgentPullRecord struct {
-	RecordID    string            `json:"record_id"`
-	Sequence    int64             `json:"sequence"`
-	Source      string            `json:"source"`
-	Timestamp   int64             `json:"timestamp"`
-	CollectedAt string            `json:"collected_at"`
-	Data        string            `json:"data"`
-	SizeBytes   int               `json:"size_bytes"`
-	Offset      int64             `json:"offset"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	RecordID string `json:"record_id"`
+	Sequence int64  `json:"sequence"`
+
+	ObservedAt string             `json:"observed_at,omitempty"`
+	Body       string             `json:"body,omitempty"`
+	SizeBytes  int                `json:"size_bytes,omitempty"`
+	Source     AgentPullSource    `json:"source,omitempty"`
+	Severity   AgentPullSeverity  `json:"severity,omitempty"`
+	Service    AgentPullService   `json:"service,omitempty"`
+	Container  AgentPullContainer `json:"container,omitempty"`
+	Attributes map[string]string  `json:"attributes,omitempty"`
+	Multiline  AgentPullMultiline `json:"multiline,omitempty"`
+	Dedup      AgentPullDedup     `json:"dedup,omitempty"`
+	Original   string             `json:"original,omitempty"`
 }
 
 // PullPackageFile 定义包内文件级摘要，和 agent_package_files 表语义对齐。
@@ -57,9 +116,11 @@ type BuildPullPackageInput struct {
 }
 
 // BuildPullPackageFromAgentPull 将 agent pull 批次映射为控制面增量包结构。
-// 该方法用于统一服务端“日志信息结构”，让 batch/record/file 三层都可追溯。
 func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullResponse) (PullPackage, error) {
 	agentID := strings.TrimSpace(input.AgentID)
+	if agentID == "" {
+		agentID = strings.TrimSpace(resp.Agent.ID)
+	}
 	if agentID == "" {
 		return PullPackage{}, fmt.Errorf("agent_id is required")
 	}
@@ -71,6 +132,9 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 	if len(resp.Records) == 0 {
 		return PullPackage{}, fmt.Errorf("records must not be empty")
 	}
+
+	nextCursor := strings.TrimSpace(resp.Cursor.Next)
+	hasMore := resp.Cursor.HasMore
 
 	type fileAgg struct {
 		path       string
@@ -91,7 +155,7 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 
 	fileAggs := make(map[string]*fileAgg)
 	for _, record := range resp.Records {
-		source := strings.TrimSpace(record.Source)
+		source := resolveRecordSourcePath(record)
 		if source == "" {
 			source = "unknown"
 		}
@@ -102,6 +166,7 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 			fileAggs[source] = agg
 		}
 
+		recordBody := resolveRecordBody(record)
 		sizeBytes := resolveRecordSize(record)
 		resolvedOffset := resolveRecordOffset(record, sizeBytes, agg.lastResolvedOffset)
 		if resolvedOffset > agg.lastResolvedOffset {
@@ -156,8 +221,6 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 
 		agg.lineCount++
 		agg.sizeBytes += int64(sizeBytes)
-
-		// 以“来源+记录主键+位点+正文”生成稳定摘要，保证幂等重算结果一致。
 		agg.hashBuilder.WriteString(source)
 		agg.hashBuilder.WriteString("|")
 		agg.hashBuilder.WriteString(record.RecordID)
@@ -166,7 +229,7 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 		agg.hashBuilder.WriteString("|")
 		agg.hashBuilder.WriteString(strconv.FormatInt(resolvedOffset, 10))
 		agg.hashBuilder.WriteString("|")
-		agg.hashBuilder.WriteString(record.Data)
+		agg.hashBuilder.WriteString(recordBody)
 		agg.hashBuilder.WriteString("\n")
 	}
 
@@ -198,7 +261,6 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 		})
 	}
 
-	// 固定返回顺序，避免 map 迭代引入的非确定性。
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].FilePath < files[j].FilePath
 	})
@@ -226,8 +288,7 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 		packageNo = buildPackageNoFromBatch(batchID)
 	}
 
-	packageChecksum := buildPackageChecksum(batchID, strings.TrimSpace(resp.NextCursor), files)
-
+	packageChecksum := buildPackageChecksum(batchID, nextCursor, files)
 	pkg := PullPackage{
 		PackageID:   newUUIDLike(),
 		SourceID:    strings.TrimSpace(input.SourceID),
@@ -235,7 +296,7 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 		SourceRef:   sourceRef,
 		PackageNo:   packageNo,
 		BatchID:     batchID,
-		NextCursor:  strings.TrimSpace(resp.NextCursor),
+		NextCursor:  nextCursor,
 		RecordCount: len(resp.Records),
 		FromOffset:  packageFromOffset,
 		ToOffset:    packageToOffset,
@@ -244,7 +305,7 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 		Checksum:    packageChecksum,
 		Status:      "uploaded",
 		Files:       files,
-		Metadata:    map[string]string{"has_more": strconv.FormatBool(resp.HasMore)},
+		Metadata:    map[string]string{"has_more": strconv.FormatBool(hasMore)},
 		CreatedAt:   createdAt,
 	}
 	if pkg.NextCursor != "" {
@@ -253,10 +314,18 @@ func BuildPullPackageFromAgentPull(input BuildPullPackageInput, resp AgentPullRe
 	return pkg, nil
 }
 
+func resolveRecordBody(record AgentPullRecord) string {
+	return strings.TrimSpace(record.Body)
+}
+
+func resolveRecordSourcePath(record AgentPullRecord) string {
+	return strings.TrimSpace(record.Source.Path)
+}
+
 func resolveRecordSize(record AgentPullRecord) int {
 	sizeBytes := record.SizeBytes
 	if sizeBytes <= 0 {
-		sizeBytes = len(record.Data)
+		sizeBytes = len(resolveRecordBody(record))
 	}
 	if sizeBytes <= 0 {
 		return 1
@@ -265,31 +334,12 @@ func resolveRecordSize(record AgentPullRecord) int {
 }
 
 func resolveRecordOffset(record AgentPullRecord, sizeBytes int, previousOffset int64) int64 {
-	offset := record.Offset
+	offset := record.Source.Offset
 	if offset <= 0 {
-		offset = parseOffsetFromMetadata(record.Metadata)
-	}
-	if offset <= 0 {
-		// 当上游未提供 offset 时，按来源内累计字节构造单调递增位点。
 		offset = previousOffset + int64(sizeBytes)
 	}
 	if offset < int64(sizeBytes) {
 		offset = int64(sizeBytes)
-	}
-	return offset
-}
-
-func parseOffsetFromMetadata(metadata map[string]string) int64 {
-	if len(metadata) == 0 {
-		return 0
-	}
-	raw := strings.TrimSpace(metadata["offset"])
-	if raw == "" {
-		return 0
-	}
-	offset, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || offset <= 0 {
-		return 0
 	}
 	return offset
 }

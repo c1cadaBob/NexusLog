@@ -118,7 +118,7 @@ func main() {
 		agentClient := ingest.NewAgentClient(time.Duration(parseEnvInt("INGEST_AGENT_TIMEOUT_SEC", 15)) * time.Second)
 		esSink := ingest.NewESSink(
 			getEnv("INGEST_ES_ENDPOINT", getEnv("ELASTICSEARCH_URL", "http://localhost:9200")),
-			getEnv("INGEST_ES_INDEX", "logs-remote"),
+			getEnv("INGEST_ES_INDEX", "nexuslog-logs-v2"),
 			getEnv("INGEST_ES_USERNAME", ""),
 			getEnv("INGEST_ES_PASSWORD", ""),
 			time.Duration(parseEnvInt("INGEST_ES_TIMEOUT_SEC", 15))*time.Second,
@@ -224,7 +224,7 @@ func main() {
 		// Alert evaluation engine (runs every 30s)
 		if isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "true")) {
 			esEndpoint := getEnv("INGEST_ES_ENDPOINT", getEnv("ELASTICSEARCH_URL", "http://localhost:9200"))
-			esIndex := getEnv("INGEST_ES_INDEX", "logs-remote")
+			esIndex := getEnv("INGEST_ES_INDEX", "nexuslog-logs-v2")
 			esClient := alert.NewHTTPESSearchClient(
 				esEndpoint,
 				getEnv("INGEST_ES_USERNAME", ""),

@@ -16,7 +16,7 @@ import (
 
 const (
 	defaultElasticsearchAddress = "http://localhost:9200"
-	defaultLogsIndex            = "logs-remote"
+	defaultLogsIndex            = "nexuslog-logs-v2"
 	defaultRequestTimeout       = 15 * time.Second
 )
 

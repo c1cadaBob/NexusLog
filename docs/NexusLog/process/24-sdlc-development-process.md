@@ -237,7 +237,7 @@ curl -s -X POST http://localhost:8080/api/v1/xxx \
 
 | 任务类型 | 适用步骤 | 示例 |
 |---------|---------|------|
-| 全栈任务 | 1→2→3→4→5→6→7 | W1-B5 ES 五层字段 + W1-F2 日志详情 |
+| 全栈任务 | 1→2→3→4→5→6→7 | W1-B5 ES 结构化日志 v2 + W1-F2 日志详情 |
 | 纯后端任务 | 1→2→3→4→6 | W1-B4 加密传输 |
 | 纯前端任务 | 1→5→6→7 | W1-F2 日志详情展开 |
 | 数据库任务 | 1→2→6 | W1-D1 迁移 000018 |
@@ -1150,8 +1150,257 @@ AI Agent 使用 `chrome-devtools` MCP 执行全功能测试：
 
 ---
 
+## 13. 日志结构 v2 字段契约（当前实现）
+
+> 生效日期：2026-03-07  
+> 适用范围：`agent → control-plane → ES` 全链路  
+> 当前代码版本：以 `agents/collector-agent/internal/pullapi` 与 `services/control-plane/internal/ingest` 的实现为准  
+> 兼容策略：**已切换为纯 v2 结构，不再保留 pull 协议 legacy 扁平字段**
+
+### 13.1 当前目标
+
+| 项 | 当前约定 |
+|------|------|
+| 服务名前缀拆分 | 从日志正文拆出 `service.name` / `service.instance.id` / `container.name` |
+| 空日志处理 | 丢弃纯空行、纯空白行、仅前缀空行（如 `keycloak-1 |`） |
+| 多行合并 | Agent 优先合并 Java stack trace / `npm error` block |
+| 第一层去重 | Agent 进行短时间窗重复合并 |
+| 第二层去重 | Control-plane/ES sink 进行 10s 语义聚合去重 |
+| 前端折叠展示 | 本阶段不做，后续放入聚类分析模块 |
+| 新索引默认值 | `nexuslog-logs-v2` |
+| Schema 版本 | `2.0` |
+| Pipeline 版本 | `2.0` |
+
+### 13.2 Agent Pull API v2 顶层结构
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `batch_id` | `string` | 是 | 本次 pull 批次 ID |
+| `agent.id` | `string` | 建议 | Agent 唯一标识 |
+| `agent.version` | `string` | 建议 | Agent 版本 |
+| `cursor.next` | `string` | 是 | 下次继续拉取的游标 |
+| `cursor.has_more` | `boolean` | 是 | 是否还有更多数据 |
+| `records` | `array<object>` | 是 | 标准化日志记录列表 |
+
+### 13.3 Agent Pull API v2 单条记录结构
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `record_id` | `string` | 是 | 批次内记录 ID |
+| `sequence` | `int64` | 是 | Agent 本地递增序号 |
+| `observed_at` | `RFC3339 string` | 是 | Agent 观察到该事件的时间 |
+| `body` | `string` | 是 | 清洗后的日志正文 |
+| `size_bytes` | `int` | 是 | `body` 字节数 |
+| `source.kind` | `string` | 是 | `file/container/syslog/journald/other` |
+| `source.path` | `string` | 建议 | 日志来源路径 |
+| `source.offset` | `int64` | 建议 | 来源位点 |
+| `source.stream` | `string` | 否 | `stdout/stderr` |
+| `severity.text` | `string` | 建议 | `trace/debug/info/warn/error/fatal/unknown` |
+| `severity.number` | `int` | 建议 | 级别数值 |
+| `service.name` | `string` | 强烈建议 | 服务名，如 `keycloak` |
+| `service.instance.id` | `string` | 建议 | 实例名，如 `keycloak-1` |
+| `service.version` | `string` | 否 | 服务版本 |
+| `service.environment` | `string` | 否 | 环境标识 |
+| `container.name` | `string` | 否 | 容器名 |
+| `attributes.*` | `map<string,string>` | 否 | 受控扩展属性 |
+| `multiline.enabled` | `bool` | 是 | 是否由多行合并生成 |
+| `multiline.line_count` | `int` | 否 | 合并后的有效行数 |
+| `multiline.start_offset` | `int64` | 否 | 合并块起始偏移 |
+| `multiline.end_offset` | `int64` | 否 | 合并块结束偏移 |
+| `multiline.dropped_empty_prefix_lines` | `int` | 否 | 被过滤的空前缀行数 |
+| `dedup.hit` | `bool` | 否 | Agent 层是否命中过去重 |
+| `dedup.count` | `int` | 否 | Agent 层聚合后的次数 |
+| `dedup.first_seen_at` | `RFC3339 string` | 否 | 去重窗口内首次出现时间 |
+| `dedup.last_seen_at` | `RFC3339 string` | 否 | 去重窗口内最后一次出现时间 |
+| `dedup.window_sec` | `int` | 否 | 去重窗口秒数 |
+| `dedup.strategy` | `string` | 否 | `exact` / `multiline` |
+| `original` | `string` | 否 | 合并前原始日志块 |
+
+### 13.4 Agent 层职责边界
+
+| 能力 | 当前是否在 Agent 做 | 说明 |
+|------|------|------|
+| 空行过滤 | 是 | 过滤纯空行、纯空白行 |
+| 空前缀行过滤 | 是 | 例如 `keycloak-1 |` |
+| 服务前缀拆分 | 是 | 提取 `service.*` 与 `container.name` |
+| 多行异常块合并 | 是 | Java stack trace / `npm error` block |
+| 短时间窗去重 | 是 | 对合并后的同类日志做第一层去重 |
+| 复杂业务语义解析 | 否 | 不在 Agent 层做复杂规则引擎 |
+| `event.id` 生成 | 否 | 由 Control-plane 统一生成 |
+
+### 13.5 Control-plane 内部标准对象（Normalized ES Input）
+
+Control-plane 当前不再依赖旧的扁平 pull 字段，而是直接消费 Agent v2 结构，统一做以下处理：
+
+| 能力 | 当前实现 |
+|------|------|
+| Pull 协议解析 | 只读取 `cursor.next` / `cursor.has_more` / `record.source.*` / `record.body` |
+| 包摘要生成 | 基于 `source.path`、`source.offset`、`body` 生成 `PullPackage` |
+| `event.id` 生成 | `sha256(agent.id + source.kind + source.path + observed_at + sequence + normalized_body)` |
+| `nexuslog.dedup.fingerprint` | `sha256(service.name + service.instance.id + log.level + normalized_message + error.type + normalized_stack_signature)` |
+| 第二层去重 | ES sink 内进行 10s 语义聚合去重 |
+| 写入索引 | `nexuslog-logs-v2` |
+
+### 13.6 ES 最终文档结构（当前实现）
+
+#### 顶层与事件字段
+
+| 字段 | 类型 | 必填 |
+|------|------|------|
+| `@timestamp` | `date` | 是 |
+| `message` | `text + keyword` | 是 |
+| `event.id` | `keyword` | 是 |
+| `event.record_id` | `keyword` | 否 |
+| `event.sequence` | `long` | 是 |
+| `event.original` | `text` | 否 |
+| `event.kind` | `keyword` | 是 |
+| `event.category` | `keyword[]` | 是 |
+| `event.type` | `keyword[]` | 是 |
+| `event.severity` | `short` | 否 |
+
+#### 日志与来源字段
+
+| 字段 | 类型 | 必填 |
+|------|------|------|
+| `log.level` | `keyword` | 是 |
+| `log.offset` | `long` | 否 |
+| `log.file.path` | `keyword` | 否 |
+| `log.file.name` | `keyword` | 否 |
+| `log.file.directory` | `keyword` | 否 |
+| `source.kind` | `keyword` | 是 |
+| `source.path` | `keyword` | 否 |
+| `source.stream` | `keyword` | 否 |
+| `agent.id` | `keyword` | 是 |
+| `agent.version` | `keyword` | 否 |
+| `agent.hostname` | `keyword` | 否 |
+
+#### 服务 / 容器 / 主机 / 进程
+
+| 字段 | 类型 | 必填 |
+|------|------|------|
+| `service.name` | `keyword` | 强烈建议 |
+| `service.instance.id` | `keyword` | 建议 |
+| `service.version` | `keyword` | 否 |
+| `service.environment` | `keyword` | 否 |
+| `container.name` | `keyword` | 否 |
+| `host.name` | `keyword` | 否 |
+| `host.ip` | `ip` | 否 |
+| `process.pid` | `integer` | 否 |
+| `process.thread.id` | `long` | 否 |
+
+#### 关联上下文 / HTTP / URL
+
+| 字段 | 类型 | 必填 |
+|------|------|------|
+| `trace.id` | `keyword` | 否 |
+| `span.id` | `keyword` | 否 |
+| `request.id` | `keyword` | 否 |
+| `user.id` | `keyword` | 否 |
+| `http.request.method` | `keyword` | 否 |
+| `http.response.status_code` | `short` | 否 |
+| `url.path` | `keyword` | 否 |
+| `url.full` | `keyword` | 否 |
+
+#### Error 与平台字段
+
+| 字段 | 类型 | 必填 |
+|------|------|------|
+| `error.type` | `keyword` | 否 |
+| `error.message` | `text` | 否 |
+| `error.stack_trace` | `text` | 否 |
+| `nexuslog.transport.batch_id` | `keyword` | 是 |
+| `nexuslog.transport.channel` | `keyword` | 否 |
+| `nexuslog.transport.compressed` | `boolean` | 否 |
+| `nexuslog.transport.encrypted` | `boolean` | 否 |
+| `nexuslog.ingest.received_at` | `date` | 是 |
+| `nexuslog.ingest.schema_version` | `keyword` | 是 |
+| `nexuslog.ingest.pipeline_version` | `keyword` | 是 |
+| `nexuslog.ingest.parse_status` | `keyword` | 否 |
+| `nexuslog.ingest.parse_rule` | `keyword` | 否 |
+| `nexuslog.ingest.retry_count` | `short` | 否 |
+
+#### 多行 / 去重 / 治理 / 标签
+
+| 字段 | 类型 | 必填 |
+|------|------|------|
+| `nexuslog.multiline.enabled` | `boolean` | 是 |
+| `nexuslog.multiline.line_count` | `integer` | 否 |
+| `nexuslog.multiline.start_offset` | `long` | 否 |
+| `nexuslog.multiline.end_offset` | `long` | 否 |
+| `nexuslog.multiline.dropped_empty_prefix_lines` | `integer` | 否 |
+| `nexuslog.dedup.fingerprint` | `keyword` | 建议 |
+| `nexuslog.dedup.hit` | `boolean` | 否 |
+| `nexuslog.dedup.count` | `integer` | 否 |
+| `nexuslog.dedup.first_seen_at` | `date` | 否 |
+| `nexuslog.dedup.last_seen_at` | `date` | 否 |
+| `nexuslog.dedup.window_sec` | `integer` | 否 |
+| `nexuslog.dedup.strategy` | `keyword` | 否 |
+| `nexuslog.dedup.suppressed_count` | `integer` | 否 |
+| `nexuslog.governance.tenant_id` | `keyword` | 否 |
+| `nexuslog.governance.retention_policy` | `keyword` | 否 |
+| `nexuslog.governance.pii_masked` | `boolean` | 是 |
+| `nexuslog.governance.classification` | `keyword` | 否 |
+| `labels.*` | `keyword` | 否 |
+
+### 13.7 已废弃字段（禁止继续写入 Pull 协议）
+
+| 旧字段 | 状态 | 替代字段 |
+|------|------|------|
+| `next_cursor` | 废弃 | `cursor.next` |
+| `has_more` | 废弃 | `cursor.has_more` |
+| `data` | 废弃 | `body` |
+| `timestamp` | 废弃 | `observed_at` |
+| `collected_at` | 废弃 | `observed_at` |
+| `offset` | 废弃 | `source.offset` |
+| 顶层 `source` 字符串 | 废弃 | `source.kind` + `source.path` + `source.offset` |
+| `metadata` | 废弃 | 结构化字段 + `attributes.*` |
+
+### 13.8 当前实现默认值
+
+| 项 | 默认值 |
+|------|------|
+| 新索引名 | `nexuslog-logs-v2` |
+| 多行合并 | Agent 优先，Control-plane 依赖 Agent v2 结果 |
+| 语义去重窗口 | `10s` |
+| 去重策略 | `Agent 短窗去重 + ES sink 语义聚合去重` |
+| `event.kind` | `event` |
+| `event.category` | `application` |
+| `event.type` | `log` |
+| `nexuslog.ingest.parse_status` | `success` |
+| `nexuslog.governance.pii_masked` | `false` |
+
+### 13.9 当前实现 vs 原始设计差异清单
+
+> 本节用于区分“已按设计落地的部分”和“当前实现相对原始设计的偏差 / 待收口项”。  
+> 结论以当前代码实现为准，不以最初讨论稿为准。
+
+| 项 | 原始设计 | 当前实现 | 影响 / 后续建议 |
+|------|------|------|------|
+| Pull 协议中的来源字段命名 | 过渡方案中曾使用 `source_v2` | 当前已统一为 `source` 结构化对象 | 属于有意收口，后续文档与联调示例均应只使用 `source.*` |
+| Pull 协议兼容策略 | 早期允许新旧字段并存一段时间 | 当前已切为纯 v2，不再返回 `next_cursor` / `has_more` / `data` / `timestamp` / `metadata` 等旧字段 | 属于有意破坏性重构；所有联调方必须使用 v2 契约 |
+| Control-plane 兜底服务名提取 | 设计中要求 control-plane 对旧 Agent 或异常输入兜底提取 `service.*` | 当前实现主要依赖 Agent 已完成 prefix 拆分，control-plane 未再做同等级兜底解析 | 若未来存在第三方 Agent 或旧 Agent 接入，需要补一层服务名前缀兜底解析 |
+| Control-plane 兜底多行合并 | 设计中要求 control-plane 必须能兜底合并 stack trace | 当前实现默认信任 Agent 的多行合并结果，未再做二次块级拼接 | 若后续接入多来源 Agent，建议补 control-plane fallback merge |
+| 语义去重状态范围 | 设计允许理解为平台级统一语义聚合 | 当前语义去重在 ES sink 进程内以内存窗口实现，窗口默认为 `10s` | 单实例场景有效；多实例 control-plane 下需升级为共享状态或外部协调 |
+| `message` / `error` 语义提取深度 | 设计希望从异常块中提取更完整的摘要、类型、主消息 | 当前实现为轻量规则：首行摘要 + 正则识别 `Exception/Error` + `npm.lifecycle_error` 特判 | 能满足第一阶段使用；后续可继续增加语言/框架规则 |
+| 扩展字段富化来源 | 设计包含 `host.*` / `process.*` / `trace.*` / `http.*` / `url.*` / `classification` 等较完整上下文 | 当前实现支持这些字段落 ES，但多数依赖 `attributes.*` 透传，不做深度自动解析 | 如果需要高质量检索/聚合，应在 Agent 或 parse pipeline 增强这些字段提取 |
+| `labels.*` 策略 | 设计要求受控标签体系 | 当前实现仅消费 `attributes` 中 `label.` 前缀，并补充少量默认标签（如 `env`） | 后续应建立统一标签白名单，避免 label key 漫灌 |
+| ES 索引命名 | 原始讨论中默认写法偏向 `nexuslog-logs-v2-*` | 当前已统一为写入索引名 `nexuslog-logs-v2`，模板 pattern 同时兼容 `nexuslog-logs-v2` 与 `nexuslog-logs-v2-*` | 命名不一致问题已收口；部署时仍需确认 v2 模板已安装 |
+| 前端折叠展示 | 原始方案已明确后置 | 当前仍未实现，保留到聚类分析模块 | 属于已确认延期项，不影响本阶段日志链路落地 |
+
+### 13.10 后续建议优先级
+
+| 优先级 | 建议项 | 原因 |
+|------|------|------|
+| P1 | 为 control-plane 补服务名前缀 / 多行合并兜底 | 提升异构 Agent 接入容错 |
+| P1 | 在部署流程中显式校验 v2 模板已安装且命中 `nexuslog-logs-v2` | 避免环境漂移导致模板失效 |
+| P1 | 将语义去重从进程内缓存升级为共享状态 | 支持多实例 control-plane |
+| P2 | 增强 `error.type` / `error.message` / `trace/http/url` 提取规则 | 提升检索和分析质量 |
+| P2 | 建立 `labels.*` 白名单治理 | 避免字段膨胀 |
+| P3 | 前端聚类折叠展示 | 属于体验优化，已明确后置 |
+
 ## 变更记录
 
 | 日期 | 版本 | 变更内容 |
 |------|------|---------|
+| 2026-03-07 | v1.1 | 新增第 13 章：日志结构 v2 字段契约，并补充“当前实现 vs 原始设计差异清单”与后续建议优先级 |
 | 2026-03-06 | v1.0 | 初始版本。覆盖 12 章：SDLC 流程、代码约束、质量门禁、测试策略、部署管理、Git 工作流、验收规范、Mock 追踪、数据播种、前端调试 |

@@ -21,18 +21,17 @@ func TestPullTaskExecutorSuccess(t *testing.T) {
 				t.Fatalf("unexpected X-Agent-Key: %s", got)
 			}
 			_ = json.NewEncoder(w).Encode(AgentPullResponse{
-				BatchID:    "batch-success-001",
-				NextCursor: "100",
-				HasMore:    false,
+				BatchID: "batch-success-001",
+				Cursor:  AgentPullCursor{Next: "100", HasMore: false},
 				Records: []AgentPullRecord{
 					{
-						RecordID:  "rec-1",
-						Sequence:  1,
-						Source:    "/var/log/app.log",
-						Timestamp: time.Now().UTC().UnixNano(),
-						Data:      "hello nexuslog",
-						SizeBytes: len("hello nexuslog"),
-						Offset:    100,
+						RecordID:   "rec-1",
+						Sequence:   1,
+						ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
+						Body:       "hello nexuslog",
+						SizeBytes:  len("hello nexuslog"),
+						Source:     AgentPullSource{Kind: "file", Path: "/var/log/app.log", Offset: 100},
+						Severity:   AgentPullSeverity{Text: "info", Number: 9},
 					},
 				},
 			})
@@ -120,7 +119,7 @@ func TestPullTaskExecutorSuccess(t *testing.T) {
 		cursorStore,
 		authStore,
 		NewAgentClient(5*time.Second),
-		NewESSink(esServer.URL, "logs-remote", "", "", 5*time.Second),
+		NewESSink(esServer.URL, "nexuslog-logs-v2", "", "", 5*time.Second),
 		PullTaskExecutorConfig{
 			MaxRetries:       1,
 			RetryBackoff:     10 * time.Millisecond,
@@ -177,18 +176,17 @@ func TestPullTaskExecutorESFailure(t *testing.T) {
 		switch r.URL.Path {
 		case "/agent/v1/logs/pull":
 			_ = json.NewEncoder(w).Encode(AgentPullResponse{
-				BatchID:    "batch-failed-001",
-				NextCursor: "88",
-				HasMore:    false,
+				BatchID: "batch-failed-001",
+				Cursor:  AgentPullCursor{Next: "88", HasMore: false},
 				Records: []AgentPullRecord{
 					{
-						RecordID:  "rec-1",
-						Sequence:  1,
-						Source:    "/var/log/error.log",
-						Timestamp: time.Now().UTC().UnixNano(),
-						Data:      "this will fail in es",
-						SizeBytes: len("this will fail in es"),
-						Offset:    88,
+						RecordID:   "rec-1",
+						Sequence:   1,
+						ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
+						Body:       "this will fail in es",
+						SizeBytes:  len("this will fail in es"),
+						Source:     AgentPullSource{Kind: "file", Path: "/var/log/error.log", Offset: 88},
+						Severity:   AgentPullSeverity{Text: "error", Number: 17},
 					},
 				},
 			})
@@ -265,7 +263,7 @@ func TestPullTaskExecutorESFailure(t *testing.T) {
 		cursorStore,
 		authStore,
 		NewAgentClient(5*time.Second),
-		NewESSink(esServer.URL, "logs-remote", "", "", 5*time.Second),
+		NewESSink(esServer.URL, "nexuslog-logs-v2", "", "", 5*time.Second),
 		PullTaskExecutorConfig{
 			MaxRetries:       0,
 			RetryBackoff:     10 * time.Millisecond,

@@ -84,6 +84,8 @@ const QuerySyntax: React.FC = () => {
             <span className={`material-symbols-outlined ${textSecondary} text-[20px]`}>search</span>
           </span>
           <input
+            id="query-syntax-search"
+            name="querySyntaxSearch"
             className={`block w-full rounded-lg border ${borderColor} ${inputBg} py-1.5 pl-10 pr-3 ${textColor} placeholder-[#94a3b8] focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec] sm:text-sm sm:leading-6 focus:outline-none transition-all`}
             placeholder="搜索文档内容 (Ctrl+K)..."
             type="text"
@@ -244,6 +246,8 @@ const QuerySyntax: React.FC = () => {
                 <span className="text-[#135bec] font-mono font-bold">&gt;</span>
               </div>
               <textarea
+                id="query-syntax-playground"
+                name="querySyntaxPlayground"
                 className={`block w-full h-24 rounded-lg ${playgroundBg} border ${borderColor} ${isDark ? 'text-slate-200' : 'text-slate-800'} font-mono text-sm pl-8 pt-3 focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec] resize-none outline-none`}
                 placeholder="输入查询语句进行测试... 例如: level:ERROR"
                 value={playgroundQuery}

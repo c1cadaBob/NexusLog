@@ -1,5 +1,5 @@
 # NexusLog default local override
-# Auto-loaded by `docker compose up -d`.
+# Auto-loaded by `  `.
 # Development hot-reload settings live here directly.
 
 services:
@@ -227,7 +227,7 @@ services:
       - CHECKPOINT_DIR=/var/lib/collector-agent/checkpoints
       - CACHE_DIR=/var/lib/collector-agent/cache
       - CONFIG_PATH=/workspace/agents/collector-agent/configs/agent.yaml
-      - GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}
+      - GOPROXY=${GOPROXY:-https://goproxy.cn,direct}
       - GOSUMDB=off
     ports:
       - "9091:9091"
@@ -239,6 +239,8 @@ services:
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
       - collector-agent-data:/var/lib/collector-agent
+    networks:
+      - nexuslog-net
     cpus: "0.75"
     mem_limit: "768m"
 
@@ -290,6 +292,8 @@ services:
       - collector-agent-remote-logs:/var/log/remote
       - /var/log:/host-var-log:ro
       - /var/lib/docker/containers:/host-docker-containers:ro
+    networks:
+      - nexuslog-net
     cpus: "0.75"
     mem_limit: "768m"
 

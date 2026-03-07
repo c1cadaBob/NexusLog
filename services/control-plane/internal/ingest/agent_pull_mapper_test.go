@@ -15,13 +15,12 @@ func TestBuildPullPackageFromAgentPullSuccess(t *testing.T) {
 		PackageNo: "",
 		CreatedAt: createdAt,
 	}, AgentPullResponse{
-		BatchID:    "batch-abc-001",
-		NextCursor: "102",
-		HasMore:    false,
+		BatchID: "batch-abc-001",
+		Cursor:  AgentPullCursor{Next: "102", HasMore: false},
 		Records: []AgentPullRecord{
-			{RecordID: "rec-100", Sequence: 100, Source: "/var/log/a.log", Data: "line-a-1", SizeBytes: 8, Offset: 8},
-			{RecordID: "rec-101", Sequence: 101, Source: "/var/log/a.log", Data: "line-a-2", SizeBytes: 8, Offset: 16},
-			{RecordID: "rec-102", Sequence: 102, Source: "/var/log/b.log", Data: "bbb", SizeBytes: 3, Offset: 3},
+			{RecordID: "rec-100", Sequence: 100, Body: "line-a-1", SizeBytes: 8, Source: AgentPullSource{Path: "/var/log/a.log", Offset: 8}},
+			{RecordID: "rec-101", Sequence: 101, Body: "line-a-2", SizeBytes: 8, Source: AgentPullSource{Path: "/var/log/a.log", Offset: 16}},
+			{RecordID: "rec-102", Sequence: 102, Body: "bbb", SizeBytes: 3, Source: AgentPullSource{Path: "/var/log/b.log", Offset: 3}},
 		},
 	})
 	if err != nil {
@@ -116,12 +115,11 @@ func TestBuildPullPackageFromAgentPullFallbackOffset(t *testing.T) {
 		AgentID:   "agent-sh-02",
 		SourceRef: "/var/log/app.log",
 	}, AgentPullResponse{
-		BatchID:    "batch-fallback-01",
-		NextCursor: "2",
-		HasMore:    true,
+		BatchID: "batch-fallback-01",
+		Cursor:  AgentPullCursor{Next: "2", HasMore: true},
 		Records: []AgentPullRecord{
-			{RecordID: "rec-1", Source: "/var/log/app.log", Data: "hello", SizeBytes: 0, Offset: 0, Metadata: map[string]string{"offset": "5"}},
-			{RecordID: "rec-2", Source: "/var/log/app.log", Data: "go", SizeBytes: 0, Offset: 0},
+			{RecordID: "rec-1", Body: "hello", SizeBytes: 0, Source: AgentPullSource{Path: "/var/log/app.log", Offset: 0}},
+			{RecordID: "rec-2", Body: "go", SizeBytes: 0, Source: AgentPullSource{Path: "/var/log/app.log", Offset: 0}},
 		},
 	})
 	if err != nil {
@@ -160,7 +158,7 @@ func TestBuildPullPackageFromAgentPullFallbackOffset(t *testing.T) {
 func TestBuildPullPackageFromAgentPullInvalidInput(t *testing.T) {
 	_, err := BuildPullPackageFromAgentPull(BuildPullPackageInput{}, AgentPullResponse{
 		BatchID: "batch-x",
-		Records: []AgentPullRecord{{Source: "/a.log", Data: "x"}},
+		Records: []AgentPullRecord{{Body: "x", Source: AgentPullSource{Path: "/a.log"}}},
 	})
 	if err == nil {
 		t.Fatalf("expected error when agent_id is empty")
@@ -168,7 +166,7 @@ func TestBuildPullPackageFromAgentPullInvalidInput(t *testing.T) {
 
 	_, err = BuildPullPackageFromAgentPull(BuildPullPackageInput{AgentID: "agent-x"}, AgentPullResponse{
 		BatchID: "",
-		Records: []AgentPullRecord{{Source: "/a.log", Data: "x"}},
+		Records: []AgentPullRecord{{Body: "x", Source: AgentPullSource{Path: "/a.log"}}},
 	})
 	if err == nil {
 		t.Fatalf("expected error when batch_id is empty")

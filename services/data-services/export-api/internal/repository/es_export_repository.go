@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	defaultESAddress   = "http://localhost:9200"
-	defaultLogsIndex   = "logs-remote"
-	defaultScrollKeep  = "5m"
-	defaultBatchSize   = 5000
-	maxExportRecords   = 100000
-	defaultESTimeout   = 60 * time.Second
+	defaultESAddress  = "http://localhost:9200"
+	defaultLogsIndex  = "nexuslog-logs-v2"
+	defaultScrollKeep = "5m"
+	defaultBatchSize  = 5000
+	maxExportRecords  = 100000
+	defaultESTimeout  = 60 * time.Second
 )
 
 // LogHit 表示单条日志命中
@@ -228,7 +228,10 @@ func buildExportESQuery(params ExportQueryParams) map[string]any {
 	return map[string]any{"bool": boolQuery}
 }
 
-func buildExportESSort(sort []struct{ Field string `json:"field"`; Order string `json:"order"` }) []map[string]any {
+func buildExportESSort(sort []struct {
+	Field string `json:"field"`
+	Order string `json:"order"`
+}) []map[string]any {
 	sorts := make([]map[string]any, 0, len(sort)+1)
 	for _, s := range sort {
 		field := strings.TrimSpace(s.Field)

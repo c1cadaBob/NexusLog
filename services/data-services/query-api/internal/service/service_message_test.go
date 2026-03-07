@@ -34,7 +34,7 @@ func TestMapRawHit_UsesCleanMessageButKeepsRawLog(t *testing.T) {
 	rawMessage := `{"log":"\u0009hello\nworld","stream":"stdout"}`
 	hit := mapRawHit(repository.RawLogHit{
 		ID:    "id-1",
-		Index: "logs-remote",
+		Index: "nexuslog-logs-v2",
 		Source: map[string]any{
 			"message": rawMessage,
 			"level":   "info",
@@ -53,7 +53,7 @@ func TestMapRawHit_NormalizesSourcePathForDisplay(t *testing.T) {
 	internalSource := "/host-docker-containers/abc/abc-json.log"
 	hit := mapRawHit(repository.RawLogHit{
 		ID:    "id-2",
-		Index: "logs-remote",
+		Index: "nexuslog-logs-v2",
 		Source: map[string]any{
 			"message": "plain message",
 			"source":  internalSource,

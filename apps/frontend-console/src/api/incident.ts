@@ -4,9 +4,9 @@
  */
 
 import { getRuntimeConfig } from '../config/runtime-config';
+import { getAuthStorageItem } from '../utils/authStorage';
 import type { Incident, IncidentStatus, IncidentSeverity, TimelineEvent } from '../types/incident';
 
-const ACCESS_TOKEN_KEY = 'nexuslog-access-token';
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
 
 interface RuntimeConfigWithTenant {
@@ -78,7 +78,7 @@ function resolveTenantId(config: RuntimeConfigWithTenant): string {
 }
 
 function resolveAccessToken(): string {
-  return window.localStorage.getItem(ACCESS_TOKEN_KEY)?.trim() ?? '';
+  return getAuthStorageItem('nexuslog-access-token')?.trim() ?? '';
 }
 
 function buildAuthHeaders(accessToken: string): Record<string, string> {

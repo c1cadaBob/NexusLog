@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '../types/user';
 import { fetchCurrentUser } from '../api/user';
+import { authPersistStorage, clearAuthStorage, getAuthStorageItem, AUTH_PERSIST_KEY } from '../utils/authStorage';
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -24,11 +25,14 @@ export const useAuthStore = create<AuthState>()(
       permissions: [],
       isLoading: false,
       login: (user) => set({ isAuthenticated: true, user, isLoading: false }),
-      logout: () => set({ isAuthenticated: false, user: null, permissions: [] }),
+      logout: () => {
+        clearAuthStorage();
+        set({ isAuthenticated: false, user: null, permissions: [] });
+      },
       setLoading: (isLoading) => set({ isLoading }),
       setPermissions: (permissions) => set({ permissions }),
       syncPermissions: async () => {
-        const token = typeof window !== 'undefined' ? window.localStorage.getItem('nexuslog-access-token')?.trim() : '';
+        const token = typeof window !== 'undefined' ? getAuthStorageItem('nexuslog-access-token')?.trim() : '';
         if (!token) {
           set({ permissions: [] });
           return;
@@ -42,7 +46,8 @@ export const useAuthStore = create<AuthState>()(
       },
     }),
     {
-      name: 'nexuslog-auth',
+      name: AUTH_PERSIST_KEY,
+      storage: authPersistStorage,
       partialize: (state) => ({
         isAuthenticated: state.isAuthenticated,
         user: state.user,

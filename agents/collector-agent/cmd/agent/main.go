@@ -161,6 +161,9 @@ func main() {
 		log.Println("Kafka 兼容链路已禁用（ENABLE_KAFKA_PIPELINE=false）")
 	}
 
+	metaInfo := buildMetaInfo(sourceConfigs)
+	pullService.SetAgentInfo(metaInfo.AgentID, metaInfo.Version)
+
 	// 6. 启动采集器与数据分发。
 	if err := coll.Start(ctx); err != nil {
 		log.Fatalf("启动采集器失败: %v", err)
@@ -186,7 +189,7 @@ func main() {
 
 	// 8. 启动健康检查与 Agent Pull API HTTP 端点
 	httpPort := getEnv("HTTP_PORT", "9091")
-	httpServer := startHTTPServer(httpPort, pullService, buildMetaInfo(sourceConfigs), authConfig, sysMetrics)
+	httpServer := startHTTPServer(httpPort, pullService, metaInfo, authConfig, sysMetrics)
 
 	// 优雅关闭
 	quit := make(chan os.Signal, 1)

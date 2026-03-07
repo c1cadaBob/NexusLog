@@ -1,7 +1,7 @@
 # NexusLog 全生命周期任务清单
 
-> 版本：v1.0
-> 基线日期：2026-03-06
+> 版本：v1.1
+> 基线日期：2026-03-07
 > 开发规范：`24-sdlc-development-process.md`
 > 整体规划：`23-project-master-plan-and-task-registry.md`
 > Phase 1 详细执行：`22-full-requirements-and-6week-plan.md`
@@ -90,8 +90,8 @@ graph TD
     end
 
     subgraph w1_server [Week 1 - 服务端]
-        W1B5["W1-B5 ES五层字段"]
-        W1B6["W1-B6 滑动窗口去重"]
+        W1B5["W1-B5 ES结构化日志v2"]
+        W1B6["W1-B6 双层去重"]
         W1B1 --> W1B5
         W1B2 --> W1B5
         W1B5 --> W1B6
@@ -415,33 +415,36 @@ graph TD
 
 ---
 
-#### W1-B5 ES 五层字段落库 + event_id 幂等
+#### W1-B5 ES 结构化日志 v2 落库 + event.id 幂等
 
 - **阶段**: Phase 1 / W1 | **优先级**: P0 | **工时**: 6h
 - **依赖**: W1-B1, W1-B2 | **服务**: control-plane | **SDLC**: 1→2→3→4→6
 - **变更**:
   - `services/control-plane/internal/ingest/es_sink.go` — 修改
   - `services/control-plane/internal/ingest/field_model.go` — 新增
-  - `storage/elasticsearch/index-templates/nexuslog-logs.json` — 新增
-- **约束**: `_id = event_id`；ES 文档必须含 5 层字段（raw/event/transport/ingest/governance）；与 doc20 第 3 节字段模型一致
+  - `storage/elasticsearch/index-templates/nexuslog-logs-v2.json` — 新增
+  - `storage/elasticsearch/templates/nexuslog-logs-v2.json` — 新增
+- **约束**: `_id = event.id`；ES 文档必须采用 v2 结构化字段；字段契约与 doc24 第 13 章一致；旧 pull 扁平字段不得继续写入
 - **验收**:
-  - [ ] 功能：ES 文档含 `agent_id`/`level`/`host`/`collect_time`/`ingested_at`/`schema_version`
-  - [ ] 边界：重复写入同一 event_id 不增加文档数
+  - [ ] 功能：ES 文档含 `@timestamp` / `message` / `event.id` / `log.level` / `service.name` / `nexuslog.ingest.received_at` / `nexuslog.ingest.schema_version`
+  - [ ] 边界：重复写入同一 `event.id` 不增加文档数
+  - [ ] 回归：Agent Pull API 返回 `cursor.next` / `cursor.has_more` 与结构化 `record.source.*`
   - [ ] 测试：字段模型映射的单元测试
 - **回滚**: `git checkout -- services/control-plane/internal/ingest/`
 
 ---
 
-#### W1-B6 滑动窗口去重
+#### W1-B6 双层去重（event.id 幂等 + 语义聚合）
 
 - **阶段**: Phase 1 / W1 | **优先级**: P0 | **工时**: 4h
 - **依赖**: W1-B5 | **服务**: control-plane | **SDLC**: 1→2→3→6
 - **变更**:
   - `services/control-plane/internal/ingest/deduplicator.go` — 新增
   - `services/control-plane/internal/ingest/deduplicator_test.go` — 新增
-- **约束**: 窗口 5 批次；内存 < 50MB；基于 event_id 去重
+- **约束**: 保留 `event.id` 幂等去重；语义聚合窗口默认 10s；内存 < 50MB
 - **验收**:
   - [ ] 功能：重拉同批次 ES 文档数不增长
+  - [ ] 功能：10s 内相同异常块写 1 条，`nexuslog.dedup.count` 正确累加
   - [ ] 可观测：`duplicate_ratio` 指标可查
   - [ ] 性能：内存 < 50MB
   - [ ] 测试：覆盖率 >= 80%
@@ -497,15 +500,15 @@ graph TD
 
 ---
 
-#### W1-F2 日志详情展开（五层字段）
+#### W1-F2 日志详情展开（结构化字段）
 
 - **阶段**: Phase 1 / W1 | **优先级**: P0 | **工时**: 4h
 - **依赖**: W1-B5 | **服务**: frontend | **SDLC**: 1→5→6→7
 - **变更**:
   - `apps/frontend-console/src/pages/search/RealtimeSearch.tsx` — 修改（添加行展开功能）
-- **约束**: 展开面板分组显示 raw/event/transport/ingest/governance 五层字段
+- **约束**: 展开面板按 `event` / `log` / `source` / `agent` / `service` / `error` / `nexuslog` 分组显示；前端折叠聚类后续单独实现
 - **验收**:
-  - [ ] 功能：点击日志行展开，显示五层字段分组
+  - [ ] 功能：点击日志行展开，显示结构化字段分组
   - [ ] 边界：字段缺失时显示 "—" 而非报错
 - **回滚**: `git checkout -- apps/frontend-console/src/pages/search/RealtimeSearch.tsx`
 
@@ -1642,7 +1645,7 @@ graph TD
 
 - **阶段**: Phase 2 / W9 | **优先级**: P0 | **工时**: 5h
 - **依赖**: W1-B5 | **服务**: control-plane | **SDLC**: 1→2→3→6
-- **变更**: `storage/elasticsearch/index-templates/nexuslog-logs.json` — 修改
+- **变更**: `storage/elasticsearch/index-templates/nexuslog-logs-v2.json` — 修改
 - **验收**:
   - [ ] 检索 P95 < 2s
 - **回滚**: `git checkout -- storage/elasticsearch/index-templates/`

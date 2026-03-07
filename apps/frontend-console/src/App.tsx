@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, App as AntdApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
@@ -106,6 +106,11 @@ const TicketPortal = lazy(() => import('./pages/help/TicketPortal'));
 const App: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const themeConfig = getAntdThemeConfig(isDark);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+    document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+  }, [isDark]);
 
   return (
     <ConfigProvider theme={themeConfig} locale={zhCN}>
@@ -225,5 +230,4 @@ const App: React.FC = () => {
 };
 
 export default App;
-
 
