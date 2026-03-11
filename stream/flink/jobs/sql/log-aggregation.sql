@@ -1,11 +1,10 @@
--- NexusLog Flink SQL 作业：日志聚合
--- 实时聚合日志数据，按时间窗口统计日志量、错误率等指标
--- 数据源: nexuslog.logs.parsed (解析后日志)
--- 输出: Elasticsearch 索引 nexuslog-log-aggregation
+SET 'table.local-time-zone' = 'UTC';
+SET 'table.dml-sync' = 'false';
+SET 'pipeline.name' = 'nexuslog-stream-log-aggregation';
 
--- 定义 Kafka 源表（使用 Schema Registry 的 Avro 格式）
 CREATE TABLE log_source (
-    log_id STRING,
+    id STRING,
+    event_id STRING,
     source STRING,
     `level` STRING,
     message STRING,
@@ -25,7 +24,6 @@ CREATE TABLE log_source (
     'scan.startup.mode' = 'latest-offset'
 );
 
--- 定义 Elasticsearch 结果表
 CREATE TABLE log_aggregation_sink (
     window_start TIMESTAMP(3),
     window_end TIMESTAMP(3),
@@ -41,7 +39,6 @@ CREATE TABLE log_aggregation_sink (
     'index' = 'nexuslog-log-aggregation'
 );
 
--- 按 1 分钟滚动窗口聚合，按来源、级别、服务分组
 INSERT INTO log_aggregation_sink
 SELECT
     TUMBLE_START(event_time, INTERVAL '1' MINUTE) AS window_start,

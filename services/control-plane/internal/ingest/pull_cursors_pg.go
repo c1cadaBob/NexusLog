@@ -91,9 +91,100 @@ FROM agent_pull_cursors
 WHERE source_id = $1::uuid
   AND source_path = $2
 `
+	return scanPullCursorRow(s.backend.DB().QueryRowContext(ctx, query, sourceID, sourcePath))
+}
+
+func (s *PullCursorStore) getLatestBySourceFromDB(ctx context.Context, sourceID string) (PullCursor, bool) {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return PullCursor{}, false
+	}
+
+	query := `
+SELECT
+    source_id::text,
+    COALESCE(task_id::text, ''),
+    agent_id,
+    source_ref,
+    source_path,
+    COALESCE(last_cursor, ''),
+    COALESCE(last_offset, 0),
+    COALESCE(last_batch_id, ''),
+    COALESCE(request_id, ''),
+    updated_at
+FROM agent_pull_cursors
+WHERE source_id = $1::uuid
+ORDER BY updated_at DESC, last_offset DESC
+LIMIT 1
+`
+	return scanPullCursorRow(s.backend.DB().QueryRowContext(ctx, query, sourceID))
+}
+
+func (s *PullCursorStore) getLatestMatchingSourcePathFromDB(ctx context.Context, sourceID, sourcePathPattern string) (PullCursor, bool) {
+	sourceID = strings.TrimSpace(sourceID)
+	patterns := parseCursorSourcePathPatterns(sourcePathPattern)
+	if sourceID == "" || len(patterns) == 0 {
+		return PullCursor{}, false
+	}
+
+	query := `
+SELECT
+    source_id::text,
+    COALESCE(task_id::text, ''),
+    agent_id,
+    source_ref,
+    source_path,
+    COALESCE(last_cursor, ''),
+    COALESCE(last_offset, 0),
+    COALESCE(last_batch_id, ''),
+    COALESCE(request_id, ''),
+    updated_at
+FROM agent_pull_cursors
+WHERE source_id = $1::uuid
+ORDER BY updated_at DESC, last_offset DESC
+`
+	rows, err := s.backend.DB().QueryContext(ctx, query, sourceID)
+	if err != nil {
+		return PullCursor{}, false
+	}
+	defer rows.Close()
+
+	latest := PullCursor{}
+	found := false
+	for rows.Next() {
+		item, ok, err := scanPullCursorRows(rows)
+		if err != nil || !ok {
+			continue
+		}
+		if !cursorSourcePathMatches(patterns, item.SourcePath) {
+			continue
+		}
+		latest = item
+		found = true
+		break
+	}
+	if err := rows.Err(); err != nil {
+		return PullCursor{}, false
+	}
+	return latest, found
+}
+
+func scanPullCursorRow(row *sql.Row) (PullCursor, bool) {
+	item, ok, err := scanPullCursorRows(row)
+	if err != nil || !ok {
+		return PullCursor{}, false
+	}
+	return item, true
+}
+
+type pullCursorScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanPullCursorRows(scanner pullCursorScanner) (PullCursor, bool, error) {
 	item := PullCursor{}
 	var updatedAt sql.NullTime
-	if err := s.backend.DB().QueryRowContext(ctx, query, sourceID, sourcePath).Scan(
+	if err := scanner.Scan(
 		&item.SourceID,
 		&item.TaskID,
 		&item.AgentID,
@@ -105,12 +196,15 @@ WHERE source_id = $1::uuid
 		&item.RequestID,
 		&updatedAt,
 	); err != nil {
-		return PullCursor{}, false
+		if err == sql.ErrNoRows {
+			return PullCursor{}, false, nil
+		}
+		return PullCursor{}, false, err
 	}
 	if updatedAt.Valid {
 		item.UpdatedAt = updatedAt.Time.UTC()
 	} else {
 		item.UpdatedAt = time.Now().UTC()
 	}
-	return item, true
+	return item, true, nil
 }

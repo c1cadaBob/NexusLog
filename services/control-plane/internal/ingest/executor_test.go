@@ -20,6 +20,13 @@ func TestPullTaskExecutorSuccess(t *testing.T) {
 			if got := r.Header.Get("X-Agent-Key"); got != "test-agent-key" {
 				t.Fatalf("unexpected X-Agent-Key: %s", got)
 			}
+			var payload AgentPullRequest
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode pull payload failed: %v", err)
+			}
+			if payload.SourcePath != "/var/log/*.log" {
+				t.Fatalf("unexpected source_path: %s", payload.SourcePath)
+			}
 			_ = json.NewEncoder(w).Encode(AgentPullResponse{
 				BatchID: "batch-success-001",
 				Cursor:  AgentPullCursor{Next: "100", HasMore: false},
@@ -165,6 +172,46 @@ func TestPullTaskExecutorSuccess(t *testing.T) {
 	}
 	if cursor.LastCursor != "100" {
 		t.Fatalf("expected last cursor 100, got %s", cursor.LastCursor)
+	}
+}
+
+func TestPullTaskExecutorResolveStartCursorUsesLatestSourceCursorForGlob(t *testing.T) {
+	t.Parallel()
+
+	cursorStore := NewPullCursorStore()
+	updatedAt := time.Now().UTC()
+	if err := cursorStore.Upsert(PullCursor{
+		SourceID:   "source-glob",
+		AgentID:    "agent-a",
+		SourceRef:  "/var/log/*.log",
+		SourcePath: "/var/log/app.log",
+		LastCursor: "240000",
+		LastOffset: 100,
+		UpdatedAt:  updatedAt.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("upsert app cursor failed: %v", err)
+	}
+	if err := cursorStore.Upsert(PullCursor{
+		SourceID:   "source-glob",
+		AgentID:    "agent-a",
+		SourceRef:  "/var/log/*.log",
+		SourcePath: "/host-docker-containers/abc/abc-json.log",
+		LastCursor: "253353",
+		LastOffset: 200,
+		UpdatedAt:  updatedAt,
+	}); err != nil {
+		t.Fatalf("upsert container cursor failed: %v", err)
+	}
+
+	executor := &PullTaskExecutor{cursorStore: cursorStore}
+	resolved := executor.resolveStartCursor(PullTask{}, PullSource{SourceID: "source-glob", Path: "/var/log/*.log"})
+	if resolved != "240000" {
+		t.Fatalf("expected matched glob cursor 240000, got %s", resolved)
+	}
+
+	resolved = executor.resolveStartCursor(PullTask{}, PullSource{SourceID: "source-glob", Path: "/var/log/app.log"})
+	if resolved != "240000" {
+		t.Fatalf("expected exact path cursor 240000, got %s", resolved)
 	}
 }
 

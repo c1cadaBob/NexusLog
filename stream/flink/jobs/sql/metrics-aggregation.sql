@@ -1,9 +1,10 @@
--- NexusLog Flink SQL 作业：指标聚合
--- 按多维度聚合日志指标，输出到 nexuslog.metrics.aggregated Topic
+SET 'table.local-time-zone' = 'UTC';
+SET 'table.dml-sync' = 'false';
+SET 'pipeline.name' = 'nexuslog-stream-metrics-aggregation';
 
--- 定义 Kafka 源表（解析后日志）
 CREATE TABLE parsed_log_source (
-    log_id STRING,
+    id STRING,
+    event_id STRING,
     `timestamp` BIGINT,
     `level` STRING,
     source STRING,
@@ -21,7 +22,6 @@ CREATE TABLE parsed_log_source (
     'scan.startup.mode' = 'latest-offset'
 );
 
--- 定义指标聚合输出表
 CREATE TABLE metrics_sink (
     window_start BIGINT,
     window_end BIGINT,
@@ -38,11 +38,10 @@ CREATE TABLE metrics_sink (
     'avro-confluent.url' = 'http://schema-registry:8081'
 );
 
--- 按 1 分钟窗口、来源、级别聚合，并计算错误率
 INSERT INTO metrics_sink
 SELECT
-    UNIX_TIMESTAMP(CAST(TUMBLE_START(event_time, INTERVAL '1' MINUTE) AS STRING)) * 1000 AS window_start,
-    UNIX_TIMESTAMP(CAST(TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS STRING)) * 1000 AS window_end,
+    CAST(UNIX_TIMESTAMP(CAST(TUMBLE_START(event_time, INTERVAL '1' MINUTE) AS STRING)) * 1000 AS BIGINT) AS window_start,
+    CAST(UNIX_TIMESTAMP(CAST(TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS STRING)) * 1000 AS BIGINT) AS window_end,
     source,
     `level`,
     COUNT(*) AS log_count,

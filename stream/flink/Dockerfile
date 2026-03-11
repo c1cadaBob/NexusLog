@@ -21,4 +21,6 @@ COPY jobs/ /opt/flink/jobs/
 COPY configs/ /opt/flink/conf-custom/
 COPY udf/ /opt/flink/udf/
 
+RUN chmod +x /opt/flink/jobs/submit-sql-jobs.sh
+
 EXPOSE 6123 8081 9249

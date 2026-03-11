@@ -250,24 +250,82 @@ func (c *Collector) readDiskIO() (readBytes, writeBytes uint64, err error) {
 	return totalRead, totalWrite, nil
 }
 
-// MetricsHandler returns an http.Handler that serves the latest system metrics as JSON.
+// MetricsHandler returns an http.Handler that serves the latest system metrics.
+// Default output is Prometheus text exposition so Prometheus/Grafana can scrape it directly.
+// Use `Accept: application/json` or `?format=json` when JSON output is preferred.
 func MetricsHandler(c *Collector) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			w.Header().Set("Content-Type", "application/json")
+			if wantsJSONMetrics(r) {
+				w.Header().Set("Content-Type", "application/json")
+			} else {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			}
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 		m := c.Latest()
 		if m == nil {
-			w.Header().Set("Content-Type", "application/json")
+			if wantsJSONMetrics(r) {
+				w.Header().Set("Content-Type", "application/json")
+			} else {
+				w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+			}
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(m)
+		if wantsJSONMetrics(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(m)
+			return
+		}
+		writePrometheusMetrics(w, m)
 	})
+}
+
+func wantsJSONMetrics(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	switch format {
+	case "json":
+		return true
+	case "prom", "prometheus", "text":
+		return false
+	}
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	return strings.Contains(accept, "application/json")
+}
+
+func writePrometheusMetrics(w http.ResponseWriter, m *SystemMetrics) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "# HELP collector_agent_cpu_usage_pct Collector agent CPU usage percentage.\n")
+	fmt.Fprintf(w, "# TYPE collector_agent_cpu_usage_pct gauge\n")
+	fmt.Fprintf(w, "collector_agent_cpu_usage_pct %g\n", m.CPUUsagePct)
+	fmt.Fprintf(w, "# HELP collector_agent_memory_usage_pct Collector agent memory usage percentage.\n")
+	fmt.Fprintf(w, "# TYPE collector_agent_memory_usage_pct gauge\n")
+	fmt.Fprintf(w, "collector_agent_memory_usage_pct %g\n", m.MemoryUsagePct)
+	fmt.Fprintf(w, "# HELP collector_agent_disk_usage_pct Collector agent disk usage percentage.\n")
+	fmt.Fprintf(w, "# TYPE collector_agent_disk_usage_pct gauge\n")
+	fmt.Fprintf(w, "collector_agent_disk_usage_pct %g\n", m.DiskUsagePct)
+	fmt.Fprintf(w, "# HELP collector_agent_disk_io_read_bytes Collector agent cumulative disk read bytes.\n")
+	fmt.Fprintf(w, "# TYPE collector_agent_disk_io_read_bytes counter\n")
+	fmt.Fprintf(w, "collector_agent_disk_io_read_bytes %d\n", m.DiskIOReadBytes)
+	fmt.Fprintf(w, "# HELP collector_agent_disk_io_write_bytes Collector agent cumulative disk write bytes.\n")
+	fmt.Fprintf(w, "# TYPE collector_agent_disk_io_write_bytes counter\n")
+	fmt.Fprintf(w, "collector_agent_disk_io_write_bytes %d\n", m.DiskIOWriteBytes)
+	fmt.Fprintf(w, "# HELP collector_agent_net_in_bytes Collector agent cumulative network ingress bytes.\n")
+	fmt.Fprintf(w, "# TYPE collector_agent_net_in_bytes counter\n")
+	fmt.Fprintf(w, "collector_agent_net_in_bytes %d\n", m.NetInBytes)
+	fmt.Fprintf(w, "# HELP collector_agent_net_out_bytes Collector agent cumulative network egress bytes.\n")
+	fmt.Fprintf(w, "# TYPE collector_agent_net_out_bytes counter\n")
+	fmt.Fprintf(w, "collector_agent_net_out_bytes %d\n", m.NetOutBytes)
+	fmt.Fprintf(w, "# HELP collector_agent_metrics_collected_at_seconds Collector agent metrics collection timestamp.\n")
+	fmt.Fprintf(w, "# TYPE collector_agent_metrics_collected_at_seconds gauge\n")
+	fmt.Fprintf(w, "collector_agent_metrics_collected_at_seconds %d\n", m.CollectedAt.Unix())
 }
 
 func (c *Collector) readNetIO() (rxBytes, txBytes uint64, err error) {

@@ -52,12 +52,21 @@ services:
       - /bin/bash
       - -lc
       - |
-        cd apps/bff-service
-        npm install
-        npm run start:dev
+        set -e
+        corepack enable
+        corepack prepare pnpm@9.15.0 --activate
+        if [ ! -d apps/bff-service/node_modules ] || [ ! -d node_modules/.pnpm ]; then
+          pnpm install --frozen-lockfile --filter @nexuslog/bff-service...
+        fi
+        pnpm --dir apps/bff-service start:dev
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - COREPACK_NPM_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}
+      - NPM_CONFIG_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}
     volumes:
       - ./:/workspace
-      - bff-node-modules:/workspace/apps/bff-service/node_modules
+      - pnpm-store:/root/.local/share/pnpm/store
     cpus: "0.50"
     mem_limit: "512m"
 
@@ -79,12 +88,20 @@ services:
     environment:
       - GOMAXPROCS=2
       - GOMEMLIMIT=512MiB
-      - GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}
+      - GOPROXY=${GOPROXY:-https://goproxy.cn,direct}
       - GOSUMDB=off
       - LEGACY_LOG_PIPELINE_ENABLED=false
-      - ALERT_EVALUATOR_ENABLED=false
+      - ALERT_EVALUATOR_ENABLED=true
+      - ALERT_EVALUATOR_INTERVAL=15s
+      - ALERT_EVALUATOR_ES_INDEX=nexuslog-logs-read
+      - INGEST_ES_INDEX=nexuslog-logs-write-pull
+      - INGEST_DEFAULT_AGENT_KEY=dev-agent-key
       # ingest 执行链路在容器内需要直连 ES 服务名，不能使用 localhost
       - INGEST_ES_ENDPOINT=http://elasticsearch:9200
+      - ALERTMANAGER_BRIDGE_ENABLED=true
+      - ALERTMANAGER_BRIDGE_INTERVAL=10s
+      - ALERTMANAGER_URL=http://alertmanager:9093
+      - ALERTMANAGER_GENERATOR_URL=http://localhost:8080
       # 关键日志源使用更短轮询间隔（命中 source_id/name/path 中以下模式即触发）
       - INGEST_CRITICAL_SOURCE_PATTERNS=critical,security,audit,secure
       - INGEST_CRITICAL_PULL_INTERVAL_SEC=2
@@ -132,14 +149,17 @@ services:
         air --build.cmd "go build -buildvcs=false -o /tmp/query-api ./cmd/api" --build.bin "/tmp/query-api" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
     volumes:
       - ./:/workspace
+      - /var/lib/docker/containers:/host-docker-containers:ro
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     environment:
       - GOMAXPROCS=2
       - GOMEMLIMIT=512MiB
-      - GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}
+      - GOPROXY=${GOPROXY:-https://goproxy.cn,direct}
       - GOSUMDB=off
       - LEGACY_LOG_PIPELINE_ENABLED=false
+      - QUERY_LOGS_INDEX=nexuslog-logs-read
+      - QUERY_DOCKER_CONTAINERS_ROOT=/host-docker-containers
     cpus: "0.75"
     mem_limit: "768m"
 
@@ -228,13 +248,24 @@ services:
       - HTTP_PORT=9091
       - LEGACY_LOG_PIPELINE_ENABLED=false
       - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC=nexuslog-raw-logs
-      - ENABLE_KAFKA_PIPELINE=false
-      - CHECKPOINT_DIR=/tmp/nexuslog-agent/checkpoints
-      - CACHE_DIR=/tmp/nexuslog-agent/cache
-      - COLLECTOR_INCLUDE_PATHS=/var/log/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/*/*.log,/var/log/*/*_log
+      - KAFKA_TOPIC=nexuslog.logs.raw
+      - KAFKA_SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - KAFKA_SCHEMA_SUBJECT=nexuslog.logs.raw-value
+      - KAFKA_SCHEMA_FILE=/workspace/stream/flink/contracts/local/log-raw.avsc
+      - KAFKA_REQUIRED_ACKS=all
+      - DELIVERY_MODE=dual
+      - ENABLE_KAFKA_PIPELINE=true
+      - CHECKPOINT_DIR=/var/lib/collector-agent/checkpoints
+      - CACHE_DIR=/var/lib/collector-agent/cache
+      - AGENT_SOURCE_HOSTNAME_FILE=/host/etc/nexuslog-host-meta/source_hostname
+      - AGENT_SOURCE_IP_FILE=/host/etc/nexuslog-host-meta/source_ip
+      - AGENT_SOURCE_IP_DISCOVERY=primary_ipv4
+      - AGENT_SOURCE_IP_ALLOW_CONTAINER_FALLBACK=false
+      - COLLECTOR_INCLUDE_PATHS=/var/log/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/*/*.log,/var/log/*/*_log,/host-docker-containers/*/*-json.log
       - COLLECTOR_CRITICAL_INCLUDE_PATHS=/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler
       - COLLECTOR_EXCLUDE_PATHS=/var/log/*.gz,/var/log/*/*.gz,/var/log/*.xz,/var/log/*/*.xz,/var/log/journal/*,/var/log/lastlog,/var/log/wtmp,/var/log/wtmp-*,/var/log/btmp,/var/log/btmp-*
+      - COLLECTOR_CRITICAL_KEYWORDS=critical,fatal,panic,error,alert,security,unauthorized,denied
+      - 'COLLECTOR_PATH_LABEL_RULES=[{"pattern":"/var/log/*","labels":{"env":"local","log_scope":"service","source_type":"host-log"}},{"pattern":"/var/log/*/*.log","labels":{"env":"local","log_scope":"service","source_type":"host-log"}},{"pattern":"/host-docker-containers/*/*-json.log","labels":{"env":"local","log_scope":"container","source_type":"docker-json"}}]'
       - COLLECTOR_FLUSH_INTERVAL=5s
       - COLLECTOR_CRITICAL_FLUSH_INTERVAL=500ms
       - COLLECTOR_PER_FILE_READ_LIMIT=200
@@ -248,10 +279,16 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
     volumes:
       - ./:/workspace
+      - ./.runtime/host-meta:/host/etc/nexuslog-host-meta:ro
+      - /etc/hostname:/host/etc/hostname:ro
       - /var/log:/var/log:ro
-      - /tmp/nexuslog-agent:/tmp/nexuslog-agent
+      - /var/lib/docker/containers:/host-docker-containers:ro
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
       - collector-agent-data:/var/lib/collector-agent
@@ -277,6 +314,9 @@ services:
       - HTTP_PORT=16666
       - LEGACY_LOG_PIPELINE_ENABLED=false
       - AGENT_ID=collector-agent-remote-local
+      - AGENT_SOURCE_HOSTNAME=collector-agent-remote-local
+      - AGENT_SOURCE_IP=198.18.0.2
+      - AGENT_SOURCE_IP_ALLOW_CONTAINER_FALLBACK=false
       - AGENT_API_KEY_ACTIVE_ID=active
       - AGENT_API_KEY_ACTIVE=dev-agent-key
       # 远程模拟模式仅保留 pull 主路径，关闭 Kafka 兼容主推
@@ -347,9 +387,42 @@ services:
       - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_HEAP_OPTS=-Xms512m -Xmx512m
 
+  es-compat-proxy:
+    image: ${MIRROR_DOCKER_HUB}/nginx:1.25-alpine
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./observability/es-compat-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:9200/_cluster/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+    networks:
+      - nexuslog-net
+
+  flink-jobmanager:
+    volumes:
+      - ./stream/flink/jobs:/opt/flink/jobs
+      - ./stream/flink/configs:/opt/flink/conf-custom
+      - ./stream/flink/udf:/opt/flink/udf
+
+  flink-taskmanager:
+    volumes:
+      - ./stream/flink/jobs:/opt/flink/jobs
+      - ./stream/flink/configs:/opt/flink/conf-custom
+      - ./stream/flink/udf:/opt/flink/udf
+
+  flink-sql-init:
+    volumes:
+      - ./stream/flink/jobs:/opt/flink/jobs
+      - ./stream/flink/configs:/opt/flink/conf-custom
+      - ./stream/flink/udf:/opt/flink/udf
+
 volumes:
   pnpm-store:
-  bff-node-modules:
   go-pkg-mod:
   go-build-cache:
   collector-agent-data:

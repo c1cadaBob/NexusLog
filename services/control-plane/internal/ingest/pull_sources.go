@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -611,14 +612,70 @@ func ensureNoActiveOverlapInMemory(items map[string]PullSource, candidate PullSo
 			continue
 		}
 		otherIdentity, overlap := activeAgentIdentity(item)
-		if !overlap {
+		if !overlap || otherIdentity != candidateIdentity {
 			continue
 		}
-		if otherIdentity == candidateIdentity {
+		if pullSourcePathsOverlap(candidate.Path, item.Path) {
 			return ErrPullSourceOverlapConflict
 		}
 	}
 	return nil
+}
+
+func pullSourcePathsOverlap(leftPath, rightPath string) bool {
+	leftPatterns := parseCursorSourcePathPatterns(leftPath)
+	rightPatterns := parseCursorSourcePathPatterns(rightPath)
+	if len(leftPatterns) == 0 || len(rightPatterns) == 0 {
+		return true
+	}
+	for _, left := range leftPatterns {
+		for _, right := range rightPatterns {
+			if pullSourcePatternOverlap(left, right) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func pullSourcePatternOverlap(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return true
+	}
+	if left == right {
+		return true
+	}
+
+	leftHasWildcard := strings.ContainsAny(left, "*?[")
+	rightHasWildcard := strings.ContainsAny(right, "*?[")
+	if !leftHasWildcard && !rightHasWildcard {
+		return false
+	}
+	if leftHasWildcard && !rightHasWildcard {
+		matched, err := filepath.Match(left, right)
+		return err == nil && matched
+	}
+	if !leftHasWildcard && rightHasWildcard {
+		matched, err := filepath.Match(right, left)
+		return err == nil && matched
+	}
+
+	leftPrefix := pullSourcePatternStaticPrefix(left)
+	rightPrefix := pullSourcePatternStaticPrefix(right)
+	if leftPrefix == "" || rightPrefix == "" {
+		return true
+	}
+	return strings.HasPrefix(leftPrefix, rightPrefix) || strings.HasPrefix(rightPrefix, leftPrefix)
+}
+
+func pullSourcePatternStaticPrefix(pattern string) string {
+	idx := strings.IndexAny(pattern, "*?[")
+	if idx < 0 {
+		return pattern
+	}
+	return pattern[:idx]
 }
 
 func activeAgentIdentity(source PullSource) (string, bool) {

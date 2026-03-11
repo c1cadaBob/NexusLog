@@ -19,6 +19,11 @@
           "type": "text",
           "fields": { "keyword": { "type": "keyword", "ignore_above": 1024 } }
         },
+        "event_id": { "type": "keyword" },
+        "source_collect_path": { "type": "keyword" },
+        "batch_id": { "type": "keyword" },
+        "schema_version": { "type": "keyword" },
+        "tenant_id": { "type": "keyword" },
         "event": {
           "properties": {
             "id": { "type": "keyword" },
@@ -55,7 +60,8 @@
           "properties": {
             "id": { "type": "keyword" },
             "version": { "type": "keyword" },
-            "hostname": { "type": "keyword" }
+            "hostname": { "type": "keyword" },
+            "ip": { "type": "ip" }
           }
         },
         "service": {

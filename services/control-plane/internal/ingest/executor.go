@@ -308,6 +308,15 @@ func (e *PullTaskExecutor) resolveStartCursor(task PullTask, source PullSource) 
 		if cursor, ok := e.cursorStore.GetBySourceAndPath(source.SourceID, sourcePath); ok {
 			return strings.TrimSpace(cursor.LastCursor)
 		}
+		if hasSourcePathPattern(sourcePath) {
+			if cursor, ok := e.cursorStore.GetLatestMatchingSourcePath(source.SourceID, sourcePath); ok {
+				return strings.TrimSpace(cursor.LastCursor)
+			}
+		}
+		return ""
+	}
+	if cursor, ok := e.cursorStore.GetLatestBySource(source.SourceID); ok {
+		return strings.TrimSpace(cursor.LastCursor)
 	}
 	return ""
 }

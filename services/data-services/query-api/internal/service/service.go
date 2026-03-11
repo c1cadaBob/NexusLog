@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -37,6 +38,15 @@ var (
 	ansiColorPattern = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
 	// controlCharPattern 用于移除非换行/回车/制表符控制字符。
 	controlCharPattern = regexp.MustCompile(`[\x00-\x08\x0B-\x1F\x7F]`)
+	// rfc3164HostnamePattern 提取 RFC3164 风格 syslog 主机名。
+	rfc3164HostnamePattern = regexp.MustCompile(`^[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+([^\s]+)\s+`)
+	// rfc5424HostnamePattern 提取 RFC5424 风格 syslog 主机名。
+	rfc5424HostnamePattern = regexp.MustCompile(`^(?:<\d{1,3}>)?\d+\s+\S+\s+([^\s]+)\s+`)
+	// bogusServiceNames 用于过滤 syslog 月份被误识别为服务名的情况。
+	bogusServiceNames = map[string]struct{}{
+		"jan": {}, "feb": {}, "mar": {}, "apr": {}, "may": {}, "jun": {},
+		"jul": {}, "aug": {}, "sep": {}, "oct": {}, "nov": {}, "dec": {},
+	}
 )
 
 // RequestActor 描述一次查询请求的调用身份。
@@ -205,9 +215,10 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 		return SearchLogsResult{}, err
 	}
 
+	serviceHints := s.lookupServiceHintsBySourcePath(ctx, repoResult.Hits)
 	hits := make([]SearchLogHit, 0, len(repoResult.Hits))
 	for _, item := range repoResult.Hits {
-		hits = append(hits, mapRawHit(item))
+		hits = append(hits, mapRawHitWithServiceHint(item, serviceHints[displaySourcePathFromSource(item.Source)]))
 	}
 
 	result := SearchLogsResult{
@@ -597,6 +608,10 @@ func toRepositorySort(input []SortField) []repository.SortField {
 }
 
 func mapRawHit(raw repository.RawLogHit) SearchLogHit {
+	return mapRawHitWithServiceHint(raw, "")
+}
+
+func mapRawHitWithServiceHint(raw repository.RawLogHit, serviceHint string) SearchLogHit {
 	fields := cloneMap(raw.Source)
 	if fields == nil {
 		fields = map[string]any{}
@@ -621,11 +636,20 @@ func mapRawHit(raw repository.RawLogHit) SearchLogHit {
 	if message == "" {
 		message = sourceMessage
 	}
-	level := normalizeLevel(firstPathString(raw.Source, "log.level", "level", "severity", "severity.text"), sourceMessage)
-	service := firstPathString(raw.Source, "service.name", "service.instance.id", "container.name", "service", "service_name", "app", "agent.id", "agent_id", "source_id")
-	if service == "" {
-		service = "unknown"
+	if firstString(fields, "host") == "" {
+		if resolvedHost := resolveDisplayHost(raw.Source, sourceMessage, rawLog); resolvedHost != "" {
+			fields["host"] = resolvedHost
+		}
 	}
+	if firstString(fields, "host_ip") == "" {
+		if resolvedHostIP := resolveDisplayHostIP(raw.Source); resolvedHostIP != "" {
+			fields["host_ip"] = resolvedHostIP
+		}
+	}
+	level := normalizeLevel(firstPathString(raw.Source, "log.level", "level", "severity", "severity.text"), sourceMessage)
+	service := resolveDisplayServiceWithHint(raw.Source, serviceHint)
+	fields["service_name"] = service
+	fields["service"] = service
 	id := strings.TrimSpace(firstPathString(raw.Source, "event.id", "event_id", "event.record_id", "record_id"))
 	if id == "" {
 		id = strings.TrimSpace(raw.ID)
@@ -687,7 +711,10 @@ func populateDisplayFieldAliases(fields map[string]any, source map[string]any) {
 	setAliasString(fields, "tenant_id", source, "nexuslog.governance.tenant_id", "tenant_id")
 	setAliasString(fields, "retention_policy", source, "nexuslog.governance.retention_policy", "retention_policy")
 	setAliasValue(fields, "pii_masked", source, "nexuslog.governance.pii_masked", "pii_masked")
-	setAliasString(fields, "host", source, "host.name", "host")
+	setAliasString(fields, "host", source, "host.name", "hostname", "syslog_hostname", "server_id")
+	if hostIP := resolveDisplayHostIP(source); hostIP != "" {
+		fields["host_ip"] = hostIP
+	}
 	setAliasString(fields, "env", source, "service.environment", "labels.env", "env")
 	setAliasString(fields, "method", source, "http.request.method", "method")
 	setAliasValue(fields, "statusCode", source, "http.response.status_code", "statusCode")
@@ -703,6 +730,247 @@ func populateDisplayFieldAliases(fields map[string]any, source map[string]any) {
 	if sourceDisplay != "" {
 		fields["source"] = sourceDisplay
 		fields["source_path"] = sourceDisplay
+	}
+}
+
+func resolveDisplayHost(source map[string]any, messages ...string) string {
+	for _, path := range []string{"host.name", "host", "hostname", "syslog_hostname", "server_id"} {
+		if value := lookupScalarString(source, path); value != "" {
+			return value
+		}
+	}
+	for _, candidate := range messages {
+		if hostname := extractHostnameFromSyslogMessage(candidate); hostname != "" {
+			return hostname
+		}
+	}
+	return lookupScalarString(source, "agent.hostname")
+}
+
+func resolveDisplayHostIP(source map[string]any) string {
+	for _, path := range []string{"host.ip", "host_ip", "server_ip", "agent.ip", "agent_ip"} {
+		if value := lookupScalarStringOrFirstListItem(source, path); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func resolveDisplayService(source map[string]any) string {
+	return resolveDisplayServiceWithHint(source, "")
+}
+
+func resolveDisplayServiceWithHint(source map[string]any, serviceHint string) string {
+	for _, key := range []string{"service.name", "service_name", "service", "app", "container.name"} {
+		if value := sanitizeDisplayServiceName(lookupScalarString(source, key)); value != "" {
+			return value
+		}
+	}
+	if value := sanitizeDisplayServiceName(serviceHint); value != "" {
+		return value
+	}
+	if value := resolveDisplayServiceFromDockerMetadata(source); value != "" {
+		return value
+	}
+	if value := deriveServiceNameFromSourcePath(source); value != "" {
+		return value
+	}
+	for _, key := range []string{"service.instance.id", "source_id"} {
+		if value := sanitizeDisplayServiceName(lookupScalarString(source, key)); value != "" {
+			return value
+		}
+	}
+	return "unknown"
+}
+
+func sanitizeDisplayServiceName(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	lowerValue := strings.ToLower(value)
+	if _, blocked := bogusServiceNames[lowerValue]; blocked {
+		return ""
+	}
+	if queryDockerContainerIDPattern.MatchString(lowerValue) || queryDockerJSONLogNamePattern.MatchString(lowerValue) {
+		return ""
+	}
+	if strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[") {
+		return ""
+	}
+	if strings.Contains(value, `{"`) || strings.Contains(value, `\\"`) || strings.ContainsAny(value, "\r\n\t") {
+		return ""
+	}
+	return value
+}
+
+func deriveServiceNameFromSourcePath(source map[string]any) string {
+	sourcePath := displaySourcePathFromSource(source)
+	base := strings.TrimSpace(path.Base(sourcePath))
+	switch base {
+	case "", ".", "/":
+		return ""
+	default:
+		return sanitizeDisplayServiceName(base)
+	}
+}
+
+func displaySourcePathFromSource(source map[string]any) string {
+	sourcePath := firstPathString(source, "source.path", "log.file.path", "source_path", "source")
+	return normalizeSourcePathForDisplay(sourcePath)
+}
+
+func looksLikeDockerSourcePath(sourcePath string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(sourcePath))
+	return strings.HasPrefix(trimmed, "/var/lib/docker/containers/") || strings.HasPrefix(trimmed, "/host-docker-containers/")
+}
+
+func (s *QueryService) lookupServiceHintsBySourcePath(ctx context.Context, hits []repository.RawLogHit) map[string]string {
+	if s == nil || s.logRepo == nil || len(hits) == 0 {
+		return nil
+	}
+
+	targets := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, hit := range hits {
+		sourcePath := displaySourcePathFromSource(hit.Source)
+		if sourcePath == "" || !looksLikeDockerSourcePath(sourcePath) {
+			continue
+		}
+		if direct := resolveDisplayService(hit.Source); direct != "unknown" {
+			continue
+		}
+		if _, exists := seen[sourcePath]; exists {
+			continue
+		}
+		seen[sourcePath] = struct{}{}
+		targets = append(targets, sourcePath)
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+
+	shouldClauses := make([]map[string]any, 0, len(targets)*2)
+	for _, sourcePath := range targets {
+		shouldClauses = append(shouldClauses,
+			map[string]any{"match_phrase": map[string]any{"source.path": sourcePath}},
+			map[string]any{"match_phrase": map[string]any{"log.file.path": sourcePath}},
+		)
+	}
+
+	result, err := s.logRepo.SearchWithBody(ctx, map[string]any{
+		"size": minInt(len(targets)*8, 200),
+		"sort": []map[string]any{{"@timestamp": map[string]any{"order": "desc"}}},
+		"query": map[string]any{
+			"bool": map[string]any{
+				"should":               shouldClauses,
+				"minimum_should_match": 1,
+			},
+		},
+	})
+	if err != nil {
+		return nil
+	}
+	return buildSourcePathServiceHints(result.Hits)
+}
+
+func buildSourcePathServiceHints(hits []repository.RawLogHit) map[string]string {
+	if len(hits) == 0 {
+		return nil
+	}
+	hints := make(map[string]string)
+	for _, hit := range hits {
+		sourcePath := displaySourcePathFromSource(hit.Source)
+		if sourcePath == "" || hints[sourcePath] != "" {
+			continue
+		}
+		service := resolveDisplayService(hit.Source)
+		if service == "" || service == "unknown" {
+			continue
+		}
+		hints[sourcePath] = service
+	}
+	if len(hints) == 0 {
+		return nil
+	}
+	return hints
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func extractHostnameFromSyslogMessage(raw string) string {
+	message := unwrapMessageForLevel(raw)
+	if message == "" {
+		return ""
+	}
+	message = strings.TrimSpace(message)
+	for _, pattern := range []*regexp.Regexp{rfc3164HostnamePattern, rfc5424HostnamePattern} {
+		matched := pattern.FindStringSubmatch(message)
+		if len(matched) < 2 {
+			continue
+		}
+		hostname := strings.TrimSpace(matched[1])
+		if hostname != "" && hostname != "-" {
+			return hostname
+		}
+	}
+	return ""
+}
+
+func lookupScalarString(source map[string]any, path string) string {
+	value, ok := lookupPathValue(source, path)
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case fmt.Stringer:
+		return strings.TrimSpace(typed.String())
+	case map[string]any, []any:
+		return ""
+	default:
+		text := strings.TrimSpace(fmt.Sprintf("%v", value))
+		if text == "" || text == "<nil>" {
+			return ""
+		}
+		return text
+	}
+}
+
+func lookupScalarStringOrFirstListItem(source map[string]any, path string) string {
+	value, ok := lookupPathValue(source, path)
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			text := strings.TrimSpace(fmt.Sprintf("%v", item))
+			if text != "" && text != "<nil>" && text != "-" {
+				return text
+			}
+		}
+		return ""
+	case []string:
+		for _, item := range typed {
+			text := strings.TrimSpace(item)
+			if text != "" && text != "-" {
+				return text
+			}
+		}
+		return ""
+	default:
+		text := lookupScalarString(source, path)
+		if text == "-" {
+			return ""
+		}
+		return text
 	}
 }
 

@@ -3,6 +3,7 @@ package pullapi
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -13,7 +14,10 @@ import (
 	"github.com/nexuslog/collector-agent/plugins"
 )
 
-var composePrefixPattern = regexp.MustCompile(`^\s*([^|]+?)\s*\|\s?(.*)$`)
+var (
+	composePrefixPattern      = regexp.MustCompile(`^\s*([^|]+?)\s*\|\s?(.*)$`)
+	composeServiceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+)
 
 type normalizedLine struct {
 	body                    string
@@ -30,10 +34,19 @@ type normalizedLine struct {
 	droppedEmptyPrefixLines int
 }
 
-func normalizePluginBatch(batch []plugins.Record) []internalRecord {
+type dockerJSONEnvelope struct {
+	Log     string `json:"log"`
+	Message string `json:"message"`
+	Msg     string `json:"msg"`
+	RawLog  string `json:"raw_log"`
+	Stream  string `json:"stream"`
+	Time    string `json:"time"`
+}
+
+func normalizePluginBatch(batch []plugins.Record, sourceHostname, sourceIP string) []internalRecord {
 	lines := make([]normalizedLine, 0, len(batch))
 	for _, record := range batch {
-		line, ok := normalizePluginRecord(record)
+		line, ok := normalizePluginRecord(record, sourceHostname, sourceIP)
 		if !ok {
 			continue
 		}
@@ -66,7 +79,7 @@ func normalizePluginBatch(batch []plugins.Record) []internalRecord {
 	return result
 }
 
-func normalizePluginRecord(record plugins.Record) (normalizedLine, bool) {
+func normalizePluginRecord(record plugins.Record, sourceHostname, sourceIP string) (normalizedLine, bool) {
 	text := strings.ReplaceAll(string(record.Data), "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
 	text = strings.TrimRight(text, "\n")
@@ -80,8 +93,16 @@ func normalizePluginRecord(record plugins.Record) (normalizedLine, bool) {
 	service := APIService{}
 	container := APIContainer{}
 	droppedEmptyPrefixLines := 0
+	timestamp := record.Timestamp
 
-	if prefix, rest, ok := splitComposePrefix(text); ok {
+	if extractedBody, extractedTimestamp, ok := unwrapDockerJSONEnvelope(text, record.Source, metadata); ok {
+		body = extractedBody
+		if extractedTimestamp > 0 {
+			timestamp = extractedTimestamp
+		}
+	}
+
+	if prefix, rest, ok := splitComposePrefix(body); ok {
 		serviceName, instanceID := resolveServiceName(prefix)
 		service = APIService{Name: serviceName, Instance: APIServiceInstance{ID: instanceID}}
 		container = APIContainer{Name: instanceID}
@@ -98,7 +119,6 @@ func normalizePluginRecord(record plugins.Record) (normalizedLine, bool) {
 		return normalizedLine{}, false
 	}
 
-	timestamp := record.Timestamp
 	if timestamp <= 0 {
 		if detected := collector.DetectTimestamp([]byte(body)); detected > 0 {
 			timestamp = detected
@@ -114,7 +134,10 @@ func normalizePluginRecord(record plugins.Record) (normalizedLine, bool) {
 	}
 
 	severity := resolveSeverity(metadata, body)
-	metadata = ensureMetadata(metadata, severity, service, offset)
+	metadata = ensureMetadata(metadata, severity, service, offset, sourceHostname, sourceIP)
+	service.Name = firstNonEmptyMetadataValue(metadata["service.name"], service.Name)
+	service.Instance.ID = firstNonEmptyMetadataValue(metadata["service.instance.id"], metadata["container.name"], service.Instance.ID)
+	container.Name = firstNonEmptyMetadataValue(metadata["container.name"], service.Instance.ID, container.Name)
 
 	return normalizedLine{
 		body:                    strings.TrimRight(body, "\n"),
@@ -133,16 +156,34 @@ func normalizePluginRecord(record plugins.Record) (normalizedLine, bool) {
 }
 
 func splitComposePrefix(line string) (prefix, body string, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return "", "", false
+	}
 	match := composePrefixPattern.FindStringSubmatch(line)
 	if len(match) != 3 {
 		return "", "", false
 	}
 	prefix = strings.TrimSpace(match[1])
 	body = strings.TrimSpace(match[2])
-	if prefix == "" {
+	if prefix == "" || !isLikelyComposePrefix(prefix) {
 		return "", "", false
 	}
 	return prefix, body, true
+}
+
+func isLikelyComposePrefix(prefix string) bool {
+	trimmed := strings.TrimSpace(prefix)
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return false
+	}
+	if strings.ContainsAny(trimmed, `"{}[]:\\`) {
+		return false
+	}
+	return composeServiceNamePattern.MatchString(trimmed)
 }
 
 func resolveServiceName(prefix string) (serviceName, instanceID string) {
@@ -158,6 +199,53 @@ func resolveServiceName(prefix string) (serviceName, instanceID string) {
 		}
 	}
 	return strings.TrimSpace(serviceName), instanceID
+}
+
+func unwrapDockerJSONEnvelope(text, sourcePath string, metadata map[string]string) (string, int64, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return "", 0, false
+	}
+	if !looksLikeDockerJSONEnvelope(sourcePath, metadata, trimmed) {
+		return "", 0, false
+	}
+
+	var payload dockerJSONEnvelope
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return "", 0, false
+	}
+	body := firstNonEmptyMetadataValue(payload.Log, payload.Message, payload.Msg, payload.RawLog)
+	body = strings.TrimRight(strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\r", "\n"), "\n")
+	if strings.TrimSpace(body) == "" {
+		return "", 0, false
+	}
+	if metadata != nil {
+		if strings.TrimSpace(metadata["stream"]) == "" && strings.TrimSpace(payload.Stream) != "" {
+			metadata["stream"] = strings.TrimSpace(payload.Stream)
+		}
+		if strings.TrimSpace(metadata["source_type"]) == "" {
+			metadata["source_type"] = "docker-json"
+		}
+	}
+	var timestamp int64
+	if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(payload.Time)); err == nil {
+		timestamp = parsed.UTC().UnixNano()
+	}
+	return body, timestamp, true
+}
+
+func looksLikeDockerJSONEnvelope(sourcePath string, metadata map[string]string, text string) bool {
+	if strings.EqualFold(strings.TrimSpace(metadata["source_type"]), "docker-json") {
+		return true
+	}
+	trimmedSource := strings.TrimSpace(sourcePath)
+	if trimmedSource != "" {
+		baseName := strings.ToLower(strings.TrimSpace(filepath.Base(trimmedSource)))
+		if strings.HasSuffix(baseName, "-json.log") && strings.Contains(trimmedSource, "/containers/") {
+			return true
+		}
+	}
+	return strings.Contains(text, `"log"`) && strings.Contains(text, `"stream"`) && strings.Contains(text, `"time"`)
 }
 
 func parseRecordOffset(metadata map[string]string) int64 {
@@ -227,7 +315,16 @@ func severityNumber(level string) int {
 	}
 }
 
-func ensureMetadata(metadata map[string]string, severity APISeverity, service APIService, offset int64) map[string]string {
+func firstNonEmptyMetadataValue(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func ensureMetadata(metadata map[string]string, severity APISeverity, service APIService, offset int64, sourceHostname, sourceIP string) map[string]string {
 	if metadata == nil {
 		metadata = make(map[string]string)
 	}
@@ -242,6 +339,45 @@ func ensureMetadata(metadata map[string]string, severity APISeverity, service AP
 	}
 	if service.Instance.ID != "" && strings.TrimSpace(metadata["service.instance.id"]) == "" {
 		metadata["service.instance.id"] = service.Instance.ID
+	}
+
+	hostName := firstNonEmptyMetadataValue(
+		metadata["host.name"],
+		metadata["host"],
+		metadata["hostname"],
+		metadata["syslog_hostname"],
+		metadata["server_id"],
+		sourceHostname,
+	)
+	if hostName != "" {
+		if strings.TrimSpace(metadata["host.name"]) == "" {
+			metadata["host.name"] = hostName
+		}
+		if strings.TrimSpace(metadata["host"]) == "" {
+			metadata["host"] = hostName
+		}
+	}
+
+	hostIP := firstNonEmptyMetadataValue(
+		metadata["host.ip"],
+		metadata["host_ip"],
+		metadata["server_ip"],
+		sourceIP,
+	)
+	if hostIP != "" && strings.TrimSpace(metadata["host.ip"]) == "" {
+		metadata["host.ip"] = hostIP
+	}
+
+	agentIP := firstNonEmptyMetadataValue(
+		metadata["agent.ip"],
+		metadata["agent_ip"],
+		sourceIP,
+	)
+	if agentIP != "" && strings.TrimSpace(metadata["agent.ip"]) == "" {
+		metadata["agent.ip"] = agentIP
+	}
+	if agentIP != "" && strings.TrimSpace(metadata["agent_ip"]) == "" {
+		metadata["agent_ip"] = agentIP
 	}
 	return metadata
 }
@@ -388,7 +524,7 @@ func finalizeInternalRecord(record *internalRecord) {
 	if record.Multiline.EndOffset <= 0 {
 		record.Multiline.EndOffset = record.Offset
 	}
-	record.Metadata = ensureMetadata(record.Metadata, record.Severity, record.Service, record.Offset)
+	record.Metadata = ensureMetadata(record.Metadata, record.Severity, record.Service, record.Offset, "", "")
 	if len(record.Attributes) == 0 {
 		record.Attributes = nil
 	}

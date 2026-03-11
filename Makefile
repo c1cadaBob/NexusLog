@@ -4,22 +4,24 @@
 .PHONY: all bootstrap lint test build release rollback clean help
 .PHONY: frontend-install frontend-lint frontend-test frontend-build
 .PHONY: backend-lint backend-test backend-build
-.PHONY: docker-build docker-push
+.PHONY: docker-build docker-push test-contracts stream-install-es stream-register-schemas stream-deploy-local stream-bootstrap-local stream-compare
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.override.yml
 DEV_SERVICES := \
-	postgres redis elasticsearch zookeeper kafka kafka-init \
+	postgres redis elasticsearch elasticsearch-init zookeeper kafka kafka-init schema-registry schema-registry-init \
+	flink-jobmanager flink-taskmanager flink-sql-init \
 	control-plane api-service query-api audit-api export-api health-worker collector-agent \
+	prometheus alertmanager grafana node-exporter elasticsearch-exporter kafka-exporter postgres-exporter redis-exporter \
 	bff-service frontend-console
 DEV_SERVICES_LITE := \
 	postgres redis \
 	control-plane api-service \
 	bff-service frontend-console
-DEV_LOG_SERVICES := frontend-console bff-service control-plane api-service query-api audit-api export-api health-worker collector-agent
+DEV_LOG_SERVICES := frontend-console bff-service control-plane api-service query-api audit-api export-api health-worker collector-agent schema-registry flink-jobmanager flink-taskmanager prometheus alertmanager grafana
 
 # 默认目标
 all: lint test build
@@ -68,6 +70,35 @@ frontend-test:
 backend-test:
 	@echo "🧪 运行后端测试..."
 	@./scripts/test.sh
+
+## Schema contracts 测试
+test-contracts:
+	@echo "🧪 校验 Schema contracts..."
+	@bash ./contracts/schema-contracts/tests/validate-schemas.sh
+
+## 安装 Stream 主链 Elasticsearch 模板与别名
+stream-install-es:
+	@echo "🗂️ 安装 Elasticsearch v2 模板与别名..."
+	@ES_HOST="$(ES_HOST)" ./scripts/install-es-v2-template.sh
+
+## 向 Schema Registry 注册 Stream 主链契约
+stream-register-schemas:
+	@echo "🧬 注册 Schema Registry 契约..."
+	@SCHEMA_REGISTRY_URL="$(SCHEMA_REGISTRY_URL)" ./scripts/register-schema-registry-subjects.sh
+
+## 在本地 Flink 提交流式 SQL 作业
+stream-deploy-local:
+	@echo "🌊 提交 Flink SQL 作业..."
+	@FLINK_SQL_JOBS="$(FLINK_SQL_JOBS)" FLINK_REST_URL="$(FLINK_REST_URL)" SCHEMA_REGISTRY_URL="$(SCHEMA_REGISTRY_URL)" ./scripts/deploy-flink-sql-jobs.sh
+
+## 在本地完成 Stream 主链 bootstrap
+stream-bootstrap-local: stream-install-es stream-register-schemas stream-deploy-local
+	@echo "✅ Stream 本地自举完成"
+
+## 按 event_id 对比 Pull / Stream 双路样本
+stream-compare:
+	@echo "🔎 对比 Pull / Stream 双路样本..."
+	@ES_HOST="$(ES_HOST)" PULL_INDEX="$(PULL_INDEX)" STREAM_INDEX="$(STREAM_INDEX)" SINCE_MINUTES="$(SINCE_MINUTES)" SAMPLE_SIZE="$(SAMPLE_SIZE)" ./scripts/compare-pull-stream-by-event-id.sh
 
 # ============================================
 # 构建
@@ -136,13 +167,18 @@ dev-test-smoke:
 	@set -e; \
 	for url in \
 		http://localhost:3000 \
+		http://localhost:3002/api/health \
 		http://localhost:8080/healthz \
 		http://localhost:8085/healthz \
 		http://localhost:8082/healthz \
 		http://localhost:8083/healthz \
 		http://localhost:8084/healthz \
 		http://localhost:8081/healthz \
-		http://localhost:9091/healthz; do \
+		http://localhost:9091/healthz \
+		http://localhost:18081/subjects \
+		http://localhost:8088/overview \
+		http://localhost:19090/-/ready \
+		http://localhost:19093/-/ready; do \
 		echo "checking $$url"; \
 		ok=0; \
 		for attempt in $$(seq 1 240); do \
@@ -162,6 +198,15 @@ dev-test-smoke:
 		echo "WARN: optional bff health check not ready yet (http://localhost:3001/healthz)"; \
 	fi; \
 	echo "✅ dev 冒烟检查通过"
+
+## 对正在运行的本地环境执行链路自举（schema / alias / pull source / alert rule）
+local-bootstrap:
+	@echo "🧩 自举本地日志全链路..."
+	@bash ./scripts/bootstrap-local-log-chain.sh
+
+## 一键启动并完成本地持久化部署
+local-deploy: dev-up local-bootstrap
+	@echo "✅ 本地持久化部署完成"
 
 ## api-service register 冒烟检查（需 SMOKE_TENANT_ID）
 api-register-smoke:
@@ -271,9 +316,15 @@ help:
 	@echo "  make backend-lint   - 后端代码检查"
 	@echo ""
 	@echo "测试:"
-	@echo "  make test           - 运行所有测试"
-	@echo "  make frontend-test  - 前端测试"
-	@echo "  make backend-test   - 后端测试"
+	@echo "  make test                 - 运行所有测试"
+	@echo "  make frontend-test        - 前端测试"
+	@echo "  make backend-test         - 后端测试"
+	@echo "  make test-contracts       - 校验 Schema contracts"
+	@echo "  make stream-install-es    - 安装 ES v2 模板与读写别名"
+	@echo "  make stream-register-schemas - 注册 Stream 主链 Schema Registry 契约"
+	@echo "  make stream-deploy-local  - 向本地 Flink 提交 SQL 作业"
+	@echo "  make stream-bootstrap-local - 完成本地 Stream 主链自举"
+	@echo "  make stream-compare       - 对比 Pull / Stream 双路 event_id 样本"
 	@echo ""
 	@echo "构建:"
 	@echo "  make build          - 构建所有组件"

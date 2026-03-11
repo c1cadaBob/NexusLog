@@ -9,6 +9,7 @@ import ChartWrapper from '../../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
 import type { LogEntry } from '../../types/log';
 import { queryRealtimeLogs } from '../../api/query';
+import { aggregateRealtimeDisplayLogs, summarizeImageAggregation } from './realtimeLogAggregation';
 
 // ============================================================================
 // 本地 UI 辅助数据
@@ -25,6 +26,21 @@ const RECENT_QUERIES = [
 const HISTOGRAM_WINDOW_MS = 30 * 60 * 1000;
 const HISTOGRAM_PAGE_SIZE = 200;
 
+function buildRealtimeTableTimeRange() {
+  return {
+    from: '',
+    to: new Date().toISOString(),
+  };
+}
+
+function buildHistogramTimeRange() {
+  const now = new Date();
+  return {
+    from: new Date(now.getTime() - HISTOGRAM_WINDOW_MS).toISOString(),
+    to: now.toISOString(),
+  };
+}
+
 function toDisplayText(value: unknown, fallback = '—'): string {
   if (value == null) {
     return fallback;
@@ -34,6 +50,21 @@ function toDisplayText(value: unknown, fallback = '—'): string {
     return normalized || fallback;
   }
   return String(value);
+}
+
+function formatDetailValue(value: unknown, fallback = '—'): string {
+  if (value == null || value === '') {
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized || fallback;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 /** 构建近 30 分钟直方图（使用当前查询结果统计） */
@@ -125,6 +156,8 @@ const RealtimeSearch: React.FC = () => {
     setPageSizeLocal(size);
     setStoredPageSize('realtimeSearch', size);
   }, [setStoredPageSize]);
+  const latestQueryRequestRef = useRef(0);
+  const initialQueryTriggeredRef = useRef(false);
 
   const executeQuery = useCallback(async (options: {
     queryText: string;
@@ -133,19 +166,23 @@ const RealtimeSearch: React.FC = () => {
     silent?: boolean;
     recordHistory?: boolean;
   }) => {
+    const requestID = latestQueryRequestRef.current + 1;
+    latestQueryRequestRef.current = requestID;
     setTableLoading(true);
     try {
       const filters = {
         level: levelFilter || undefined,
         service: sourceFilter || undefined,
       };
-      const now = new Date();
+      const realtimeTableTimeRange = buildRealtimeTableTimeRange();
+      const histogramTimeRange = buildHistogramTimeRange();
       const [result, histogramResult] = await Promise.all([
         queryRealtimeLogs({
           keywords: options.queryText,
           page: options.page,
           pageSize: options.pageSize,
           filters,
+          timeRange: realtimeTableTimeRange,
           recordHistory: options.recordHistory,
         }),
         queryRealtimeLogs({
@@ -153,13 +190,14 @@ const RealtimeSearch: React.FC = () => {
           page: 1,
           pageSize: HISTOGRAM_PAGE_SIZE,
           filters,
-          timeRange: {
-            from: new Date(now.getTime() - HISTOGRAM_WINDOW_MS).toISOString(),
-            to: now.toISOString(),
-          },
+          timeRange: histogramTimeRange,
           recordHistory: false,
         }),
       ]);
+
+      if (requestID !== latestQueryRequestRef.current) {
+        return;
+      }
 
       setLogs(result.hits);
       setHistogramLogs(histogramResult.hits);
@@ -171,17 +209,25 @@ const RealtimeSearch: React.FC = () => {
         message.warning('查询超时，结果可能不完整');
       }
     } catch (error) {
+      if (requestID !== latestQueryRequestRef.current) {
+        return;
+      }
       if (!options.silent) {
         const readableError = error instanceof Error ? error.message : '查询失败，请稍后重试';
         message.error(readableError);
       }
     } finally {
-      setTableLoading(false);
+      if (requestID === latestQueryRequestRef.current) {
+        setTableLoading(false);
+      }
     }
   }, [levelFilter, sourceFilter]);
 
   useEffect(() => {
-    // 页面首次加载执行一次真实查询。
+    if (initialQueryTriggeredRef.current) {
+      return;
+    }
+    initialQueryTriggeredRef.current = true;
     void executeQuery({
       queryText: '',
       page: 1,
@@ -198,13 +244,13 @@ const RealtimeSearch: React.FC = () => {
     const timer = window.setInterval(() => {
       void executeQuery({
         queryText: activeQuery,
-        page: 1,
+        page: currentPage,
         pageSize,
         silent: true,
       });
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [activeQuery, executeQuery, isLive, pageSize]);
+  }, [activeQuery, currentPage, executeQuery, isLive, pageSize]);
 
   useEffect(() => {
     const state = (location.state as RealtimeNavigationState | null) ?? null;
@@ -240,6 +286,8 @@ const RealtimeSearch: React.FC = () => {
 
   // 直方图数据
   const histogramData = useMemo(() => buildHistogramData(histogramLogs), [histogramLogs]);
+  const displayLogs = useMemo(() => aggregateRealtimeDisplayLogs(logs), [logs]);
+  const imageAggregationSummary = useMemo(() => summarizeImageAggregation(displayLogs), [displayLogs]);
   const uniqueSources = useMemo(() => {
     const seen = new Set<string>();
     logs.forEach((log) => {
@@ -352,22 +400,151 @@ const RealtimeSearch: React.FC = () => {
       render: (v: string) => <span className="text-sm font-medium">{v}</span>,
     },
     {
+      title: '主机',
+      dataIndex: 'host',
+      key: 'host',
+      width: 180,
+      ellipsis: true,
+      render: (v: string) => {
+        const displayValue = toDisplayText(v);
+        if (displayValue === '—') {
+          return <span className="text-sm opacity-50">—</span>;
+        }
+        return (
+          <Tooltip title={displayValue}>
+            <span className="text-sm font-mono">{displayValue}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: '主机IP',
+      dataIndex: 'hostIp',
+      key: 'hostIp',
+      width: 160,
+      ellipsis: true,
+      render: (v: string) => {
+        const displayValue = toDisplayText(v);
+        if (displayValue === '—') {
+          return <span className="text-sm opacity-50">—</span>;
+        }
+        return (
+          <Tooltip title={displayValue}>
+            <span className="text-sm font-mono">{displayValue}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
       title: '消息',
       dataIndex: 'message',
       key: 'message',
       ellipsis: true,
-      render: (v: string) => <span className="text-sm">{v}</span>,
+      render: (v: string, record) => {
+        if (!record.aggregated) {
+          return <span className="text-sm">{v}</span>;
+        }
+        return (
+          <div className="flex items-center gap-2 min-w-0">
+            <Tag color="blue" style={{ margin: 0 }}>聚合 {record.aggregated.count}</Tag>
+            <Tooltip title={record.aggregated.samplePaths.join('\n') || v}>
+              <span className="text-sm truncate">{v}</span>
+            </Tooltip>
+          </div>
+        );
+      },
     },
   ], []);
 
+  const copyToClipboard = useCallback(async (content: string, successText: string) => {
+    const normalized = content.trim();
+    if (!normalized || normalized === '—') {
+      message.warning('没有可复制的内容');
+      return;
+    }
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(normalized);
+      } else if (typeof document !== 'undefined') {
+        const textarea = document.createElement('textarea');
+        textarea.value = normalized;
+        textarea.setAttribute('readonly', 'true');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      message.success(successText);
+    } catch {
+      message.error('复制失败，请检查浏览器权限');
+    }
+  }, []);
+
   const selectedFields = selectedLog?.fields;
+  const selectedAggregation = selectedLog?.aggregated;
   const drawerEventID = toDisplayText(selectedFields?.event_id ?? selectedLog?.id);
   const drawerLevel = toDisplayText(selectedFields?.level ?? selectedLog?.level);
   const drawerTimestamp = toDisplayText(selectedFields?.timestamp ?? selectedLog?.timestamp ?? selectedFields?.collect_time);
   const drawerMessage = toDisplayText(selectedLog?.message ?? selectedFields?.message);
   const drawerSource = toDisplayText(selectedFields?.source ?? selectedFields?.source_path ?? selectedFields?.source_internal);
-  const drawerService = toDisplayText(selectedFields?.service_name ?? selectedLog?.service);
+  const drawerService = toDisplayText(selectedLog?.service ?? selectedFields?.service_name ?? selectedFields?.service);
+  const drawerHost = toDisplayText(selectedLog?.host ?? selectedFields?.host ?? selectedFields?.server_id);
+  const drawerHostIP = toDisplayText(selectedLog?.hostIp ?? selectedFields?.host_ip, '—');
   const drawerRawLog = selectedLog?.rawLog ?? selectedFields?.raw_message ?? selectedFields?.raw_log ?? drawerMessage;
+  const drawerTraceId = toDisplayText(selectedFields?.traceId, '—');
+  const drawerSpanId = toDisplayText(selectedFields?.spanId, '—');
+  const drawerMethod = toDisplayText(selectedFields?.method, '—');
+  const drawerStatusCode = toDisplayText(selectedFields?.statusCode, '—');
+  const drawerUserAgent = toDisplayText(selectedFields?.userAgent, '—');
+  const drawerRawContent = formatDetailValue(drawerRawLog);
+  const drawerFieldsJson = useMemo(() => {
+    if (!selectedFields) {
+      return '—';
+    }
+    return formatDetailValue(
+      Object.fromEntries(Object.entries(selectedFields).sort(([left], [right]) => left.localeCompare(right))),
+    );
+  }, [selectedFields]);
+  const drawerPayloadJson = useMemo(() => {
+    if (!selectedLog) {
+      return '—';
+    }
+    return formatDetailValue({
+      id: selectedLog.id,
+      timestamp: selectedLog.timestamp,
+      level: selectedLog.level,
+      service: selectedLog.service,
+      host: selectedLog.host,
+      hostIp: selectedLog.hostIp,
+      message: selectedLog.message,
+      rawLog: selectedLog.rawLog ?? null,
+      aggregated: selectedAggregation ?? null,
+      fields: selectedFields ?? {},
+    });
+  }, [selectedAggregation, selectedFields, selectedLog]);
+  const drawerSummaryItems = useMemo(() => {
+    const items = [
+      { key: 'event-id', label: '事件 ID', value: drawerEventID, mono: true, copyable: true },
+      { key: 'timestamp', label: '时间', value: drawerTimestamp, mono: true, copyable: true },
+      { key: 'service', label: '服务', value: drawerService, mono: false, copyable: false },
+      { key: 'host', label: '主机', value: drawerHost, mono: true, copyable: true },
+      { key: 'host-ip', label: '主机 IP', value: drawerHostIP, mono: true, copyable: drawerHostIP !== '—' },
+      { key: 'source', label: '来源', value: drawerSource, mono: true, copyable: true },
+      { key: 'trace', label: 'Trace ID', value: drawerTraceId, mono: true, copyable: drawerTraceId !== '—' },
+    ];
+    if (selectedAggregation) {
+      items.push({
+        key: 'aggregation',
+        label: '图片聚合',
+        value: `${selectedAggregation.count} 条已折叠`,
+        mono: false,
+        copyable: false,
+      });
+    }
+    return items;
+  }, [drawerEventID, drawerHost, drawerHostIP, drawerService, drawerSource, drawerTimestamp, drawerTraceId, selectedAggregation]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -475,6 +652,11 @@ const RealtimeSearch: React.FC = () => {
             <span className="text-xs opacity-50">
               共 {total.toLocaleString()} 条结果 · 耗时 {queryTimeMS}ms
             </span>
+            {imageAggregationSummary.hiddenRows > 0 && (
+              <Tag color="blue" style={{ margin: 0 }}>
+                本页已聚合 {imageAggregationSummary.groupedRows} 组图片日志，折叠 {imageAggregationSummary.hiddenRows} 条
+              </Tag>
+            )}
             {queryTimedOut && <Tag color="warning" style={{ margin: 0 }}>查询超时</Tag>}
           </div>
           <Space size="small">
@@ -488,7 +670,7 @@ const RealtimeSearch: React.FC = () => {
         </div>
 
         <Table<LogEntry>
-          dataSource={logs}
+          dataSource={displayLogs}
           columns={columns}
           rowKey="id"
           loading={tableLoading}
@@ -509,8 +691,6 @@ const RealtimeSearch: React.FC = () => {
                 page,
                 pageSize: size,
                 silent: true,
-                lookbackWindowMS,
-                allowAutoWindowFallback: false,
               });
             },
             position: ['bottomLeft'],
@@ -519,7 +699,7 @@ const RealtimeSearch: React.FC = () => {
             onClick: () => handleRowClick(record),
             style: { cursor: 'pointer' },
           })}
-          scroll={{ x: 600 }}
+          scroll={{ x: 980 }}
         />
       </div>
 
@@ -540,66 +720,106 @@ const RealtimeSearch: React.FC = () => {
         }
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={640}
-        footer={
-          <div className="flex items-center justify-between">
-            <Space>
-              <Button
-                type="primary"
-                ghost
-                icon={<span className="material-symbols-outlined text-sm">manage_search</span>}
-              >
-                查看上下文
-              </Button>
-              <Button
-                type="primary"
-                ghost
-                icon={<span className="material-symbols-outlined text-sm">timeline</span>}
-              >
-                跳转至 Trace
-              </Button>
-            </Space>
-            <Space>
-              <Tooltip title="复制为 JSON">
-                <Button icon={<span className="material-symbols-outlined text-sm">data_object</span>} />
-              </Tooltip>
-              <Tooltip title="添加到收藏查询">
-                <Button icon={<span className="material-symbols-outlined text-sm">bookmark_add</span>} />
-              </Tooltip>
-              <Tooltip title="创建告警规则">
-                <Button icon={<span className="material-symbols-outlined text-sm">notification_add</span>} />
-              </Tooltip>
-            </Space>
+        width={760}
+        styles={{ body: { paddingTop: 12, paddingBottom: 12 } }}
+        footer={selectedLog ? (
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            <Button
+              icon={<span className="material-symbols-outlined text-sm">data_object</span>}
+              onClick={() => void copyToClipboard(drawerFieldsJson, '已复制字段 JSON')}
+            >
+              字段 JSON
+            </Button>
+            <Button
+              type="primary"
+              ghost
+              icon={<span className="material-symbols-outlined text-sm">content_copy</span>}
+              onClick={() => void copyToClipboard(drawerPayloadJson, '已复制完整载荷')}
+            >
+              完整载荷
+            </Button>
           </div>
-        }
+        ) : null}
       >
         {selectedLog && (
-          <div className="flex flex-col gap-0">
-            {/* 五层字段详情 */}
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {drawerSummaryItems.map((item) => (
+                <div
+                  key={item.key}
+                  className="rounded-lg p-3"
+                  style={{
+                    backgroundColor: isDark ? 'rgba(15,23,42,0.65)' : 'rgba(248,250,252,0.95)',
+                    border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  }}
+                >
+                  <div className="text-[11px] uppercase tracking-wide opacity-50 mb-1">{item.label}</div>
+                  <Typography.Text
+                    copyable={item.copyable ? { text: item.value } : false}
+                    style={{
+                      fontSize: 12,
+                      display: 'block',
+                      lineHeight: 1.6,
+                      wordBreak: 'break-all',
+                      fontFamily: item.mono ? 'var(--font-mono, monospace)' : 'inherit',
+                    }}
+                  >
+                    {item.value}
+                  </Typography.Text>
+                </div>
+              ))}
+            </div>
+
+            <div
+              className="rounded-lg p-3"
+              style={{
+                backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.03)',
+                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+              }}
+            >
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-[11px] uppercase tracking-wide opacity-50">消息</span>
+                <Space size="small">
+                  <Tooltip title="复制消息">
+                    <Button
+                      size="small"
+                      icon={<span className="material-symbols-outlined text-sm">content_copy</span>}
+                      onClick={() => void copyToClipboard(drawerMessage, '已复制日志消息')}
+                    />
+                  </Tooltip>
+                  <Tooltip title="复制原始日志">
+                    <Button
+                      size="small"
+                      icon={<span className="material-symbols-outlined text-sm">article</span>}
+                      onClick={() => void copyToClipboard(drawerRawContent, '已复制原始日志')}
+                    />
+                  </Tooltip>
+                </Space>
+              </div>
+              <Typography.Paragraph
+                className="!mb-0 text-sm leading-6 whitespace-pre-wrap break-all"
+                ellipsis={{ rows: 6, expandable: true, symbol: '展开' }}
+              >
+                {drawerMessage}
+              </Typography.Paragraph>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Tag>service={drawerService}</Tag>
+              <Tag>level={drawerLevel}</Tag>
+              {drawerHost !== '—' && <Tag>host={drawerHost}</Tag>}
+              {drawerHostIP !== '—' && <Tag>host_ip={drawerHostIP}</Tag>}
+              {selectedFields?.env != null && <Tag color="cyan">env={toDisplayText(selectedFields.env)}</Tag>}
+              {selectedFields?.region != null && <Tag>region={toDisplayText(selectedFields.region)}</Tag>}
+              {selectedFields?.method != null && <Tag>method={toDisplayText(selectedFields.method)}</Tag>}
+              {selectedFields?.statusCode != null && <Tag color={Number(selectedFields.statusCode) >= 500 ? 'error' : Number(selectedFields.statusCode) >= 400 ? 'warning' : 'success'}>status={toDisplayText(selectedFields.statusCode)}</Tag>}
+              {selectedFields?.traceId != null && <Tag color="purple">trace={toDisplayText(selectedFields.traceId)}</Tag>}
+              {selectedFields?.spanId != null && <Tag color="purple">span={toDisplayText(selectedFields.spanId)}</Tag>}
+            </div>
+
             <Collapse
-              defaultActiveKey={['raw', 'event', 'transport', 'ingest', 'governance']}
+              defaultActiveKey={['event']}
               items={[
-                {
-                  key: 'raw',
-                  label: (
-                    <span className="flex items-center gap-1 text-xs">
-                      <span className="material-symbols-outlined text-sm">article</span>
-                      原始层 (Raw Layer)
-                    </span>
-                  ),
-                  children: (
-                    <div
-                      className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all"
-                      style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
-                    >
-                      {(() => {
-                        const raw = drawerRawLog;
-                        if (raw == null || raw === '') return '—';
-                        return typeof raw === 'string' ? raw : JSON.stringify(raw);
-                      })()}
-                    </div>
-                  ),
-                },
                 {
                   key: 'event',
                   label: (
@@ -621,17 +841,70 @@ const RealtimeSearch: React.FC = () => {
                         </Tag>
                       </Descriptions.Item>
                       <Descriptions.Item label="timestamp">
-                        <span className="font-mono text-xs">
-                          {drawerTimestamp}
-                        </span>
+                        <span className="font-mono text-xs">{drawerTimestamp}</span>
                       </Descriptions.Item>
-                      <Descriptions.Item label="message">
-                        <span className="text-xs">{drawerMessage}</span>
+                      <Descriptions.Item label="service_name">
+                        <span className="text-xs">{drawerService}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="host">
+                        <span className="font-mono text-xs">{drawerHost}</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="host_ip">
+                        <span className="font-mono text-xs">{drawerHostIP}</span>
+                      </Descriptions.Item>
+                      {selectedAggregation && (
+                        <Descriptions.Item label="image_aggregation" span={2}>
+                          <span className="text-xs">{selectedAggregation.summary}</span>
+                        </Descriptions.Item>
+                      )}
+                      <Descriptions.Item label="message" span={2}>
+                        <Typography.Paragraph className="!mb-0 text-xs whitespace-pre-wrap break-all">
+                          {drawerMessage}
+                        </Typography.Paragraph>
                       </Descriptions.Item>
                       <Descriptions.Item label="source" span={2}>
-                        <span className="text-xs">{drawerSource}</span>
+                        <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
+                          {drawerSource}
+                        </Typography.Text>
                       </Descriptions.Item>
                     </Descriptions>
+                  ),
+                },
+                ...(selectedAggregation ? [{
+                  key: 'aggregation',
+                  label: (
+                    <span className="flex items-center gap-1 text-xs">
+                      <span className="material-symbols-outlined text-sm">stacked_email</span>
+                      图片聚合清单 (Aggregated Image Logs)
+                    </span>
+                  ),
+                  children: (
+                    <div className="flex flex-col gap-2">
+                      <div className="text-xs opacity-70">{selectedAggregation.summary}</div>
+                      <div
+                        className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all max-h-72 overflow-auto"
+                        style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
+                      >
+                        {selectedAggregation.entries.map((entry, entryIndex) => `${entryIndex + 1}. ${entry.rawLog ?? entry.message}`).join('\n')}
+                      </div>
+                    </div>
+                  ),
+                }] : []),
+                {
+                  key: 'raw',
+                  label: (
+                    <span className="flex items-center gap-1 text-xs">
+                      <span className="material-symbols-outlined text-sm">article</span>
+                      原始层 (Raw Layer)
+                    </span>
+                  ),
+                  children: (
+                    <div
+                      className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all max-h-80 overflow-auto"
+                      style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
+                    >
+                      {drawerRawContent}
+                    </div>
                   ),
                 },
                 {
@@ -703,30 +976,27 @@ const RealtimeSearch: React.FC = () => {
                     </Descriptions>
                   ),
                 },
+                {
+                  key: 'payload',
+                  label: (
+                    <span className="flex items-center gap-1 text-xs">
+                      <span className="material-symbols-outlined text-sm">data_object</span>
+                      完整载荷 (Full Payload)
+                    </span>
+                  ),
+                  children: (
+                    <div
+                      className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all max-h-96 overflow-auto"
+                      style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
+                    >
+                      {drawerPayloadJson}
+                    </div>
+                  ),
+                },
               ]}
             />
 
-            {/* 标签 */}
-            <Divider orientation="left" orientationMargin={0} style={{ margin: '16px 0 12px' }}>
-              <span className="flex items-center gap-1 text-xs">
-                <span className="material-symbols-outlined text-sm">label</span>
-                标签
-              </span>
-            </Divider>
-            <div className="flex flex-wrap gap-2">
-              <Tag>service={drawerService}</Tag>
-              <Tag>level={drawerLevel}</Tag>
-              {selectedFields?.host != null && <Tag>host={toDisplayText(selectedFields.host)}</Tag>}
-              {selectedFields?.env != null && <Tag color="cyan">env={toDisplayText(selectedFields.env)}</Tag>}
-              {selectedFields?.region != null && <Tag>region={toDisplayText(selectedFields.region)}</Tag>}
-              {selectedFields?.method != null && <Tag>method={toDisplayText(selectedFields.method)}</Tag>}
-              {selectedFields?.statusCode != null && <Tag color={Number(selectedFields.statusCode) >= 500 ? 'error' : Number(selectedFields.statusCode) >= 400 ? 'warning' : 'success'}>status={toDisplayText(selectedFields.statusCode)}</Tag>}
-              {selectedFields?.traceId != null && <Tag color="purple">trace={toDisplayText(selectedFields.traceId)}</Tag>}
-              {selectedFields?.spanId != null && <Tag color="purple">span={toDisplayText(selectedFields.spanId)}</Tag>}
-            </div>
-
-            {/* 追踪信息 */}
-            <Divider orientation="left" orientationMargin={0} style={{ margin: '16px 0 12px' }}>
+            <Divider orientation="left" orientationMargin={0} style={{ margin: '8px 0 12px' }}>
               <span className="flex items-center gap-1 text-xs">
                 <span className="material-symbols-outlined text-sm">link</span>
                 追踪信息
@@ -734,20 +1004,24 @@ const RealtimeSearch: React.FC = () => {
             </Divider>
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="Trace ID">
-                <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
-                  {toDisplayText(selectedFields?.traceId, '-')}
+                <Typography.Text copyable={drawerTraceId !== '—'} style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
+                  {drawerTraceId}
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="Span ID">
-                <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
-                  {toDisplayText(selectedFields?.spanId, '-')}
+                <Typography.Text copyable={drawerSpanId !== '—'} style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
+                  {drawerSpanId}
                 </Typography.Text>
               </Descriptions.Item>
+              <Descriptions.Item label="Method / Status">
+                <span className="font-mono text-xs">
+                  {[drawerMethod !== '—' ? drawerMethod : '', drawerStatusCode !== '—' ? drawerStatusCode : ''].filter(Boolean).join(' / ') || '—'}
+                </span>
+              </Descriptions.Item>
               <Descriptions.Item label="User-Agent">
-                <span className="font-mono text-xs">{toDisplayText(selectedFields?.userAgent, '-')}</span>
+                <span className="font-mono text-xs break-all">{drawerUserAgent}</span>
               </Descriptions.Item>
             </Descriptions>
-
           </div>
         )}
       </Drawer>

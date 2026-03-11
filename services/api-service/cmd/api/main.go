@@ -58,6 +58,15 @@ func main() {
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
 	})
+	router.GET("/metrics", func(c *gin.Context) {
+		c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		c.String(
+			http.StatusOK,
+			"# HELP nexuslog_service_up Whether the service is up.\n"+
+				"# TYPE nexuslog_service_up gauge\n"+
+				"nexuslog_service_up{service=\"api-service\"} 1\n",
+		)
+	})
 
 	apiV1 := router.Group("/api/v1")
 

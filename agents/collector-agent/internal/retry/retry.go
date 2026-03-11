@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/nexuslog/collector-agent/plugins"
 )
 
 // Config 重试策略配置
@@ -91,10 +93,11 @@ func (r *Retryer) calcBackoff(attempt int) time.Duration {
 
 // CachedBatch 缓存的日志批次
 type CachedBatch struct {
-	ID        string    `json:"id"`
-	Data      [][]byte  `json:"data"`
-	CreatedAt time.Time `json:"created_at"`
-	Retries   int       `json:"retries"`
+	ID        string           `json:"id"`
+	Data      [][]byte         `json:"data,omitempty"`
+	Records   []plugins.Record `json:"records,omitempty"`
+	CreatedAt time.Time        `json:"created_at"`
+	Retries   int              `json:"retries"`
 }
 
 // DiskCache 基于磁盘的本地缓存
@@ -149,6 +152,12 @@ func (dc *DiskCache) LoadAll() ([]CachedBatch, error) {
 		if err := json.Unmarshal(data, &batch); err != nil {
 			log.Printf("解析缓存文件 %s 失败: %v", entry.Name(), err)
 			continue
+		}
+		if len(batch.Records) == 0 && len(batch.Data) > 0 {
+			batch.Records = make([]plugins.Record, len(batch.Data))
+			for index, payload := range batch.Data {
+				batch.Records[index] = plugins.Record{Data: payload, Timestamp: batch.CreatedAt.UnixNano()}
+			}
 		}
 		batches = append(batches, batch)
 	}

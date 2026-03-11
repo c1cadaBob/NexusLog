@@ -36,60 +36,99 @@ alerting:
 
 # 抓取目标配置
 scrape_configs:
-  # Prometheus 自身监控
   - job_name: "prometheus"
     static_configs:
       - targets: ["localhost:9090"]
 
-  # NexusLog Control Plane 服务
   - job_name: "control-plane"
     metrics_path: "/metrics"
-    file_sd_configs:
-      - files:
-          - "targets/control-plane.yml"
-        # 目标文件刷新间隔
-        refresh_interval: 30s
+    static_configs:
+      - targets: ["control-plane:8080"]
+        labels:
+          service: "control-plane"
+          env: "dev"
+          cluster: "nexuslog-dev"
 
-  # NexusLog API 服务
   - job_name: "api-service"
     metrics_path: "/metrics"
-    file_sd_configs:
-      - files:
-          - "targets/api-service.yml"
-        refresh_interval: 30s
+    static_configs:
+      - targets: ["api-service:8080"]
+        labels:
+          service: "api-service"
+          env: "dev"
+          cluster: "nexuslog-dev"
 
-  # 采集代理（Collector Agent）
-  - job_name: "collector-agent"
+  - job_name: "query-api"
     metrics_path: "/metrics"
-    file_sd_configs:
-      - files:
-          - "targets/collector-agent.yml"
-        refresh_interval: 30s
+    static_configs:
+      - targets: ["query-api:8082"]
+        labels:
+          service: "query-api"
+          env: "dev"
+          cluster: "nexuslog-dev"
 
-  # Kafka 集群监控（通过 JMX Exporter）
+  - job_name: "collector-agent"
+    metrics_path: "/agent/v1/metrics"
+    static_configs:
+      - targets: ["collector-agent:9091"]
+        labels:
+          service: "collector-agent"
+          env: "dev"
+          cluster: "nexuslog-dev"
+
   - job_name: "kafka"
-    file_sd_configs:
-      - files:
-          - "targets/kafka.yml"
-        refresh_interval: 60s
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+        labels:
+          service: "kafka"
+          env: "dev"
+          cluster: "nexuslog-dev"
 
-  # Elasticsearch 集群监控
   - job_name: "elasticsearch"
-    file_sd_configs:
-      - files:
-          - "targets/elasticsearch.yml"
-        refresh_interval: 60s
+    static_configs:
+      - targets: ["elasticsearch-exporter:9114"]
+        labels:
+          service: "elasticsearch"
+          env: "dev"
+          cluster: "nexuslog-dev"
 
-  # OpenTelemetry Collector 监控
-  - job_name: "otel-collector"
-    file_sd_configs:
-      - files:
-          - "targets/otel-collector.yml"
-        refresh_interval: 30s
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          service: "postgres"
+          env: "dev"
+          cluster: "nexuslog-dev"
 
-  # Node Exporter（主机指标）
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels:
+          service: "redis"
+          env: "dev"
+          cluster: "nexuslog-dev"
+
+  - job_name: "alertmanager"
+    static_configs:
+      - targets: ["alertmanager:9093"]
+        labels:
+          service: "alertmanager"
+          env: "dev"
+          cluster: "nexuslog-dev"
+
+  - job_name: "grafana"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["grafana:3000"]
+        labels:
+          service: "grafana"
+          env: "dev"
+          cluster: "nexuslog-dev"
+
   - job_name: "node-exporter"
-    file_sd_configs:
-      - files:
-          - "targets/node-exporter.yml"
-        refresh_interval: 60s
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          service: "node-exporter"
+          env: "dev"
+          cluster: "nexuslog-dev"

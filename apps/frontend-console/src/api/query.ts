@@ -13,6 +13,9 @@ const LOCAL_QUERY_HISTORY_DEDUP_WINDOW_MS = 1500;
 const LOG_LEVEL_TOKEN_PATTERN = /\b(trace|debug|info|warn(?:ing)?|error|fatal|panic)\b/i;
 const ANSI_COLOR_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 const CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
+const RFC3164_HOSTNAME_PATTERN = /^[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+([^\s]+)\s+/;
+const RFC5424_HOSTNAME_PATTERN = /^(?:<\d{1,3}>)?\d+\s+\S+\s+([^\s]+)\s+/;
+const BOGUS_SERVICE_NAMES = new Set(['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']);
 
 interface RuntimeConfigWithTenant {
   apiBaseUrl: string;
@@ -230,6 +233,149 @@ function normalizeDisplayMessage(message: unknown): string {
   return sanitizeDisplayMessage(unwrapped || raw);
 }
 
+function toHostString(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (value == null || typeof value === 'object') {
+    return '';
+  }
+  return String(value).trim();
+}
+
+function extractHostnameFromSyslogMessage(message: unknown): string {
+  const text = unwrapMessageForLevel(message).trim();
+  if (!text) {
+    return '';
+  }
+  for (const pattern of [RFC3164_HOSTNAME_PATTERN, RFC5424_HOSTNAME_PATTERN]) {
+    const matched = text.match(pattern);
+    const hostname = matched?.[1]?.trim() ?? '';
+    if (hostname && hostname !== '-') {
+      return hostname;
+    }
+  }
+  return '';
+}
+
+function toDisplayIP(value: unknown): string {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const normalized = toDisplayIP(item);
+      if (normalized) {
+        return normalized;
+      }
+    }
+    return '';
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized && normalized !== '-' ? normalized : '';
+  }
+  if (value == null || typeof value === 'object') {
+    return '';
+  }
+  const normalized = String(value).trim();
+  return normalized && normalized !== '-' ? normalized : '';
+}
+
+export function resolveLogHost(fields: RealtimeLogFields & Record<string, unknown>, ...messages: unknown[]): string {
+  const candidates = [
+    fields.host,
+    fields['host.name'],
+    fields.hostname,
+    fields.syslog_hostname,
+    fields.server_id,
+  ];
+  for (const candidate of candidates) {
+    const value = toHostString(candidate);
+    if (value) {
+      return value;
+    }
+  }
+  for (const message of messages) {
+    const hostname = extractHostnameFromSyslogMessage(message);
+    if (hostname) {
+      return hostname;
+    }
+  }
+  return '—';
+}
+
+export function resolveLogHostIP(fields: RealtimeLogFields & Record<string, unknown>): string {
+  const candidates = [
+    fields.host_ip,
+    fields['host.ip'],
+    fields['hostIp'],
+    fields['server_ip'],
+    fields['agent.ip'],
+    fields['agent_ip'],
+  ];
+  for (const candidate of candidates) {
+    const value = toDisplayIP(candidate);
+    if (value) {
+      return value;
+    }
+  }
+  return '—';
+}
+
+function extractServiceNameFromSourcePath(sourcePath: unknown): string {
+  const raw = String(sourcePath ?? '').trim();
+  if (!raw) {
+    return '';
+  }
+  const normalized = raw.replace(/\\/g, '/');
+  const segments = normalized.split('/').filter(Boolean);
+  return segments.at(-1)?.trim() ?? '';
+}
+
+function toServiceString(value: unknown): string {
+  const normalized = typeof value === 'string'
+    ? value.trim()
+    : value == null || typeof value === 'object'
+      ? ''
+      : String(value).trim();
+  if (!normalized || BOGUS_SERVICE_NAMES.has(normalized.toLowerCase())) {
+    return '';
+  }
+  if (normalized.startsWith('{') || normalized.startsWith('[')) {
+    return '';
+  }
+  if (normalized.includes('{"') || normalized.includes('\\"') || /[\r\n\t]/.test(normalized)) {
+    return '';
+  }
+  return normalized;
+}
+
+export function resolveLogService(fields: RealtimeLogFields & Record<string, unknown>, ...candidates: unknown[]): string {
+  const directCandidates = [
+    ...candidates,
+    fields.service_name,
+    fields.service,
+    fields.container_name,
+  ];
+  for (const candidate of directCandidates) {
+    const value = toServiceString(candidate);
+    if (value) {
+      return value;
+    }
+  }
+  for (const sourceCandidate of [fields.source_path, fields.source, fields.source_internal]) {
+    const value = extractServiceNameFromSourcePath(sourceCandidate);
+    if (value) {
+      return value;
+    }
+  }
+  for (const fallback of [fields.service_instance_id, fields.agent_id, fields['source_id']]) {
+    const value = toServiceString(fallback);
+    if (value) {
+      return value;
+    }
+  }
+  return 'unknown';
+}
+
 function detectExplicitLevelFromMessage(message: unknown): LogEntry['level'] | null {
   const text = unwrapMessageForLevel(message);
   if (!text) {
@@ -303,22 +449,20 @@ function normalizeHit(hit: QueryLogsApiHit, index: number): LogEntry {
   const rawLogSource = hit.raw_log ?? fields.raw_message ?? fields.raw_log ?? fields['data'] ?? sourceMessage;
   const rawLog = String(rawLogSource || sourceMessage).trim();
   const message = normalizeDisplayMessage(sourceMessage || rawLog) || '(empty message)';
-  const service = String(
-    hit.service
-      ?? fields.service_name
-      ?? fields.service
-      ?? fields.service_instance_id
-      ?? fields.container_name
-      ?? fields.agent_id
-      ?? fields['source_id']
-      ?? 'unknown',
-  ).trim() || 'unknown';
+  const service = resolveLogService(
+    fields,
+    hit.service,
+    fields.service_name,
+    fields.service,
+  );
 
   return {
     id: String(hit.id ?? fields.event_id ?? fields['record_id'] ?? `log-${index + 1}`).trim() || `log-${index + 1}`,
     timestamp,
     level: normalizeLevel(hit.level ?? fields.level, sourceMessage || rawLog || message),
     service,
+    host: resolveLogHost(fields, sourceMessage, rawLog),
+    hostIp: resolveLogHostIP(fields),
     message,
     rawLog,
     fields,
@@ -565,7 +709,14 @@ function removeLocalQueryHistory(historyID: string): boolean {
   return true;
 }
 
+function isOfflineModeEnabled(): boolean {
+  return Boolean(getRuntimeConfig().features.enableOfflineMode);
+}
+
 function shouldFallbackToLocalStore(error: unknown): boolean {
+  if (!isOfflineModeEnabled()) {
+    return false;
+  }
   if (error instanceof QueryApiAuthError) {
     return true;
   }
@@ -663,6 +814,9 @@ async function requestQueryApi<TData>(
 }
 
 function shouldUseQueryCollectionFallback(): boolean {
+  if (!isOfflineModeEnabled()) {
+    return false;
+  }
   const accessToken = resolveAccessToken();
   if (!accessToken) {
     return true;
@@ -754,12 +908,6 @@ export async function fetchQueryHistory(params: QueryHistoryListParams): Promise
       pageSize,
       hasNext: Boolean(envelope.meta?.has_next ?? page * pageSize < total),
     };
-    if (backendResult.total === 0) {
-      const localResult = buildLocalQueryHistoryResult(params);
-      if (localResult.total > 0) {
-        return localResult;
-      }
-    }
     return backendResult;
   } catch (error) {
     if (shouldFallbackToLocalStore(error)) {
@@ -813,12 +961,6 @@ export async function fetchSavedQueries(params: SavedQueryListParams): Promise<S
       pageSize,
       hasNext: Boolean(envelope.meta?.has_next ?? page * pageSize < total),
     };
-    if (backendResult.total === 0) {
-      const localResult = buildLocalSavedQueryResult(params);
-      if (localResult.total > 0) {
-        return localResult;
-      }
-    }
     return backendResult;
   } catch (error) {
     if (shouldFallbackToLocalStore(error)) {

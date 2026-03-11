@@ -24,10 +24,6 @@ global:
   # smtp_auth_password: ""
   # smtp_require_tls: true
 
-# 通知模板路径
-templates:
-  - "templates/*.tmpl"
-
 # 路由树：定义告警的分发规则
 route:
   # 用于分组的标签，相同标签值的告警会被合并为一组发送
@@ -73,31 +69,7 @@ inhibit_rules:
 
 # 接收者配置
 receivers:
-  # 默认接收者
   - name: "default-receiver"
-    # Webhook 通知（可对接钉钉、飞书、企业微信等）
-    webhook_configs:
-      - url: "http://notification-service:8080/api/v1/alerts/default"
-        send_resolved: true
-
-  # 严重告警接收者
   - name: "critical-receiver"
-    webhook_configs:
-      - url: "http://notification-service:8080/api/v1/alerts/critical"
-        send_resolved: true
-    # 邮件通知（按需启用）
-    # email_configs:
-    #   - to: "oncall@nexuslog.io"
-    #     send_resolved: true
-
-  # 警告级别接收者
   - name: "warning-receiver"
-    webhook_configs:
-      - url: "http://notification-service:8080/api/v1/alerts/warning"
-        send_resolved: true
-
-  # 基础设施告警接收者
   - name: "infra-receiver"
-    webhook_configs:
-      - url: "http://notification-service:8080/api/v1/alerts/infra"
-        send_resolved: true

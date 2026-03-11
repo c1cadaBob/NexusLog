@@ -238,7 +238,7 @@ func TestPullSourceInvalidArgument(t *testing.T) {
 	}
 }
 
-// TestPullSourceRejectsActiveOverlap 验证同一 agent 端点不允许并行 active 拉取源。
+// TestPullSourceRejectsActiveOverlap 验证同一 agent 端点下路径重叠的 active 拉取源会被拒绝。
 func TestPullSourceRejectsActiveOverlap(t *testing.T) {
 	router := newTestRouter()
 
@@ -247,7 +247,7 @@ func TestPullSourceRejectsActiveOverlap(t *testing.T) {
 		"host":              "172.29.0.1",
 		"port":              16666,
 		"protocol":          "http",
-		"path":              "/host-docker-containers/*/*-json.log",
+		"path":              "/var/log/*",
 		"auth":              "key-ref-a",
 		"agent_base_url":    "http://172.29.0.1:16666/",
 		"pull_interval_sec": 30,
@@ -263,7 +263,7 @@ func TestPullSourceRejectsActiveOverlap(t *testing.T) {
 		"host":              "172.29.0.1",
 		"port":              16666,
 		"protocol":          "http",
-		"path":              "/host-var-log/*.log",
+		"path":              "/var/log/messages",
 		"auth":              "key-ref-b",
 		"agent_base_url":    "http://172.29.0.1:16666",
 		"pull_interval_sec": 30,
@@ -283,7 +283,7 @@ func TestPullSourceRejectsActiveOverlap(t *testing.T) {
 		"host":              "172.29.0.1",
 		"port":              16666,
 		"protocol":          "http",
-		"path":              "/host-var-log/*.log",
+		"path":              "/var/log/messages",
 		"auth":              "key-ref-c",
 		"agent_base_url":    "http://172.29.0.1:16666",
 		"pull_interval_sec": 30,
@@ -292,6 +292,43 @@ func TestPullSourceRejectsActiveOverlap(t *testing.T) {
 	})
 	if paused.Code != http.StatusCreated {
 		t.Fatalf("paused create should bypass overlap check: %d %s", paused.Code, paused.Body.String())
+	}
+}
+
+// TestPullSourceAllowsDisjointActivePaths 验证同一 agent 端点下非重叠路径可并行 active。
+func TestPullSourceAllowsDisjointActivePaths(t *testing.T) {
+	router := newTestRouter()
+
+	first := performJSONRequest(router, http.MethodPost, "/api/v1/ingest/pull-sources", map[string]any{
+		"name":              "source-disjoint-a",
+		"host":              "172.29.0.1",
+		"port":              16666,
+		"protocol":          "http",
+		"path":              "/var/log/*.log,/var/log/*/*.log",
+		"auth":              "key-ref-a",
+		"agent_base_url":    "http://172.29.0.1:16666",
+		"pull_interval_sec": 30,
+		"pull_timeout_sec":  30,
+		"status":            "active",
+	})
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first create failed: %d %s", first.Code, first.Body.String())
+	}
+
+	second := performJSONRequest(router, http.MethodPost, "/api/v1/ingest/pull-sources", map[string]any{
+		"name":              "source-disjoint-b",
+		"host":              "172.29.0.1",
+		"port":              16666,
+		"protocol":          "http",
+		"path":              "/host-docker-containers/*/*-json.log",
+		"auth":              "key-ref-b",
+		"agent_base_url":    "http://172.29.0.1:16666",
+		"pull_interval_sec": 30,
+		"pull_timeout_sec":  30,
+		"status":            "active",
+	})
+	if second.Code != http.StatusCreated {
+		t.Fatalf("expected disjoint active source to succeed, got %d body=%s", second.Code, second.Body.String())
 	}
 }
 

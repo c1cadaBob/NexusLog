@@ -37,6 +37,16 @@ func (m *mockRuleRepo) ListRules(ctx context.Context, tenantID string, page, pag
 	return items[start:end], total, nil
 }
 
+func (m *mockRuleRepo) ListEnabledRules(ctx context.Context) ([]AlertRule, error) {
+	items := make([]AlertRule, 0, len(m.rules))
+	for _, rule := range m.rules {
+		if rule.Enabled {
+			items = append(items, rule)
+		}
+	}
+	return items, nil
+}
+
 func (m *mockRuleRepo) GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error) {
 	r, ok := m.rules[ruleID]
 	if !ok || r.TenantID != tenantID {

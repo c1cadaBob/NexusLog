@@ -22,6 +22,7 @@ type AgentPullAgent struct {
 	ID       string `json:"id,omitempty"`
 	Version  string `json:"version,omitempty"`
 	Hostname string `json:"hostname,omitempty"`
+	IP       string `json:"ip,omitempty"`
 }
 
 type AgentPullCursor struct {

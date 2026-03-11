@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -72,8 +73,109 @@ func (s *PullCursorStore) GetBySourceAndPath(sourceID, sourcePath string) (PullC
 	return item, ok
 }
 
+// GetLatestBySource 查询同一 source_id 下最近更新的游标。
+func (s *PullCursorStore) GetLatestBySource(sourceID string) (PullCursor, bool) {
+	if s.backend != nil {
+		return s.getLatestBySourceFromDB(context.Background(), sourceID)
+	}
+
+	normalizedSourceID := strings.TrimSpace(sourceID)
+	if normalizedSourceID == "" {
+		return PullCursor{}, false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	latest := PullCursor{}
+	found := false
+	for _, item := range s.items {
+		if strings.TrimSpace(item.SourceID) != normalizedSourceID {
+			continue
+		}
+		if !found || item.UpdatedAt.After(latest.UpdatedAt) || (item.UpdatedAt.Equal(latest.UpdatedAt) && item.LastOffset > latest.LastOffset) {
+			latest = item
+			found = true
+		}
+	}
+	return latest, found
+}
+
+// GetLatestMatchingSourcePath 查询同一 source_id 下与路径模式匹配的最近游标。
+func (s *PullCursorStore) GetLatestMatchingSourcePath(sourceID, sourcePathPattern string) (PullCursor, bool) {
+	if s.backend != nil {
+		return s.getLatestMatchingSourcePathFromDB(context.Background(), sourceID, sourcePathPattern)
+	}
+
+	normalizedSourceID := strings.TrimSpace(sourceID)
+	if normalizedSourceID == "" {
+		return PullCursor{}, false
+	}
+	patterns := parseCursorSourcePathPatterns(sourcePathPattern)
+	if len(patterns) == 0 {
+		return PullCursor{}, false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	latest := PullCursor{}
+	found := false
+	for _, item := range s.items {
+		if strings.TrimSpace(item.SourceID) != normalizedSourceID {
+			continue
+		}
+		if !cursorSourcePathMatches(patterns, item.SourcePath) {
+			continue
+		}
+		if !found || item.UpdatedAt.After(latest.UpdatedAt) || (item.UpdatedAt.Equal(latest.UpdatedAt) && item.LastOffset > latest.LastOffset) {
+			latest = item
+			found = true
+		}
+	}
+	return latest, found
+}
+
 func buildCursorKey(sourceID, sourcePath string) string {
 	return strings.TrimSpace(sourceID) + "|" + strings.TrimSpace(sourcePath)
+}
+
+func hasSourcePathPattern(sourcePath string) bool {
+	trimmed := strings.TrimSpace(sourcePath)
+	return strings.Contains(trimmed, ",") || strings.ContainsAny(trimmed, "*?[")
+}
+
+func parseCursorSourcePathPatterns(sourcePath string) []string {
+	parts := strings.Split(strings.TrimSpace(sourcePath), ",")
+	patterns := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		patterns = append(patterns, trimmed)
+	}
+	return patterns
+}
+
+func cursorSourcePathMatches(patterns []string, sourcePath string) bool {
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if matched, err := filepath.Match(pattern, sourcePath); err == nil && matched {
+			return true
+		}
+		if pattern == sourcePath {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizePullCursor(cursor PullCursor) (PullCursor, error) {

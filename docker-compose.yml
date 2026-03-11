@@ -43,6 +43,15 @@ services:
       - CACHE_REDIS_ADDR=redis:6379
       - SEARCH_ELASTICSEARCH_ADDRESSES=http://elasticsearch:9200
       - MESSAGING_KAFKA_BROKERS=kafka:9092
+      - ALERT_EVALUATOR_ENABLED=true
+      - ALERT_EVALUATOR_INTERVAL=15s
+      - ALERT_EVALUATOR_ES_INDEX=nexuslog-logs-read
+      - ALERTMANAGER_BRIDGE_ENABLED=true
+      - ALERTMANAGER_BRIDGE_INTERVAL=10s
+      - ALERTMANAGER_URL=http://alertmanager:9093
+      - ALERTMANAGER_GENERATOR_URL=http://localhost:8080
+      - INGEST_ES_INDEX=nexuslog-logs-write-pull
+      - INGEST_DEFAULT_AGENT_KEY=dev-agent-key
     depends_on:
       postgres:
         condition: service_healthy
@@ -131,6 +140,7 @@ services:
       - DATABASE_POSTGRESQL_HOST=postgres
       - DATABASE_POSTGRESQL_PORT=5432
       - DATABASE_POSTGRESQL_DBNAME=nexuslog
+      - QUERY_LOGS_INDEX=nexuslog-logs-read
     depends_on:
       postgres:
         condition: service_healthy
@@ -313,6 +323,25 @@ services:
       - nexuslog-net
     restart: unless-stopped
 
+  elasticsearch-init:
+    image: ${MIRROR_DOCKER_HUB}/confluentinc/cp-kafka:7.6.0
+    working_dir: /workspace
+    entrypoint: ["/bin/bash", "/workspace/scripts/install-es-v2-template.sh"]
+    environment:
+      - ES_HOST=http://elasticsearch:9200
+      - INSTALL_LOG_ALIASES=true
+      - DATA_STREAM_NAME=nexuslog-logs-v2-pull
+      - PULL_DATA_STREAM=nexuslog-logs-v2-pull
+      - STREAM_DATA_STREAM=nexuslog-logs-v2-stream
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./:/workspace:ro
+    networks:
+      - nexuslog-net
+    restart: "no"
+
   zookeeper:
     image: ${MIRROR_DOCKER_HUB}/confluentinc/cp-zookeeper:7.6.0
     ports:
@@ -398,6 +427,25 @@ services:
   # ============================================================
   # 流计算服务
   # ============================================================
+  schema-registry-init:
+    image: ${MIRROR_DOCKER_HUB}/confluentinc/cp-schema-registry:7.6.0
+    working_dir: /workspace
+    entrypoint: ["/bin/bash", "/workspace/scripts/register-schema-contracts.sh"]
+    environment:
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - SCHEMA_REGISTRY_RESET_SUBJECTS=true
+      - REGISTER_PARSED_SUBJECT=false
+      - SCHEMA_FILE_LOG_RAW=/workspace/stream/flink/contracts/local/log-raw.avsc
+      - SCHEMA_FILE_LOG_PARSED=/workspace/stream/flink/contracts/local/log-parsed.avsc
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    volumes:
+      - ./:/workspace:ro
+    networks:
+      - nexuslog-net
+    restart: "no"
+
   flink-jobmanager:
     build:
       context: ./stream/flink
@@ -417,6 +465,18 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      schema-registry-init:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8081/overview >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - nexuslog-net
     restart: unless-stopped
@@ -435,7 +495,190 @@ services:
         state.backend: hashmap
         state.checkpoints.dir: file:///tmp/flink-checkpoints
     depends_on:
-      - flink-jobmanager
+      flink-jobmanager:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  flink-sql-init:
+    build:
+      context: ./stream/flink
+      dockerfile: Dockerfile
+    command: ["/bin/bash", "/opt/flink/jobs/submit-sql-jobs.sh"]
+    environment:
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - FLINK_REST_URL=http://flink-jobmanager:8081
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.rpc.port: 6123
+        rest.address: flink-jobmanager
+        rest.port: 8081
+        execution.checkpointing.interval: 60000
+        state.backend: hashmap
+        state.checkpoints.dir: file:///tmp/flink-checkpoints
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      elasticsearch-init:
+        condition: service_completed_successfully
+      schema-registry-init:
+        condition: service_completed_successfully
+      flink-jobmanager:
+        condition: service_healthy
+      flink-taskmanager:
+        condition: service_started
+    networks:
+      - nexuslog-net
+    restart: "no"
+
+  prometheus:
+    image: ${MIRROR_DOCKER_HUB}/prom/prometheus:v2.52.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      control-plane:
+        condition: service_started
+      api-service:
+        condition: service_started
+      query-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:9090/-/ready >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  alertmanager:
+    image: ${MIRROR_DOCKER_HUB}/prom/alertmanager:v0.27.0
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=:9093
+      - --web.route-prefix=/
+    ports:
+      - "19093:9093"
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./observability/alertmanager/templates:/etc/alertmanager/templates:ro
+      - alertmanager-data:/alertmanager
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:9093/-/ready >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  grafana:
+    image: ${MIRROR_DOCKER_HUB}/grafana/grafana:11.1.0
+    ports:
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards/nexuslog:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      alertmanager:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/health | grep -q ok"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  node-exporter:
+    image: ${MIRROR_DOCKER_HUB}/prom/node-exporter:v1.8.1
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  elasticsearch-exporter:
+    image: ${MIRROR_DOCKER_HUB}/prometheuscommunity/elasticsearch-exporter:v1.8.0
+    environment:
+      - ES_URI=http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  kafka-exporter:
+    image: ${MIRROR_DOCKER_HUB}/danielqsj/kafka-exporter:v1.8.0
+    command:
+      - --kafka.server=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: ${MIRROR_DOCKER_HUB}/prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      - DATA_SOURCE_NAME=postgresql://nexuslog:nexuslog_dev@postgres:5432/nexuslog?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  redis-exporter:
+    image: ${MIRROR_DOCKER_HUB}/oliver006/redis_exporter:v1.61.0
+    command:
+      - --redis.addr=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - nexuslog-net
     restart: unless-stopped
@@ -458,3 +701,6 @@ volumes:
   zk-logs:
   kafka-data:
   vault-data:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:

@@ -1,9 +1,10 @@
--- NexusLog Flink CEP 作业：错误突增检测
--- 检测短时间内错误日志突然增多的异常模式
+SET 'table.local-time-zone' = 'UTC';
+SET 'table.dml-sync' = 'false';
+SET 'pipeline.name' = 'nexuslog-stream-cep-error-burst';
 
--- 定义 Kafka 源表
 CREATE TABLE log_stream (
-    log_id STRING,
+    id STRING,
+    event_id STRING,
     source STRING,
     service STRING,
     `level` STRING,
@@ -22,43 +23,51 @@ CREATE TABLE log_stream (
     'scan.startup.mode' = 'latest-offset'
 );
 
--- 定义告警输出表
 CREATE TABLE burst_alerts (
-    alert_id STRING,
-    source STRING,
-    service STRING,
-    pattern_type STRING,
-    first_error_time TIMESTAMP(3),
-    last_error_time TIMESTAMP(3),
-    error_count BIGINT,
-    detected_at TIMESTAMP(3),
+    id STRING,
+    rule_id STRING,
+    rule_name STRING,
+    severity STRING,
+    status STRING,
+    triggered_at BIGINT,
+    message STRING,
+    fingerprint STRING,
+    generator STRING,
+    labels MAP<STRING, STRING>,
+    annotations MAP<STRING, STRING>,
+    source_logs ARRAY<STRING>,
+    resolved_at BIGINT,
     tenant_id STRING
 ) WITH (
     'connector' = 'kafka',
     'topic' = 'nexuslog.alerts.events',
     'properties.bootstrap.servers' = 'kafka:9092',
-    'format' = 'json'
+    'format' = 'avro-confluent',
+    'avro-confluent.url' = 'http://schema-registry:8081'
 );
 
--- 错误突增检测：3 分钟内同一服务出现 10 次以上 ERROR/FATAL 日志
 INSERT INTO burst_alerts
 SELECT
-    UUID() AS alert_id,
-    source,
-    service,
-    'error_burst' AS pattern_type,
-    window_start AS first_error_time,
-    window_end AS last_error_time,
-    error_count,
-    CURRENT_TIMESTAMP AS detected_at,
+    UUID() AS id,
+    'cep-error-burst' AS rule_id,
+    '错误突增检测' AS rule_name,
+    'WARNING' AS severity,
+    'FIRING' AS status,
+    CAST(UNIX_TIMESTAMP() * 1000 AS BIGINT) AS triggered_at,
+    CONCAT('服务 ', COALESCE(service, 'unknown'), ' 在 3 分钟内出现 ', CAST(error_count AS STRING), ' 条 ERROR/FATAL 日志') AS message,
+    CONCAT('cep-error-burst:', source, ':', COALESCE(service, 'unknown'), ':', CAST(window_start_ms AS STRING)) AS fingerprint,
+    'flink.cep.error-burst' AS generator,
+    MAP['source', source, 'service', COALESCE(service, 'unknown')] AS labels,
+    MAP['summary', '错误突增检测', 'pattern_type', 'error_burst'] AS annotations,
+    CAST(ARRAY[''] AS ARRAY<STRING>) AS source_logs,
+    CAST(NULL AS BIGINT) AS resolved_at,
     tenant_id
 FROM (
     SELECT
         source,
         service,
         tenant_id,
-        TUMBLE_START(event_time, INTERVAL '3' MINUTE) AS window_start,
-        TUMBLE_END(event_time, INTERVAL '3' MINUTE) AS window_end,
+        CAST(UNIX_TIMESTAMP(CAST(TUMBLE_START(event_time, INTERVAL '3' MINUTE) AS STRING)) * 1000 AS BIGINT) AS window_start_ms,
         COUNT(*) AS error_count
     FROM log_stream
     WHERE `level` IN ('ERROR', 'FATAL')

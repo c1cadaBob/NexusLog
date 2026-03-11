@@ -117,13 +117,13 @@ func (p *Pipeline) processBatch(ctx context.Context, batch []plugins.Record) err
 	if err != nil {
 		// 重试耗尽，缓存到本地磁盘
 		log.Printf("发送到 Kafka 失败，缓存到本地: %v", err)
-		cacheData := make([][]byte, len(processed))
-		for i, r := range processed {
-			cacheData[i] = r.Data
+		cacheRecords := make([]plugins.Record, 0, len(processed))
+		for _, record := range processed {
+			cacheRecords = append(cacheRecords, cloneCachedRecord(record))
 		}
 		cacheBatch := retry.CachedBatch{
 			ID:        fmt.Sprintf("batch-%d", time.Now().UnixNano()),
-			Data:      cacheData,
+			Records:   cacheRecords,
 			CreatedAt: time.Now(),
 		}
 		if cacheErr := p.cache.Store(cacheBatch); cacheErr != nil {
@@ -180,9 +180,12 @@ func (p *Pipeline) replayCache(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		records := make([]plugins.Record, len(batch.Data))
-		for i, d := range batch.Data {
-			records[i] = plugins.Record{Data: d, Timestamp: batch.CreatedAt.UnixNano()}
+		records := batch.Records
+		if len(records) == 0 && len(batch.Data) > 0 {
+			records = make([]plugins.Record, len(batch.Data))
+			for i, d := range batch.Data {
+				records[i] = plugins.Record{Data: d, Timestamp: batch.CreatedAt.UnixNano()}
+			}
 		}
 		err := p.retryer.Do(ctx, "cache-replay", func() error {
 			return p.producer.Send(ctx, p.config.Topic, records)
@@ -209,4 +212,19 @@ func (p *Pipeline) Close() error {
 		return p.producer.Close()
 	}
 	return nil
+}
+
+func cloneCachedRecord(record plugins.Record) plugins.Record {
+	cloned := plugins.Record{
+		Source:    record.Source,
+		Timestamp: record.Timestamp,
+		Data:      append([]byte(nil), record.Data...),
+	}
+	if len(record.Metadata) > 0 {
+		cloned.Metadata = make(map[string]string, len(record.Metadata))
+		for key, value := range record.Metadata {
+			cloned.Metadata[key] = value
+		}
+	}
+	return cloned
 }

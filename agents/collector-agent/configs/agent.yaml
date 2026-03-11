@@ -52,10 +52,16 @@ retry:
 
 output:
   # 输出目标
+  delivery:
+    mode: dual
+    pull_enabled: true
   kafka:
     brokers:
       - localhost:9092
-    topic: nexuslog-raw-logs
+    topic: nexuslog.logs.raw
+    schema_registry_url: http://localhost:18081
+    subject: nexuslog.logs.raw-value
+    required_acks: all
     compression: snappy
     batch_size: 500
     flush_interval: 3s

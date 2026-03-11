@@ -81,16 +81,16 @@ func main() {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 
-	log.Printf("legacy ingest executor and scheduler removed from control-plane runtime")
-
 	v3CursorAdapter := &ingestv3.LegacyCursorStoreAdapter{
 		Store:        pullCursorStore,
 		DefaultAgent: getEnv("INGESTV3_DEFAULT_AGENT_ID", "ingestv3-rewrite"),
 	}
 	registerIngestV3Routes(router, v3CursorAdapter, v3CursorAdapter)
 
-	log.Printf("legacy ingest v1 routes removed: returning gone until rewrite lands")
-	registerLegacyPipelineRemovedRoutes(router)
+	if err := enablePullIngestRuntime(router, workerCtx, pgBackend); err != nil {
+		log.Printf("pull ingest runtime unavailable, fallback to gone routes: %v", err)
+		registerLegacyPipelineRemovedRoutes(router)
+	}
 
 	// ES Snapshot Backup/Restore (W4-B3)
 	backupSvc := backup.NewService()
@@ -131,7 +131,54 @@ func main() {
 		incidentHandler := incident.NewHandler(incidentService)
 		incident.RegisterIncidentRoutes(router, incidentHandler)
 
-		log.Printf("legacy alert evaluator removed from control-plane runtime; rewrite pending")
+		if isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "false")) {
+			evaluatorInterval := parseDurationEnv("ALERT_EVALUATOR_INTERVAL", 30*time.Second)
+			esEndpoint := resolveFirstAddress(
+				getEnv("ALERT_EVALUATOR_ES_ENDPOINT", ""),
+				getEnv("SEARCH_ELASTICSEARCH_ADDRESSES", ""),
+				getEnv("DATABASE_ELASTICSEARCH_ADDRESSES", ""),
+				getEnv("INGEST_ES_ENDPOINT", ""),
+				"http://elasticsearch:9200",
+			)
+			esIndex := strings.TrimSpace(getEnv("ALERT_EVALUATOR_ES_INDEX", getEnv("QUERY_LOGS_INDEX", "nexuslog-logs-read")))
+			evaluator := alert.NewEvaluator(
+				alertRuleRepo,
+				alert.NewHTTPESSearchClient(
+					esEndpoint,
+					strings.TrimSpace(getEnv("ALERT_EVALUATOR_ES_USERNAME", getEnv("DATABASE_ELASTICSEARCH_USERNAME", ""))),
+					strings.TrimSpace(getEnv("ALERT_EVALUATOR_ES_PASSWORD", getEnv("DATABASE_ELASTICSEARCH_PASSWORD", ""))),
+					parseDurationEnv("ALERT_EVALUATOR_ES_TIMEOUT", 10*time.Second),
+				),
+				pgDB,
+				esIndex,
+			).
+				WithIncidentCreator(alert.NewIncidentCreator(pgDB)).
+				WithSilenceChecker(silenceSvc).
+				WithInterval(evaluatorInterval)
+			go evaluator.Start()
+			go func() {
+				<-workerCtx.Done()
+				evaluator.Stop()
+			}()
+			log.Printf("log alert evaluator enabled: endpoint=%s index=%s interval=%s", esEndpoint, esIndex, evaluatorInterval)
+		} else {
+			log.Printf("log alert evaluator disabled")
+		}
+
+		if isTruthy(getEnv("ALERTMANAGER_BRIDGE_ENABLED", "false")) {
+			bridgeInterval := parseDurationEnv("ALERTMANAGER_BRIDGE_INTERVAL", 10*time.Second)
+			bridge := alert.NewAlertmanagerBridge(
+				pgDB,
+				getEnv("ALERTMANAGER_URL", "http://alertmanager:9093"),
+				getEnv("ALERTMANAGER_GENERATOR_URL", "http://control-plane:8080"),
+			).
+				WithBatchSize(parseEnvInt("ALERTMANAGER_BRIDGE_BATCH_SIZE", 50)).
+				WithInterval(bridgeInterval)
+			go bridge.Run(workerCtx)
+			log.Printf("alertmanager bridge enabled: endpoint=%s interval=%s", getEnv("ALERTMANAGER_URL", "http://alertmanager:9093"), bridgeInterval)
+		} else {
+			log.Printf("alertmanager bridge disabled")
+		}
 	}
 
 	// Notification channels (requires pgDB)
@@ -140,8 +187,6 @@ func main() {
 		smtpSender := notification.NewSMTPSender()
 		notification.RegisterChannelRoutes(router, channelRepo, smtpSender)
 	}
-	log.Printf("legacy ingest packages/receipts/dead-letters endpoints removed from control-plane runtime")
-
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -158,6 +203,9 @@ func main() {
 			"service": "control-plane",
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
+	})
+	router.GET("/metrics", func(c *gin.Context) {
+		writeServiceMetrics(c, "control-plane")
 	})
 
 	httpServer := &http.Server{
@@ -260,6 +308,20 @@ func isTruthy(raw string) bool {
 	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
+func parseDurationEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+		return parsed
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	return fallback
+}
+
 func parseCSV(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -288,6 +350,19 @@ func resolveRequestID(c *gin.Context) string {
 	generated := fmt.Sprintf("cp-%d", time.Now().UTC().UnixNano())
 	c.Header("X-Request-ID", generated)
 	return generated
+}
+
+func writeServiceMetrics(c *gin.Context, serviceName string) {
+	if c == nil {
+		return
+	}
+	c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	c.String(
+		http.StatusOK,
+		"# HELP nexuslog_service_up Whether the service is up.\n"+
+			"# TYPE nexuslog_service_up gauge\n"+
+			fmt.Sprintf("nexuslog_service_up{service=%q} 1\n", serviceName),
+	)
 }
 
 func newPostgresDBFromEnv() (*sql.DB, error) {

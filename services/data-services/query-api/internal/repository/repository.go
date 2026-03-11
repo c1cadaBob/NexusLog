@@ -16,7 +16,7 @@ import (
 
 const (
 	defaultElasticsearchAddress = "http://localhost:9200"
-	defaultLogsIndex            = "nexuslog-logs-v2"
+	defaultLogsIndex            = "nexuslog-logs-read"
 	defaultRequestTimeout       = 15 * time.Second
 )
 
@@ -191,13 +191,21 @@ func (r *ElasticsearchRepository) SearchWithBody(ctx context.Context, body map[s
 	if err := json.Unmarshal(bodyRaw, &parsed); err != nil {
 		return SearchLogsResult{}, fmt.Errorf("decode es response: %w", err)
 	}
-	return SearchLogsResult{
+	result := SearchLogsResult{
 		TookMS:       parsed.Took,
 		TimedOut:     parsed.TimedOut,
 		Total:        parseHitsTotal(parsed.Hits.Total),
-		Hits:         nil,
+		Hits:         make([]RawLogHit, 0, len(parsed.Hits.Hits)),
 		Aggregations: parsed.Aggregations,
-	}, nil
+	}
+	for _, hit := range parsed.Hits.Hits {
+		result.Hits = append(result.Hits, RawLogHit{
+			ID:     strings.TrimSpace(hit.ID),
+			Index:  strings.TrimSpace(hit.Index),
+			Source: hit.Source,
+		})
+	}
+	return result, nil
 }
 
 type esSearchResponse struct {
@@ -344,6 +352,10 @@ func buildESQuery(in SearchLogsInput) map[string]any {
 		if field == "" || value == nil {
 			continue
 		}
+		if rawKey == "service" {
+			filterClauses = append(filterClauses, buildServiceCompatibilityFilterClause(value))
+			continue
+		}
 		if fields := compatibilityFilterFields(rawKey, field); len(fields) > 1 {
 			filterClauses = append(filterClauses, buildCompatibilityFilterClause(fields, value))
 			continue
@@ -379,7 +391,33 @@ func buildESQuery(in SearchLogsInput) map[string]any {
 }
 
 func buildESSort(sortFields []SortField) []map[string]any {
-	sorts := make([]map[string]any, 0, len(sortFields)+1)
+	sorts := make([]map[string]any, 0, len(sortFields)+6)
+	seen := make(map[string]struct{}, len(sortFields)+6)
+	primaryOrder := "desc"
+
+	appendSort := func(field, order string) {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			return
+		}
+		if _, exists := seen[field]; exists {
+			return
+		}
+		order = strings.ToLower(strings.TrimSpace(order))
+		if order != "asc" && order != "desc" {
+			order = "desc"
+		}
+		options := map[string]any{
+			"order":   order,
+			"missing": "_last",
+		}
+		if unmappedType := sortFieldUnmappedType(field); unmappedType != "" {
+			options["unmapped_type"] = unmappedType
+		}
+		sorts = append(sorts, map[string]any{field: options})
+		seen[field] = struct{}{}
+	}
+
 	for _, sortField := range sortFields {
 		field := strings.TrimSpace(sortField.Field)
 		if field == "" {
@@ -389,20 +427,33 @@ func buildESSort(sortFields []SortField) []map[string]any {
 		if order != "asc" && order != "desc" {
 			order = "desc"
 		}
-		sorts = append(sorts, map[string]any{
-			field: map[string]any{
-				"order": order,
-			},
-		})
+		if len(seen) == 0 {
+			primaryOrder = order
+		}
+		appendSort(field, order)
 	}
 	if len(sorts) == 0 {
-		sorts = append(sorts, map[string]any{
-			"@timestamp": map[string]any{
-				"order": "desc",
-			},
-		})
+		appendSort("@timestamp", primaryOrder)
 	}
+	appendSort("nexuslog.ingest.received_at", primaryOrder)
+	appendSort("event.sequence", primaryOrder)
+	appendSort("log.offset", primaryOrder)
+	appendSort("source.path", "asc")
+	appendSort("event.id", primaryOrder)
 	return sorts
+}
+
+func sortFieldUnmappedType(field string) string {
+	switch strings.TrimSpace(field) {
+	case "@timestamp", "nexuslog.ingest.received_at":
+		return "date"
+	case "event.sequence", "log.offset":
+		return "long"
+	case "source.path", "event.id":
+		return "keyword"
+	default:
+		return ""
+	}
 }
 
 func normalizeTerms(value any) []any {
@@ -450,6 +501,72 @@ func buildCompatibilityFilterClause(fields []string, value any) map[string]any {
 			})
 		}
 	}
+	return map[string]any{
+		"bool": map[string]any{
+			"should":               should,
+			"minimum_should_match": 1,
+		},
+	}
+}
+
+func buildServiceCompatibilityFilterClause(value any) map[string]any {
+	structuredFields := []string{"service.name", "service.instance.id", "container.name", "agent.id"}
+	pathFields := []string{"source.path", "log.file.path"}
+	should := make([]map[string]any, 0, len(structuredFields)+len(pathFields))
+
+	if terms := normalizeTerms(value); len(terms) > 0 {
+		for _, field := range structuredFields {
+			should = append(should, map[string]any{
+				"terms": map[string]any{
+					field: terms,
+				},
+			})
+		}
+		for _, term := range terms {
+			pattern := strings.TrimSpace(fmt.Sprintf("%v", term))
+			if pattern == "" {
+				continue
+			}
+			if !strings.ContainsAny(pattern, "*?") {
+				pattern = "*/" + pattern
+			}
+			for _, field := range pathFields {
+				should = append(should, map[string]any{
+					"wildcard": map[string]any{
+						field: map[string]any{
+							"value":            pattern,
+							"case_insensitive": true,
+						},
+					},
+				})
+			}
+		}
+	} else {
+		for _, field := range structuredFields {
+			should = append(should, map[string]any{
+				"term": map[string]any{
+					field: value,
+				},
+			})
+		}
+		pattern := strings.TrimSpace(fmt.Sprintf("%v", value))
+		if pattern != "" {
+			if !strings.ContainsAny(pattern, "*?") {
+				pattern = "*/" + pattern
+			}
+			for _, field := range pathFields {
+				should = append(should, map[string]any{
+					"wildcard": map[string]any{
+						field: map[string]any{
+							"value":            pattern,
+							"case_insensitive": true,
+						},
+					},
+				})
+			}
+		}
+	}
+
 	return map[string]any{
 		"bool": map[string]any{
 			"should":               should,

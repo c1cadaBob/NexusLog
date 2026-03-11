@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	defaultPullMaxRecords = 500
+	defaultPullMaxRecords = 1000
 	defaultPullMaxBytes   = 1 * 1024 * 1024
 )
 
@@ -25,6 +25,7 @@ type AgentClient struct {
 // AgentPullRequest 定义调用 agent 拉取日志时的请求体。
 type AgentPullRequest struct {
 	Cursor     string `json:"cursor,omitempty"`
+	SourcePath string `json:"source_path,omitempty"`
 	MaxRecords int    `json:"max_records"`
 	MaxBytes   int    `json:"max_bytes"`
 	TimeoutMS  int    `json:"timeout_ms"`
@@ -67,6 +68,7 @@ func (c *AgentClient) Pull(ctx context.Context, source PullSource, task PullTask
 
 	body := AgentPullRequest{
 		Cursor:     resolveCursor(cursor, task.Options),
+		SourcePath: strings.TrimSpace(source.Path),
 		MaxRecords: resolveIntOption(task.Options, "max_records", defaultPullMaxRecords),
 		MaxBytes:   resolveIntOption(task.Options, "max_bytes", defaultPullMaxBytes),
 		TimeoutMS:  resolveIntOption(task.Options, "timeout_ms", source.PullTimeoutSec*1000),
@@ -79,6 +81,13 @@ func (c *AgentClient) Pull(ctx context.Context, source PullSource, task PullTask
 	}
 	if body.TimeoutMS <= 0 {
 		body.TimeoutMS = 30000
+	}
+	if clientTimeoutMS := requestTimeoutMS(c); clientTimeoutMS > 0 && body.TimeoutMS >= clientTimeoutMS {
+		headroomMS := 1000
+		if clientTimeoutMS <= headroomMS {
+			headroomMS = 1
+		}
+		body.TimeoutMS = clientTimeoutMS - headroomMS
 	}
 
 	var response AgentPullResponse
@@ -180,6 +189,13 @@ func (c *AgentClient) doJSON(ctx context.Context, method, endpoint string, crede
 		}
 	}
 	return nil
+}
+
+func requestTimeoutMS(c *AgentClient) int {
+	if c == nil || c.httpClient == nil || c.httpClient.Timeout <= 0 {
+		return 0
+	}
+	return int(c.httpClient.Timeout / time.Millisecond)
 }
 
 func resolveCursor(fallback string, options map[string]any) string {

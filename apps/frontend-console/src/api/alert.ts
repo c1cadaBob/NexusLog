@@ -41,8 +41,10 @@ interface BackendAlertRule {
 /** Backend alert event response */
 interface BackendAlertEvent {
   id: string;
+  rule_id?: string;
   name?: string;
   title?: string;
+  detail?: string;
   severity: string;
   status: string;
   source_id?: string;
@@ -460,13 +462,15 @@ export interface AlertEventSummary {
   source: string;
   count: number;
   lastTriggeredAt: number;
+  ruleId?: string;
+  detail?: string;
 }
 
 /** Fetch alert events (paginated, optional status filter) */
 export async function fetchAlertEvents(
   page: number = 1,
   pageSize: number = 20,
-  status?: 'firing' | 'resolved' | 'silenced',
+  status?: 'firing' | 'acknowledged' | 'resolved' | 'silenced',
 ): Promise<{ items: AlertEventSummary[]; total: number }> {
   const query: Record<string, string | number> = { page, page_size: pageSize };
   if (status) query.status = status;
@@ -496,7 +500,40 @@ export async function fetchAlertEvents(
       source: e.source_id || '-',
       count: e.count ?? 1,
       lastTriggeredAt: e.fired_at ? new Date(e.fired_at).getTime() : Date.now(),
+      ruleId: e.rule_id,
+      detail: e.detail || e.title || e.name || '',
     })),
     total,
   };
+}
+
+export interface SilenceAlertEventPayload {
+  reason?: string;
+  durationSeconds?: number;
+}
+
+async function mutateAlertEvent<TData>(
+  eventID: string,
+  action: 'acknowledge' | 'resolve' | 'silence',
+  body?: Record<string, unknown>,
+): Promise<ApiEnvelope<TData>> {
+  return requestAlertApi<TData>(`/events/${encodeURIComponent(eventID)}/${action}`, {
+    method: 'POST',
+    body: body ?? {},
+  });
+}
+
+export async function acknowledgeAlertEvent(eventID: string): Promise<void> {
+  await mutateAlertEvent(eventID, 'acknowledge');
+}
+
+export async function resolveAlertEvent(eventID: string): Promise<void> {
+  await mutateAlertEvent(eventID, 'resolve');
+}
+
+export async function silenceAlertEvent(eventID: string, payload: SilenceAlertEventPayload = {}): Promise<void> {
+  await mutateAlertEvent(eventID, 'silence', {
+    reason: payload.reason ?? '',
+    duration_seconds: payload.durationSeconds ?? 3600,
+  });
 }

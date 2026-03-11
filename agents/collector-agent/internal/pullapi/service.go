@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,8 @@ const (
 type MetaInfo struct {
 	AgentID      string   `json:"agent_id"`
 	Version      string   `json:"version"`
+	Hostname     string   `json:"hostname,omitempty"`
+	IP           string   `json:"ip,omitempty"`
 	Status       string   `json:"status"`
 	Sources      []string `json:"sources"`
 	Capabilities []string `json:"capabilities"`
@@ -47,6 +50,7 @@ type AuthConfig struct {
 
 type PullRequest struct {
 	Cursor     string `json:"cursor"`
+	SourcePath string `json:"source_path,omitempty"`
 	MaxRecords int    `json:"max_records"`
 	MaxBytes   int    `json:"max_bytes"`
 	TimeoutMS  int    `json:"timeout_ms"`
@@ -72,8 +76,10 @@ type AckResponse struct {
 }
 
 type APIAgent struct {
-	ID      string `json:"id,omitempty"`
-	Version string `json:"version,omitempty"`
+	ID       string `json:"id,omitempty"`
+	Version  string `json:"version,omitempty"`
+	Hostname string `json:"hostname,omitempty"`
+	IP       string `json:"ip,omitempty"`
 }
 
 type APICursor struct {
@@ -164,6 +170,7 @@ type internalRecord struct {
 type pendingBatch struct {
 	Records    []internalRecord
 	NextCursor int64
+	SourcePath string
 }
 
 type dedupCacheEntry struct {
@@ -176,11 +183,13 @@ type Service struct {
 	ckpStore            checkpoint.Store
 	records             []internalRecord
 	nextSeq             int64
-	committedCursor     int64
 	pending             map[string]pendingBatch
 	notifyCh            chan struct{}
 	agentID             string
 	agentVersion        string
+	agentHostname       string
+	agentIP             string
+	committedCursors    map[string]int64
 	dedupWindow         time.Duration
 	recentByFingerprint map[string]dedupCacheEntry
 }
@@ -191,16 +200,19 @@ func New(ckpStore checkpoint.Store) *Service {
 		records:             make([]internalRecord, 0, 1024),
 		pending:             make(map[string]pendingBatch),
 		notifyCh:            make(chan struct{}, 1),
+		committedCursors:    make(map[string]int64),
 		dedupWindow:         defaultDedupWindow,
 		recentByFingerprint: make(map[string]dedupCacheEntry),
 	}
 }
 
-func (s *Service) SetAgentInfo(agentID, version string) {
+func (s *Service) SetAgentInfo(agentID, version, hostname, ip string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agentID = strings.TrimSpace(agentID)
 	s.agentVersion = strings.TrimSpace(version)
+	s.agentHostname = strings.TrimSpace(hostname)
+	s.agentIP = strings.TrimSpace(ip)
 }
 
 func NewAuthConfig(activeID, activeKey, nextID, nextKey string) AuthConfig {
@@ -219,7 +231,12 @@ func (s *Service) AddRecords(batch []plugins.Record) {
 		return
 	}
 
-	normalized := normalizePluginBatch(batch)
+	s.mu.RLock()
+	agentHostname := s.agentHostname
+	agentIP := s.agentIP
+	s.mu.RUnlock()
+
+	normalized := normalizePluginBatch(batch, agentHostname, agentIP)
 	if len(normalized) == 0 {
 		return
 	}
@@ -228,6 +245,9 @@ func (s *Service) AddRecords(batch []plugins.Record) {
 	defer s.mu.Unlock()
 
 	for _, record := range normalized {
+		if s.tryAppendMultilineContinuationLocked(&record) {
+			continue
+		}
 		s.nextSeq++
 		record.Seq = s.nextSeq
 		if s.tryMergeDuplicateLocked(&record) {
@@ -247,6 +267,96 @@ func (s *Service) AddRecords(batch []plugins.Record) {
 	case s.notifyCh <- struct{}{}:
 	default:
 	}
+}
+
+func (s *Service) tryAppendMultilineContinuationLocked(record *internalRecord) bool {
+	if record == nil || len(s.records) == 0 {
+		return false
+	}
+
+	for idx := len(s.records) - 1; idx >= 0; idx-- {
+		existing := &s.records[idx]
+		if !shouldAppendInternalRecordToMultiline(*existing, *record) {
+			continue
+		}
+		oldFingerprint := existing.Fingerprint
+		appendInternalRecordToMultiline(existing, *record)
+		finalizeInternalRecord(existing)
+		if oldFingerprint != "" && oldFingerprint != existing.Fingerprint {
+			delete(s.recentByFingerprint, oldFingerprint)
+		}
+		s.recentByFingerprint[existing.Fingerprint] = dedupCacheEntry{Seq: existing.Seq, LastSeen: time.Unix(0, existing.Timestamp).UTC()}
+		return true
+	}
+	return false
+}
+
+func shouldAppendInternalRecordToMultiline(current, next internalRecord) bool {
+	if current.Source != next.Source {
+		return false
+	}
+	if current.Service.Instance.ID != "" && next.Service.Instance.ID != "" && current.Service.Instance.ID != next.Service.Instance.ID {
+		return false
+	}
+	currentSeen := time.Unix(0, current.Timestamp).UTC()
+	nextSeen := time.Unix(0, next.Timestamp).UTC()
+	if nextSeen.Before(currentSeen) || nextSeen.Sub(currentSeen) > defaultDedupWindow {
+		return false
+	}
+
+	currentLastLine := lastNonEmptyLine(string(current.Data))
+	nextBody := string(next.Data)
+	nextLine := strings.TrimSpace(nextBody)
+	if nextLine == "" {
+		return false
+	}
+	if isStackTraceContinuation(nextLine) {
+		return true
+	}
+	if isNPMErrorLine(currentLastLine) && isNPMErrorLine(nextLine) {
+		return true
+	}
+	if strings.HasPrefix(nextBody, " ") || strings.HasPrefix(nextBody, "\t") {
+		return isErrorHeader(currentLastLine) || current.Multiline.Enabled
+	}
+	return false
+}
+
+func appendInternalRecordToMultiline(current *internalRecord, next internalRecord) {
+	if current == nil {
+		return
+	}
+	current.Multiline.Enabled = true
+	if current.Multiline.LineCount <= 0 {
+		current.Multiline.LineCount = 1
+	}
+	current.Multiline.LineCount += max(1, next.Multiline.LineCount)
+	current.Multiline.EndOffset = next.Offset
+	current.Multiline.DroppedEmptyPrefixLines += next.Multiline.DroppedEmptyPrefixLines
+	current.Offset = next.Offset
+	current.SourceV2.Offset = next.Offset
+	current.Data = append(current.Data, '\n')
+	current.Data = append(current.Data, next.Data...)
+	if strings.TrimSpace(next.Original) != "" {
+		if strings.TrimSpace(current.Original) == "" {
+			current.Original = next.Original
+		} else {
+			current.Original = current.Original + "\n" + next.Original
+		}
+	}
+	if next.Timestamp > current.Timestamp {
+		current.Timestamp = next.Timestamp
+	}
+	if current.Severity.Number < next.Severity.Number {
+		current.Severity = next.Severity
+	}
+}
+
+func max(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func (s *Service) tryMergeDuplicateLocked(record *internalRecord) bool {
@@ -368,8 +478,9 @@ func (s *Service) Ack(req AckRequest) (AckResponse, int, error) {
 				committedCursor = parsed
 			}
 		}
-		if committedCursor > s.committedCursor {
-			s.committedCursor = committedCursor
+		scopeKey := pullScopeKey(batch.SourcePath)
+		if committedCursor > s.committedCursors[scopeKey] {
+			s.committedCursors[scopeKey] = committedCursor
 		}
 
 		latestOffsets := make(map[string]int64)
@@ -401,13 +512,29 @@ func (s *Service) tryBuildPullResponse(req PullRequest) (PullResponse, bool, err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	sourcePath := strings.TrimSpace(req.SourcePath)
+	scopeKey := pullScopeKey(sourcePath)
 	if req.Cursor == "" {
-		startCursor = s.committedCursor
+		startCursor = s.committedCursors[scopeKey]
+	}
+
+	latestMatchingSeq := int64(0)
+	for _, record := range s.records {
+		if !matchesSourcePath(record, sourcePath) {
+			continue
+		}
+		latestMatchingSeq = record.Seq
+	}
+	if latestMatchingSeq > 0 && startCursor > latestMatchingSeq {
+		startCursor = 0
 	}
 
 	selected := make([]internalRecord, 0, req.MaxRecords)
 	totalBytes := 0
 	for _, record := range s.records {
+		if !matchesSourcePath(record, sourcePath) {
+			continue
+		}
 		if record.Seq <= startCursor {
 			continue
 		}
@@ -427,6 +554,9 @@ func (s *Service) tryBuildPullResponse(req PullRequest) (PullResponse, bool, err
 	lastSeq := selected[len(selected)-1].Seq
 	hasMore := false
 	for _, record := range s.records {
+		if !matchesSourcePath(record, sourcePath) {
+			continue
+		}
 		if record.Seq > lastSeq {
 			hasMore = true
 			break
@@ -453,10 +583,10 @@ func (s *Service) tryBuildPullResponse(req PullRequest) (PullResponse, bool, err
 	}
 
 	batchID := newBatchID()
-	s.pending[batchID] = pendingBatch{Records: append([]internalRecord(nil), selected...), NextCursor: lastSeq}
+	s.pending[batchID] = pendingBatch{Records: append([]internalRecord(nil), selected...), NextCursor: lastSeq, SourcePath: sourcePath}
 	return PullResponse{
 		BatchID: batchID,
-		Agent:   APIAgent{ID: s.agentID, Version: s.agentVersion},
+		Agent:   APIAgent{ID: s.agentID, Version: s.agentVersion, Hostname: s.agentHostname, IP: s.agentIP},
 		Cursor:  APICursor{Next: strconv.FormatInt(lastSeq, 10), HasMore: hasMore},
 		Records: apiRecords,
 	}, true, nil
@@ -552,7 +682,7 @@ func (a AuthConfig) matches(keyID, key string) bool {
 }
 
 func normalizePullRequest(req PullRequest) (PullRequest, error) {
-	normalized := PullRequest{Cursor: strings.TrimSpace(req.Cursor), MaxRecords: req.MaxRecords, MaxBytes: req.MaxBytes, TimeoutMS: req.TimeoutMS}
+	normalized := PullRequest{Cursor: strings.TrimSpace(req.Cursor), SourcePath: strings.TrimSpace(req.SourcePath), MaxRecords: req.MaxRecords, MaxBytes: req.MaxBytes, TimeoutMS: req.TimeoutMS}
 	if normalized.MaxRecords == 0 {
 		normalized.MaxRecords = defaultMaxRecords
 	}
@@ -642,6 +772,62 @@ func cloneMetadata(src map[string]string) map[string]string {
 
 func formatRecordID(seq int64) string {
 	return "rec-" + strconv.FormatInt(seq, 10)
+}
+
+func pullScopeKey(sourcePath string) string {
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		return "*"
+	}
+	return sourcePath
+}
+
+func matchesSourcePath(record internalRecord, sourcePath string) bool {
+	patterns := parseSourcePathPatterns(sourcePath)
+	if len(patterns) == 0 {
+		return true
+	}
+	recordPath := strings.TrimSpace(record.SourceV2.Path)
+	if recordPath == "" {
+		recordPath = strings.TrimSpace(record.Source)
+	}
+	if recordPath == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		if sourcePathPatternMatches(pattern, recordPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseSourcePathPatterns(sourcePath string) []string {
+	if strings.TrimSpace(sourcePath) == "" {
+		return nil
+	}
+	parts := strings.Split(sourcePath, ",")
+	patterns := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		patterns = append(patterns, trimmed)
+	}
+	return patterns
+}
+
+func sourcePathPatternMatches(pattern, recordPath string) bool {
+	pattern = strings.TrimSpace(pattern)
+	recordPath = strings.TrimSpace(recordPath)
+	if pattern == "" || recordPath == "" {
+		return false
+	}
+	if matched, err := filepath.Match(pattern, recordPath); err == nil && matched {
+		return true
+	}
+	return pattern == recordPath
 }
 
 func formatTimestampRFC3339Nano(ts int64) string {

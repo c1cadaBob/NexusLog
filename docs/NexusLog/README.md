@@ -35,6 +35,8 @@
   - 目标全平台蓝图图集
 - `10-process/39-engineering-delivery-ops-flowcharts.md`
   - 工程交付、发布、回滚、E2E 排障流程图
+- `10-process/40-log-chain-completeness-assessment.md`
+  - 采集→传输→存储→分析→告警→可视化链路完整性判定与后续核验入口
 
 ### 3. 日志链路重点入口
 
@@ -42,6 +44,7 @@
 - `10-process/24-sdlc-development-process.md`
 - `10-process/31-log-end-to-end-lifecycle-and-uml.md`
 - `10-process/32-log-sequence-diagram-mermaid.md`
+- `10-process/40-log-chain-completeness-assessment.md`
 
 ### 4. 数据库与治理入口
 
@@ -65,9 +68,10 @@
 1. `00-overview/01-spec-baseline.md`
 2. `10-process/33-project-workflow-diagram-index.md`
 3. `10-process/34-current-real-implementation-flowcharts.md`
-4. `10-process/32-log-sequence-diagram-mermaid.md`
-5. `10-process/36-runtime-business-flowcharts.md`
-6. `10-process/38-storage-backup-archive-flowcharts.md`
+4. `10-process/40-log-chain-completeness-assessment.md`
+5. `10-process/32-log-sequence-diagram-mermaid.md`
+6. `10-process/36-runtime-business-flowcharts.md`
+7. `10-process/38-storage-backup-archive-flowcharts.md`
 
 ### 路径 B：先看项目如何开发与交付
 

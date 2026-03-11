@@ -70,6 +70,7 @@ type AgentLayer struct {
 	ID       string
 	Version  string
 	Hostname string
+	IP       string
 }
 
 type ServiceLayer struct {
@@ -216,6 +217,7 @@ func (d *LogDocument) ToESDocument() map[string]any {
 			"id":       d.Agent.ID,
 			"version":  d.Agent.Version,
 			"hostname": d.Agent.Hostname,
+			"ip":       d.Agent.IP,
 		},
 		"service": map[string]any{
 			"name":        d.Service.Name,
@@ -306,6 +308,13 @@ func (d *LogDocument) ToESDocument() map[string]any {
 }
 
 func GenerateEventID(agentID string, record AgentPullRecord) string {
+	if existing := firstNonEmpty(
+		attrValue(record, "event_id"),
+		attrValue(record, "event.id"),
+	); existing != "" {
+		return existing
+	}
+
 	timestamp := resolveObservedAt(record)
 	body := normalizeMessage(resolveRecordBody(record))
 	input := strings.Join([]string{
@@ -377,9 +386,17 @@ func BuildLogDocument(record AgentPullRecord, responseAgent AgentPullAgent, agen
 	logLevel := resolveLogLevel(record)
 	eventSeverity := resolveEventSeverity(record, logLevel)
 
-	// 兜底服务名提取：当 Agent 未拆分时
-	serviceName := strings.TrimSpace(record.Service.Name)
-	instanceID := strings.TrimSpace(record.Service.Instance.ID)
+	// 兜底服务名提取：优先读结构化属性，其次再从正文前缀提取。
+	serviceName := firstNonEmpty(
+		strings.TrimSpace(record.Service.Name),
+		strings.TrimSpace(attrValue(record, "service.name")),
+		strings.TrimSpace(attrValue(record, "docker.compose.service")),
+	)
+	instanceID := firstNonEmpty(
+		strings.TrimSpace(record.Service.Instance.ID),
+		strings.TrimSpace(attrValue(record, "service.instance.id")),
+		strings.TrimSpace(attrValue(record, "container.name")),
+	)
 	if serviceName == "" && instanceID == "" {
 		// 尝试从 body 中提取服务名前缀
 		extractedService, extractedInstance := FallbackExtractServiceInfo(processedBody)
@@ -448,6 +465,7 @@ func BuildLogDocument(record AgentPullRecord, responseAgent AgentPullAgent, agen
 			ID:       resolvedAgentID,
 			Version:  strings.TrimSpace(responseAgent.Version),
 			Hostname: strings.TrimSpace(responseAgent.Hostname),
+			IP:       strings.TrimSpace(responseAgent.IP),
 		},
 		Service: ServiceLayer{
 			Name: serviceName,
@@ -457,10 +475,21 @@ func BuildLogDocument(record AgentPullRecord, responseAgent AgentPullAgent, agen
 			Version:     strings.TrimSpace(record.Service.Version),
 			Environment: strings.TrimSpace(record.Service.Environment),
 		},
-		Container: ContainerLayer{Name: strings.TrimSpace(record.Container.Name)},
+		Container: ContainerLayer{Name: firstNonEmpty(strings.TrimSpace(record.Container.Name), strings.TrimSpace(attrValue(record, "container.name")))},
 		Host: HostLayer{
-			Name: strings.TrimSpace(attrValue(record, "host.name")),
-			IP:   strings.TrimSpace(attrValue(record, "host.ip")),
+			Name: firstNonEmpty(
+				strings.TrimSpace(attrValue(record, "host.name")),
+				strings.TrimSpace(attrValue(record, "host")),
+				strings.TrimSpace(attrValue(record, "hostname")),
+				strings.TrimSpace(attrValue(record, "syslog_hostname")),
+				strings.TrimSpace(responseAgent.Hostname),
+			),
+			IP: firstNonEmpty(
+				strings.TrimSpace(attrValue(record, "host.ip")),
+				strings.TrimSpace(attrValue(record, "host_ip")),
+				strings.TrimSpace(attrValue(record, "server_ip")),
+				strings.TrimSpace(responseAgent.IP),
+			),
 		},
 		Process: ProcessLayer{
 			PID:      parseInt(attrValue(record, "process.pid")),

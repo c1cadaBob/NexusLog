@@ -1,11 +1,10 @@
--- NexusLog Flink CEP 作业：异常检测
--- 使用 MATCH_RECOGNIZE 进行复杂事件处理，检测日志异常模式
--- 数据源: nexuslog.logs.parsed (解析后日志)
--- 输出: nexuslog.alerts.events (告警事件 Topic)
+SET 'table.local-time-zone' = 'UTC';
+SET 'table.dml-sync' = 'false';
+SET 'pipeline.name' = 'nexuslog-stream-cep-anomaly';
 
--- 定义 Kafka 源表（使用 Schema Registry 的 Avro 格式）
 CREATE TABLE log_events (
-    log_id STRING,
+    id STRING,
+    event_id STRING,
     source STRING,
     service STRING,
     `level` STRING,
@@ -24,46 +23,55 @@ CREATE TABLE log_events (
     'scan.startup.mode' = 'latest-offset'
 );
 
--- 定义告警输出表（写入告警事件 Topic）
 CREATE TABLE anomaly_alerts (
-    alert_id STRING,
-    source STRING,
-    pattern_type STRING,
-    first_error_time TIMESTAMP(3),
-    last_error_time TIMESTAMP(3),
-    error_count BIGINT,
-    detected_at TIMESTAMP(3),
+    id STRING,
+    rule_id STRING,
+    rule_name STRING,
+    severity STRING,
+    status STRING,
+    triggered_at BIGINT,
+    message STRING,
+    fingerprint STRING,
+    generator STRING,
+    labels MAP<STRING, STRING>,
+    annotations MAP<STRING, STRING>,
+    source_logs ARRAY<STRING>,
+    resolved_at BIGINT,
     tenant_id STRING
 ) WITH (
     'connector' = 'kafka',
     'topic' = 'nexuslog.alerts.events',
     'properties.bootstrap.servers' = 'kafka:9092',
-    'format' = 'json'
+    'format' = 'avro-confluent',
+    'avro-confluent.url' = 'http://schema-registry:8081'
 );
 
--- 异常检测：5 分钟内同一来源出现 5 次以上 ERROR 级别日志
 INSERT INTO anomaly_alerts
 SELECT
-    UUID() AS alert_id,
-    source,
-    'consecutive_errors' AS pattern_type,
-    window_start AS first_error_time,
-    window_end AS last_error_time,
-    error_count,
-    CURRENT_TIMESTAMP AS detected_at,
+    UUID() AS id,
+    'cep-consecutive-errors' AS rule_id,
+    '连续错误异常' AS rule_name,
+    'WARNING' AS severity,
+    'FIRING' AS status,
+    CAST(UNIX_TIMESTAMP() * 1000 AS BIGINT) AS triggered_at,
+    CONCAT('来源 ', source, ' 在 5 分钟内出现 ', CAST(error_count AS STRING), ' 次 ERROR 日志') AS message,
+    CONCAT('cep-consecutive-errors:', source, ':', CAST(window_start_ms AS STRING)) AS fingerprint,
+    'flink.cep.anomaly-detection' AS generator,
+    MAP['source', source] AS labels,
+    MAP['summary', '连续错误异常', 'pattern_type', 'consecutive_errors'] AS annotations,
+    CAST(ARRAY[''] AS ARRAY<STRING>) AS source_logs,
+    CAST(NULL AS BIGINT) AS resolved_at,
     tenant_id
 FROM (
     SELECT
-        window_start,
-        window_end,
         source,
         tenant_id,
+        CAST(UNIX_TIMESTAMP(CAST(TUMBLE_START(event_time, INTERVAL '5' MINUTE) AS STRING)) * 1000 AS BIGINT) AS window_start_ms,
         COUNT(*) AS error_count
-    FROM TUMBLE(log_events, event_time, INTERVAL '5' MINUTE)
+    FROM log_events
     WHERE `level` = 'ERROR'
     GROUP BY
-        window_start,
-        window_end,
+        TUMBLE(event_time, INTERVAL '5' MINUTE),
         source,
         tenant_id
 ) t

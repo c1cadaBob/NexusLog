@@ -51,6 +51,18 @@
       "doc": "告警描述信息"
     },
     {
+      "name": "fingerprint",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Alertmanager / 平台去重指纹"
+    },
+    {
+      "name": "generator",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "告警生成器标识"
+    },
+    {
       "name": "labels",
       "type": {
         "type": "map",
@@ -60,6 +72,15 @@
       "doc": "告警标签"
     },
     {
+      "name": "annotations",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "告警注解"
+    },
+    {
       "name": "source_logs",
       "type": {
         "type": "array",
@@ -67,6 +88,18 @@
       },
       "default": [],
       "doc": "触发告警的日志 ID 列表"
+    },
+    {
+      "name": "resolved_at",
+      "type": [
+        "null",
+        {
+          "type": "long",
+          "logicalType": "timestamp-millis"
+        }
+      ],
+      "default": null,
+      "doc": "告警恢复时间"
     },
     {
       "name": "tenant_id",

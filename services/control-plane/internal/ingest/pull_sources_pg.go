@@ -119,6 +119,7 @@ func (s *PullSourceStore) createFromDB(ctx context.Context, req CreatePullSource
 		Host:         req.Host,
 		Port:         req.Port,
 		Protocol:     req.Protocol,
+		Path:         req.Path,
 		AgentBaseURL: req.AgentBaseURL,
 		Status:       req.Status,
 	}
@@ -392,27 +393,51 @@ func (s *PullSourceStore) ensureNoActiveOverlapFromDB(ctx context.Context, candi
 	excludeSourceID = strings.TrimSpace(excludeSourceID)
 
 	query := `
-SELECT EXISTS (
-    SELECT 1
-    FROM ingest_pull_sources
-    WHERE tenant_id = $1::uuid
-      AND status = 'active'
-      AND LOWER(protocol) IN ('http', 'https')
-      AND COALESCE(NULLIF(LOWER(BTRIM(agent_base_url)), ''), LOWER(BTRIM(protocol)) || '://' || LOWER(BTRIM(host)) || ':' || port::text) = $2
-      AND ($3::uuid IS NULL OR id <> $3::uuid)
-)
+SELECT
+    id::text,
+    host,
+    port,
+    protocol,
+    COALESCE(path_pattern, ''),
+    COALESCE(agent_base_url, ''),
+    status
+FROM ingest_pull_sources
+WHERE tenant_id = $1::uuid
+  AND status = 'active'
+  AND LOWER(protocol) IN ('http', 'https')
+  AND COALESCE(NULLIF(LOWER(BTRIM(agent_base_url)), ''), LOWER(BTRIM(protocol)) || '://' || LOWER(BTRIM(host)) || ':' || port::text) = $2
+  AND ($3::uuid IS NULL OR id <> $3::uuid)
 `
 	var exclude sql.NullString
 	if excludeSourceID != "" {
 		exclude = sql.NullString{String: excludeSourceID, Valid: true}
 	}
 
-	var exists bool
-	if err := s.backend.DB().QueryRowContext(ctx, query, tenantID, candidateIdentity, exclude).Scan(&exists); err != nil {
+	rows, err := s.backend.DB().QueryContext(ctx, query, tenantID, candidateIdentity, exclude)
+	if err != nil {
 		return wrapDBError("check pull source overlap", err)
 	}
-	if exists {
-		return ErrPullSourceOverlapConflict
+	defer mustRowsClose(rows)
+
+	for rows.Next() {
+		var existing PullSource
+		if scanErr := rows.Scan(
+			&existing.SourceID,
+			&existing.Host,
+			&existing.Port,
+			&existing.Protocol,
+			&existing.Path,
+			&existing.AgentBaseURL,
+			&existing.Status,
+		); scanErr != nil {
+			continue
+		}
+		if pullSourcePathsOverlap(candidate.Path, existing.Path) {
+			return ErrPullSourceOverlapConflict
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return wrapDBError("check pull source overlap", err)
 	}
 	return nil
 }

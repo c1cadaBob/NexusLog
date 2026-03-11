@@ -7,10 +7,20 @@ import (
 	"time"
 
 	"github.com/nexuslog/collector-agent/internal/metrics"
+	"github.com/nexuslog/collector-agent/internal/pullapi"
 	"github.com/nexuslog/collector-agent/internal/pullv2"
 )
 
-func startRewriteHTTPServer(port string, sysMetrics *metrics.Collector) *http.Server {
+func startRewriteHTTPServer(
+	port string,
+	sysMetrics *metrics.Collector,
+	pullService *pullapi.Service,
+	meta pullapi.MetaInfo,
+	auth pullapi.AuthConfig,
+	pullV2Service *pullv2.Service,
+	pullV2Meta pullv2.MetaInfo,
+	pullV2Auth pullv2.AuthConfig,
+) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("/agent/v1/metrics", metrics.MetricsHandler(sysMetrics))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -26,23 +36,18 @@ func startRewriteHTTPServer(port string, sysMetrics *metrics.Collector) *http.Se
 			time.Now().UTC().Format(time.RFC3339))
 	})
 
-	gone := pullv2.GoneV1Handler()
-	mux.HandleFunc("/agent/v1/meta", gone)
-	mux.HandleFunc("/agent/v1/logs/pull", gone)
-	mux.HandleFunc("/agent/v1/logs/ack", gone)
+	if pullService != nil {
+		pullapi.RegisterRoutes(mux, pullService, meta, auth)
+	} else {
+		gone := pullv2.GoneV1Handler()
+		mux.HandleFunc("/agent/v1/meta", gone)
+		mux.HandleFunc("/agent/v1/logs/pull", gone)
+		mux.HandleFunc("/agent/v1/logs/ack", gone)
+	}
 
-	svc := pullv2.New(parseEnvInt("PULLV2_MAX_BUFFERED_RECORDS", 10000), nil)
-	auth := pullv2.NewAuthConfig(
-		getEnv("AGENT_API_KEY_ACTIVE_ID", "active"),
-		getEnv("AGENT_API_KEY_ACTIVE", "dev-agent-key"),
-		getEnv("AGENT_API_KEY_NEXT_ID", "next"),
-		getEnv("AGENT_API_KEY_NEXT", ""),
-	)
-	meta := pullv2.BuildDefaultMeta(
-		getEnv("AGENT_ID", "collector-agent-rewrite"),
-		getEnv("AGENT_VERSION", "0.2.0"),
-	)
-	pullv2.RegisterRoutes(mux, svc, meta, auth)
+	if pullV2Service != nil {
+		pullv2.RegisterRoutes(mux, pullV2Service, pullV2Meta, pullV2Auth)
+	}
 
 	server := &http.Server{
 		Addr:              ":" + port,

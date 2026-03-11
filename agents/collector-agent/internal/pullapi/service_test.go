@@ -47,6 +47,8 @@ func TestMetaRouteSuccess(t *testing.T) {
 	meta := MetaInfo{
 		AgentID:      "agent-test",
 		Version:      "1.0.0",
+		Hostname:     "host-a",
+		IP:           "10.0.0.8",
 		Status:       "online",
 		Sources:      []string{"/var/log/*.log"},
 		Capabilities: []string{"file_incremental", "pull_api", "ack_checkpoint"},
@@ -68,7 +70,7 @@ func TestMetaRouteSuccess(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode meta response failed: %v", err)
 	}
-	if got.AgentID != "agent-test" || got.Version != "1.0.0" || got.Status != "online" {
+	if got.AgentID != "agent-test" || got.Version != "1.0.0" || got.Hostname != "host-a" || got.IP != "10.0.0.8" || got.Status != "online" {
 		t.Fatalf("unexpected meta response: %+v", got)
 	}
 }
@@ -157,6 +159,130 @@ func TestPullAndAckFlow(t *testing.T) {
 	}
 }
 
+func TestPullFiltersBySourcePath(t *testing.T) {
+	store := newMockCheckpointStore()
+	svc := New(store)
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, svc, MetaInfo{}, testAuthConfig())
+
+	svc.AddRecords([]plugins.Record{
+		{Source: "/var/log/app.log", Data: []byte("host-line"), Metadata: map[string]string{"offset": "10"}},
+		{Source: "/host-docker-containers/abc/abc-json.log", Data: []byte("container-line"), Metadata: map[string]string{"offset": "20"}},
+	})
+
+	resp := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/pull", map[string]any{
+		"source_path": "/var/log/*.log",
+		"max_records": 10,
+		"max_bytes":   1024,
+	}, map[string]string{
+		"X-Agent-Key": "test-active-key",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("pull failed: %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var pullData PullResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &pullData); err != nil {
+		t.Fatalf("decode pull response failed: %v", err)
+	}
+	if len(pullData.Records) != 1 {
+		t.Fatalf("expected 1 filtered record, got %d", len(pullData.Records))
+	}
+	if got := pullData.Records[0].Source.Path; got != "/var/log/app.log" {
+		t.Fatalf("unexpected filtered source path: %s", got)
+	}
+}
+
+func TestPullTracksCommittedCursorPerSourcePath(t *testing.T) {
+	store := newMockCheckpointStore()
+	svc := New(store)
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, svc, MetaInfo{}, testAuthConfig())
+
+	svc.AddRecords([]plugins.Record{
+		{Source: "/host-docker-containers/abc/abc-json.log", Data: []byte("container-first"), Metadata: map[string]string{"offset": "10"}},
+		{Source: "/var/log/app.log", Data: []byte("host-second"), Metadata: map[string]string{"offset": "20"}},
+	})
+
+	hostPull := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/pull", map[string]any{
+		"source_path": "/var/log/*.log",
+		"max_records": 10,
+		"max_bytes":   1024,
+	}, map[string]string{
+		"X-Agent-Key": "test-active-key",
+	})
+	if hostPull.Code != http.StatusOK {
+		t.Fatalf("host pull failed: %d body=%s", hostPull.Code, hostPull.Body.String())
+	}
+	var hostData PullResponse
+	if err := json.Unmarshal(hostPull.Body.Bytes(), &hostData); err != nil {
+		t.Fatalf("decode host pull failed: %v", err)
+	}
+	if len(hostData.Records) != 1 || hostData.Records[0].Source.Path != "/var/log/app.log" {
+		t.Fatalf("unexpected host pull records: %+v", hostData.Records)
+	}
+
+	hostAck := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/ack", map[string]any{
+		"batch_id":         hostData.BatchID,
+		"status":           "ack",
+		"committed_cursor": hostData.Cursor.Next,
+	}, map[string]string{
+		"X-Agent-Key": "test-active-key",
+	})
+	if hostAck.Code != http.StatusOK {
+		t.Fatalf("host ack failed: %d body=%s", hostAck.Code, hostAck.Body.String())
+	}
+
+	dockerPull := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/pull", map[string]any{
+		"source_path": "/host-docker-containers/*/*-json.log",
+		"max_records": 10,
+		"max_bytes":   1024,
+	}, map[string]string{
+		"X-Agent-Key": "test-active-key",
+	})
+	if dockerPull.Code != http.StatusOK {
+		t.Fatalf("docker pull failed: %d body=%s", dockerPull.Code, dockerPull.Body.String())
+	}
+	var dockerData PullResponse
+	if err := json.Unmarshal(dockerPull.Body.Bytes(), &dockerData); err != nil {
+		t.Fatalf("decode docker pull failed: %v", err)
+	}
+	if len(dockerData.Records) != 1 || dockerData.Records[0].Source.Path != "/host-docker-containers/abc/abc-json.log" {
+		t.Fatalf("unexpected docker pull records: %+v", dockerData.Records)
+	}
+}
+
+func TestPullResetsStaleCursorAfterAgentRestart(t *testing.T) {
+	store := newMockCheckpointStore()
+	svc := New(store)
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, svc, MetaInfo{}, testAuthConfig())
+
+	svc.AddRecords([]plugins.Record{{Source: "/host-docker-containers/abc/abc-json.log", Data: []byte("fresh-after-restart"), Metadata: map[string]string{"offset": "10"}}})
+
+	resp := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/pull", map[string]any{
+		"source_path": "/host-docker-containers/*/*-json.log",
+		"cursor":      "999999",
+		"max_records": 10,
+		"max_bytes":   1024,
+	}, map[string]string{
+		"X-Agent-Key": "test-active-key",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("pull failed: %d body=%s", resp.Code, resp.Body.String())
+	}
+	var pullData PullResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &pullData); err != nil {
+		t.Fatalf("decode pull response failed: %v", err)
+	}
+	if len(pullData.Records) != 1 {
+		t.Fatalf("expected stale cursor reset to return 1 record, got %d", len(pullData.Records))
+	}
+	if got := pullData.Records[0].Body; got != "fresh-after-restart" {
+		t.Fatalf("unexpected record body: %q", got)
+	}
+}
+
 // TestPullRecordFallbackOffsetMetadata 验证缺省 metadata 时仍返回结构化 offset 与 metadata.offset。
 func TestPullRecordFallbackOffsetMetadata(t *testing.T) {
 	svc := New(newMockCheckpointStore())
@@ -219,7 +345,7 @@ func TestPullInvalidArgument(t *testing.T) {
 func TestPullStructuredMultilineAndDedup(t *testing.T) {
 	store := newMockCheckpointStore()
 	svc := New(store)
-	svc.SetAgentInfo("agent-structured", "2.0.0")
+	svc.SetAgentInfo("agent-structured", "2.0.0", "host-structured", "10.1.0.8")
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, svc, MetaInfo{}, testAuthConfig())
 
@@ -235,6 +361,7 @@ func TestPullStructuredMultilineAndDedup(t *testing.T) {
 	})
 
 	pullResp := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/pull", map[string]any{
+		"source_path": "/var/lib/docker/containers/keycloak.log",
 		"max_records": 10,
 		"max_bytes":   4096,
 	}, map[string]string{
@@ -248,7 +375,7 @@ func TestPullStructuredMultilineAndDedup(t *testing.T) {
 	if err := json.Unmarshal(pullResp.Body.Bytes(), &pullData); err != nil {
 		t.Fatalf("decode pull response failed: %v", err)
 	}
-	if pullData.Agent.ID != "agent-structured" || pullData.Agent.Version != "2.0.0" {
+	if pullData.Agent.ID != "agent-structured" || pullData.Agent.Version != "2.0.0" || pullData.Agent.Hostname != "host-structured" {
 		t.Fatalf("unexpected agent info: %+v", pullData.Agent)
 	}
 	if len(pullData.Records) != 1 {
@@ -276,6 +403,112 @@ func TestPullStructuredMultilineAndDedup(t *testing.T) {
 	}
 	if record.Source.Offset != 200 {
 		t.Fatalf("unexpected source offset: %+v", record.Source)
+	}
+}
+
+func TestNormalizePluginRecord_UnwrapsDockerJSONEnvelope(t *testing.T) {
+	record, ok := normalizePluginRecord(plugins.Record{
+		Source: "/var/lib/docker/containers/72ba83f606fed9df0acbfe6450145197a173e5eb934715f7da97d4241ed8b95f/72ba83f606fed9df0acbfe6450145197a173e5eb934715f7da97d4241ed8b95f-json.log",
+		Data:   []byte(`{"log":"[GIN] 2026/03/09 - 13:16:17 |\u001b[97;42m 200 \u001b[0m|   16.940775ms |     172.29.0.18 |\u001b[97;46m POST    \u001b[0m \"/api/v1/query/logs\"\r\n","stream":"stderr","time":"2026-03-09T13:16:17.746751141Z"}`),
+		Metadata: map[string]string{
+			"offset":                 "4041522",
+			"service.name":           "query-api",
+			"service.instance.id":    "nexuslog-query-api-1",
+			"container.name":         "nexuslog-query-api-1",
+			"docker.compose.service": "query-api",
+			"source_type":            "docker-json",
+		},
+	}, "dev-server-centos8", "10.0.0.8")
+	if !ok {
+		t.Fatal("normalizePluginRecord() returned ok=false")
+	}
+	if got := record.service.Name; got != "query-api" {
+		t.Fatalf("record.service.Name=%q, want query-api", got)
+	}
+	if got := record.service.Instance.ID; got != "nexuslog-query-api-1" {
+		t.Fatalf("record.service.Instance.ID=%q, want nexuslog-query-api-1", got)
+	}
+	if got := record.container.Name; got != "nexuslog-query-api-1" {
+		t.Fatalf("record.container.Name=%q, want nexuslog-query-api-1", got)
+	}
+	if !strings.HasPrefix(record.body, "[GIN] 2026/03/09 - 13:16:17 |") {
+		t.Fatalf("record.body=%q, want unwrapped docker log body", record.body)
+	}
+	if !strings.HasPrefix(record.original, `{"log":"[GIN]`) {
+		t.Fatalf("record.original=%q, want original docker json envelope", record.original)
+	}
+	if got := record.sourceV2.Stream; got != "stderr" {
+		t.Fatalf("record.sourceV2.Stream=%q, want stderr", got)
+	}
+	wantTimestamp := time.Date(2026, time.March, 9, 13, 16, 17, 746751141, time.UTC).UnixNano()
+	if record.timestamp != wantTimestamp {
+		t.Fatalf("record.timestamp=%d, want %d", record.timestamp, wantTimestamp)
+	}
+}
+
+func TestPullMergesDockerJSONStacktraceAcrossBatches(t *testing.T) {
+	store := newMockCheckpointStore()
+	svc := New(store)
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, svc, MetaInfo{}, testAuthConfig())
+
+	source := "/var/lib/docker/containers/72ba83f606fed9df0acbfe6450145197a173e5eb934715f7da97d4241ed8b95f/72ba83f606fed9df0acbfe6450145197a173e5eb934715f7da97d4241ed8b95f-json.log"
+	baseMetadata := map[string]string{
+		"service.name":        "flink-taskmanager",
+		"service.instance.id": "nexuslog-flink-taskmanager-1",
+		"container.name":      "nexuslog-flink-taskmanager-1",
+		"source_type":         "docker-json",
+	}
+	svc.AddRecords([]plugins.Record{{
+		Source:    source,
+		Timestamp: time.Date(2026, time.March, 11, 10, 30, 0, 0, time.UTC).UnixNano(),
+		Data:      []byte(`{"log":"ERROR failed to deserialize consumer record\n","stream":"stderr","time":"2026-03-11T10:30:00.000000001Z"}`),
+		Metadata:  map[string]string{"offset": "100", "service.name": baseMetadata["service.name"], "service.instance.id": baseMetadata["service.instance.id"], "container.name": baseMetadata["container.name"], "source_type": baseMetadata["source_type"]},
+	}})
+	svc.AddRecords([]plugins.Record{{
+		Source:    "/var/log/messages",
+		Timestamp: time.Date(2026, time.March, 11, 10, 30, 0, 0, time.UTC).UnixNano(),
+		Data:      []byte("INFO unrelated log between header and stack"),
+		Metadata:  map[string]string{"offset": "1000", "service.name": "host-syslog"},
+	}})
+	svc.AddRecords([]plugins.Record{{
+		Source:    source,
+		Timestamp: time.Date(2026, time.March, 11, 10, 30, 0, int(time.Millisecond), time.UTC).UnixNano(),
+		Data:      []byte(`{"log":"\tat org.apache.flink.connector.kafka.source.reader.KafkaRecordEmitter.emitRecord(KafkaRecordEmitter.java:53)\n","stream":"stderr","time":"2026-03-11T10:30:00.000000002Z"}`),
+		Metadata:  map[string]string{"offset": "200", "service.name": baseMetadata["service.name"], "service.instance.id": baseMetadata["service.instance.id"], "container.name": baseMetadata["container.name"], "source_type": baseMetadata["source_type"]},
+	}})
+
+	pullResp := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/pull", map[string]any{
+		"source_path": source,
+		"max_records": 10,
+		"max_bytes":   4096,
+	}, map[string]string{
+		"X-Agent-Key": "test-active-key",
+	})
+	if pullResp.Code != http.StatusOK {
+		t.Fatalf("pull failed: %d body=%s", pullResp.Code, pullResp.Body.String())
+	}
+
+	var pullData PullResponse
+	if err := json.Unmarshal(pullResp.Body.Bytes(), &pullData); err != nil {
+		t.Fatalf("decode pull response failed: %v", err)
+	}
+	if len(pullData.Records) != 1 {
+		t.Fatalf("expected 1 merged record, got %d", len(pullData.Records))
+	}
+
+	record := pullData.Records[0]
+	if !record.Multiline.Enabled || record.Multiline.LineCount != 2 {
+		t.Fatalf("expected multiline merge, got %+v", record.Multiline)
+	}
+	if !strings.Contains(record.Body, "ERROR failed to deserialize consumer record\nat org.apache.flink.connector.kafka.source.reader.KafkaRecordEmitter.emitRecord") {
+		t.Fatalf("unexpected merged body: %q", record.Body)
+	}
+	if !strings.Contains(record.Original, `{"log":"ERROR failed to deserialize consumer record`) || !strings.Contains(record.Original, `{"log":"\tat org.apache.flink.connector.kafka.source.reader.KafkaRecordEmitter.emitRecord`) {
+		t.Fatalf("expected original payload to preserve docker envelopes, got %q", record.Original)
+	}
+	if record.Source.Offset != 200 {
+		t.Fatalf("record.Source.Offset=%d, want 200", record.Source.Offset)
 	}
 }
 

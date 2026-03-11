@@ -51,10 +51,82 @@
       "doc": "采集代理 ID"
     },
     {
+      "name": "event_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "统一事件 ID，由 Agent 侧生成"
+    },
+    {
+      "name": "dedupe_key",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "跨链路去重键"
+    },
+    {
+      "name": "source_path",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "日志源实际文件路径"
+    },
+    {
+      "name": "source_collect_path",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "采集配置命中的路径"
+    },
+    {
+      "name": "offset",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "源文件偏移"
+    },
+    {
+      "name": "file_inode",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "源文件 inode"
+    },
+    {
+      "name": "file_dev",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "源文件设备号"
+    },
+    {
+      "name": "host",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "宿主机名"
+    },
+    {
+      "name": "server_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "服务端实例 ID"
+    },
+    {
+      "name": "batch_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "采集批次 ID"
+    },
+    {
       "name": "tenant_id",
       "type": ["null", "string"],
       "default": null,
       "doc": "租户 ID（多租户场景）"
+    },
+    {
+      "name": "host_ip",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "日志来源主机主 IP"
+    },
+    {
+      "name": "agent_ip",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "采集 Agent 节点主 IP"
     }
   ]
 }

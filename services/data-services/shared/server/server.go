@@ -29,6 +29,15 @@ func Run(cfg Config, setupRoutes func(r *gin.Engine)) {
 	// 注册健康检查端点
 	router.GET("/healthz", response.HealthHandler(cfg.Name))
 	router.GET("/readyz", response.ReadyHandler(cfg.Name))
+	router.GET("/metrics", func(c *gin.Context) {
+		c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		c.String(
+			http.StatusOK,
+			"# HELP nexuslog_service_up Whether the service is up.\n"+
+				"# TYPE nexuslog_service_up gauge\n"+
+				fmt.Sprintf("nexuslog_service_up{service=%q} 1\n", cfg.Name),
+		)
+	})
 
 	// 注册业务路由
 	if setupRoutes != nil {

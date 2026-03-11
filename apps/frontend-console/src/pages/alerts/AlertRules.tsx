@@ -576,7 +576,7 @@ const AlertRules: React.FC = () => {
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
         width={640}
-        destroyOnClose
+        forceRender
         confirmLoading={submitting}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }} onValuesChange={(c) => c.ruleType && setRuleType(c.ruleType)}>

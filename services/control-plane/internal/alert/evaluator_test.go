@@ -2,6 +2,7 @@ package alert
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"testing"
 	"time"
@@ -10,8 +11,8 @@ import (
 func TestEvaluator_checkKeyword(t *testing.T) {
 	ctx := context.Background()
 	mockES := &mockESSearchClient{count: 1}
-	repo := &mockRuleRepo{}
-	db := nil // not used for checkKeyword
+	repo := &evalMockRuleRepo{}
+	var db *sql.DB // not used for checkKeyword
 	e := NewEvaluator(repo, mockES, db, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
@@ -32,7 +33,7 @@ func TestEvaluator_checkKeyword(t *testing.T) {
 func TestEvaluator_checkKeyword_noMatch(t *testing.T) {
 	ctx := context.Background()
 	mockES := &mockESSearchClient{count: 0}
-	repo := &mockRuleRepo{}
+	repo := &evalMockRuleRepo{}
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
@@ -52,7 +53,7 @@ func TestEvaluator_checkKeyword_noMatch(t *testing.T) {
 func TestEvaluator_checkLevelCount(t *testing.T) {
 	ctx := context.Background()
 	mockES := &mockESSearchClient{count: 10}
-	repo := &mockRuleRepo{}
+	repo := &evalMockRuleRepo{}
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
@@ -72,7 +73,7 @@ func TestEvaluator_checkLevelCount(t *testing.T) {
 func TestEvaluator_checkLevelCount_noMatch(t *testing.T) {
 	ctx := context.Background()
 	mockES := &mockESSearchClient{count: 2}
-	repo := &mockRuleRepo{}
+	repo := &evalMockRuleRepo{}
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
@@ -92,7 +93,7 @@ func TestEvaluator_checkLevelCount_noMatch(t *testing.T) {
 func TestEvaluator_checkThreshold(t *testing.T) {
 	ctx := context.Background()
 	mockES := &mockESSearchClient{count: 100}
-	repo := &mockRuleRepo{}
+	repo := &evalMockRuleRepo{}
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
@@ -112,7 +113,7 @@ func TestEvaluator_checkThreshold(t *testing.T) {
 func TestEvaluator_checkThreshold_noMatch(t *testing.T) {
 	ctx := context.Background()
 	mockES := &mockESSearchClient{count: 10}
-	repo := &mockRuleRepo{}
+	repo := &evalMockRuleRepo{}
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
@@ -132,7 +133,7 @@ func TestEvaluator_checkThreshold_noMatch(t *testing.T) {
 func TestEvaluator_unknownType(t *testing.T) {
 	ctx := context.Background()
 	mockES := &mockESSearchClient{}
-	repo := &mockRuleRepo{}
+	repo := &evalMockRuleRepo{}
 	e := NewEvaluator(repo, mockES, nil, "logs")
 
 	rule := &AlertRule{
@@ -173,32 +174,32 @@ func (m *mockESSearchClient) Search(ctx context.Context, index string, body []by
 	return m.count, nil
 }
 
-type mockRuleRepo struct{}
+type evalMockRuleRepo struct{}
 
-func (m *mockRuleRepo) ListRules(ctx context.Context, tenantID string, page, pageSize int) ([]AlertRule, int, error) {
+func (m *evalMockRuleRepo) ListRules(ctx context.Context, tenantID string, page, pageSize int) ([]AlertRule, int, error) {
 	return nil, 0, nil
 }
 
-func (m *mockRuleRepo) ListEnabledRules(ctx context.Context) ([]AlertRule, error) {
+func (m *evalMockRuleRepo) ListEnabledRules(ctx context.Context) ([]AlertRule, error) {
 	return nil, nil
 }
 
-func (m *mockRuleRepo) GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error) {
+func (m *evalMockRuleRepo) GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error) {
 	return nil, nil
 }
 
-func (m *mockRuleRepo) CreateRule(ctx context.Context, rule *AlertRule) (string, error) {
+func (m *evalMockRuleRepo) CreateRule(ctx context.Context, rule *AlertRule) (string, error) {
 	return "", nil
 }
 
-func (m *mockRuleRepo) UpdateRule(ctx context.Context, tenantID, ruleID string, update *AlertRuleUpdate) error {
+func (m *evalMockRuleRepo) UpdateRule(ctx context.Context, tenantID, ruleID string, update *AlertRuleUpdate) error {
 	return nil
 }
 
-func (m *mockRuleRepo) DeleteRule(ctx context.Context, tenantID, ruleID string) error {
+func (m *evalMockRuleRepo) DeleteRule(ctx context.Context, tenantID, ruleID string) error {
 	return nil
 }
 
-func (m *mockRuleRepo) CountRules(ctx context.Context, tenantID string) (int, error) {
+func (m *evalMockRuleRepo) CountRules(ctx context.Context, tenantID string) (int, error) {
 	return 0, nil
 }

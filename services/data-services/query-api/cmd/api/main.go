@@ -11,6 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
+	"github.com/nexuslog/data-services/query-api/internal/handler"
+	"github.com/nexuslog/data-services/query-api/internal/repository"
+	"github.com/nexuslog/data-services/query-api/internal/service"
 	"github.com/nexuslog/data-services/shared/server"
 )
 
@@ -32,10 +35,24 @@ func main() {
 		}()
 	}
 
+	esRepo := repository.NewElasticsearchRepositoryFromEnv()
+	metadataRepo := repository.NewQueryMetadataRepository(metadataDB)
+	querySvc := service.NewQueryService(esRepo, metadataRepo)
+	statsSvc := service.NewStatsService(esRepo, metadataDB)
+	queryHandler := handler.NewQueryHandler(querySvc)
+	statsHandler := handler.NewStatsHandler(statsSvc)
+
 	server.Run(cfg, func(r *gin.Engine) {
 		v1 := r.Group("/api/v1/query")
-		log.Printf("legacy query pipeline disabled: v1 query endpoints return gone until rewrite lands")
-		registerLegacyQueryPipelineRemovedRoutes(v1)
+		v1.POST("/logs", queryHandler.SearchLogs)
+		v1.GET("/stats/overview", statsHandler.GetOverviewStats)
+		v1.POST("/stats/aggregate", statsHandler.Aggregate)
+		v1.GET("/history", queryHandler.ListQueryHistories)
+		v1.DELETE("/history/:history_id", queryHandler.DeleteQueryHistory)
+		v1.GET("/saved", queryHandler.ListSavedQueries)
+		v1.POST("/saved", queryHandler.CreateSavedQuery)
+		v1.PUT("/saved/:saved_query_id", queryHandler.UpdateSavedQuery)
+		v1.DELETE("/saved/:saved_query_id", queryHandler.DeleteSavedQuery)
 	})
 }
 
@@ -71,29 +88,6 @@ func openAndPing(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
-}
-
-func registerLegacyQueryPipelineRemovedRoutes(group *gin.RouterGroup) {
-	if group == nil {
-		return
-	}
-	respondGone := func(c *gin.Context) {
-		c.JSON(410, gin.H{
-			"code":    "LEGACY_PIPELINE_REMOVED",
-			"message": "legacy query pipeline removed; rewrite in progress",
-			"data":    gin.H{},
-			"meta":    gin.H{},
-		})
-	}
-	group.POST("/logs", respondGone)
-	group.GET("/stats/overview", respondGone)
-	group.POST("/stats/aggregate", respondGone)
-	group.GET("/history", respondGone)
-	group.DELETE("/history/:history_id", respondGone)
-	group.GET("/saved", respondGone)
-	group.POST("/saved", respondGone)
-	group.PUT("/saved/:saved_query_id", respondGone)
-	group.DELETE("/saved/:saved_query_id", respondGone)
 }
 
 func getEnv(key, fallback string) string {

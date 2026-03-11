@@ -17,6 +17,8 @@ const (
 type MetaInfo struct {
 	AgentID               string   `json:"agent_id"`
 	Version               string   `json:"version"`
+	Hostname              string   `json:"hostname,omitempty"`
+	IP                    string   `json:"ip,omitempty"`
 	Status                string   `json:"status"`
 	LegacyPipelineEnabled bool     `json:"legacy_pipeline_enabled"`
 	Capabilities          []string `json:"capabilities,omitempty"`

@@ -10,6 +10,12 @@
       "doc": "日志唯一标识（UUID）"
     },
     {
+      "name": "event_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "统一事件 ID，与原始日志保持一致"
+    },
+    {
       "name": "timestamp",
       "type": {
         "type": "long",
@@ -46,6 +52,12 @@
       "doc": "服务名称"
     },
     {
+      "name": "stream",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "日志流名称"
+    },
+    {
       "name": "message",
       "type": "string",
       "doc": "日志消息内容"
@@ -60,6 +72,15 @@
       "doc": "解析后的结构化字段"
     },
     {
+      "name": "attributes",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "通用扩展属性"
+    },
+    {
       "name": "tags",
       "type": {
         "type": "map",
@@ -67,6 +88,18 @@
       },
       "default": {},
       "doc": "日志标签"
+    },
+    {
+      "name": "schema_version",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "解析链路 schema 版本"
+    },
+    {
+      "name": "parse_status",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "解析状态"
     },
     {
       "name": "trace_id",

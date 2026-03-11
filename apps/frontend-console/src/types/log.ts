@@ -16,6 +16,8 @@ export interface RealtimeLogFields {
   retention_policy?: string;
   pii_masked?: boolean | string;
   host?: string;
+  host_ip?: string;
+  server_id?: string;
   env?: string;
   region?: string;
   method?: string;
@@ -33,15 +35,34 @@ export interface RealtimeLogFields {
   message?: string;
 }
 
+export interface AggregatedLogEntryDetail {
+  id: string;
+  timestamp: string;
+  message: string;
+  rawLog?: string;
+}
+
+export interface AggregatedLogGroup {
+  kind: 'image_asset_burst';
+  count: number;
+  summary: string;
+  samplePaths: string[];
+  entries: AggregatedLogEntryDetail[];
+}
+
 export interface LogEntry {
   id: string;
   timestamp: string;
   level: 'error' | 'warn' | 'info' | 'debug';
   service: string;
+  host: string;
+  hostIp: string;
   message: string;
   fields?: RealtimeLogFields & Record<string, unknown>;
   /** 原始日志文本 */
   rawLog?: string;
+  /** 前端展示层聚合结果，仅用于改善可读性 */
+  aggregated?: AggregatedLogGroup;
 }
 
 export interface SavedQuery {

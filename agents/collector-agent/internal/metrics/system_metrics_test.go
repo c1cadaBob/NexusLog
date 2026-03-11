@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -61,6 +62,7 @@ func TestMetricsHandler(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 
 	req := httptest.NewRequest(http.MethodGet, "/agent/v1/metrics", nil)
+	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()
 	MetricsHandler(c).ServeHTTP(rec, req)
 
@@ -73,5 +75,30 @@ func TestMetricsHandler(t *testing.T) {
 	}
 	if m.CollectedAt.IsZero() {
 		t.Error("CollectedAt is zero in response")
+	}
+}
+
+func TestMetricsHandlerPrometheus(t *testing.T) {
+	c := NewCollector(50 * time.Millisecond)
+	c.Start()
+	defer c.Stop()
+	time.Sleep(60 * time.Millisecond)
+
+	req := httptest.NewRequest(http.MethodGet, "/agent/v1/metrics", nil)
+	rec := httptest.NewRecorder()
+	MetricsHandler(c).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if rec.Header().Get("Content-Type") == "application/json" {
+		t.Fatalf("expected Prometheus text, got json")
+	}
+	if !strings.Contains(body, "collector_agent_cpu_usage_pct") {
+		t.Fatalf("expected Prometheus metric names in body, got %q", body)
+	}
+	if !strings.Contains(body, "collector_agent_metrics_collected_at_seconds") {
+		t.Fatalf("expected collected timestamp metric in body, got %q", body)
 	}
 }

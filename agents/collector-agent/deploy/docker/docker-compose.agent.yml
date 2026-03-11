@@ -16,11 +16,15 @@ services:
       COLLECTOR_INCLUDE_PATHS: "/var/log/*.log"
       COLLECTOR_EXCLUDE_PATHS: "/var/log/wtmp,/var/log/btmp"
       COLLECTOR_PATH_LABEL_RULES: '[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]'
-      ENABLE_KAFKA_PIPELINE: "false"
+      DELIVERY_MODE: "dual"
+      ENABLE_KAFKA_PIPELINE: "true"
       CHECKPOINT_DIR: "/var/lib/collector-agent/checkpoints"
       CACHE_DIR: "/var/lib/collector-agent/cache"
       KAFKA_BROKERS: "kafka:9092"
-      KAFKA_TOPIC: "nexuslog-raw-logs"
+      KAFKA_TOPIC: "nexuslog.logs.raw"
+      KAFKA_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      KAFKA_SCHEMA_SUBJECT: "nexuslog.logs.raw-value"
+      KAFKA_REQUIRED_ACKS: "all"
     volumes:
       - ./configs:/app/configs:ro
       - ./state/checkpoints:/var/lib/collector-agent/checkpoints

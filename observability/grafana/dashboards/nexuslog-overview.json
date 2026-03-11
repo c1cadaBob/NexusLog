@@ -77,8 +77,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "targets": [
         {
-          "expr": "sum(kafka_consumer_group_lag) by (group, topic)",
-          "legendFormat": "{{ group }} / {{ topic }}"
+          "expr": "sum(kafka_consumergroup_lag) by (consumergroup, topic)",
+          "legendFormat": "{{ consumergroup }} / {{ topic }}"
         }
       ]
     },

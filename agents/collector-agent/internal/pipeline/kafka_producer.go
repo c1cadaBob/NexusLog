@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,14 @@ type KafkaConfig struct {
 	FlushBytes int
 	// FlushMs 刷盘时间阈值(ms)
 	FlushMs int
+	// SchemaRegistryURL Confluent Schema Registry 地址；配置后启用 Avro/Confluent 序列化
+	SchemaRegistryURL string
+	// SchemaSubject Schema Registry subject，默认 <topic>-value
+	SchemaSubject string
+	// SchemaFile 可选的 Avro schema 文件路径；未显式配置时会按标准契约路径自动发现
+	SchemaFile string
+	// UseAvro 显式启用 Avro/Confluent 序列化
+	UseAvro bool
 }
 
 // SimpleKafkaProducer 简易 Kafka 生产者实现
@@ -38,6 +47,7 @@ type SimpleKafkaProducer struct {
 	config  KafkaConfig
 	closed  bool
 	writer  *kafka.Writer
+	encoder *rawLogAvroEncoder
 }
 
 // NewKafkaProducer 创建 Kafka 生产者
@@ -63,8 +73,13 @@ func NewKafkaProducer(cfg KafkaConfig) (*SimpleKafkaProducer, error) {
 		cfg.FlushMs = 1000 // 1s
 	}
 
-	log.Printf("Kafka Producer 初始化: brokers=%v, topic=%s, compression=%s, batch=%d, acks=%d",
-		cfg.Brokers, cfg.Topic, cfg.Compression, cfg.BatchSize, cfg.Acks)
+	useAvro := cfg.UseAvro || strings.TrimSpace(cfg.SchemaRegistryURL) != ""
+	if strings.TrimSpace(cfg.SchemaSubject) == "" {
+		cfg.SchemaSubject = cfg.Topic + "-value"
+	}
+
+	log.Printf("Kafka Producer 初始化: brokers=%v, topic=%s, compression=%s, batch=%d, acks=%d, avro=%t",
+		cfg.Brokers, cfg.Topic, cfg.Compression, cfg.BatchSize, cfg.Acks, useAvro)
 
 	// 使用 segmentio/kafka-go 建立真实连接
 	writer := &kafka.Writer{
@@ -78,9 +93,19 @@ func NewKafkaProducer(cfg KafkaConfig) (*SimpleKafkaProducer, error) {
 		RequiredAcks: kafka.RequiredAcks(cfg.Acks),
 	}
 
+	var encoder *rawLogAvroEncoder
+	var err error
+	if useAvro {
+		encoder, err = newRawLogAvroEncoder(cfg.SchemaRegistryURL, cfg.SchemaSubject, cfg.SchemaFile)
+		if err != nil {
+			return nil, fmt.Errorf("初始化 Avro/Schema Registry 编码器失败: %w", err)
+		}
+	}
+
 	return &SimpleKafkaProducer{
-		config: cfg,
-		writer: writer,
+		config:  cfg,
+		writer:  writer,
+		encoder: encoder,
 	}, nil
 }
 
@@ -104,9 +129,18 @@ func (p *SimpleKafkaProducer) Send(ctx context.Context, topic string, records []
 	// 转换为 Kafka 消息并发送
 	messages := make([]kafka.Message, 0, len(records))
 	for _, record := range records {
+		payload := record.Data
+		if p.encoder != nil {
+			encoded, err := p.encoder.Encode(ctx, record)
+			if err != nil {
+				return fmt.Errorf("序列化 Kafka 消息失败: %w", err)
+			}
+			payload = encoded
+		}
 		messages = append(messages, kafka.Message{
-			Key:   []byte(record.Source),
-			Value: record.Data,
+			Key:   []byte(resolveKafkaMessageKey(record)),
+			Value: payload,
+			Time:  resolveKafkaMessageTime(record),
 		})
 	}
 
@@ -118,6 +152,25 @@ func (p *SimpleKafkaProducer) Send(ctx context.Context, topic string, records []
 
 	log.Printf("发送 %d 条记录到 Kafka topic=%s 成功", len(records), topic)
 	return nil
+}
+
+func resolveKafkaMessageKey(record plugins.Record) string {
+	if record.Metadata != nil {
+		if eventID := strings.TrimSpace(record.Metadata["event_id"]); eventID != "" {
+			return eventID
+		}
+	}
+	if source := strings.TrimSpace(record.Source); source != "" {
+		return source
+	}
+	return "nexuslog"
+}
+
+func resolveKafkaMessageTime(record plugins.Record) time.Time {
+	if record.Timestamp <= 0 {
+		return time.Now().UTC()
+	}
+	return time.Unix(0, record.Timestamp).UTC()
 }
 
 // Close 关闭 Kafka 生产者连接
@@ -138,7 +191,6 @@ func (p *SimpleKafkaProducer) Close() error {
 	return nil
 }
 
-// parseCompression 解析压缩算法
 func kafkaCompression(compression string) kafka.Compression {
 	switch compression {
 	case "snappy":

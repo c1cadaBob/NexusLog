@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Input, Select, Table, Tag, Button, Card, Statistic, Space, Modal, message, Badge, Spin, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
@@ -7,7 +8,13 @@ import { useAlertStore } from '../../stores/alertStore';
 import { COLORS } from '../../theme/tokens';
 import type { AlertSummary, AlertSeverity, AlertStatus } from '../../types/alert';
 import { ALERT_SEVERITY_CONFIG, ALERT_STATUS_CONFIG } from '../../types/alert';
-import { fetchAlertEvents, type AlertEventSummary } from '../../api/alert';
+import {
+  acknowledgeAlertEvent,
+  fetchAlertEvents,
+  resolveAlertEvent,
+  silenceAlertEvent,
+  type AlertEventSummary,
+} from '../../api/alert';
 
 const formatTimeAgo = (timestamp: number): string => {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -27,15 +34,17 @@ const severityTagColor: Record<AlertSeverity, string> = {
   low: 'success',
 };
 
-const mapStatusFilterToApi = (s: AlertStatus | 'all'): 'firing' | 'resolved' | 'silenced' | undefined => {
+const mapStatusFilterToApi = (s: AlertStatus | 'all'): 'firing' | 'acknowledged' | 'resolved' | 'silenced' | undefined => {
   if (s === 'all') return undefined;
-  if (s === 'active' || s === 'acknowledged') return 'firing';
+  if (s === 'active') return 'firing';
+  if (s === 'acknowledged') return 'acknowledged';
   if (s === 'resolved') return 'resolved';
   if (s === 'silenced') return 'silenced';
   return undefined;
 };
 
 const AlertList: React.FC = () => {
+  const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const markAllAsRead = useAlertStore((s) => s.markAllAsRead);
 
@@ -52,7 +61,9 @@ const AlertList: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [silenceModalOpen, setSilenceModalOpen] = useState(false);
   const [silenceDuration, setSilenceDuration] = useState(3600);
+  const [silenceReason, setSilenceReason] = useState('');
   const [batchRunning, setBatchRunning] = useState(false);
+  const [singleSilenceTargetID, setSingleSilenceTargetID] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['alertList'] ?? 10);
@@ -121,33 +132,92 @@ const AlertList: React.FC = () => {
     [alerts],
   );
 
-  const handleAcknowledge = useCallback((_id: string) => {
-    message.info('确认功能需后端 API 支持');
+  const handleAcknowledge = useCallback(async (id: string) => {
+    try {
+      await acknowledgeAlertEvent(id);
+      message.success('告警已确认');
+      await loadAlerts();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '确认告警失败');
+    }
+  }, [loadAlerts]);
+
+  const handleResolve = useCallback(async (id: string) => {
+    try {
+      await resolveAlertEvent(id);
+      message.success('告警已解决');
+      await loadAlerts();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '解决告警失败');
+    }
+  }, [loadAlerts]);
+
+  const handleSilence = useCallback((id: string) => {
+    setSingleSilenceTargetID(id);
+    setSilenceReason('');
+    setSilenceDuration(3600);
+    setSilenceModalOpen(true);
   }, []);
 
-  const handleResolve = useCallback((_id: string) => {
-    message.info('解决功能需后端 API 支持');
-  }, []);
+  const handleViewLogs = useCallback((record: AlertEventSummary) => {
+    const presetQuery = [record.ruleId, record.source !== '-' ? record.source : '', record.name]
+      .map((item) => item?.trim() ?? '')
+      .find((item) => item.length > 0) ?? '';
 
-  const handleSilence = useCallback((_id: string) => {
-    message.info('静默功能需后端 API 支持');
-  }, []);
+    navigate('/search/realtime', {
+      state: {
+        autoRun: true,
+        presetQuery,
+      },
+    });
+  }, [navigate]);
 
   const executeBatch = useCallback(
     async (type: 'acknowledge' | 'resolve' | 'silence') => {
-      if (selectedRowKeys.length === 0) return;
+      const targetIDs = selectedRowKeys.map((item) => String(item));
+      if (targetIDs.length === 0) return;
       setBatchRunning(true);
-      message.info(`${type === 'acknowledge' ? '批量确认' : type === 'resolve' ? '批量解决' : '批量静默'} 功能需后端 API 支持`);
-      setBatchRunning(false);
-      setSelectedRowKeys([]);
+      try {
+        if (type === 'acknowledge') {
+          await Promise.all(targetIDs.map((id) => acknowledgeAlertEvent(id)));
+          message.success(`已确认 ${targetIDs.length} 条告警`);
+        } else if (type === 'resolve') {
+          await Promise.all(targetIDs.map((id) => resolveAlertEvent(id)));
+          message.success(`已解决 ${targetIDs.length} 条告警`);
+        } else {
+          await Promise.all(targetIDs.map((id) => silenceAlertEvent(id, { reason: silenceReason, durationSeconds: silenceDuration })));
+          message.success(`已静默 ${targetIDs.length} 条告警`);
+        }
+        setSelectedRowKeys([]);
+        await loadAlerts();
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : '批量操作失败');
+      } finally {
+        setBatchRunning(false);
+      }
     },
-    [selectedRowKeys],
+    [loadAlerts, selectedRowKeys, silenceDuration, silenceReason],
   );
 
-  const confirmBatchSilence = useCallback(() => {
-    setSilenceModalOpen(false);
-    executeBatch('silence');
-  }, [executeBatch]);
+  const confirmBatchSilence = useCallback(async () => {
+    try {
+      if (singleSilenceTargetID) {
+        setBatchRunning(true);
+        await silenceAlertEvent(singleSilenceTargetID, { reason: silenceReason, durationSeconds: silenceDuration });
+        message.success('告警已静默');
+        await loadAlerts();
+      } else {
+        await executeBatch('silence');
+      }
+      setSilenceModalOpen(false);
+      setSingleSilenceTargetID(null);
+      setSilenceReason('');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '静默告警失败');
+    } finally {
+      setBatchRunning(false);
+    }
+  }, [executeBatch, loadAlerts, silenceDuration, silenceReason, singleSilenceTargetID]);
 
   const columns: ColumnsType<AlertEventSummary> = [
     {
@@ -263,6 +333,7 @@ const AlertList: React.FC = () => {
             type="text"
             size="small"
             title="查看日志"
+            onClick={() => handleViewLogs(record)}
             icon={
               <span className="material-symbols-outlined" style={{ fontSize: 18, color: COLORS.primary }}>
                 description
@@ -423,7 +494,12 @@ const AlertList: React.FC = () => {
               </Button>
               <Button
                 size="small"
-                onClick={() => setSilenceModalOpen(true)}
+                onClick={() => {
+                  setSingleSilenceTargetID(null);
+                  setSilenceReason('');
+                  setSilenceDuration(3600);
+                  setSilenceModalOpen(true);
+                }}
                 loading={batchRunning}
                 style={{ background: `${COLORS.info}33`, borderColor: `${COLORS.info}4d`, color: COLORS.info }}
                 icon={<span className="material-symbols-outlined" style={{ fontSize: 16 }}>notifications_off</span>}
@@ -463,15 +539,26 @@ const AlertList: React.FC = () => {
 
       <Modal
         open={silenceModalOpen}
-        title="批量静默告警"
-        onCancel={() => setSilenceModalOpen(false)}
+        title={singleSilenceTargetID ? '静默告警' : '批量静默告警'}
+        onCancel={() => {
+          setSilenceModalOpen(false);
+          setSingleSilenceTargetID(null);
+          setSilenceReason('');
+        }}
         onOk={confirmBatchSilence}
         okText="确认静默"
         cancelText="取消"
+        confirmLoading={batchRunning}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <p style={{ color: '#94a3b8' }}>
-            将对 <span style={{ fontWeight: 500 }}>{selectedRowKeys.length}</span> 条告警执行静默操作
+            {singleSilenceTargetID ? (
+              <>将对当前告警执行静默操作</>
+            ) : (
+              <>
+                将对 <span style={{ fontWeight: 500 }}>{selectedRowKeys.length}</span> 条告警执行静默操作
+              </>
+            )}
           </p>
           <div>
             <div style={{ marginBottom: 8, fontWeight: 500, fontSize: 14 }}>静默时长</div>
@@ -491,7 +578,12 @@ const AlertList: React.FC = () => {
           </div>
           <div>
             <div style={{ marginBottom: 8, fontWeight: 500, fontSize: 14 }}>备注（可选）</div>
-            <Input.TextArea placeholder="请输入静默原因..." rows={3} />
+            <Input.TextArea
+              placeholder="请输入静默原因..."
+              rows={3}
+              value={silenceReason}
+              onChange={(event) => setSilenceReason(event.target.value)}
+            />
           </div>
         </div>
       </Modal>

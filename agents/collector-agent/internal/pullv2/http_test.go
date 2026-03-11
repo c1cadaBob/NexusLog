@@ -21,6 +21,29 @@ func TestRoutesRequireAuth(t *testing.T) {
 	}
 }
 
+func TestMetaRouteReturnsHostnameAndIP(t *testing.T) {
+	svc := New(10, &memoryCheckpointSaver{})
+	meta := BuildDefaultMeta("agent-v2", "0.0.1")
+	meta.Hostname = "node-source-a"
+	meta.IP = "10.30.40.50"
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, svc, meta, NewAuthConfig("active", "secret", "", ""))
+
+	resp := doRequest(t, mux, http.MethodGet, "/agent/v2/meta", nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("meta failed: %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var got MetaInfo
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode meta response failed: %v", err)
+	}
+	if got.Hostname != "node-source-a" || got.IP != "10.30.40.50" {
+		t.Fatalf("unexpected meta payload: %+v", got)
+	}
+}
+
 func TestPullAckHTTPFlow(t *testing.T) {
 	saver := &memoryCheckpointSaver{}
 	svc := New(10, saver)

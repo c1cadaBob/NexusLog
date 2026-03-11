@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -22,6 +24,7 @@ import (
 	"github.com/nexuslog/collector-agent/internal/metrics"
 	"github.com/nexuslog/collector-agent/internal/pipeline"
 	"github.com/nexuslog/collector-agent/internal/pullapi"
+	"github.com/nexuslog/collector-agent/internal/pullv2"
 	"github.com/nexuslog/collector-agent/internal/retry"
 	"github.com/nexuslog/collector-agent/plugins"
 )
@@ -34,20 +37,12 @@ func main() {
 	log.Printf("加载配置: %s", configPath)
 
 	httpPort := getEnv("HTTP_PORT", "9091")
-	legacyPipelineEnabled := isTruthy(getEnv("LEGACY_LOG_PIPELINE_ENABLED", "false"))
+	rewriteMode := !isTruthy(getEnv("LEGACY_LOG_PIPELINE_ENABLED", "false"))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if !legacyPipelineEnabled {
-		log.Println("legacy log pipeline 已禁用，agent 切换到 rewrite v2 HTTP 接口")
-		sysMetrics := metrics.NewCollector(30 * time.Second)
-		sysMetrics.Start()
-		defer sysMetrics.Stop()
-
-		httpServer := startRewriteHTTPServer(httpPort, sysMetrics)
-		waitForShutdown(cancel, httpServer, nil)
-		fmt.Println("Collector Agent 已停止")
-		return
+	if rewriteMode {
+		log.Println("legacy log pipeline 已禁用，agent 启用 rewrite v2 + pull 兼容接口")
 	}
 
 	// 1. 初始化 checkpoint 存储（at-least-once 语义保证）
@@ -76,6 +71,21 @@ func main() {
 		getEnv("AGENT_API_KEY_NEXT_ID", "next"),
 		getEnv("AGENT_API_KEY_NEXT", ""),
 	)
+
+	var pullV2Service *pullv2.Service
+	var pullV2Auth pullv2.AuthConfig
+	if rewriteMode {
+		pullV2Service = pullv2.New(
+			parseEnvInt("PULLV2_MAX_BUFFERED_RECORDS", 10000),
+			pullV2CheckpointSaver{store: ckpStore},
+		)
+		pullV2Auth = pullv2.NewAuthConfig(
+			getEnv("AGENT_API_KEY_ACTIVE_ID", "active"),
+			getEnv("AGENT_API_KEY_ACTIVE", "dev-agent-key"),
+			getEnv("AGENT_API_KEY_NEXT_ID", "next"),
+			getEnv("AGENT_API_KEY_NEXT", ""),
+		)
+	}
 
 	// 4. 初始化采集器（7.6：支持 include/exclude 采集范围）
 	includePaths := parseCSV(getEnv("COLLECTOR_INCLUDE_PATHS", "/var/log/*.log"))
@@ -140,18 +150,34 @@ func main() {
 		CriticalKeywords: criticalKeywords,
 	}, ckpStore)
 
-	// 5. Kafka 主推链路降级为 P1 兼容项，不再阻塞 M2 pull 主路径启动。
-	enableKafkaPipeline := isTruthy(getEnv("ENABLE_KAFKA_PIPELINE", "true"))
-	kafkaBrokers := getEnv("KAFKA_BROKERS", "localhost:9092")
-	kafkaTopic := getEnv("KAFKA_TOPIC", "nexuslog-raw-logs")
+	// 5. 交付路径：默认 dual，兼容 pull | kafka | dual。
+	deliveryMode := normalizeDeliveryMode(getEnv("DELIVERY_MODE", "dual"))
+	enablePullDelivery := deliveryMode != "kafka"
+	enableKafkaPipeline := deliveryMode != "pull" && isTruthy(getEnv("ENABLE_KAFKA_PIPELINE", "true"))
+	kafkaBrokers := parseCSV(getEnv("KAFKA_BROKERS", "localhost:9092"))
+	if len(kafkaBrokers) == 0 {
+		kafkaBrokers = []string{"localhost:9092"}
+	}
+	kafkaTopic := getEnv("KAFKA_TOPIC", "nexuslog.logs.raw")
+	kafkaSchemaRegistryURL := firstNonEmptyString(
+		getEnv("KAFKA_SCHEMA_REGISTRY_URL", ""),
+		getEnv("SCHEMA_REGISTRY_URL", ""),
+	)
+	kafkaSchemaSubject := getEnv("KAFKA_SCHEMA_SUBJECT", kafkaTopic+"-value")
+	kafkaSchemaFile := getEnv("KAFKA_SCHEMA_FILE", "")
+	kafkaRequiredAcks := parseKafkaRequiredAcks(getEnv("KAFKA_REQUIRED_ACKS", "all"), -1)
 
 	var pipe *pipeline.Pipeline
 	if enableKafkaPipeline {
 		producer, producerErr := pipeline.NewKafkaProducer(pipeline.KafkaConfig{
-			Brokers:     []string{kafkaBrokers},
-			Topic:       kafkaTopic,
-			Compression: "snappy",
-			BatchSize:   500,
+			Brokers:           kafkaBrokers,
+			Topic:             kafkaTopic,
+			Compression:       "snappy",
+			BatchSize:         500,
+			Acks:              kafkaRequiredAcks,
+			SchemaRegistryURL: kafkaSchemaRegistryURL,
+			SchemaSubject:     kafkaSchemaSubject,
+			SchemaFile:        kafkaSchemaFile,
 		})
 		if producerErr != nil {
 			log.Printf("Kafka Producer 初始化失败，降级为 pull-only 模式: %v", producerErr)
@@ -175,8 +201,14 @@ func main() {
 		log.Println("Kafka 兼容链路已禁用（ENABLE_KAFKA_PIPELINE=false）")
 	}
 
-	metaInfo := buildMetaInfo(sourceConfigs)
-	pullService.SetAgentInfo(metaInfo.AgentID, metaInfo.Version)
+	sourceHostname := resolveSourceHostname()
+	sourceIP := resolveSourceIP()
+	metaInfo := buildMetaInfo(sourceConfigs, sourceHostname, sourceIP)
+	pullService.SetAgentInfo(metaInfo.AgentID, metaInfo.Version, metaInfo.Hostname, metaInfo.IP)
+	if !enablePullDelivery && (!enableKafkaPipeline || pipe == nil) {
+		log.Printf("delivery mode=%s 但 Kafka 链路不可用，回退为 pull-only", deliveryMode)
+		enablePullDelivery = true
+	}
 
 	// 6. 启动采集器与数据分发。
 	if err := coll.Start(ctx); err != nil {
@@ -185,15 +217,21 @@ func main() {
 
 	var pipelineInputCh chan []plugins.Record
 	if enableKafkaPipeline && pipe != nil {
-		// 通过 fan-out 同时喂给 pull API 与兼容 pipeline。
 		pipelineInputCh = make(chan []plugins.Record, 128)
-		go fanOutCollectorOutput(ctx, coll.Output(), pipelineInputCh, pullService)
+		go fanOutCollectorOutput(ctx, coll.Output(), pipelineInputCh, pullService, pullV2Service, enablePullDelivery, deliveryMode, metaInfo.AgentID, metaInfo.Hostname, metaInfo.IP)
 		pipe.Start(ctx, pipelineInputCh)
-		log.Println("采集分发已启动：pull + kafka-compat")
+		if enablePullDelivery {
+			log.Println("采集分发已启动：pull + kafka-compat")
+		} else {
+			log.Println("采集分发已启动：kafka-only")
+		}
 	} else {
-		// pull 主路径独立运行，不依赖 Kafka。
-		go fanOutCollectorOutput(ctx, coll.Output(), nil, pullService)
-		log.Println("采集分发已启动：pull-only")
+		go fanOutCollectorOutput(ctx, coll.Output(), nil, pullService, pullV2Service, enablePullDelivery, deliveryMode, metaInfo.AgentID, metaInfo.Hostname, metaInfo.IP)
+		if enablePullDelivery {
+			log.Println("采集分发已启动：pull-only")
+		} else {
+			log.Println("采集分发已启动：no-output")
+		}
 	}
 
 	// 7. 启动系统资源指标采集器（每 30s 采集一次）
@@ -202,14 +240,28 @@ func main() {
 	defer sysMetrics.Stop()
 
 	// 8. 启动健康检查与 Agent Pull API HTTP 端点
-	httpServer := startHTTPServer(httpPort, pullService, metaInfo, authConfig, sysMetrics)
+	var httpServer *http.Server
+	if rewriteMode {
+		httpServer = startRewriteHTTPServer(
+			httpPort,
+			sysMetrics,
+			pullService,
+			metaInfo,
+			authConfig,
+			pullV2Service,
+			buildMetaInfoV2(metaInfo),
+			pullV2Auth,
+		)
+	} else {
+		httpServer = startHTTPServer(httpPort, pullService, metaInfo, authConfig, sysMetrics)
+	}
 
 	waitForShutdown(cancel, httpServer, pipe)
 	fmt.Println("Collector Agent 已停止")
 }
 
 // fanOutCollectorOutput 将采集批次广播到 pull API 与 pipeline 输入通道。
-func fanOutCollectorOutput(ctx context.Context, collectorOut <-chan []plugins.Record, pipelineIn chan<- []plugins.Record, pullService *pullapi.Service) {
+func fanOutCollectorOutput(ctx context.Context, collectorOut <-chan []plugins.Record, pipelineIn chan<- []plugins.Record, pullService *pullapi.Service, pullV2Service *pullv2.Service, enablePullDelivery bool, deliveryMode, agentID, sourceHostname, sourceIP string) {
 	if pipelineIn != nil {
 		defer close(pipelineIn)
 	}
@@ -222,17 +274,239 @@ func fanOutCollectorOutput(ctx context.Context, collectorOut <-chan []plugins.Re
 			if !ok {
 				return
 			}
-			pullService.AddRecords(batch)
+
+			batchID := fmt.Sprintf("agent-batch-%d", time.Now().UTC().UnixNano())
+			if enablePullDelivery {
+				pullBatch := enrichBatchForChannel(batch, agentID, sourceHostname, sourceIP, batchID, deliveryMode, "pull")
+				if pullService != nil {
+					pullService.AddRecords(pullBatch)
+				}
+				if pullV2Service != nil {
+					appendBatchToPullV2(pullV2Service, pullBatch)
+				}
+			}
 			if pipelineIn == nil {
 				continue
 			}
 			select {
-			case pipelineIn <- batch:
+			case pipelineIn <- enrichBatchForChannel(batch, agentID, sourceHostname, sourceIP, batchID, deliveryMode, "kafka"):
 			case <-ctx.Done():
 				return
 			}
 		}
 	}
+}
+
+type pullV2CheckpointSaver struct {
+	store checkpoint.Store
+}
+
+func (s pullV2CheckpointSaver) Save(_ string, filePath string, offset int64) error {
+	if s.store == nil {
+		return nil
+	}
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return nil
+	}
+	return s.store.Save(filePath, offset)
+}
+
+func buildMetaInfoV2(meta pullapi.MetaInfo) pullv2.MetaInfo {
+	v2Meta := pullv2.BuildDefaultMeta(meta.AgentID, meta.Version)
+	v2Meta.Status = "online"
+	v2Meta.Hostname = strings.TrimSpace(meta.Hostname)
+	v2Meta.IP = strings.TrimSpace(meta.IP)
+	if len(meta.Capabilities) > 0 {
+		caps := append(append([]string{}, v2Meta.Capabilities...), meta.Capabilities...)
+		v2Meta.Capabilities = uniqueStrings(caps)
+	}
+	return v2Meta
+}
+
+func appendBatchToPullV2(svc *pullv2.Service, batch []plugins.Record) {
+	if svc == nil || len(batch) == 0 {
+		return
+	}
+
+	grouped := make(map[string][]pullv2.Record)
+	for _, record := range batch {
+		sourceKey := resolvePullV2SourceKey(record)
+		grouped[sourceKey] = append(grouped[sourceKey], toPullV2Record(record))
+	}
+
+	for sourceKey, records := range grouped {
+		if err := svc.Append(sourceKey, records); err != nil {
+			log.Printf("pullv2 append failed [%s]: %v", sourceKey, err)
+		}
+	}
+}
+
+func resolvePullV2SourceKey(record plugins.Record) string {
+	for _, candidate := range []string{
+		strings.TrimSpace(record.Metadata["source_collect_path"]),
+		strings.TrimSpace(record.Metadata["source_path"]),
+		strings.TrimSpace(record.Source),
+	} {
+		if candidate != "" {
+			return candidate
+		}
+	}
+	return "default"
+}
+
+func toPullV2Record(record plugins.Record) pullv2.Record {
+	metadata := cloneMetadata(record.Metadata)
+	offset, _ := strconv.ParseInt(strings.TrimSpace(metadata["offset"]), 10, 64)
+	observedAt := time.Now().UTC()
+	if record.Timestamp > 0 {
+		observedAt = time.Unix(0, record.Timestamp).UTC()
+	}
+
+	return pullv2.Record{
+		RecordID:   firstNonEmptyString(strings.TrimSpace(metadata["event_id"]), strings.TrimSpace(metadata["record_id"])),
+		FilePath:   firstNonEmptyString(strings.TrimSpace(metadata["source_collect_path"]), strings.TrimSpace(metadata["source_path"]), strings.TrimSpace(record.Source)),
+		Body:       string(record.Data),
+		Offset:     offset,
+		ObservedAt: observedAt,
+		Attributes: metadata,
+	}
+}
+
+func firstNonEmptyString(candidates ...string) string {
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate != "" {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func uniqueStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func normalizeDeliveryMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "pull":
+		return "pull"
+	case "kafka":
+		return "kafka"
+	default:
+		return "dual"
+	}
+}
+
+func parseKafkaRequiredAcks(raw string, fallback int) int {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "all", "-1":
+		return -1
+	case "leader", "1":
+		return 1
+	case "none", "0":
+		return 0
+	default:
+		return fallback
+	}
+}
+
+func enrichBatchForChannel(batch []plugins.Record, agentID, sourceHostname, sourceIP, batchID, deliveryMode, channel string) []plugins.Record {
+	enriched := make([]plugins.Record, 0, len(batch))
+	for _, record := range batch {
+		cloned := plugins.Record{
+			Source:    record.Source,
+			Timestamp: record.Timestamp,
+			Data:      append([]byte(nil), record.Data...),
+			Metadata:  cloneMetadata(record.Metadata),
+		}
+		ensureRecordEnvelope(&cloned, agentID, sourceHostname, sourceIP, batchID, deliveryMode, channel)
+		enriched = append(enriched, cloned)
+	}
+	return enriched
+}
+
+func cloneMetadata(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return make(map[string]string)
+	}
+	cloned := make(map[string]string, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func ensureRecordEnvelope(record *plugins.Record, agentID, sourceHostname, sourceIP, batchID, deliveryMode, channel string) {
+	if record == nil {
+		return
+	}
+	if record.Metadata == nil {
+		record.Metadata = make(map[string]string)
+	}
+	if strings.TrimSpace(record.Metadata["agent_id"]) == "" && strings.TrimSpace(agentID) != "" {
+		record.Metadata["agent_id"] = strings.TrimSpace(agentID)
+	}
+	if strings.TrimSpace(record.Metadata["source_path"]) == "" && strings.TrimSpace(record.Source) != "" {
+		record.Metadata["source_path"] = strings.TrimSpace(record.Source)
+	}
+	if strings.TrimSpace(record.Metadata["source_collect_path"]) == "" && strings.TrimSpace(record.Source) != "" {
+		record.Metadata["source_collect_path"] = strings.TrimSpace(record.Source)
+	}
+	if strings.TrimSpace(record.Metadata["batch_id"]) == "" {
+		record.Metadata["batch_id"] = strings.TrimSpace(batchID)
+	}
+	enrichDockerContainerMetadata(record)
+	if strings.TrimSpace(record.Metadata["agent.hostname"]) == "" && strings.TrimSpace(sourceHostname) != "" {
+		record.Metadata["agent.hostname"] = strings.TrimSpace(sourceHostname)
+	}
+	ensureRecordHostMetadata(record, sourceHostname, sourceIP)
+	record.Metadata["delivery.mode"] = strings.TrimSpace(deliveryMode)
+	record.Metadata["transport.channel"] = strings.TrimSpace(channel)
+	if strings.TrimSpace(record.Metadata["schema_version"]) == "" {
+		record.Metadata["schema_version"] = "log-raw/v1"
+	}
+	if strings.TrimSpace(record.Metadata["event_id"]) == "" {
+		record.Metadata["event_id"] = buildRecordEventID(agentID, *record)
+	}
+	if strings.TrimSpace(record.Metadata["dedupe_key"]) == "" {
+		record.Metadata["dedupe_key"] = buildRecordDedupKey(agentID, *record)
+	}
+}
+
+func buildRecordEventID(agentID string, record plugins.Record) string {
+	parts := []string{
+		strings.TrimSpace(agentID),
+		strings.TrimSpace(record.Source),
+		strings.TrimSpace(record.Metadata["offset"]),
+		strconv.FormatInt(record.Timestamp, 10),
+		strings.TrimSpace(string(record.Data)),
+	}
+	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	return hex.EncodeToString(hash[:])
+}
+
+func buildRecordDedupKey(agentID string, record plugins.Record) string {
+	parts := []string{
+		strings.TrimSpace(agentID),
+		strings.TrimSpace(record.Source),
+		strings.TrimSpace(string(record.Data)),
+	}
+	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	return hex.EncodeToString(hash[:])
 }
 
 func isTruthy(raw string) bool {
@@ -336,7 +610,7 @@ func parsePathLabelRules(raw string) ([]collector.PathLabelRule, error) {
 }
 
 // buildMetaInfo 构造 /agent/v1/meta 响应。
-func buildMetaInfo(sourceConfigs []collector.SourceConfig) pullapi.MetaInfo {
+func buildMetaInfo(sourceConfigs []collector.SourceConfig, sourceHostname, sourceIP string) pullapi.MetaInfo {
 	sourcePaths := make([]string, 0)
 	for _, source := range sourceConfigs {
 		if source.Type != collector.SourceTypeFile {
@@ -345,10 +619,12 @@ func buildMetaInfo(sourceConfigs []collector.SourceConfig) pullapi.MetaInfo {
 		sourcePaths = append(sourcePaths, source.Paths...)
 	}
 	return pullapi.MetaInfo{
-		AgentID: getEnv("AGENT_ID", "collector-agent-local"),
-		Version: getEnv("AGENT_VERSION", "0.1.0"),
-		Status:  "online",
-		Sources: sourcePaths,
+		AgentID:  getEnv("AGENT_ID", "collector-agent-local"),
+		Version:  getEnv("AGENT_VERSION", "0.1.0"),
+		Hostname: sourceHostname,
+		IP:       sourceIP,
+		Status:   "online",
+		Sources:  sourcePaths,
 		Capabilities: []string{
 			"file_incremental",
 			"pull_api",
@@ -414,6 +690,93 @@ func waitForShutdown(cancel context.CancelFunc, httpServer *http.Server, pipe *p
 		if err := pipe.Close(); err != nil {
 			log.Printf("管道关闭错误: %v", err)
 		}
+	}
+}
+
+func resolveSourceHostname() string {
+	for _, candidate := range []string{
+		strings.TrimSpace(getEnv("AGENT_SOURCE_HOSTNAME", "")),
+		readTrimmedFirstLine(getEnv("AGENT_SOURCE_HOSTNAME_FILE", "/host/etc/nexuslog-host-meta/source_hostname")),
+		readTrimmedFirstLine("/host/etc/hostname"),
+	} {
+		if candidate != "" {
+			return candidate
+		}
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(hostname)
+}
+
+func readTrimmedFirstLine(path string) string {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(trimmedPath)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func ensureRecordHostMetadata(record *plugins.Record, sourceHostname, sourceIP string) {
+	if record == nil {
+		return
+	}
+	if record.Metadata == nil {
+		record.Metadata = make(map[string]string)
+	}
+
+	hostName := firstNonEmptyString(
+		strings.TrimSpace(record.Metadata["host.name"]),
+		strings.TrimSpace(record.Metadata["host"]),
+		strings.TrimSpace(record.Metadata["hostname"]),
+		strings.TrimSpace(record.Metadata["syslog_hostname"]),
+		strings.TrimSpace(record.Metadata["server_id"]),
+		strings.TrimSpace(sourceHostname),
+	)
+	if hostName == "" {
+		return
+	}
+	if strings.TrimSpace(record.Metadata["host.name"]) == "" {
+		record.Metadata["host.name"] = hostName
+	}
+	if strings.TrimSpace(record.Metadata["host"]) == "" {
+		record.Metadata["host"] = hostName
+	}
+	if strings.TrimSpace(record.Metadata["hostname"]) == "" && strings.TrimSpace(record.Metadata["syslog_hostname"]) != "" {
+		record.Metadata["hostname"] = strings.TrimSpace(record.Metadata["syslog_hostname"])
+	}
+
+	hostIP := firstNonEmptyString(
+		strings.TrimSpace(record.Metadata["host.ip"]),
+		strings.TrimSpace(record.Metadata["host_ip"]),
+		strings.TrimSpace(record.Metadata["server_ip"]),
+		strings.TrimSpace(sourceIP),
+	)
+	if strings.TrimSpace(record.Metadata["host.ip"]) == "" && hostIP != "" {
+		record.Metadata["host.ip"] = hostIP
+	}
+
+	agentIP := firstNonEmptyString(
+		strings.TrimSpace(record.Metadata["agent.ip"]),
+		strings.TrimSpace(record.Metadata["agent_ip"]),
+		strings.TrimSpace(sourceIP),
+	)
+	if strings.TrimSpace(record.Metadata["agent.ip"]) == "" && agentIP != "" {
+		record.Metadata["agent.ip"] = agentIP
+	}
+	if strings.TrimSpace(record.Metadata["agent_ip"]) == "" && agentIP != "" {
+		record.Metadata["agent_ip"] = agentIP
 	}
 }
 

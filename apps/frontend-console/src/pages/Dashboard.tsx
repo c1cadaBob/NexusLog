@@ -1,78 +1,133 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Statistic, Select, Button, Row, Col, Table, Tag, Progress } from 'antd';
+import { Card, Statistic, Select, Button, Row, Col, Table, Tag, Progress, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../stores/themeStore';
-import { useAlertStore } from '../stores/alertStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { COLORS } from '../theme/tokens';
-import { KPI_DATA, SERVICE_STATUS_DATA, AUDIT_LOG_DATA } from '../constants';
+import { AUDIT_LOG_DATA } from '../constants';
 import type { KpiData, ServiceStatus } from '../types/dashboard';
 import ChartWrapper from '../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
+import { fetchDashboardOverview, type DashboardOverviewStats } from '../api/query';
 
-// ============================================================================
-// 模拟数据刷新工具函数
-// ============================================================================
+interface DashboardTrendPoint {
+  time: string;
+  count: number;
+}
 
-/** 生成初始日志趋势数据（近 3 小时，1 分钟颗粒度，共 180 个点） */
-function generateInitialTrendData() {
-  const now = new Date();
-  return Array.from({ length: 180 }, (_, i) => {
-    const t = new Date(now.getTime() - (179 - i) * 60000);
+function formatCompactCount(value: number): string {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}k`;
+  }
+  return `${value}`;
+}
+
+function toDisplayTrendTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+}
+
+function buildTrendData(overview: DashboardOverviewStats | null): DashboardTrendPoint[] {
+  if (!overview?.log_trend?.length) {
+    return [];
+  }
+  return overview.log_trend.map((item) => ({
+    time: toDisplayTrendTime(item.time),
+    count: Number(item.count) || 0,
+  }));
+}
+
+function buildSourceRows(overview: DashboardOverviewStats | null): ServiceStatus[] {
+  const sources = overview?.top_sources ?? [];
+  const maxCount = Math.max(...sources.map((item) => Number(item.count) || 0), 0);
+  return sources.slice(0, 5).map((item) => {
+    const count = Number(item.count) || 0;
+    const ratio = maxCount > 0 ? count / maxCount : 0;
     return {
-      time: t.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-      info: Math.floor(40 + Math.random() * 250),
-      warn: Math.floor(5 + Math.random() * 40),
-      error: Math.floor(2 + Math.random() * 20),
+      name: item.source || '-',
+      errorRate: count,
+      status: ratio >= 0.75 ? 'critical' : ratio >= 0.35 ? 'warning' : 'healthy',
     };
   });
 }
 
-/** 模拟 KPI 数据微变 */
-function refreshKpiData(prev: KpiData[]): KpiData[] {
-  return prev.map((kpi) => {
-    if (kpi.icon === 'data_usage') {
-      const v = parseFloat(kpi.value) + (Math.random() - 0.4) * 0.5;
-      return { ...kpi, value: `${v.toFixed(1)}M` };
-    }
-    if (kpi.icon === 'speed') {
-      const v = parseFloat(kpi.value) + (Math.random() - 0.4) * 2;
-      return { ...kpi, value: `${v.toFixed(1)}k` };
-    }
-    if (kpi.icon === 'error') {
-      const v = Math.max(0.1, parseFloat(kpi.value) + (Math.random() - 0.5) * 0.3);
-      return { ...kpi, value: `${v.toFixed(1)}%` };
-    }
-    if (kpi.icon === 'notifications_active') {
-      return kpi; // 由 alertStore 驱动，不做随机变动
-    }
-    return kpi;
-  });
-}
+function buildKpiData(overview: DashboardOverviewStats | null): KpiData[] {
+  const levelDistribution = overview?.level_distribution ?? {};
+  const totalLogs = Number(overview?.total_logs) || 0;
+  const errorLogs = Number(levelDistribution.error) || 0;
+  const fatalLogs = Number(levelDistribution.fatal) || 0;
+  const warnLogs = Number(levelDistribution.warn) || 0;
+  const infoLogs = Number(levelDistribution.info) || 0;
+  const debugLogs = Number(levelDistribution.debug) || 0;
+  const totalLevelLogs = errorLogs + fatalLogs + warnLogs + infoLogs + debugLogs;
+  const errorRate = totalLevelLogs > 0 ? ((errorLogs + fatalLogs) / totalLevelLogs) * 100 : 0;
+  const topSource = overview?.top_sources?.[0];
+  const alertSummary = overview?.alert_summary ?? { total: 0, firing: 0, resolved: 0 };
 
-/** 模拟服务状态微变 */
-function refreshServiceData(prev: ServiceStatus[]): ServiceStatus[] {
-  return prev.map((s) => ({
-    ...s,
-    errorRate: Math.max(0, +(s.errorRate + (Math.random() - 0.5) * 2).toFixed(1)),
-  }));
-}
-
-/** 追加一个新的趋势数据点（保留最近 180 个点） */
-function appendTrendPoint(prev: { time: string; info: number; warn: number; error: number }[]) {
-  const now = new Date();
-  const next = [
-    ...prev.slice(-179),
+  return [
     {
-      time: now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-      info: Math.floor(40 + Math.random() * 250),
-      warn: Math.floor(5 + Math.random() * 40),
-      error: Math.floor(2 + Math.random() * 20),
+      title: '总日志量',
+      value: formatCompactCount(totalLogs),
+      trend: '近 24 小时',
+      trendType: 'neutral',
+      trendLabel: topSource ? `Top 来源 ${topSource.source}` : '等待数据',
+      icon: 'data_usage',
+      color: 'primary',
+    },
+    {
+      title: '错误率',
+      value: `${errorRate.toFixed(2)}%`,
+      trend: `${formatCompactCount(errorLogs + fatalLogs)} 条`,
+      trendType: errorRate >= 5 ? 'up' : 'neutral',
+      trendLabel: 'error + fatal',
+      icon: 'error',
+      color: 'danger',
+    },
+    {
+      title: '告警中',
+      value: `${alertSummary.firing}`,
+      trend: `总计 ${alertSummary.total}`,
+      trendType: alertSummary.firing > 0 ? 'up' : 'neutral',
+      trendLabel: '近 24 小时',
+      icon: 'notifications_active',
+      color: 'warning',
+    },
+    {
+      title: '已解决告警',
+      value: `${alertSummary.resolved}`,
+      trend: `${formatCompactCount(warnLogs)} warn`,
+      trendType: 'neutral',
+      trendLabel: '近 24 小时',
+      icon: 'task_alt',
+      color: 'success',
+    },
+    {
+      title: '活跃来源',
+      value: `${overview?.top_sources?.length ?? 0}`,
+      trend: topSource ? formatCompactCount(Number(topSource.count) || 0) : '0',
+      trendType: 'neutral',
+      trendLabel: topSource ? `Top ${topSource.source}` : '等待数据',
+      icon: 'dns',
+      color: 'info',
+    },
+    {
+      title: '级别覆盖',
+      value: `${Object.values(levelDistribution).filter((count) => Number(count) > 0).length}/5`,
+      trend: `${formatCompactCount(debugLogs + infoLogs)} 低风险`,
+      trendType: 'neutral',
+      trendLabel: 'debug + info',
+      icon: 'monitoring',
+      color: 'success',
     },
   ];
-  return next;
 }
 
 /** 刷新间隔选项 */
@@ -158,7 +213,7 @@ RefreshControls.displayName = 'RefreshControls';
 // ============================================================================
 // KPI 卡片
 // ============================================================================
-const KpiCard: React.FC<{ data: typeof KPI_DATA[number] }> = React.memo(({ data }) => {
+const KpiCard: React.FC<{ data: KpiData }> = React.memo(({ data }) => {
   const isDark = useThemeStore((s) => s.isDark);
   const isStorage = data.icon === 'hard_drive';
 
@@ -389,51 +444,61 @@ InfrastructureMonitor.displayName = 'InfrastructureMonitor';
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
-  const alertUnreadCount = useAlertStore((s) => s.unreadCount);
 
-  // === 动态数据状态 ===
-  const [kpiData, setKpiData] = useState<KpiData[]>(KPI_DATA);
-  const [serviceData, setServiceData] = useState<ServiceStatus[]>(SERVICE_STATUS_DATA);
-  const [trendData, setTrendData] = useState(generateInitialTrendData);
-
-  // 刷新控制状态
+  const [overview, setOverview] = useState<DashboardOverviewStats | null>(null);
   const [lastUpdated, setLastUpdated] = useState(Date.now());
-  const [wsConnected] = useState(true);
   const storedRefreshInterval = usePreferencesStore((s) => s.refreshInterval);
   const setStoredRefreshInterval = usePreferencesStore((s) => s.setRefreshInterval);
-  const [refreshInterval, setRefreshIntervalLocal] = useState(storedRefreshInterval * 1000);
+  const [refreshInterval, setRefreshIntervalLocal] = useState(storedRefreshInterval > 0 ? storedRefreshInterval * 1000 : 0);
   const [countdown, setCountdown] = useState(storedRefreshInterval);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 执行数据刷新
-  const doRefresh = useCallback(() => {
-    setKpiData((prev) => refreshKpiData(prev));
-    setServiceData((prev) => refreshServiceData(prev));
-    setTrendData((prev) => appendTrendPoint(prev));
-    setLastUpdated(Date.now());
+  const kpiData = useMemo(() => buildKpiData(overview), [overview]);
+  const serviceData = useMemo(() => buildSourceRows(overview), [overview]);
+  const trendData = useMemo(() => buildTrendData(overview), [overview]);
+
+  const doRefresh = useCallback(async (silent: boolean) => {
+    setIsLoading(true);
+    try {
+      const nextOverview = await fetchDashboardOverview();
+      setOverview(nextOverview);
+      setLoadError(null);
+      setLastUpdated(Date.now());
+    } catch (error) {
+      const readableError = error instanceof Error ? error.message : '加载仪表盘概览失败';
+      setLoadError(readableError);
+      if (!silent) {
+        message.error(readableError);
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  // 手动刷新
   const handleRefresh = useCallback(() => {
-    setIsLoading(true);
-    setTimeout(() => {
-      doRefresh();
-      setIsLoading(false);
-      if (refreshInterval > 0) setCountdown(refreshInterval / 1000);
-    }, 300);
-  }, [refreshInterval, doRefresh]);
+    void doRefresh(false);
+    if (refreshInterval > 0) {
+      setCountdown(refreshInterval / 1000);
+    }
+  }, [doRefresh, refreshInterval]);
 
-  // 刷新间隔变更
   const handleIntervalChange = useCallback((val: number) => {
     setRefreshIntervalLocal(val);
     setStoredRefreshInterval(val === 0 ? 0 : val / 1000);
-    if (val > 0) setCountdown(val / 1000);
-    else setCountdown(0);
+    if (val > 0) {
+      setCountdown(val / 1000);
+    } else {
+      setCountdown(0);
+    }
   }, [setStoredRefreshInterval]);
 
-  // 自动刷新定时器
+  useEffect(() => {
+    void doRefresh(true);
+  }, [doRefresh]);
+
   useEffect(() => {
     if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
     if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
@@ -441,7 +506,7 @@ const Dashboard: React.FC = () => {
     if (refreshInterval > 0) {
       setCountdown(refreshInterval / 1000);
       refreshTimerRef.current = setInterval(() => {
-        doRefresh();
+        void doRefresh(true);
         setCountdown(refreshInterval / 1000);
       }, refreshInterval);
       countdownTimerRef.current = setInterval(() => {
@@ -455,17 +520,16 @@ const Dashboard: React.FC = () => {
     };
   }, [refreshInterval, doRefresh]);
 
-  // 页面可见性：隐藏时暂停，显示时恢复
   useEffect(() => {
     const handleVisibility = () => {
       if (document.hidden) {
         if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
       } else if (refreshInterval > 0) {
-        doRefresh();
+        void doRefresh(true);
         setCountdown(refreshInterval / 1000);
         refreshTimerRef.current = setInterval(() => {
-          doRefresh();
+          void doRefresh(true);
           setCountdown(refreshInterval / 1000);
         }, refreshInterval);
         countdownTimerRef.current = setInterval(() => {
@@ -480,46 +544,44 @@ const Dashboard: React.FC = () => {
   // 导航
   const handleNavigate = useCallback((path: string) => navigate(path), [navigate]);
 
-  // 异常服务表格列
   const serviceColumns: ColumnsType<ServiceStatus> = useMemo(() => [
-    { title: '服务名称', dataIndex: 'name', key: 'name', render: (v: string) => <span className="font-medium">{v}</span> },
+    { title: '来源', dataIndex: 'name', key: 'name', render: (value: string) => <span className="font-medium">{value}</span> },
     {
-      title: '错误数/h', dataIndex: 'errorRate', key: 'errorRate',
-      render: (v: number, r: ServiceStatus) => (
-        <span style={{ color: r.status === 'critical' ? COLORS.danger : r.status === 'warning' ? COLORS.warning : COLORS.success, fontWeight: 700 }}>
-          {v.toLocaleString()}
+      title: '日志量 (24h)', dataIndex: 'errorRate', key: 'errorRate',
+      render: (value: number, row: ServiceStatus) => (
+        <span style={{ color: row.status === 'critical' ? COLORS.danger : row.status === 'warning' ? COLORS.warning : COLORS.success, fontWeight: 700 }}>
+          {value.toLocaleString()}
         </span>
       ),
     },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 60,
-      render: (_: unknown, r: ServiceStatus) => (
+      render: (_: unknown, row: ServiceStatus) => (
         <span
           className="inline-block w-2 h-2 rounded-full"
-          style={{ backgroundColor: r.status === 'critical' ? COLORS.danger : r.status === 'warning' ? COLORS.warning : COLORS.success }}
+          style={{ backgroundColor: row.status === 'critical' ? COLORS.danger : row.status === 'warning' ? COLORS.warning : COLORS.success }}
         />
       ),
     },
   ], []);
 
-  // 日志趋势图表 ECharts 配置（依赖动态 trendData）
   const logTrendOption: EChartsCoreOption = useMemo(() => ({
     legend: { show: false },
     grid: { top: 10, right: 16, bottom: 24, left: 40 },
     xAxis: {
       type: 'category',
-      data: trendData.map((d) => d.time),
+      data: trendData.map((point) => point.time),
       boundaryGap: false,
       axisLabel: {
-        interval: Math.floor(trendData.length / 6),
+        interval: Math.max(0, Math.floor(trendData.length / 6)),
       },
     },
     yAxis: { type: 'value', splitLine: { lineStyle: { color: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' } } },
     series: [
       {
-        name: 'Info',
+        name: 'Logs',
         type: 'line',
-        data: trendData.map((d) => d.info),
+        data: trendData.map((point) => point.count),
         smooth: true,
         showSymbol: false,
         lineStyle: { width: 1.5, color: COLORS.primary },
@@ -530,42 +592,6 @@ const Dashboard: React.FC = () => {
             colorStops: [
               { offset: 0, color: `${COLORS.primary}99` },
               { offset: 1, color: `${COLORS.primary}11` },
-            ],
-          },
-        },
-      },
-      {
-        name: 'Warn',
-        type: 'line',
-        data: trendData.map((d) => d.warn),
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { width: 1.5, color: COLORS.warning },
-        itemStyle: { color: COLORS.warning },
-        areaStyle: {
-          color: {
-            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: `${COLORS.warning}99` },
-              { offset: 1, color: `${COLORS.warning}11` },
-            ],
-          },
-        },
-      },
-      {
-        name: 'Error',
-        type: 'line',
-        data: trendData.map((d) => d.error),
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { width: 1.5, color: COLORS.danger },
-        itemStyle: { color: COLORS.danger },
-        areaStyle: {
-          color: {
-            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: `${COLORS.danger}99` },
-              { offset: 1, color: `${COLORS.danger}11` },
             ],
           },
         },
@@ -589,31 +615,22 @@ const Dashboard: React.FC = () => {
       {/* 刷新控制栏 */}
       <RefreshControls
         lastUpdated={lastUpdated}
-        wsConnected={wsConnected}
+        wsConnected={false}
         countdown={countdown}
         refreshInterval={refreshInterval}
         isLoading={isLoading}
         onRefresh={handleRefresh}
         onIntervalChange={handleIntervalChange}
       />
+      {loadError && <Tag color="error" style={{ width: 'fit-content', margin: 0 }}>{loadError}</Tag>}
 
       {/* KPI 卡片网格: 2→3→6 列 */}
       <Row gutter={[16, 16]}>
-        {kpiData.map((kpi, idx) => {
-          // 未处理告警从 alertStore 读取总数
-          if (kpi.icon === 'notifications_active') {
-            return (
-              <Col key={idx} xs={12} md={8} xl={4}>
-                <KpiCard data={{ ...kpi, value: String(alertUnreadCount), trend: `共 ${alertUnreadCount} 条`, trendLabel: '待处理' }} />
-              </Col>
-            );
-          }
-          return (
-            <Col key={idx} xs={12} md={8} xl={4}>
-              <KpiCard data={kpi} />
-            </Col>
-          );
-        })}
+        {kpiData.map((kpi, idx) => (
+          <Col key={idx} xs={12} md={8} xl={4}>
+            <KpiCard data={kpi} />
+          </Col>
+        ))}
       </Row>
 
       {/* 基础设施监控 */}
@@ -624,19 +641,13 @@ const Dashboard: React.FC = () => {
         <Col xs={24} lg={16}>
           <ChartWrapper
             title="日志量趋势"
-            subtitle="过去3小时每分钟摄入量"
+            subtitle="近 24 小时 ES 聚合结果"
             option={logTrendOption}
             height={220}
             actions={
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1.5 text-[10px] opacity-60">
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: COLORS.primary }} /> Info
-                </span>
-                <span className="flex items-center gap-1.5 text-[10px] opacity-60">
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: COLORS.danger }} /> Error
-                </span>
-                <span className="flex items-center gap-1.5 text-[10px] opacity-60">
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: COLORS.warning }} /> Warn
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: COLORS.primary }} /> Logs
                 </span>
               </div>
             }
@@ -644,7 +655,7 @@ const Dashboard: React.FC = () => {
         </Col>
         <Col xs={24} lg={8}>
           <Card
-            title={<span className="text-sm font-bold">异常服务排行 Top 5</span>}
+            title={<span className="text-sm font-bold">活跃日志来源 Top 5</span>}
             extra={
               <Button type="link" size="small" onClick={() => handleNavigate('/alerts/list')}>
                 查看更多
@@ -659,8 +670,9 @@ const Dashboard: React.FC = () => {
               pagination={false}
               size="small"
               rowKey="name"
-              onRow={() => ({
-                onClick: () => handleNavigate('/search/realtime'),
+              locale={{ emptyText: '暂无来源统计' }}
+              onRow={(record) => ({
+                onClick: () => navigate('/search/realtime', { state: { autoRun: true, presetQuery: record.name } }),
                 style: { cursor: 'pointer' },
               })}
             />
