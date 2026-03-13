@@ -36,6 +36,7 @@ func (h *SilenceHandler) ListSilences(c *gin.Context) {
 
 	silences, err := h.svc.ListActive(c.Request.Context(), tenantID)
 	if err != nil {
+		setAlertSilenceAuditEvent(c, "alert_silences.list", "", buildSilenceListAuditDetails(0, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    ErrorCodeInternalError,
 			"message": err.Error(),
@@ -48,6 +49,7 @@ func (h *SilenceHandler) ListSilences(c *gin.Context) {
 		items = append(items, mapSilenceToJSON(&silences[i]))
 	}
 
+	setAlertSilenceAuditEvent(c, "alert_silences.list", "", buildSilenceListAuditDetails(len(items), http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "success",
@@ -70,6 +72,7 @@ func (h *SilenceHandler) CreateSilence(c *gin.Context) {
 
 	var req CreateSilenceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setAlertSilenceAuditEvent(c, "alert_silences.create", "", buildSilenceCreateRequestAuditDetails(req, createdBy, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    ErrorCodeRequestInvalidParams,
 			"message": "invalid request body",
@@ -82,6 +85,7 @@ func (h *SilenceHandler) CreateSilence(c *gin.Context) {
 
 	startsAt, err := parseTime(req.StartsAt)
 	if err != nil {
+		setAlertSilenceAuditEvent(c, "alert_silences.create", "", buildSilenceCreateRequestAuditDetails(req, createdBy, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    ErrorCodeRequestInvalidParams,
 			"message": "starts_at is required and must be RFC3339",
@@ -90,6 +94,7 @@ func (h *SilenceHandler) CreateSilence(c *gin.Context) {
 	}
 	endsAt, err := parseTime(req.EndsAt)
 	if err != nil {
+		setAlertSilenceAuditEvent(c, "alert_silences.create", "", buildSilenceCreateRequestAuditDetails(req, createdBy, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    ErrorCodeRequestInvalidParams,
 			"message": "ends_at is required and must be RFC3339",
@@ -99,6 +104,7 @@ func (h *SilenceHandler) CreateSilence(c *gin.Context) {
 
 	sil, err := h.svc.Create(c.Request.Context(), tenantID, createdBy, req.Matchers, req.Reason, startsAt, endsAt)
 	if err != nil {
+		setAlertSilenceAuditEvent(c, "alert_silences.create", "", buildSilenceCreateRequestAuditDetails(req, createdBy, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    ErrorCodeInternalError,
 			"message": err.Error(),
@@ -106,6 +112,7 @@ func (h *SilenceHandler) CreateSilence(c *gin.Context) {
 		return
 	}
 
+	setAlertSilenceAuditEvent(c, "alert_silences.create", sil.ID, buildSilenceAuditDetails(sil, http.StatusOK, "success", "", nil))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "silence created",
@@ -126,6 +133,7 @@ func (h *SilenceHandler) UpdateSilence(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	tenantID := strings.TrimSpace(getTenantID(c))
 	if id == "" {
+		setAlertSilenceAuditEvent(c, "alert_silences.update", "", buildSilenceUpdateAuditDetails("", UpdateSilenceRequest{}, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    ErrorCodeRequestInvalidParams,
 			"message": "id is required",
@@ -135,6 +143,7 @@ func (h *SilenceHandler) UpdateSilence(c *gin.Context) {
 
 	var req UpdateSilenceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setAlertSilenceAuditEvent(c, "alert_silences.update", id, buildSilenceUpdateAuditDetails(id, req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    ErrorCodeRequestInvalidParams,
 			"message": "invalid request body",
@@ -144,6 +153,7 @@ func (h *SilenceHandler) UpdateSilence(c *gin.Context) {
 
 	startsAt, err := parseTime(req.StartsAt)
 	if err != nil {
+		setAlertSilenceAuditEvent(c, "alert_silences.update", id, buildSilenceUpdateAuditDetails(id, req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    ErrorCodeRequestInvalidParams,
 			"message": "starts_at is required",
@@ -152,6 +162,7 @@ func (h *SilenceHandler) UpdateSilence(c *gin.Context) {
 	}
 	endsAt, err := parseTime(req.EndsAt)
 	if err != nil {
+		setAlertSilenceAuditEvent(c, "alert_silences.update", id, buildSilenceUpdateAuditDetails(id, req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    ErrorCodeRequestInvalidParams,
 			"message": "ends_at is required",
@@ -167,12 +178,14 @@ func (h *SilenceHandler) UpdateSilence(c *gin.Context) {
 	sil, err := h.svc.Update(c.Request.Context(), id, tenantID, matchers, req.Reason, startsAt, endsAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
+			setAlertSilenceAuditEvent(c, "alert_silences.update", id, buildSilenceUpdateAuditDetails(id, req, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
 			c.JSON(http.StatusNotFound, gin.H{
 				"code":    ErrorCodeResourceNotFound,
 				"message": err.Error(),
 			})
 			return
 		}
+		setAlertSilenceAuditEvent(c, "alert_silences.update", id, buildSilenceUpdateAuditDetails(id, req, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    ErrorCodeInternalError,
 			"message": err.Error(),
@@ -180,6 +193,7 @@ func (h *SilenceHandler) UpdateSilence(c *gin.Context) {
 		return
 	}
 
+	setAlertSilenceAuditEvent(c, "alert_silences.update", sil.ID, buildSilenceAuditDetails(sil, http.StatusOK, "success", "", silenceUpdatedFields(req)))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "silence updated",
@@ -192,6 +206,7 @@ func (h *SilenceHandler) DeleteSilence(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	tenantID := strings.TrimSpace(getTenantID(c))
 	if id == "" {
+		setAlertSilenceAuditEvent(c, "alert_silences.delete", "", buildSilenceDeleteAuditDetails("", http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    ErrorCodeRequestInvalidParams,
 			"message": "id is required",
@@ -201,12 +216,14 @@ func (h *SilenceHandler) DeleteSilence(c *gin.Context) {
 
 	if err := h.svc.Delete(c.Request.Context(), id, tenantID); err != nil {
 		if strings.Contains(err.Error(), "not found") {
+			setAlertSilenceAuditEvent(c, "alert_silences.delete", id, buildSilenceDeleteAuditDetails(id, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
 			c.JSON(http.StatusNotFound, gin.H{
 				"code":    ErrorCodeResourceNotFound,
 				"message": err.Error(),
 			})
 			return
 		}
+		setAlertSilenceAuditEvent(c, "alert_silences.delete", id, buildSilenceDeleteAuditDetails(id, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    ErrorCodeInternalError,
 			"message": err.Error(),
@@ -214,6 +231,7 @@ func (h *SilenceHandler) DeleteSilence(c *gin.Context) {
 		return
 	}
 
+	setAlertSilenceAuditEvent(c, "alert_silences.delete", id, buildSilenceDeleteAuditDetails(id, http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "silence deleted",

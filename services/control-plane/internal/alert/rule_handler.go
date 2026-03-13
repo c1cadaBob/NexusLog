@@ -53,17 +53,20 @@ func RegisterAlertRuleRoutes(router gin.IRouter, handler *RuleHandler) {
 func (h *RuleHandler) ListRules(c *gin.Context) {
 	tenantID := getTenantID(c)
 	if tenantID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.list", "", buildRuleListAuditDetails(0, 0, 0, 0, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
 		return
 	}
 
 	page, err := parsePositiveInt(c.Query("page"), 1)
 	if err != nil {
+		setAlertRuleAuditEvent(c, "alert_rules.list", "", buildRuleListAuditDetails(0, 0, 0, 0, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "page must be a positive integer", nil)
 		return
 	}
 	pageSize, err := parsePositiveInt(c.Query("page_size"), 20)
 	if err != nil {
+		setAlertRuleAuditEvent(c, "alert_rules.list", "", buildRuleListAuditDetails(page, 0, 0, 0, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "page_size must be a positive integer", nil)
 		return
 	}
@@ -73,10 +76,12 @@ func (h *RuleHandler) ListRules(c *gin.Context) {
 
 	items, total, err := h.svc.ListRules(c.Request.Context(), tenantID, page, pageSize)
 	if err != nil {
+		setAlertRuleAuditEvent(c, "alert_rules.list", "", buildRuleListAuditDetails(page, pageSize, 0, 0, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list rules", nil)
 		return
 	}
 
+	setAlertRuleAuditEvent(c, "alert_rules.list", "", buildRuleListAuditDetails(page, pageSize, total, len(items), http.StatusOK, "success", ""))
 	writeSuccess(c, http.StatusOK, gin.H{"items": items}, buildPaginationMeta(page, pageSize, total))
 }
 
@@ -84,11 +89,13 @@ func (h *RuleHandler) ListRules(c *gin.Context) {
 func (h *RuleHandler) GetRule(c *gin.Context) {
 	tenantID := getTenantID(c)
 	if tenantID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.read", "", buildRuleReadAuditDetails(nil, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
 		return
 	}
 	ruleID := strings.TrimSpace(c.Param("id"))
 	if ruleID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.read", "", buildRuleReadAuditDetails(nil, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "rule id is required", nil)
 		return
 	}
@@ -96,13 +103,16 @@ func (h *RuleHandler) GetRule(c *gin.Context) {
 	rule, err := h.svc.GetRule(c.Request.Context(), tenantID, ruleID)
 	if err != nil {
 		if err == ErrRuleNotFound {
+			setAlertRuleAuditEvent(c, "alert_rules.read", ruleID, buildRuleReadAuditDetails(nil, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
 			writeError(c, http.StatusNotFound, ErrorCodeResourceNotFound, "alert rule not found", nil)
 			return
 		}
+		setAlertRuleAuditEvent(c, "alert_rules.read", ruleID, buildRuleReadAuditDetails(nil, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to get rule", nil)
 		return
 	}
 
+	setAlertRuleAuditEvent(c, "alert_rules.read", ruleID, buildRuleReadAuditDetails(rule, http.StatusOK, "success", ""))
 	writeSuccess(c, http.StatusOK, rule, gin.H{})
 }
 
@@ -120,22 +130,26 @@ type CreateRuleRequest struct {
 func (h *RuleHandler) CreateRule(c *gin.Context) {
 	tenantID := getTenantID(c)
 	if tenantID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(CreateRuleRequest{}, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
 		return
 	}
 
 	var req CreateRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", gin.H{"error": err.Error()})
 		return
 	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "name is required", nil)
 		return
 	}
 	if len(req.Condition) == 0 {
+		setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "condition is required", nil)
 		return
 	}
@@ -159,17 +173,21 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 	id, err := h.svc.CreateRule(c.Request.Context(), tenantID, rule)
 	if err != nil {
 		if err == ErrRuleLimitExceeded {
+			setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(req, http.StatusUnprocessableEntity, "failed", ErrorCodeResourceLimitExceeded))
 			writeError(c, http.StatusUnprocessableEntity, ErrorCodeResourceLimitExceeded, "rule limit exceeded: max 1000 rules per tenant", nil)
 			return
 		}
 		if errors.Is(err, ErrInvalidCondition) {
+			setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, err.Error(), nil)
 			return
 		}
+		setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(req, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to create rule", nil)
 		return
 	}
 
+	setAlertRuleAuditEvent(c, "alert_rules.create", id, buildRuleAuditDetails(rule, http.StatusCreated, "success", "", nil))
 	writeSuccess(c, http.StatusCreated, gin.H{"id": id, "enabled": rule.Enabled}, gin.H{})
 }
 
@@ -187,17 +205,20 @@ type UpdateRuleRequest struct {
 func (h *RuleHandler) UpdateRule(c *gin.Context) {
 	tenantID := getTenantID(c)
 	if tenantID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.update", "", buildRuleUpdateAuditDetails("", UpdateRuleRequest{}, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
 		return
 	}
 	ruleID := strings.TrimSpace(c.Param("id"))
 	if ruleID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.update", "", buildRuleUpdateAuditDetails("", UpdateRuleRequest{}, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "rule id is required", nil)
 		return
 	}
 
 	var req UpdateRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setAlertRuleAuditEvent(c, "alert_rules.update", ruleID, buildRuleUpdateAuditDetails(ruleID, req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", gin.H{"error": err.Error()})
 		return
 	}
@@ -206,6 +227,7 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 	if req.Name != nil {
 		trimmed := strings.TrimSpace(*req.Name)
 		if trimmed == "" {
+			setAlertRuleAuditEvent(c, "alert_rules.update", ruleID, buildRuleUpdateAuditDetails(ruleID, req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "name cannot be empty", nil)
 			return
 		}
@@ -232,17 +254,21 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 	err := h.svc.UpdateRule(c.Request.Context(), tenantID, ruleID, update)
 	if err != nil {
 		if err == ErrRuleNotFound {
+			setAlertRuleAuditEvent(c, "alert_rules.update", ruleID, buildRuleUpdateAuditDetails(ruleID, req, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
 			writeError(c, http.StatusNotFound, ErrorCodeResourceNotFound, "alert rule not found", nil)
 			return
 		}
 		if errors.Is(err, ErrInvalidCondition) {
+			setAlertRuleAuditEvent(c, "alert_rules.update", ruleID, buildRuleUpdateAuditDetails(ruleID, req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, err.Error(), nil)
 			return
 		}
+		setAlertRuleAuditEvent(c, "alert_rules.update", ruleID, buildRuleUpdateAuditDetails(ruleID, req, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to update rule", nil)
 		return
 	}
 
+	setAlertRuleAuditEvent(c, "alert_rules.update", ruleID, buildRuleUpdateAuditDetails(ruleID, req, http.StatusOK, "success", ""))
 	writeSuccess(c, http.StatusOK, gin.H{"updated": true}, gin.H{})
 }
 
@@ -250,11 +276,13 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 func (h *RuleHandler) DeleteRule(c *gin.Context) {
 	tenantID := getTenantID(c)
 	if tenantID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.delete", "", buildRuleUpdateAuditDetails("", UpdateRuleRequest{}, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
 		return
 	}
 	ruleID := strings.TrimSpace(c.Param("id"))
 	if ruleID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.delete", "", buildRuleUpdateAuditDetails("", UpdateRuleRequest{}, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "rule id is required", nil)
 		return
 	}
@@ -262,13 +290,16 @@ func (h *RuleHandler) DeleteRule(c *gin.Context) {
 	err := h.svc.DeleteRule(c.Request.Context(), tenantID, ruleID)
 	if err != nil {
 		if err == ErrRuleNotFound {
+			setAlertRuleAuditEvent(c, "alert_rules.delete", ruleID, buildRuleDeleteAuditDetails(ruleID, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
 			writeError(c, http.StatusNotFound, ErrorCodeResourceNotFound, "alert rule not found", nil)
 			return
 		}
+		setAlertRuleAuditEvent(c, "alert_rules.delete", ruleID, buildRuleDeleteAuditDetails(ruleID, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to delete rule", nil)
 		return
 	}
 
+	setAlertRuleAuditEvent(c, "alert_rules.delete", ruleID, buildRuleDeleteAuditDetails(ruleID, http.StatusOK, "success", ""))
 	writeSuccess(c, http.StatusOK, gin.H{"deleted": true}, gin.H{})
 }
 
@@ -276,11 +307,13 @@ func (h *RuleHandler) DeleteRule(c *gin.Context) {
 func (h *RuleHandler) EnableRule(c *gin.Context) {
 	tenantID := getTenantID(c)
 	if tenantID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.enable", "", buildRuleToggleAuditDetails("", true, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
 		return
 	}
 	ruleID := strings.TrimSpace(c.Param("id"))
 	if ruleID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.enable", "", buildRuleToggleAuditDetails("", true, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "rule id is required", nil)
 		return
 	}
@@ -288,13 +321,16 @@ func (h *RuleHandler) EnableRule(c *gin.Context) {
 	err := h.svc.EnableRule(c.Request.Context(), tenantID, ruleID)
 	if err != nil {
 		if err == ErrRuleNotFound {
+			setAlertRuleAuditEvent(c, "alert_rules.enable", ruleID, buildRuleToggleAuditDetails(ruleID, true, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
 			writeError(c, http.StatusNotFound, ErrorCodeResourceNotFound, "alert rule not found", nil)
 			return
 		}
+		setAlertRuleAuditEvent(c, "alert_rules.enable", ruleID, buildRuleToggleAuditDetails(ruleID, true, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to enable rule", nil)
 		return
 	}
 
+	setAlertRuleAuditEvent(c, "alert_rules.enable", ruleID, buildRuleToggleAuditDetails(ruleID, true, http.StatusOK, "success", ""))
 	writeSuccess(c, http.StatusOK, gin.H{"enabled": true}, gin.H{})
 }
 
@@ -302,11 +338,13 @@ func (h *RuleHandler) EnableRule(c *gin.Context) {
 func (h *RuleHandler) DisableRule(c *gin.Context) {
 	tenantID := getTenantID(c)
 	if tenantID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.disable", "", buildRuleToggleAuditDetails("", false, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
 		return
 	}
 	ruleID := strings.TrimSpace(c.Param("id"))
 	if ruleID == "" {
+		setAlertRuleAuditEvent(c, "alert_rules.disable", "", buildRuleToggleAuditDetails("", false, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "rule id is required", nil)
 		return
 	}
@@ -314,13 +352,16 @@ func (h *RuleHandler) DisableRule(c *gin.Context) {
 	err := h.svc.DisableRule(c.Request.Context(), tenantID, ruleID)
 	if err != nil {
 		if err == ErrRuleNotFound {
+			setAlertRuleAuditEvent(c, "alert_rules.disable", ruleID, buildRuleToggleAuditDetails(ruleID, false, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
 			writeError(c, http.StatusNotFound, ErrorCodeResourceNotFound, "alert rule not found", nil)
 			return
 		}
+		setAlertRuleAuditEvent(c, "alert_rules.disable", ruleID, buildRuleToggleAuditDetails(ruleID, false, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to disable rule", nil)
 		return
 	}
 
+	setAlertRuleAuditEvent(c, "alert_rules.disable", ruleID, buildRuleToggleAuditDetails(ruleID, false, http.StatusOK, "success", ""))
 	writeSuccess(c, http.StatusOK, gin.H{"enabled": false}, gin.H{})
 }
 
