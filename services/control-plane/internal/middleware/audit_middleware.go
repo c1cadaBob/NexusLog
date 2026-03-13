@@ -13,29 +13,57 @@ const (
 	auditActionCreate = "create"
 	auditActionUpdate = "update"
 	auditActionDelete = "delete"
+	auditContextKey   = "_nexuslog_audit_event"
 )
 
-// AuditMiddleware creates a Gin middleware that audits POST/PUT/DELETE requests.
+type AuditEvent struct {
+	Action       string
+	ResourceType string
+	ResourceID   string
+	UserID       string
+	Details      map[string]any
+	Skip         bool
+}
+
+// AuditMiddleware creates a Gin middleware that audits write operations by default,
+// and also supports explicit handler-driven audit events for read flows.
 func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := strings.ToUpper(strings.TrimSpace(c.Request.Method))
-		if method == http.MethodGet {
-			c.Next()
-			return
-		}
-		if method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete {
+		if !shouldAutoAuditMethod(method) && method != http.MethodGet {
 			c.Next()
 			return
 		}
 
-		// Capture request data before c.Next()
-		tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
-		userID := resolveUserID(c)
 		path := c.Request.URL.Path
 		ip := c.ClientIP()
 		userAgent := c.Request.UserAgent()
 
 		c.Next()
+
+		tenantID := resolveTenantID(c)
+		userID := resolveUserID(c)
+		auditEntry, hasOverride := GetAuditEvent(c)
+		if hasOverride {
+			if auditEntry.Skip {
+				return
+			}
+			if overrideUserID := strings.TrimSpace(auditEntry.UserID); overrideUserID != "" {
+				userID = overrideUserID
+			}
+			action := strings.TrimSpace(auditEntry.Action)
+			resourceType := strings.TrimSpace(auditEntry.ResourceType)
+			resourceID := strings.TrimSpace(auditEntry.ResourceID)
+			if action == "" || resourceType == "" {
+				return
+			}
+			go insertAuditLog(db, tenantID, userID, action, resourceType, resourceID, ip, userAgent, auditEntry.Details)
+			return
+		}
+
+		if !shouldAutoAuditMethod(method) {
+			return
+		}
 
 		// Insert audit log asynchronously (do not block response)
 		go func() {
@@ -46,6 +74,47 @@ func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
 			insertAuditLog(db, tenantID, userID, action, resourceType, resourceID, ip, userAgent, nil)
 		}()
 	}
+}
+
+func shouldAutoAuditMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func SetAuditEvent(c *gin.Context, event AuditEvent) {
+	if c == nil {
+		return
+	}
+	c.Set(auditContextKey, event)
+}
+
+func GetAuditEvent(c *gin.Context) (AuditEvent, bool) {
+	if c == nil {
+		return AuditEvent{}, false
+	}
+	value, exists := c.Get(auditContextKey)
+	if !exists {
+		return AuditEvent{}, false
+	}
+	event, ok := value.(AuditEvent)
+	if !ok {
+		return AuditEvent{}, false
+	}
+	return event, true
+}
+
+func resolveTenantID(c *gin.Context) string {
+	if tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID")); tenantID != "" {
+		return tenantID
+	}
+	if tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-Id")); tenantID != "" {
+		return tenantID
+	}
+	return ""
 }
 
 func resolveUserID(c *gin.Context) string {

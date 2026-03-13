@@ -4,7 +4,7 @@
  */
 
 import { getRuntimeConfig } from '../config/runtime-config';
-import { getAuthStorageItem } from '../utils/authStorage';
+import { getAuthStorageItem, resolveStoredAuthUserID } from '../utils/authStorage';
 
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
 
@@ -93,8 +93,10 @@ function resolveAccessToken(): string {
 function buildAuthHeaders(accessToken: string): Record<string, string> {
   const runtimeConfig = getRuntimeConfig() as RuntimeConfigWithTenant;
   const tenantId = resolveTenantId(runtimeConfig);
+  const userId = resolveStoredAuthUserID();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (tenantId) headers['X-Tenant-ID'] = tenantId;
+  if (userId) headers['X-User-ID'] = userId;
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   return headers;
 }

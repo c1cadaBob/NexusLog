@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/nexuslog/control-plane/internal/middleware"
 )
 
 const (
@@ -299,15 +301,155 @@ func RegisterPullSourceRoutes(router gin.IRouter, store *PullSourceStore) {
 	router.PUT("/api/v1/ingest/pull-sources", handler.UpdatePullSourceByBody)
 }
 
+func setPullSourceAuditEvent(c *gin.Context, action, resourceID string, details map[string]any) {
+	middleware.SetAuditEvent(c, middleware.AuditEvent{
+		Action:       action,
+		ResourceType: "pull_sources",
+		ResourceID:   strings.TrimSpace(resourceID),
+		Details:      details,
+	})
+}
+
+func resolvePullSourceUpdateAction(req UpdatePullSourceRequest) string {
+	updatedFields := pullSourceUpdatedFields(req)
+	if len(updatedFields) == 1 && req.Status != nil {
+		switch strings.ToLower(strings.TrimSpace(*req.Status)) {
+		case "disabled":
+			return "pull_sources.disable"
+		case "paused":
+			return "pull_sources.pause"
+		case "active":
+			return "pull_sources.resume"
+		}
+	}
+	return "pull_sources.update"
+}
+
+func pullSourceUpdatedFields(req UpdatePullSourceRequest) []string {
+	fields := make([]string, 0, 10)
+	if req.Name != nil {
+		fields = append(fields, "name")
+	}
+	if req.Host != nil {
+		fields = append(fields, "host")
+	}
+	if req.Port != nil {
+		fields = append(fields, "port")
+	}
+	if req.Protocol != nil {
+		fields = append(fields, "protocol")
+	}
+	if req.Path != nil {
+		fields = append(fields, "path")
+	}
+	if req.Auth != nil {
+		fields = append(fields, "auth")
+	}
+	if req.AgentBaseURL != nil {
+		fields = append(fields, "agent_base_url")
+	}
+	if req.PullIntervalSec != nil {
+		fields = append(fields, "pull_interval_sec")
+	}
+	if req.PullTimeoutSec != nil {
+		fields = append(fields, "pull_timeout_sec")
+	}
+	if req.KeyRef != nil {
+		fields = append(fields, "key_ref")
+	}
+	if req.Status != nil {
+		fields = append(fields, "status")
+	}
+	return fields
+}
+
+func buildPullSourceAuditDetails(source PullSource, statusCode int, result string, errorCode string, updatedFields []string) map[string]any {
+	return middleware.BuildAuditDetails(map[string]any{
+		"result":         result,
+		"source_name":    source.Name,
+		"host":           source.Host,
+		"port":           source.Port,
+		"protocol":       source.Protocol,
+		"path":           source.Path,
+		"status":         source.Status,
+		"updated_fields": updatedFields,
+		"http_status":    statusCode,
+		"error_code":     errorCode,
+	})
+}
+
+func buildPullSourceRequestAuditDetails(req CreatePullSourceRequest, statusCode int, result string, errorCode string) map[string]any {
+	return middleware.BuildAuditDetails(map[string]any{
+		"result":      result,
+		"source_name": req.Name,
+		"host":        req.Host,
+		"port":        req.Port,
+		"protocol":    req.Protocol,
+		"path":        req.Path,
+		"status":      req.Status,
+		"http_status": statusCode,
+		"error_code":  errorCode,
+	})
+}
+
+func buildPullSourceUpdateAuditDetails(sourceID string, req UpdatePullSourceRequest, statusCode int, result string, errorCode string) map[string]any {
+	status := ""
+	if req.Status != nil {
+		status = strings.ToLower(strings.TrimSpace(*req.Status))
+	}
+	return middleware.BuildAuditDetails(map[string]any{
+		"result":           result,
+		"target_source_id": strings.TrimSpace(sourceID),
+		"source_name":      stringValue(req.Name),
+		"host":             stringValue(req.Host),
+		"port":             intValue(req.Port),
+		"protocol":         stringValue(req.Protocol),
+		"path":             stringValue(req.Path),
+		"status":           status,
+		"updated_fields":   pullSourceUpdatedFields(req),
+		"http_status":      statusCode,
+		"error_code":       errorCode,
+	})
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func intValue(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
 // ListPullSources 处理 GET /api/v1/ingest/pull-sources。
 func (h *PullSourceHandler) ListPullSources(c *gin.Context) {
 	query, err := parseListPullSourcesQuery(c)
 	if err != nil {
+		setPullSourceAuditEvent(c, "pull_sources.list", "", middleware.BuildAuditDetails(map[string]any{
+			"result":      "failed",
+			"status":      query.Status,
+			"http_status": http.StatusBadRequest,
+			"error_code":  ErrorCodePullSourceInvalidArgument,
+		}))
 		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, err.Error(), gin.H{"field": "query"})
 		return
 	}
 
 	items, total := h.store.List(query.Status, query.Page, query.PageSize)
+	setPullSourceAuditEvent(c, "pull_sources.list", "", middleware.BuildAuditDetails(map[string]any{
+		"result":       "success",
+		"status":       query.Status,
+		"page":         query.Page,
+		"page_size":    query.PageSize,
+		"result_count": len(items),
+		"total":        total,
+		"http_status":  http.StatusOK,
+	}))
 	writeSuccess(c, http.StatusOK, gin.H{"items": items}, buildPaginationMeta(query.Page, query.PageSize, total))
 }
 
@@ -315,12 +457,18 @@ func (h *PullSourceHandler) ListPullSources(c *gin.Context) {
 func (h *PullSourceHandler) CreatePullSource(c *gin.Context) {
 	var req CreatePullSourceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setPullSourceAuditEvent(c, "pull_sources.create", "", middleware.BuildAuditDetails(map[string]any{
+			"result":      "failed",
+			"http_status": http.StatusBadRequest,
+			"error_code":  ErrorCodePullSourceInvalidArgument,
+		}))
 		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "invalid request body", gin.H{"error": err.Error()})
 		return
 	}
 
 	normalized, err := normalizeCreatePullSourceRequest(req)
 	if err != nil {
+		setPullSourceAuditEvent(c, "pull_sources.create", "", buildPullSourceRequestAuditDetails(req, http.StatusBadRequest, "failed", ErrorCodePullSourceInvalidArgument))
 		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, err.Error(), nil)
 		return
 	}
@@ -328,17 +476,21 @@ func (h *PullSourceHandler) CreatePullSource(c *gin.Context) {
 	created, err := h.store.Create(normalized)
 	if err != nil {
 		if errors.Is(err, ErrPullSourceNameConflict) {
+			setPullSourceAuditEvent(c, "pull_sources.create", "", buildPullSourceRequestAuditDetails(normalized, http.StatusConflict, "failed", ErrorCodePullSourceNameConflict))
 			writeError(c, http.StatusConflict, ErrorCodePullSourceNameConflict, "pull source name already exists", nil)
 			return
 		}
 		if errors.Is(err, ErrPullSourceOverlapConflict) {
+			setPullSourceAuditEvent(c, "pull_sources.create", "", buildPullSourceRequestAuditDetails(normalized, http.StatusConflict, "failed", ErrorCodePullSourceOverlapConflict))
 			writeError(c, http.StatusConflict, ErrorCodePullSourceOverlapConflict, "active pull source overlaps existing agent endpoint", gin.H{"field": "agent_base_url"})
 			return
 		}
+		setPullSourceAuditEvent(c, "pull_sources.create", "", buildPullSourceRequestAuditDetails(normalized, http.StatusInternalServerError, "failed", ErrorCodePullSourceInternalError))
 		writeError(c, http.StatusInternalServerError, ErrorCodePullSourceInternalError, "failed to create pull source", nil)
 		return
 	}
 
+	setPullSourceAuditEvent(c, "pull_sources.create", created.SourceID, buildPullSourceAuditDetails(created, http.StatusCreated, "success", "", nil))
 	writeSuccess(c, http.StatusCreated, gin.H{
 		"source_id": created.SourceID,
 		"status":    created.Status,
@@ -349,6 +501,11 @@ func (h *PullSourceHandler) CreatePullSource(c *gin.Context) {
 func (h *PullSourceHandler) UpdatePullSourceByPath(c *gin.Context) {
 	sourceID := strings.TrimSpace(c.Param("source_id"))
 	if sourceID == "" {
+		setPullSourceAuditEvent(c, "pull_sources.update", "", middleware.BuildAuditDetails(map[string]any{
+			"result":      "failed",
+			"http_status": http.StatusBadRequest,
+			"error_code":  ErrorCodePullSourceInvalidArgument,
+		}))
 		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "source_id is required", nil)
 		return
 	}
@@ -359,11 +516,17 @@ func (h *PullSourceHandler) UpdatePullSourceByPath(c *gin.Context) {
 func (h *PullSourceHandler) UpdatePullSourceByBody(c *gin.Context) {
 	var req UpdatePullSourceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setPullSourceAuditEvent(c, "pull_sources.update", "", middleware.BuildAuditDetails(map[string]any{
+			"result":      "failed",
+			"http_status": http.StatusBadRequest,
+			"error_code":  ErrorCodePullSourceInvalidArgument,
+		}))
 		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "invalid request body", gin.H{"error": err.Error()})
 		return
 	}
 	sourceID := strings.TrimSpace(req.SourceID)
 	if sourceID == "" {
+		setPullSourceAuditEvent(c, resolvePullSourceUpdateAction(req), "", buildPullSourceUpdateAuditDetails(sourceID, req, http.StatusBadRequest, "failed", ErrorCodePullSourceInvalidArgument))
 		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "source_id is required", nil)
 		return
 	}
@@ -374,6 +537,12 @@ func (h *PullSourceHandler) UpdatePullSourceByBody(c *gin.Context) {
 func (h *PullSourceHandler) updatePullSource(c *gin.Context, sourceID string) {
 	var req UpdatePullSourceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setPullSourceAuditEvent(c, "pull_sources.update", sourceID, middleware.BuildAuditDetails(map[string]any{
+			"result":           "failed",
+			"target_source_id": sourceID,
+			"http_status":      http.StatusBadRequest,
+			"error_code":       ErrorCodePullSourceInvalidArgument,
+		}))
 		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "invalid request body", gin.H{"error": err.Error()})
 		return
 	}
@@ -384,25 +553,32 @@ func (h *PullSourceHandler) updatePullSource(c *gin.Context, sourceID string) {
 func (h *PullSourceHandler) updatePullSourceWithRequest(c *gin.Context, sourceID string, req UpdatePullSourceRequest) {
 	normalized, err := normalizeUpdatePullSourceRequest(req)
 	if err != nil {
+		setPullSourceAuditEvent(c, resolvePullSourceUpdateAction(req), sourceID, buildPullSourceUpdateAuditDetails(sourceID, req, http.StatusBadRequest, "failed", ErrorCodePullSourceInvalidArgument))
 		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, err.Error(), nil)
 		return
 	}
 
-	_, err = h.store.Update(sourceID, normalized)
+	updated, err := h.store.Update(sourceID, normalized)
+	action := resolvePullSourceUpdateAction(normalized)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrPullSourceNotFound):
+			setPullSourceAuditEvent(c, action, sourceID, buildPullSourceUpdateAuditDetails(sourceID, normalized, http.StatusNotFound, "failed", ErrorCodePullSourceNotFound))
 			writeError(c, http.StatusNotFound, ErrorCodePullSourceNotFound, "pull source not found", nil)
 		case errors.Is(err, ErrPullSourceNameConflict):
+			setPullSourceAuditEvent(c, action, sourceID, buildPullSourceUpdateAuditDetails(sourceID, normalized, http.StatusConflict, "failed", ErrorCodePullSourceNameConflict))
 			writeError(c, http.StatusConflict, ErrorCodePullSourceNameConflict, "pull source name already exists", nil)
 		case errors.Is(err, ErrPullSourceOverlapConflict):
+			setPullSourceAuditEvent(c, action, sourceID, buildPullSourceUpdateAuditDetails(sourceID, normalized, http.StatusConflict, "failed", ErrorCodePullSourceOverlapConflict))
 			writeError(c, http.StatusConflict, ErrorCodePullSourceOverlapConflict, "active pull source overlaps existing agent endpoint", gin.H{"field": "agent_base_url"})
 		default:
+			setPullSourceAuditEvent(c, action, sourceID, buildPullSourceUpdateAuditDetails(sourceID, normalized, http.StatusInternalServerError, "failed", ErrorCodePullSourceInternalError))
 			writeError(c, http.StatusInternalServerError, ErrorCodePullSourceInternalError, "failed to update pull source", nil)
 		}
 		return
 	}
 
+	setPullSourceAuditEvent(c, action, updated.SourceID, buildPullSourceAuditDetails(updated, http.StatusOK, "success", "", pullSourceUpdatedFields(normalized)))
 	writeSuccess(c, http.StatusOK, gin.H{"updated": true}, gin.H{})
 }
 
