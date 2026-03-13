@@ -1,0 +1,84 @@
+package main
+
+import (
+	"database/sql"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/nexuslog/api-service/internal/handler"
+	"github.com/nexuslog/api-service/internal/repository"
+	"github.com/nexuslog/api-service/internal/service"
+)
+
+func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
+	authRepo := repository.NewAuthRepository(db)
+	authService := service.NewAuthService(authRepo, jwtSecret)
+	authHandler := handler.NewAuthHandler(authService)
+
+	userRepo := repository.NewUserRepository(db)
+	userService := service.NewUserService(userRepo)
+	userHandler := handler.NewUserHandler(userService)
+
+	router.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "healthy",
+			"service": "api-service",
+			"time":    time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
+	router.GET("/api/v1/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "healthy",
+			"service": "api-service",
+			"time":    time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
+	router.GET("/metrics", func(c *gin.Context) {
+		c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		c.String(
+			http.StatusOK,
+			"# HELP nexuslog_service_up Whether the service is up.\n"+
+				"# TYPE nexuslog_service_up gauge\n"+
+				"nexuslog_service_up{service=\"api-service\"} 1\n",
+		)
+	})
+
+	apiV1 := router.Group("/api/v1")
+
+	authV1 := apiV1.Group("/auth")
+	authV1.POST("/register", authHandler.Register)
+	authV1.POST("/login", authHandler.Login)
+	authV1.POST("/refresh", authHandler.Refresh)
+	authV1.POST("/logout", authHandler.Logout)
+	authV1.POST("/password/reset-request", authHandler.PasswordResetRequest)
+	authV1.POST("/password/reset-confirm", authHandler.PasswordResetConfirm)
+
+	protected := apiV1.Group("")
+	protected.Use(handler.AuthRequired(db, jwtSecret))
+
+	userV1 := protected.Group("/users")
+	userV1.GET("/me", userHandler.GetMe)
+	userV1.GET("", handler.RequirePermission("users:read"), userHandler.List)
+	userV1.POST("/batch/status", handler.RequirePermission("users:write"), userHandler.BatchUpdateStatus)
+	userV1.GET("/:id", handler.RequirePermission("users:read"), userHandler.Get)
+	userV1.POST("", handler.RequirePermission("users:write"), userHandler.Create)
+	userV1.PUT("/:id", handler.RequirePermission("users:write"), userHandler.Update)
+	userV1.DELETE("/:id", handler.RequirePermission("users:write"), userHandler.Delete)
+	userV1.POST("/:id/roles", handler.RequirePermission("users:write"), userHandler.AssignRole)
+	userV1.DELETE("/:id/roles/:roleId", handler.RequirePermission("users:write"), userHandler.RemoveRole)
+
+	roleV1 := protected.Group("/roles")
+	roleV1.GET("", handler.RequirePermission("users:read"), userHandler.ListRoles)
+}
+
+func newHTTPServer(port string, router http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              ":" + port,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+}
