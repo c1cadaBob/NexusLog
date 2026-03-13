@@ -10,8 +10,10 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/nexuslog/api-service/internal/model"
+	"github.com/nexuslog/api-service/internal/repository"
 	"github.com/nexuslog/api-service/internal/service"
 )
 
@@ -202,6 +204,187 @@ func TestAuditMiddleware_UsesExplicitAuditEventForAuthRefreshInvalidBody(t *test
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 	req.Header.Set("User-Agent", "audit-auth-refresh-invalid")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+	waitForAuditExpectations(t, mock)
+}
+
+func TestAuditMiddleware_UsesExplicitAuditEventForPasswordResetRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec("INSERT INTO audit_logs").
+		WithArgs(
+			"00000000-0000-0000-0000-000000000001",
+			nil,
+			"auth.password_reset_request",
+			"auth",
+			"",
+			`{"email_or_username":"alice","http_status":200,"result":"success"}`,
+			"192.0.2.5",
+			"audit-reset-request",
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	router := gin.New()
+	router.Use(AuditMiddleware(db))
+	mockRepo := &handlerRepoMock{
+		tenantExists: true,
+		findUser: repository.UserIdentityRecord{
+			UserID:   uuid.New(),
+			Username: "alice",
+			Email:    "alice@example.com",
+			Status:   "active",
+		},
+	}
+	h := NewAuthHandler(service.NewAuthService(mockRepo, "test-secret"))
+	router.POST("/api/v1/auth/password/reset-request", h.PasswordResetRequest)
+
+	payload := model.PasswordResetRequestRequest{EmailOrUsername: "alice"}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-request", bytes.NewBuffer(raw))
+	req.RemoteAddr = "192.0.2.5:34567"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	req.Header.Set("User-Agent", "audit-reset-request")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	waitForAuditExpectations(t, mock)
+}
+
+func TestAuditMiddleware_UsesExplicitAuditEventForPasswordResetRequestInvalidBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec("INSERT INTO audit_logs").
+		WithArgs(
+			"00000000-0000-0000-0000-000000000001",
+			nil,
+			"auth.password_reset_request",
+			"auth",
+			"",
+			`{"error_code":"AUTH_RESET_REQUEST_INVALID_ARGUMENT","http_status":400,"result":"failed"}`,
+			"192.0.2.6",
+			"audit-reset-request-invalid",
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	router := gin.New()
+	router.Use(AuditMiddleware(db))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
+	router.POST("/api/v1/auth/password/reset-request", h.PasswordResetRequest)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-request", bytes.NewBufferString("{bad json"))
+	req.RemoteAddr = "192.0.2.6:45678"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	req.Header.Set("User-Agent", "audit-reset-request-invalid")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+	waitForAuditExpectations(t, mock)
+}
+
+func TestAuditMiddleware_UsesExplicitAuditEventForPasswordResetConfirm(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec("INSERT INTO audit_logs").
+		WithArgs(
+			"00000000-0000-0000-0000-000000000001",
+			nil,
+			"auth.password_reset_confirm",
+			"auth",
+			"",
+			`{"http_status":200,"result":"success","token_provided":true}`,
+			"192.0.2.7",
+			"audit-reset-confirm",
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	router := gin.New()
+	router.Use(AuditMiddleware(db))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
+	router.POST("/api/v1/auth/password/reset-confirm", h.PasswordResetConfirm)
+
+	payload := model.PasswordResetConfirmRequest{Token: "reset-token-1", NewPassword: "Password123"}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-confirm", bytes.NewBuffer(raw))
+	req.RemoteAddr = "192.0.2.7:34567"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	req.Header.Set("User-Agent", "audit-reset-confirm")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	waitForAuditExpectations(t, mock)
+}
+
+func TestAuditMiddleware_UsesExplicitAuditEventForPasswordResetConfirmInvalidBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec("INSERT INTO audit_logs").
+		WithArgs(
+			"00000000-0000-0000-0000-000000000001",
+			nil,
+			"auth.password_reset_confirm",
+			"auth",
+			"",
+			`{"error_code":"AUTH_RESET_CONFIRM_INVALID_ARGUMENT","http_status":400,"result":"failed","token_provided":false}`,
+			"192.0.2.8",
+			"audit-reset-confirm-invalid",
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	router := gin.New()
+	router.Use(AuditMiddleware(db))
+	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
+	router.POST("/api/v1/auth/password/reset-confirm", h.PasswordResetConfirm)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password/reset-confirm", bytes.NewBufferString("{bad json"))
+	req.RemoteAddr = "192.0.2.8:45678"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	req.Header.Set("User-Agent", "audit-reset-confirm-invalid")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 

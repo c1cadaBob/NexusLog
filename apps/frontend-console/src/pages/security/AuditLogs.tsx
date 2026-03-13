@@ -12,6 +12,8 @@ const AUDIT_ACTION_OPTIONS = [
   { value: 'auth.refresh', label: 'auth.refresh' },
   { value: 'auth.logout', label: 'auth.logout' },
   { value: 'auth.register', label: 'auth.register' },
+  { value: 'auth.password_reset_request', label: 'auth.password_reset_request' },
+  { value: 'auth.password_reset_confirm', label: 'auth.password_reset_confirm' },
   { value: 'users.list', label: 'users.list' },
   { value: 'users.read', label: 'users.read' },
   { value: 'users.create', label: 'users.create' },

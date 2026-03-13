@@ -206,6 +206,11 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 func (h *AuthHandler) PasswordResetRequest(c *gin.Context) {
 	var req model.PasswordResetRequestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setAuthAuditEvent(c, "auth.password_reset_request", "", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "AUTH_RESET_REQUEST_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "AUTH_RESET_REQUEST_INVALID_ARGUMENT",
@@ -225,10 +230,21 @@ func (h *AuthHandler) PasswordResetRequest(c *gin.Context) {
 		c.Request.UserAgent(),
 	)
 	if apiErr != nil {
+		setAuthAuditEvent(c, "auth.password_reset_request", "", "", buildAuditDetails(map[string]any{
+			"result":            "failed",
+			"email_or_username": req.EmailOrUsername,
+			"error_code":        apiErr.Code,
+			"http_status":       apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
 
+	setAuthAuditEvent(c, "auth.password_reset_request", "", "", buildAuditDetails(map[string]any{
+		"result":            "success",
+		"email_or_username": req.EmailOrUsername,
+		"http_status":       http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, resp)
 }
 
@@ -236,6 +252,12 @@ func (h *AuthHandler) PasswordResetRequest(c *gin.Context) {
 func (h *AuthHandler) PasswordResetConfirm(c *gin.Context) {
 	var req model.PasswordResetConfirmRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setAuthAuditEvent(c, "auth.password_reset_confirm", "", "", buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"error_code":     "AUTH_RESET_CONFIRM_INVALID_ARGUMENT",
+			"http_status":    http.StatusBadRequest,
+			"token_provided": false,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "AUTH_RESET_CONFIRM_INVALID_ARGUMENT",
@@ -247,16 +269,28 @@ func (h *AuthHandler) PasswordResetConfirm(c *gin.Context) {
 		return
 	}
 
+	tokenProvided := strings.TrimSpace(req.Token) != ""
 	resp, apiErr := h.authService.PasswordResetConfirm(
 		c.Request.Context(),
 		c.GetHeader("X-Tenant-ID"),
 		req,
 	)
 	if apiErr != nil {
+		setAuthAuditEvent(c, "auth.password_reset_confirm", "", "", buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"error_code":     apiErr.Code,
+			"http_status":    apiErr.HTTPStatus,
+			"token_provided": tokenProvided,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
 
+	setAuthAuditEvent(c, "auth.password_reset_confirm", "", "", buildAuditDetails(map[string]any{
+		"result":         "success",
+		"http_status":    http.StatusOK,
+		"token_provided": tokenProvided,
+	}))
 	httpx.Success(c, http.StatusOK, resp)
 }
 
