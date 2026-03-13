@@ -72,11 +72,13 @@ func main() {
 		getEnv("AGENT_API_KEY_NEXT", ""),
 	)
 
+	pullV2RecordBufferingEnabled := rewriteMode && isTruthy(getEnv("PULLV2_ENABLE_RECORD_BUFFERING", "false"))
 	var pullV2Service *pullv2.Service
 	var pullV2Auth pullv2.AuthConfig
 	if rewriteMode {
+		pullV2MaxBufferedRecords := parseEnvInt("PULLV2_MAX_BUFFERED_RECORDS", 10000)
 		pullV2Service = pullv2.New(
-			parseEnvInt("PULLV2_MAX_BUFFERED_RECORDS", 10000),
+			pullV2MaxBufferedRecords,
 			pullV2CheckpointSaver{store: ckpStore},
 		)
 		pullV2Auth = pullv2.NewAuthConfig(
@@ -85,6 +87,11 @@ func main() {
 			getEnv("AGENT_API_KEY_NEXT_ID", "next"),
 			getEnv("AGENT_API_KEY_NEXT", ""),
 		)
+		if pullV2RecordBufferingEnabled {
+			log.Printf("pullv2 record buffering enabled, max_buffered_records=%d", pullV2MaxBufferedRecords)
+		} else {
+			log.Printf("pullv2 record buffering disabled; set PULLV2_ENABLE_RECORD_BUFFERING=true to enqueue rewrite pull batches")
+		}
 	}
 
 	// 4. 初始化采集器（7.6：支持 include/exclude 采集范围）
@@ -218,7 +225,7 @@ func main() {
 	var pipelineInputCh chan []plugins.Record
 	if enableKafkaPipeline && pipe != nil {
 		pipelineInputCh = make(chan []plugins.Record, 128)
-		go fanOutCollectorOutput(ctx, coll.Output(), pipelineInputCh, pullService, pullV2Service, enablePullDelivery, deliveryMode, metaInfo.AgentID, metaInfo.Hostname, metaInfo.IP)
+		go fanOutCollectorOutput(ctx, coll.Output(), pipelineInputCh, pullService, pullV2Service, enablePullDelivery, pullV2RecordBufferingEnabled, deliveryMode, metaInfo.AgentID, metaInfo.Hostname, metaInfo.IP)
 		pipe.Start(ctx, pipelineInputCh)
 		if enablePullDelivery {
 			log.Println("采集分发已启动：pull + kafka-compat")
@@ -226,7 +233,7 @@ func main() {
 			log.Println("采集分发已启动：kafka-only")
 		}
 	} else {
-		go fanOutCollectorOutput(ctx, coll.Output(), nil, pullService, pullV2Service, enablePullDelivery, deliveryMode, metaInfo.AgentID, metaInfo.Hostname, metaInfo.IP)
+		go fanOutCollectorOutput(ctx, coll.Output(), nil, pullService, pullV2Service, enablePullDelivery, pullV2RecordBufferingEnabled, deliveryMode, metaInfo.AgentID, metaInfo.Hostname, metaInfo.IP)
 		if enablePullDelivery {
 			log.Println("采集分发已启动：pull-only")
 		} else {
@@ -261,7 +268,7 @@ func main() {
 }
 
 // fanOutCollectorOutput 将采集批次广播到 pull API 与 pipeline 输入通道。
-func fanOutCollectorOutput(ctx context.Context, collectorOut <-chan []plugins.Record, pipelineIn chan<- []plugins.Record, pullService *pullapi.Service, pullV2Service *pullv2.Service, enablePullDelivery bool, deliveryMode, agentID, sourceHostname, sourceIP string) {
+func fanOutCollectorOutput(ctx context.Context, collectorOut <-chan []plugins.Record, pipelineIn chan<- []plugins.Record, pullService *pullapi.Service, pullV2Service *pullv2.Service, enablePullDelivery, enablePullV2RecordBuffering bool, deliveryMode, agentID, sourceHostname, sourceIP string) {
 	if pipelineIn != nil {
 		defer close(pipelineIn)
 	}
@@ -281,7 +288,7 @@ func fanOutCollectorOutput(ctx context.Context, collectorOut <-chan []plugins.Re
 				if pullService != nil {
 					pullService.AddRecords(pullBatch)
 				}
-				if pullV2Service != nil {
+				if pullV2Service != nil && enablePullV2RecordBuffering {
 					appendBatchToPullV2(pullV2Service, pullBatch)
 				}
 			}

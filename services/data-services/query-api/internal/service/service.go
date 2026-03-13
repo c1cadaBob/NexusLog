@@ -21,6 +21,8 @@ const (
 	DefaultPageSize = 50
 	// MaxPageSize 定义最大分页大小，避免单次查询过重。
 	MaxPageSize = 200
+	// MaxSearchResultWindow 定义 ES from/size 允许的最大结果窗口。
+	MaxSearchResultWindow = 10000
 	// DefaultTenantID 用于请求缺失租户上下文时兜底。
 	DefaultTenantID = "00000000-0000-0000-0000-000000000001"
 )
@@ -32,6 +34,10 @@ var (
 	ErrUserContextRequired = errors.New("user context is required")
 	// ErrInvalidSavedQuery 表示收藏查询参数非法。
 	ErrInvalidSavedQuery = errors.New("invalid saved query payload")
+	// ErrPageBeyondResultWindow 表示请求页码超出 ES 结果窗口上限。
+	ErrPageBeyondResultWindow = errors.New("requested page exceeds supported result window")
+	// ErrInvalidSearchCursor 表示深分页 cursor 参数非法。
+	ErrInvalidSearchCursor = errors.New("invalid search cursor")
 	// levelTokenPattern 用于在日志正文中优先识别显式级别词。
 	levelTokenPattern = regexp.MustCompile(`(?i)\b(trace|debug|info|warn(?:ing)?|error|fatal|panic)\b`)
 	// ansiColorPattern 用于移除 ANSI 颜色控制序列。
@@ -75,6 +81,8 @@ type SearchLogsRequest struct {
 	Sort          []SortField    `json:"sort"`
 	Page          int            `json:"page"`
 	PageSize      int            `json:"page_size"`
+	PITID         string         `json:"pit_id"`
+	SearchAfter   []any          `json:"search_after"`
 	RecordHistory bool           `json:"record_history"`
 }
 
@@ -91,13 +99,15 @@ type SearchLogHit struct {
 
 // SearchLogsResult 定义日志查询结果集合。
 type SearchLogsResult struct {
-	Hits         []SearchLogHit `json:"hits"`
-	Aggregations map[string]any `json:"aggregations,omitempty"`
-	Total        int64          `json:"total"`
-	Page         int            `json:"page"`
-	PageSize     int            `json:"page_size"`
-	QueryTimeMS  int            `json:"query_time_ms"`
-	TimedOut     bool           `json:"timed_out"`
+	Hits            []SearchLogHit `json:"hits"`
+	Aggregations    map[string]any `json:"aggregations,omitempty"`
+	Total           int64          `json:"total"`
+	Page            int            `json:"page"`
+	PageSize        int            `json:"page_size"`
+	QueryTimeMS     int            `json:"query_time_ms"`
+	TimedOut        bool           `json:"timed_out"`
+	PITID           string         `json:"pit_id,omitempty"`
+	NextSearchAfter []any          `json:"next_search_after,omitempty"`
 }
 
 // ListQueryHistoriesRequest 定义查询历史列表请求参数。
@@ -197,6 +207,15 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 	if pageSize > MaxPageSize {
 		pageSize = MaxPageSize
 	}
+	pitID := strings.TrimSpace(req.PITID)
+	searchAfter := cloneSlice(req.SearchAfter)
+	if len(searchAfter) > 0 && pitID == "" {
+		return SearchLogsResult{}, ErrInvalidSearchCursor
+	}
+	if len(searchAfter) == 0 && exceedsMaxSearchResultWindow(page, pageSize) {
+		maxPage := maxSupportedPage(pageSize)
+		return SearchLogsResult{}, fmt.Errorf("%w: page=%d page_size=%d max_page=%d max_rows=%d", ErrPageBeyondResultWindow, page, pageSize, maxPage, MaxSearchResultWindow)
+	}
 
 	repoResult, err := s.logRepo.SearchLogs(ctx, repository.SearchLogsInput{
 		Keywords:      strings.TrimSpace(req.Keywords),
@@ -206,6 +225,8 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 		Sort:          toRepositorySort(req.Sort),
 		Page:          page,
 		PageSize:      pageSize,
+		PITID:         pitID,
+		SearchAfter:   searchAfter,
 	})
 	if err != nil {
 		s.tryRecordQueryHistory(ctx, actor, req, SearchLogsResult{
@@ -222,13 +243,15 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 	}
 
 	result := SearchLogsResult{
-		Hits:         hits,
-		Aggregations: repoResult.Aggregations,
-		Total:        repoResult.Total,
-		Page:         page,
-		PageSize:     pageSize,
-		QueryTimeMS:  repoResult.TookMS,
-		TimedOut:     repoResult.TimedOut,
+		Hits:            hits,
+		Aggregations:    repoResult.Aggregations,
+		Total:           repoResult.Total,
+		Page:            page,
+		PageSize:        pageSize,
+		QueryTimeMS:     repoResult.TookMS,
+		TimedOut:        repoResult.TimedOut,
+		PITID:           strings.TrimSpace(repoResult.PITID),
+		NextSearchAfter: cloneSlice(repoResult.NextSearchAfter),
 	}
 	s.tryRecordQueryHistory(ctx, actor, req, result, nil)
 	return result, nil
@@ -490,18 +513,14 @@ func (s *QueryService) tryRecordQueryHistory(
 	if !req.RecordHistory {
 		return
 	}
+	queryText := buildQueryText(req)
+	if queryText == "" {
+		return
+	}
 	if s == nil || s.metadataRepo == nil || !s.metadataRepo.IsConfigured() {
 		return
 	}
 	actor = normalizeActor(actor)
-
-	queryText := strings.TrimSpace(req.Keywords)
-	if queryText == "" {
-		queryText = buildQueryText(req)
-	}
-	if queryText == "" {
-		queryText = "(empty query)"
-	}
 
 	status := "success"
 	errorMessage := ""
@@ -541,16 +560,39 @@ func (s *QueryService) tryRecordQueryHistory(
 	})
 }
 
+func exceedsMaxSearchResultWindow(page, pageSize int) bool {
+	if page <= 0 || pageSize <= 0 {
+		return false
+	}
+	return page > maxSupportedPage(pageSize)
+}
+
+func maxSupportedPage(pageSize int) int {
+	if pageSize <= 0 {
+		return 1
+	}
+	maxPage := MaxSearchResultWindow / pageSize
+	if maxPage <= 0 {
+		return 1
+	}
+	return maxPage
+}
+
 func buildQueryText(req SearchLogsRequest) string {
 	parts := make([]string, 0, 3)
 	if keywords := strings.TrimSpace(req.Keywords); keywords != "" {
 		parts = append(parts, keywords)
 	}
 	if len(req.Filters) > 0 {
-		parts = append(parts, "filters:"+marshalMapOrEmpty(req.Filters))
+		filterText := strings.TrimSpace(marshalMapOrEmpty(req.Filters))
+		if filterText != "" && filterText != "{}" {
+			parts = append(parts, "filters:"+filterText)
+		}
 	}
-	if req.TimeRange.From != "" || req.TimeRange.To != "" {
-		parts = append(parts, fmt.Sprintf("time:[%s,%s]", req.TimeRange.From, req.TimeRange.To))
+	from := strings.TrimSpace(req.TimeRange.From)
+	to := strings.TrimSpace(req.TimeRange.To)
+	if from != "" {
+		parts = append(parts, fmt.Sprintf("time:[%s,%s]", from, to))
 	}
 	return strings.Join(parts, " ")
 }
@@ -1192,6 +1234,15 @@ func cloneMap(source map[string]any) map[string]any {
 	for key, value := range source {
 		out[key] = value
 	}
+	return out
+}
+
+func cloneSlice(source []any) []any {
+	if len(source) == 0 {
+		return nil
+	}
+	out := make([]any, len(source))
+	copy(out, source)
 	return out
 }
 

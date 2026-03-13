@@ -1,6 +1,11 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -327,6 +332,142 @@ func TestResolveDisplayServiceWithHint_FixesHistoricalDockerFilename(t *testing.
 
 	if got := resolveDisplayServiceWithHint(source, "query-api"); got != "query-api" {
 		t.Fatalf("resolveDisplayServiceWithHint()=%q, want query-api", got)
+	}
+}
+
+func TestBuildQueryText_SkipsTrulyEmptySearch(t *testing.T) {
+	if got := buildQueryText(SearchLogsRequest{}); got != "" {
+		t.Fatalf("buildQueryText(empty)=%q, want empty string", got)
+	}
+}
+
+func TestBuildQueryText_IncludesStructuredCriteria(t *testing.T) {
+	got := buildQueryText(SearchLogsRequest{
+		Keywords: "level:error",
+		Filters: map[string]any{
+			"service": "query-api",
+		},
+		TimeRange: TimeRange{From: "2026-03-11T12:00:00Z", To: "2026-03-11T13:00:00Z"},
+	})
+
+	for _, fragment := range []string{"level:error", "filters:{\"service\":\"query-api\"}", "time:[2026-03-11T12:00:00Z,2026-03-11T13:00:00Z]"} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("buildQueryText()=%q, want fragment %q", got, fragment)
+		}
+	}
+}
+
+func TestBuildQueryText_SkipsRealtimeAutoUpperBoundOnly(t *testing.T) {
+	got := buildQueryText(SearchLogsRequest{
+		Keywords:  "level:error AND service:payment",
+		TimeRange: TimeRange{To: "2026-03-11T13:36:35.647Z"},
+	})
+
+	if strings.Contains(got, "time:[") {
+		t.Fatalf("buildQueryText()=%q, want no auto upper-bound time range", got)
+	}
+	if got != "level:error AND service:payment" {
+		t.Fatalf("buildQueryText()=%q, want only keywords", got)
+	}
+}
+
+func TestSearchLogs_RejectsCursorWithoutPITID(t *testing.T) {
+	svc := NewQueryService(nil, nil)
+	_, err := svc.SearchLogs(context.Background(), RequestActor{}, SearchLogsRequest{
+		Page:        501,
+		PageSize:    20,
+		SearchAfter: []any{"2026-03-13T08:00:00Z", 99},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("SearchLogs() with nil repo should still fail configuration first, got %v", err)
+	}
+
+	repo := repository.NewElasticsearchRepositoryFromEnv()
+	svc = NewQueryService(repo, nil)
+	_, err = svc.SearchLogs(context.Background(), RequestActor{}, SearchLogsRequest{
+		Page:        501,
+		PageSize:    20,
+		SearchAfter: []any{"2026-03-13T08:00:00Z", 99},
+	})
+	if err == nil || !errors.Is(err, ErrInvalidSearchCursor) {
+		t.Fatalf("SearchLogs() error = %v, want ErrInvalidSearchCursor", err)
+	}
+}
+
+func TestSearchLogs_AllowsDeepPageWhenCursorProvided(t *testing.T) {
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if r.URL.Path != "/_search" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request body failed: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 4,
+			"timed_out": false,
+			"pit_id": "pit-deep-page",
+			"hits": {
+				"total": {"value": 20001},
+				"hits": [
+					{
+						"_id": "log-deep",
+						"_index": "nexuslog-logs-read",
+						"sort": ["2026-03-13T08:00:00Z", 1001],
+						"_source": {
+							"@timestamp": "2026-03-13T08:00:00Z",
+							"message": "deep page log"
+						}
+					}
+				]
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+	repo := repository.NewElasticsearchRepositoryFromEnv()
+	svc := NewQueryService(repo, nil)
+	result, err := svc.SearchLogs(context.Background(), RequestActor{}, SearchLogsRequest{
+		Page:        501,
+		PageSize:    20,
+		PITID:       "pit-deep-page",
+		SearchAfter: []any{"2026-03-13T07:59:00Z", 1000},
+		Sort:        []SortField{{Field: "@timestamp", Order: "desc"}},
+	})
+	if err != nil {
+		t.Fatalf("SearchLogs() error = %v", err)
+	}
+	if result.Page != 501 {
+		t.Fatalf("result.Page=%d, want 501", result.Page)
+	}
+	if result.PITID != "pit-deep-page" {
+		t.Fatalf("result.PITID=%q, want pit-deep-page", result.PITID)
+	}
+	if len(result.Hits) != 1 || result.Hits[0].Message != "deep page log" {
+		t.Fatalf("unexpected deep-page hits: %+v", result.Hits)
+	}
+	if _, exists := captured["from"]; exists {
+		t.Fatalf("from should be omitted for deep-page cursor search: %#v", captured)
+	}
+	if _, ok := captured["search_after"].([]any); !ok {
+		t.Fatalf("search_after missing: %#v", captured)
+	}
+}
+
+func TestExceedsMaxSearchResultWindow(t *testing.T) {
+	if exceedsMaxSearchResultWindow(500, 20) {
+		t.Fatalf("page 500 with size 20 should still be allowed")
+	}
+	if !exceedsMaxSearchResultWindow(501, 20) {
+		t.Fatalf("page 501 with size 20 should exceed the max result window")
+	}
+	if maxSupportedPage(10) != 1000 {
+		t.Fatalf("maxSupportedPage(10)=%d, want 1000", maxSupportedPage(10))
 	}
 }
 

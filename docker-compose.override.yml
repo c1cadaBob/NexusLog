@@ -261,6 +261,7 @@ services:
       - AGENT_SOURCE_IP_FILE=/host/etc/nexuslog-host-meta/source_ip
       - AGENT_SOURCE_IP_DISCOVERY=primary_ipv4
       - AGENT_SOURCE_IP_ALLOW_CONTAINER_FALLBACK=false
+      - PULLV2_ENABLE_RECORD_BUFFERING=false
       - COLLECTOR_INCLUDE_PATHS=/var/log/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/*/*.log,/var/log/*/*_log,/host-docker-containers/*/*-json.log
       - COLLECTOR_CRITICAL_INCLUDE_PATHS=/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler
       - COLLECTOR_EXCLUDE_PATHS=/var/log/*.gz,/var/log/*/*.gz,/var/log/*.xz,/var/log/*/*.xz,/var/log/journal/*,/var/log/lastlog,/var/log/wtmp,/var/log/wtmp-*,/var/log/btmp,/var/log/btmp-*
@@ -317,6 +318,7 @@ services:
       - AGENT_SOURCE_HOSTNAME=collector-agent-remote-local
       - AGENT_SOURCE_IP=198.18.0.2
       - AGENT_SOURCE_IP_ALLOW_CONTAINER_FALLBACK=false
+      - PULLV2_ENABLE_RECORD_BUFFERING=false
       - AGENT_API_KEY_ACTIVE_ID=active
       - AGENT_API_KEY_ACTIVE=dev-agent-key
       # 远程模拟模式仅保留 pull 主路径，关闭 Kafka 兼容主推
@@ -363,10 +365,12 @@ services:
     mem_limit: "512m"
 
   elasticsearch:
-    cpus: "1.50"
-    mem_limit: "1536m"
+    cpus: "2.00"
+    mem_limit: "2048m"
     environment:
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.ml.enabled=false
+      - ingest.geoip.downloader.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
 
   zookeeper:
     cpus: "0.50"

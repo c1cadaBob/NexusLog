@@ -6,6 +6,7 @@ export const TOKEN_EXPIRES_AT_KEY = 'nexuslog-token-expires-at';
 export const AUTH_PERSIST_KEY = 'nexuslog-auth';
 export const EMERGENCY_ACCESS_TOKEN_PREFIX = 'emergency-access-';
 const AUTH_STORAGE_SCOPE_KEY = 'nexuslog-auth-storage-scope';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type AuthStorageScope = 'local' | 'session';
 
@@ -98,6 +99,60 @@ export function clearAuthStorage(): void {
 
 export function isEmergencyAccessToken(token: string | null | undefined): boolean {
   return typeof token === 'string' && token.startsWith(EMERGENCY_ACCESS_TOKEN_PREFIX);
+}
+
+export function deriveDeterministicUUID(seed: string): string {
+  const normalized = seed.trim().toLowerCase() || 'nexuslog-user';
+  let hashA = 0x811c9dc5;
+  let hashB = 0x9e3779b1;
+  let hashC = 0x85ebca6b;
+  let hashD = 0xc2b2ae35;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const code = normalized.charCodeAt(index);
+    hashA = Math.imul(hashA ^ code, 16777619);
+    hashB = Math.imul(hashB ^ (code + index), 2246822519);
+    hashC = Math.imul(hashC ^ (code + 17), 3266489917);
+    hashD = Math.imul(hashD ^ (code + 31), 668265263);
+  }
+
+  const hex = [hashA, hashB, hashC, hashD]
+    .map((value) => (value >>> 0).toString(16).padStart(8, '0'))
+    .join('');
+
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+interface PersistedAuthSnapshot {
+  state?: {
+    user?: {
+      id?: string;
+      username?: string;
+    } | null;
+  } | null;
+}
+
+export function resolveStoredAuthUserID(): string {
+  const raw = getAuthStorageItem(AUTH_PERSIST_KEY)?.trim();
+  if (!raw) {
+    return '';
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedAuthSnapshot;
+    const user = parsed?.state?.user;
+    const directID = user?.id?.trim() ?? '';
+    if (UUID_PATTERN.test(directID)) {
+      return directID;
+    }
+    const fallbackSeed = directID || user?.username?.trim() || '';
+    if (!fallbackSeed) {
+      return '';
+    }
+    return deriveDeterministicUUID(`nexuslog-user:${fallbackSeed}`);
+  } catch {
+    return '';
+  }
 }
 
 export function persistAuthSession(params: {

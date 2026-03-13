@@ -12,7 +12,8 @@ READ_ALIAS_NAME="${READ_ALIAS_NAME:-nexuslog-logs-read}"
 PULL_WRITE_ALIAS_NAME="${PULL_WRITE_ALIAS_NAME:-nexuslog-logs-write-pull}"
 STREAM_WRITE_ALIAS_NAME="${STREAM_WRITE_ALIAS_NAME:-nexuslog-logs-write-stream}"
 PULL_DATA_STREAM="${PULL_DATA_STREAM:-nexuslog-logs-v2-pull}"
-STREAM_WRITE_INDEX="${STREAM_WRITE_INDEX:-nexuslog-logs-stream-canary}"
+STREAM_WRITE_INDEX="${STREAM_WRITE_INDEX:-nexuslog-logs-stream-canary-v2}"
+STREAM_INDEX_TEMPLATE_FILE="${STREAM_INDEX_TEMPLATE_FILE:-storage/elasticsearch/templates/nexuslog-logs-v2.json}"
 WAIT_RETRIES="${WAIT_RETRIES:-30}"
 WAIT_INTERVAL_SEC="${WAIT_INTERVAL_SEC:-2}"
 
@@ -60,11 +61,18 @@ ensure_data_stream() {
 
 ensure_index() {
   local name="$1"
+  local template_file="${2:-}"
   if [[ -z "$name" ]]; then
     return 0
   fi
   if curl -fsS "$ES_HOST/$name" >/dev/null 2>&1; then
     info "index exists: $name"
+    return 0
+  fi
+  if [[ -n "$template_file" ]]; then
+    info "creating index: $name using template body: $template_file"
+    jq '.template' "$template_file" | \
+      curl -fsS -X PUT "$ES_HOST/$name" -H 'Content-Type: application/json' --data-binary @- >/dev/null
     return 0
   fi
   info "creating index: $name"
@@ -97,11 +105,16 @@ EOF
 }
 
 require_cmd curl
+require_cmd jq
+if [[ -n "$STREAM_INDEX_TEMPLATE_FILE" && ! -f "$STREAM_INDEX_TEMPLATE_FILE" ]]; then
+  error "stream index template file not found: $STREAM_INDEX_TEMPLATE_FILE"
+  exit 1
+fi
 wait_for_elasticsearch
 
 ensure_data_stream "$DATA_STREAM_NAME"
 ensure_data_stream "$PULL_DATA_STREAM"
-ensure_index "$STREAM_WRITE_INDEX"
+ensure_index "$STREAM_WRITE_INDEX" "$STREAM_INDEX_TEMPLATE_FILE"
 
 upsert_alias "$READ_ALIAS_NAME" "$DATA_STREAM_NAME" false
 upsert_alias "$PULL_WRITE_ALIAS_NAME" "$PULL_DATA_STREAM" true

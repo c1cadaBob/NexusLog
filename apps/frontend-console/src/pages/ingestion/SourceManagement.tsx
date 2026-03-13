@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Input, Select, Table, Tag, Button, Card, Space, Modal, Form, message, Spin, Empty, InputNumber } from 'antd';
+import { Input, Select, Table, Tag, Button, Card, Space, Modal, Form, message, Spin, Empty, InputNumber, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
@@ -13,6 +13,13 @@ import {
   type CreatePullSourcePayload,
   type UpdatePullSourcePayload,
 } from '../../api/ingest';
+import {
+  compactSourceID,
+  getSourceDisplayIcon,
+  inferSourceDisplayType,
+  sourceDisplayTypeToFilterGroup,
+  summarizeSourcePath,
+} from './sourceManagementDisplay';
 
 const PROTOCOL_OPTIONS = [
   { label: 'SSH', value: 'ssh' },
@@ -23,26 +30,6 @@ const PROTOCOL_OPTIONS = [
   { label: 'Syslog UDP', value: 'syslog_udp' },
   { label: 'TCP', value: 'tcp' },
 ];
-
-function protocolToDisplayType(protocol: string): string {
-  if (protocol === 'http' || protocol === 'https') return 'HTTP';
-  if (protocol === 'syslog_tcp' || protocol === 'syslog_udp') return 'Syslog';
-  if (protocol === 'ssh' || protocol === 'sftp') return 'File';
-  return protocol;
-}
-
-function protocolToFilterGroup(protocol: string): string {
-  if (protocol === 'http' || protocol === 'https') return 'HTTP';
-  if (protocol === 'syslog_tcp' || protocol === 'syslog_udp') return 'Syslog';
-  if (protocol === 'ssh' || protocol === 'sftp') return 'File';
-  return 'other';
-}
-
-function getTypeIcon(protocol: string) {
-  if (protocol === 'http' || protocol === 'https') return 'public';
-  if (protocol === 'syslog_tcp' || protocol === 'syslog_udp') return 'dns';
-  return 'description';
-}
 
 function statusToDisplay(status: string): string {
   if (status === 'active') return 'Running';
@@ -106,7 +93,7 @@ const SourceManagement: React.FC = () => {
   const filteredSources = useMemo(() => {
     let result = sources;
     if (activeFilter !== 'all') {
-      result = result.filter((s) => protocolToFilterGroup(s.protocol) === activeFilter);
+      result = result.filter((s) => sourceDisplayTypeToFilterGroup(s) === activeFilter);
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -241,26 +228,56 @@ const SourceManagement: React.FC = () => {
     {
       title: '采集源名称 Source Name',
       key: 'name',
-      width: '25%',
+      width: 260,
       render: (_, source) => (
-        <div>
-          <div style={{ fontWeight: 500 }}>{source.name}</div>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>ID: {source.source_id}</div>
+        <div style={{ minWidth: 0 }}>
+          <Tooltip title={source.name}>
+            <div
+              style={{
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {source.name}
+            </div>
+          </Tooltip>
+          <Tooltip title={source.source_id}>
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: 12,
+                color: '#94a3b8',
+                fontFamily: 'JetBrains Mono, monospace',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              ID: {compactSourceID(source.source_id)}
+            </div>
+          </Tooltip>
         </div>
       ),
     },
     {
       title: '类型 Type',
       key: 'type',
-      width: '15%',
+      width: 150,
       render: (_, source) => {
-        const displayType = protocolToDisplayType(source.protocol);
+        const displayType = inferSourceDisplayType(source);
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>
-              {getTypeIcon(source.protocol)}
-            </span>
-            <span>{displayType}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>
+                {getSourceDisplayIcon(source)}
+              </span>
+              <span>{displayType}</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>
+              传输 {source.protocol.toUpperCase()}
+            </div>
           </div>
         );
       },
@@ -269,36 +286,68 @@ const SourceManagement: React.FC = () => {
       title: '路径 Path',
       dataIndex: 'path',
       key: 'path',
-      width: '20%',
-      render: (path: string) => (
-        <code
-          style={{
-            fontSize: 12,
-            padding: '2px 8px',
-            borderRadius: 4,
-            fontFamily: 'JetBrains Mono, monospace',
-            background: isDark ? '#0f172a' : '#f1f5f9',
-            border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-          }}
-        >
-          {path}
-        </code>
-      ),
+      width: 360,
+      render: (path: string) => {
+        const summary = summarizeSourcePath(path);
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+            <Tooltip title={<div style={{ whiteSpace: 'pre-wrap', maxWidth: 520 }}>{summary.fullText}</div>}>
+              <code
+                style={{
+                  display: 'block',
+                  maxWidth: '100%',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontSize: 12,
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  fontFamily: 'JetBrains Mono, monospace',
+                  background: isDark ? '#0f172a' : '#f1f5f9',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                }}
+              >
+                {summary.label}
+              </code>
+            </Tooltip>
+            {summary.extraCount > 0 && (
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                另含 {summary.extraCount} 条路径
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: '主机 Host',
       key: 'host',
-      width: '15%',
-      render: (_, source) => (
-        <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>
-          {source.host}:{source.port}
-        </span>
-      ),
+      width: 170,
+      render: (_, source) => {
+        const hostValue = `${source.host}:${source.port}`;
+        return (
+          <Tooltip title={hostValue}>
+            <span
+              style={{
+                display: 'inline-block',
+                maxWidth: '100%',
+                fontFamily: 'JetBrains Mono, monospace',
+                fontSize: 12,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {hostValue}
+            </span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '状态 Status',
       key: 'status',
-      width: '10%',
+      width: 120,
       render: (_, source) => (
         <Tag
           color={statusToTagColor(source.status)}
@@ -322,7 +371,7 @@ const SourceManagement: React.FC = () => {
     {
       title: '操作 Actions',
       key: 'actions',
-      width: '15%',
+      width: 120,
       align: 'right',
       render: (_, source) => (
         <Space size={4}>
@@ -411,19 +460,19 @@ const SourceManagement: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>采集源管理 Source Management</h2>
           <p style={{ margin: '8px 0 0', fontSize: 13, color: '#94a3b8', maxWidth: 600 }}>
             管理所有日志采集来源，监控数据接入状态与健康指标。支持 SSH、HTTP、Syslog 等多种协议接入。
           </p>
         </div>
-        <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>} onClick={openCreate}>
+        <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>} onClick={openCreate} style={{ whiteSpace: 'nowrap' }}>
           新建采集源 Add Source
         </Button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         <Card size="small" styles={{ body: { padding: 16 } }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
@@ -470,7 +519,7 @@ const SourceManagement: React.FC = () => {
         </Card>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <Space>
           {['all', 'File', 'HTTP', 'Syslog'].map((type) => (
             <Button key={type} type={activeFilter === type ? 'primary' : 'default'} size="small" onClick={() => setActiveFilter(type)}>
@@ -501,15 +550,16 @@ const SourceManagement: React.FC = () => {
                 rowKey="source_id"
                 columns={columns}
                 dataSource={filteredSources}
-                size="middle"
+                size="small"
                 loading={false}
+                tableLayout="fixed"
                 pagination={{
                   pageSize,
                   showSizeChanger: true,
                   showTotal: (total) => `共 ${total} 条数据源`,
                   onShowSizeChange: (_, size) => setPageSize(size),
                 }}
-                scroll={{ x: 900 }}
+                scroll={{ x: 1180 }}
               />
             )}
           </div>
@@ -524,7 +574,7 @@ const SourceManagement: React.FC = () => {
         okText="创建"
         cancelText="取消"
         width={560}
-        destroyOnClose
+        destroyOnHidden
         confirmLoading={submitting}
       >
         {renderForm(false)}
@@ -538,7 +588,7 @@ const SourceManagement: React.FC = () => {
         okText="保存"
         cancelText="取消"
         width={560}
-        destroyOnClose
+        destroyOnHidden
         confirmLoading={submitting}
       >
         {renderForm(true)}

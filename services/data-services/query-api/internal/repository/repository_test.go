@@ -1,13 +1,16 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
 func TestBuildESQuery_UsesStructuredV2FieldsAndFilterAliases(t *testing.T) {
-	query := buildESQuery(SearchLogsInput{
+	query := BuildESQuery(SearchLogsInput{
 		Keywords: "dnf.exceptions.RepoError",
 		Filters: map[string]any{
 			"level":      "error",
@@ -53,6 +56,40 @@ func TestBuildESQuery_UsesStructuredV2FieldsAndFilterAliases(t *testing.T) {
 		`"http.response.status_code":500`,
 		`"trace.id":"trace-1"`,
 		`"span.id":"span-1"`,
+	})
+}
+
+func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
+	query := BuildESQuery(SearchLogsInput{
+		Filters: map[string]any{
+			"exclude_internal_noise": true,
+		},
+	})
+
+	raw, err := json.Marshal(query)
+	if err != nil {
+		t.Fatalf("marshal query failed: %v", err)
+	}
+	encoded := string(raw)
+
+	assertContainsAll(t, encoded, []string{
+		`"must_not"`,
+		`"/api/v1/query/logs"`,
+		`"/api/v1/query/stats/aggregate"`,
+		`"/api/v1/query/stats/overview"`,
+		`"/metrics"`,
+		`"POST /_bulk?timeout=1m HTTP/1.1"`,
+		`"GET /_cluster/health HTTP/1.1"`,
+		`"ingest scheduler created task"`,
+		`"kafka_producer.go:153: 发送"`,
+		`"GET /subjects HTTP/1.1"`,
+		`"Processing srvr command from"`,
+		`"kafka_exporter.go:678]"`,
+		`"Triggering checkpoint"`,
+		`"Completed checkpoint"`,
+		`"Marking checkpoint"`,
+		`"checkpoint complete:"`,
+		`"Name collision: Group already contains a Metric with the name 'pendingCommittables'"`,
 	})
 }
 
@@ -146,6 +183,237 @@ func sortOptions(t *testing.T, clause map[string]any, field string) map[string]a
 		t.Fatalf("sort clause for %s has unexpected type %T", field, raw)
 	}
 	return options
+}
+
+func TestSearchLogs_OpensPITAndReturnsNextSearchAfter(t *testing.T) {
+	var pitCalls int
+	var capturedSearch map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/nexuslog-logs-read/_pit":
+			pitCalls++
+			if got := r.URL.Query().Get("keep_alive"); got != defaultPITKeepAlive {
+				t.Fatalf("keep_alive=%q, want %q", got, defaultPITKeepAlive)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"pit-opened"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/_search":
+			if err := json.NewDecoder(r.Body).Decode(&capturedSearch); err != nil {
+				t.Fatalf("decode search body failed: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"took": 7,
+				"timed_out": false,
+				"pit_id": "pit-refreshed",
+				"hits": {
+					"total": {"value": 12345},
+					"hits": [
+						{
+							"_id": "log-1",
+							"_index": "nexuslog-logs-read",
+							"sort": ["2026-03-13T08:00:00Z", 99],
+							"_source": {"message": "hello"}
+						}
+					]
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	result, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		Page:     2,
+		PageSize: 20,
+		Sort:     []SortField{{Field: "@timestamp", Order: "desc"}},
+	})
+	if err != nil {
+		t.Fatalf("SearchLogs() error = %v", err)
+	}
+	if pitCalls != 1 {
+		t.Fatalf("pitCalls=%d, want 1", pitCalls)
+	}
+	pit, ok := capturedSearch["pit"].(map[string]any)
+	if !ok {
+		t.Fatalf("search body pit missing: %#v", capturedSearch)
+	}
+	if got := pit["id"]; got != "pit-opened" {
+		t.Fatalf("pit.id=%v, want pit-opened", got)
+	}
+	if got := pit["keep_alive"]; got != defaultPITKeepAlive {
+		t.Fatalf("pit.keep_alive=%v, want %s", got, defaultPITKeepAlive)
+	}
+	if got := capturedSearch["from"]; got != float64(20) {
+		t.Fatalf("from=%v, want 20", got)
+	}
+	if _, exists := capturedSearch["search_after"]; exists {
+		t.Fatalf("search_after should be omitted for regular pages: %#v", capturedSearch)
+	}
+	if result.PITID != "pit-refreshed" {
+		t.Fatalf("result.PITID=%q, want pit-refreshed", result.PITID)
+	}
+	if len(result.NextSearchAfter) != 2 {
+		t.Fatalf("len(result.NextSearchAfter)=%d, want 2", len(result.NextSearchAfter))
+	}
+}
+
+func TestSearchLogs_UsesProvidedCursorForDeepPagination(t *testing.T) {
+	var pitCalls int
+	var capturedSearch map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/nexuslog-logs-read/_pit":
+			pitCalls++
+			http.Error(w, "unexpected pit open", http.StatusBadRequest)
+		case r.Method == http.MethodPost && r.URL.Path == "/_search":
+			if err := json.NewDecoder(r.Body).Decode(&capturedSearch); err != nil {
+				t.Fatalf("decode search body failed: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"took": 3,
+				"timed_out": false,
+				"pit_id": "pit-existing",
+				"hits": {
+					"total": {"value": 20001},
+					"hits": []
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	_, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		Page:        501,
+		PageSize:    20,
+		Sort:        []SortField{{Field: "@timestamp", Order: "desc"}},
+		PITID:       "pit-existing",
+		SearchAfter: []any{"2026-03-13T08:00:00Z", 99},
+	})
+	if err != nil {
+		t.Fatalf("SearchLogs() error = %v", err)
+	}
+	if pitCalls != 0 {
+		t.Fatalf("pitCalls=%d, want 0", pitCalls)
+	}
+	pit, ok := capturedSearch["pit"].(map[string]any)
+	if !ok {
+		t.Fatalf("search body pit missing: %#v", capturedSearch)
+	}
+	if got := pit["id"]; got != "pit-existing" {
+		t.Fatalf("pit.id=%v, want pit-existing", got)
+	}
+	searchAfter, ok := capturedSearch["search_after"].([]any)
+	if !ok || len(searchAfter) != 2 {
+		t.Fatalf("search_after=%#v, want 2 values", capturedSearch["search_after"])
+	}
+	if _, exists := capturedSearch["from"]; exists {
+		t.Fatalf("from should be omitted when search_after is used: %#v", capturedSearch)
+	}
+}
+
+func TestSearchLogs_ReopensPITWhenExistingPITExpires(t *testing.T) {
+	var pitCalls int
+	var searchCalls int
+	var firstSearch map[string]any
+	var secondSearch map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/nexuslog-logs-read/_pit":
+			pitCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"pit-reopened"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/_search":
+			searchCalls++
+			captured := map[string]any{}
+			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+				t.Fatalf("decode search body failed: %v", err)
+			}
+			if searchCalls == 1 {
+				firstSearch = captured
+				http.Error(w, `{"error":{"type":"resource_not_found_exception","reason":"point in time not found"}}`, http.StatusNotFound)
+				return
+			}
+			secondSearch = captured
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"took": 4,
+				"timed_out": false,
+				"pit_id": "pit-reopened-refreshed",
+				"hits": {
+					"total": {"value": 20001},
+					"hits": [
+						{
+							"_id": "log-recovered",
+							"_index": "nexuslog-logs-read",
+							"sort": ["2026-03-13T08:00:01Z", 100],
+							"_source": {"message": "recovered after pit refresh"}
+						}
+					]
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	result, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		Page:        501,
+		PageSize:    20,
+		Sort:        []SortField{{Field: "@timestamp", Order: "desc"}},
+		PITID:       "pit-stale",
+		SearchAfter: []any{"2026-03-13T08:00:00Z", 99},
+	})
+	if err != nil {
+		t.Fatalf("SearchLogs() error = %v", err)
+	}
+	if pitCalls != 1 {
+		t.Fatalf("pitCalls=%d, want 1", pitCalls)
+	}
+	if searchCalls != 2 {
+		t.Fatalf("searchCalls=%d, want 2", searchCalls)
+	}
+	firstPit, ok := firstSearch["pit"].(map[string]any)
+	if !ok || firstPit["id"] != "pit-stale" {
+		t.Fatalf("first search pit=%#v, want pit-stale", firstSearch["pit"])
+	}
+	secondPit, ok := secondSearch["pit"].(map[string]any)
+	if !ok || secondPit["id"] != "pit-reopened" {
+		t.Fatalf("second search pit=%#v, want pit-reopened", secondSearch["pit"])
+	}
+	secondSearchAfter, ok := secondSearch["search_after"].([]any)
+	if !ok || len(secondSearchAfter) != 2 {
+		t.Fatalf("second search_after=%#v, want original cursor", secondSearch["search_after"])
+	}
+	if result.PITID != "pit-reopened-refreshed" {
+		t.Fatalf("result.PITID=%q, want pit-reopened-refreshed", result.PITID)
+	}
+	if len(result.Hits) != 1 || result.Hits[0].ID != "log-recovered" {
+		t.Fatalf("unexpected result hits: %+v", result.Hits)
+	}
 }
 
 func assertContainsAll(t *testing.T, raw string, fragments []string) {

@@ -216,8 +216,9 @@ WHERE tenant_id = $1::uuid
 
 // AggregateRequest for POST /api/v1/query/stats/aggregate
 type AggregateRequest struct {
-	GroupBy   string         `json:"group_by"`   // level|source|hour
-	TimeRange string         `json:"time_range"` // 1h|6h|24h|7d
+	GroupBy   string         `json:"group_by"`   // level|source|hour|minute
+	TimeRange string         `json:"time_range"` // 30m|1h|6h|24h|7d
+	Keywords  string         `json:"keywords"`
 	Filters   map[string]any `json:"filters"`
 }
 
@@ -245,6 +246,8 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 	// Parse time range
 	dur := 24 * time.Hour
 	switch strings.ToLower(strings.TrimSpace(req.TimeRange)) {
+	case "30m":
+		dur = 30 * time.Minute
 	case "1h":
 		dur = 1 * time.Hour
 	case "6h":
@@ -257,23 +260,22 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 		dur = 24 * time.Hour
 	}
 
-	now := time.Now().UTC()
-	from := now.Add(-dur).Format(time.RFC3339)
+	now := time.Now().UTC().Truncate(time.Second)
+	fromTime := now.Add(-dur)
+	from := fromTime.Format(time.RFC3339)
 	to := now.Format(time.RFC3339)
 
-	filters := []map[string]any{
-		{"range": map[string]any{"@timestamp": map[string]any{"gte": from, "lte": to}}},
-	}
-	filters = appendTenantFilter(filters, tenantID)
-	for k, v := range req.Filters {
-		if k == "" || v == nil {
-			continue
-		}
-		filters = append(filters, map[string]any{"term": map[string]any{k: v}})
-	}
-
-	query := map[string]any{
-		"bool": map[string]any{"filter": filters},
+	query := repository.BuildESQuery(repository.SearchLogsInput{
+		Keywords:      req.Keywords,
+		TimeRangeFrom: from,
+		TimeRangeTo:   to,
+		Filters:       req.Filters,
+	})
+	if boolQuery, ok := query["bool"].(map[string]any); ok {
+		filters, _ := boolQuery["filter"].([]map[string]any)
+		filters = appendTenantFilter(filters, tenantID)
+		boolQuery["filter"] = filters
+		query["bool"] = boolQuery
 	}
 
 	groupBy := strings.ToLower(strings.TrimSpace(req.GroupBy))
@@ -282,7 +284,7 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 	}
 
 	var aggField string
-	var interval string
+	var histogram map[string]any
 	switch groupBy {
 	case "level":
 		aggField = "log.level"
@@ -290,19 +292,34 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 		aggField = "source.path"
 	case "hour":
 		aggField = "@timestamp"
-		interval = "hour"
+		histogram = map[string]any{
+			"field":             aggField,
+			"calendar_interval": "hour",
+			"min_doc_count":     0,
+			"extended_bounds": map[string]any{
+				"min": from,
+				"max": to,
+			},
+		}
+	case "minute":
+		aggField = "@timestamp"
+		histogram = map[string]any{
+			"field":          aggField,
+			"fixed_interval": "1m",
+			"min_doc_count":  0,
+			"extended_bounds": map[string]any{
+				"min": from,
+				"max": to,
+			},
+		}
 	default:
-		aggField = "level.keyword"
+		aggField = "log.level"
 	}
 
 	aggs := map[string]any{}
-	if interval != "" {
+	if histogram != nil {
 		aggs["by_dim"] = map[string]any{
-			"date_histogram": map[string]any{
-				"field":             aggField,
-				"calendar_interval": "hour",
-				"min_doc_count":     0,
-			},
+			"date_histogram": histogram,
 		}
 	} else {
 		aggs["by_dim"] = map[string]any{

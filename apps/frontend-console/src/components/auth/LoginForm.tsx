@@ -3,7 +3,7 @@ import { Form, Input, Button, Checkbox, App } from 'antd';
 import { useAuthStore } from '../../stores/authStore';
 import { getRuntimeConfig } from '../../config/runtime-config';
 import type { User } from '../../types/user';
-import { persistAuthSession } from '../../utils/authStorage';
+import { deriveDeterministicUUID, persistAuthSession } from '../../utils/authStorage';
 
 export interface LoginFormProps {
   onForgotPassword?: () => void;
@@ -123,6 +123,10 @@ function isEmergencyMockEnabled(config: RuntimeConfigWithTenant): boolean {
 }
 
 /** 写入应急 mock 会话 token，兼容受保护路由的 token 检查逻辑 */
+function buildEmergencyMockUserID(username: string): string {
+  return deriveDeterministicUUID(`nexuslog-emergency:${username.trim().toLowerCase() || 'emergency-user'}`);
+}
+
 function writeEmergencyMockSessionTokens(remember: boolean): void {
   const nowMs = Date.now();
   const randomSuffix = Math.random().toString(36).slice(2, 10);
@@ -182,10 +186,11 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, dis
           window.localStorage.setItem(TENANT_ID_KEY, tenantId);
         }
 
+        const emergencyUsername = normalizedUsername || 'emergency-user';
         login({
-          id: `emergency-${normalizedUsername || 'user'}`,
-          username: normalizedUsername || 'emergency-user',
-          email: `${normalizedUsername || 'emergency-user'}@nexuslog.local`,
+          id: buildEmergencyMockUserID(emergencyUsername),
+          username: emergencyUsername,
+          email: `${emergencyUsername}@nexuslog.local`,
           role: 'admin',
         });
         setPermissions(['*']);

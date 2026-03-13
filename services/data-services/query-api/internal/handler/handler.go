@@ -74,12 +74,14 @@ func (h *QueryHandler) SearchLogs(c *gin.Context) {
 		"hits":         result.Hits,
 		"aggregations": result.Aggregations,
 	}, gin.H{
-		"page":          result.Page,
-		"page_size":     result.PageSize,
-		"total":         result.Total,
-		"has_next":      int64(result.Page*result.PageSize) < result.Total,
-		"query_time_ms": result.QueryTimeMS,
-		"timed_out":     result.TimedOut,
+		"page":              result.Page,
+		"page_size":         result.PageSize,
+		"total":             result.Total,
+		"has_next":          int64(result.Page*result.PageSize) < result.Total,
+		"query_time_ms":     result.QueryTimeMS,
+		"timed_out":         result.TimedOut,
+		"pit_id":            result.PITID,
+		"next_search_after": result.NextSearchAfter,
 	})
 }
 
@@ -251,6 +253,9 @@ func writeServiceError(c *gin.Context, err error) {
 		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "user context is required")
 	case errors.Is(err, service.ErrInvalidSavedQuery):
 		writeError(c, http.StatusBadRequest, CodeQueryInvalidParams, "invalid saved query payload")
+	case errors.Is(err, service.ErrInvalidSearchCursor),
+		errors.Is(err, service.ErrPageBeyondResultWindow):
+		writeError(c, http.StatusBadRequest, CodeQueryInvalidParams, err.Error())
 	case errors.Is(err, service.ErrMetadataNotConfigured),
 		errors.Is(err, repository.ErrMetadataStoreNotConfigured):
 		writeError(c, http.StatusServiceUnavailable, CodeQueryServiceUnavailable, "query metadata store is unavailable")

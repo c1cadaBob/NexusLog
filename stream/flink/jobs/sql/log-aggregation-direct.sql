@@ -41,7 +41,7 @@ CREATE TABLE es_log_sink (
     batch_id STRING,
     schema_version STRING,
     tenant_id STRING,
-    `@timestamp` TIMESTAMP(3),
+    `@timestamp` STRING,
     message STRING,
     event ROW<id STRING, record_id STRING, sequence BIGINT, original STRING, kind STRING, category ARRAY<STRING>, type ARRAY<STRING>, severity INT>,
     log ROW<level STRING, `offset` BIGINT, file ROW<path STRING, name STRING, directory STRING>>,
@@ -53,7 +53,7 @@ CREATE TABLE es_log_sink (
     span ROW<id STRING>,
     nexuslog ROW<
         transport ROW<batch_id STRING, channel STRING, compressed BOOLEAN, encrypted BOOLEAN>,
-        ingest ROW<received_at TIMESTAMP(3), schema_version STRING, pipeline_version STRING, parse_status STRING, parse_rule STRING, retry_count INT>,
+        ingest ROW<received_at STRING, schema_version STRING, pipeline_version STRING, parse_status STRING, parse_rule STRING, retry_count INT>,
         governance ROW<tenant_id STRING, retention_policy STRING, pii_masked BOOLEAN, classification STRING>
     >,
     labels MAP<STRING, STRING>
@@ -70,7 +70,7 @@ SELECT
     NULLIF(COALESCE(attributes['batch_id'], fields['batch_id'], ''), '') AS batch_id,
     COALESCE(schema_version, 'log-parsed/v1') AS schema_version,
     tenant_id,
-    TO_TIMESTAMP_LTZ(`timestamp`, 3) AS `@timestamp`,
+    DATE_FORMAT(TO_TIMESTAMP_LTZ(`timestamp`, 3), 'yyyy-MM-dd''T''HH:mm:ss.SSS''Z''') AS `@timestamp`,
     message,
     ROW(
         COALESCE(event_id, id),
@@ -129,7 +129,7 @@ SELECT
             FALSE
         ),
         ROW(
-            TO_TIMESTAMP_LTZ(ingested_at, 3),
+            DATE_FORMAT(TO_TIMESTAMP_LTZ(ingested_at, 3), 'yyyy-MM-dd''T''HH:mm:ss.SSS''Z'''),
             COALESCE(schema_version, 'log-parsed/v1'),
             'stream/flink/v1',
             COALESCE(parse_status, 'parsed'),
@@ -143,5 +143,20 @@ SELECT
             CAST(NULL AS STRING)
         )
     ) AS nexuslog,
-    tags AS labels
+    MAP[
+        'env', COALESCE(tags['env'], tags['service.environment'], ''),
+        'source_type', COALESCE(attributes['source_type'], fields['source_type'], ''),
+        'service', COALESCE(service, ''),
+        'stream', COALESCE(`stream`, ''),
+        'host_name', COALESCE(tags['host.name'], attributes['host'], tags['host'], ''),
+        'host_ip', COALESCE(attributes['host.ip'], fields['host_ip'], tags['host.ip'], attributes['agent.ip'], tags['agent.ip'], ''),
+        'agent_id', COALESCE(attributes['agent_id'], tags['agent_id'], ''),
+        'agent_hostname', COALESCE(attributes['agent.hostname'], tags['agent.hostname'], attributes['host'], tags['host'], ''),
+        'agent_ip', COALESCE(attributes['agent.ip'], tags['agent.ip'], ''),
+        'transport_channel', COALESCE(attributes['transport.channel'], tags['transport.channel'], ''),
+        'source_path', COALESCE(attributes['source_path'], source, ''),
+        'source_collect_path', COALESCE(attributes['source_collect_path'], fields['source_collect_path'], ''),
+        'batch_id', COALESCE(attributes['batch_id'], fields['batch_id'], ''),
+        'schema_version', COALESCE(schema_version, 'log-parsed/v1')
+    ] AS labels
 FROM parsed_log_source;

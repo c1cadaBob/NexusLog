@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
-import { Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, message, Select, Collapse } from 'antd';
+import { App, Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, Select, Collapse } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useThemeStore } from '../../stores/themeStore';
@@ -8,37 +8,29 @@ import { COLORS } from '../../theme/tokens';
 import ChartWrapper from '../../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
 import type { LogEntry } from '../../types/log';
-import { queryRealtimeLogs } from '../../api/query';
+import { fetchAggregateStats, queryRealtimeLogs } from '../../api/query';
 import { aggregateRealtimeDisplayLogs, summarizeImageAggregation } from './realtimeLogAggregation';
+import { readRealtimeRecentQueries, recordRealtimeRecentQuery } from './realtimeRecentQueries';
+import { buildRealtimeHistogramData, sumRealtimeHistogramEvents, type RealtimeHistogramPoint } from './realtimeHistogram';
+import { buildRealtimeQueryFilters } from './realtimeNoiseFilters';
 
 // ============================================================================
 // 本地 UI 辅助数据
 // ============================================================================
 
-/** 最近查询建议标签，仅用于快速填充查询条件，不是日志列表数据源 */
-const RECENT_QUERIES = [
-  'level:error AND service:payment',
-  'status:500',
-  'service:order-api',
-  'message:"timeout"',
-  'level:warn',
-];
-const HISTOGRAM_WINDOW_MS = 30 * 60 * 1000;
-const HISTOGRAM_PAGE_SIZE = 200;
+const HISTOGRAM_TIME_RANGE = '30m' as const;
+const MAX_PAGINATION_WINDOW_ROWS = 10_000;
 
-function buildRealtimeTableTimeRange() {
+function buildRealtimeTableTimeRange(snapshotTo?: string) {
   return {
     from: '',
-    to: new Date().toISOString(),
+    to: snapshotTo?.trim() || new Date().toISOString(),
   };
 }
 
-function buildHistogramTimeRange() {
-  const now = new Date();
-  return {
-    from: new Date(now.getTime() - HISTOGRAM_WINDOW_MS).toISOString(),
-    to: now.toISOString(),
-  };
+function resolveMaxPaginationPage(pageSize: number): number {
+  const normalizedPageSize = Math.max(1, Math.floor(pageSize || 1));
+  return Math.max(1, Math.floor(MAX_PAGINATION_WINDOW_ROWS / normalizedPageSize));
 }
 
 function toDisplayText(value: unknown, fallback = '—'): string {
@@ -67,42 +59,6 @@ function formatDetailValue(value: unknown, fallback = '—'): string {
   }
 }
 
-/** 构建近 30 分钟直方图（使用当前查询结果统计） */
-function buildHistogramData(logs: LogEntry[]) {
-  const now = new Date();
-  const buckets = new Map<string, { time: string; normal: number; error: number }>();
-  for (let i = 29; i >= 0; i -= 1) {
-    const tick = new Date(now.getTime() - i * 60000);
-    tick.setSeconds(0, 0);
-    const key = tick.toISOString().slice(0, 16);
-    buckets.set(key, {
-      time: tick.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-      normal: 0,
-      error: 0,
-    });
-  }
-
-  logs.forEach((log) => {
-    const ts = new Date(log.timestamp);
-    if (Number.isNaN(ts.getTime())) {
-      return;
-    }
-    ts.setSeconds(0, 0);
-    const key = ts.toISOString().slice(0, 16);
-    const bucket = buckets.get(key);
-    if (!bucket) {
-      return;
-    }
-    if (log.level === 'error') {
-      bucket.error += 1;
-      return;
-    }
-    bucket.normal += 1;
-  });
-
-  return Array.from(buckets.values());
-}
-
 // ============================================================================
 // 级别颜色映射
 // ============================================================================
@@ -118,6 +74,49 @@ interface RealtimeNavigationState {
   presetQuery?: string;
 }
 
+interface RealtimePageCursor {
+  pitId?: string;
+  searchAfter?: unknown[];
+}
+
+function cloneSearchAfter(searchAfter?: unknown[]): unknown[] | undefined {
+  return Array.isArray(searchAfter) && searchAfter.length > 0 ? [...searchAfter] : undefined;
+}
+
+function cloneRealtimePageCursor(cursor?: RealtimePageCursor): RealtimePageCursor | undefined {
+  if (!cursor) {
+    return undefined;
+  }
+  return {
+    pitId: cursor.pitId?.trim() || undefined,
+    searchAfter: cloneSearchAfter(cursor.searchAfter),
+  };
+}
+
+function cloneRealtimePageCursorMap(source: Map<number, RealtimePageCursor>): Map<number, RealtimePageCursor> {
+  const next = new Map<number, RealtimePageCursor>();
+  source.forEach((cursor, page) => {
+    const cloned = cloneRealtimePageCursor(cursor);
+    if (cloned) {
+      next.set(page, cloned);
+    }
+  });
+  return next;
+}
+
+function refreshCursorMapPitID(cursorMap: Map<number, RealtimePageCursor>, pitId: string): void {
+  const normalizedPitId = pitId.trim();
+  if (!normalizedPitId) {
+    return;
+  }
+  cursorMap.forEach((cursor, page) => {
+    cursorMap.set(page, {
+      pitId: normalizedPitId,
+      searchAfter: cloneSearchAfter(cursor.searchAfter),
+    });
+  });
+}
+
 // ============================================================================
 // RealtimeSearch 主组件
 // ============================================================================
@@ -125,11 +124,13 @@ const RealtimeSearch: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const location = useLocation();
   const navigate = useNavigate();
+  const { message } = App.useApp();
 
   // 查询状态
   const [query, setQuery] = useState('');
   const [activeQuery, setActiveQuery] = useState('');
   const [isLive, setIsLive] = useState(true);
+  const [recentQueries, setRecentQueries] = useState<string[]>(() => readRealtimeRecentQueries());
 
   // 筛选器
   const [levelFilter, setLevelFilter] = useState<string>('');
@@ -145,7 +146,8 @@ const RealtimeSearch: React.FC = () => {
   const [queryTimeMS, setQueryTimeMS] = useState(0);
   const [queryTimedOut, setQueryTimedOut] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
-  const [histogramLogs, setHistogramLogs] = useState<LogEntry[]>([]);
+  const [histogramData, setHistogramData] = useState<RealtimeHistogramPoint[]>([]);
+  const [tableSnapshotTo, setTableSnapshotTo] = useState(() => new Date().toISOString());
 
   // 分页（pageSize 持久化）
   const [currentPage, setCurrentPage] = useState(1);
@@ -158,6 +160,7 @@ const RealtimeSearch: React.FC = () => {
   }, [setStoredPageSize]);
   const latestQueryRequestRef = useRef(0);
   const initialQueryTriggeredRef = useRef(false);
+  const pageCursorMapRef = useRef<Map<number, RealtimePageCursor>>(new Map());
 
   const executeQuery = useCallback(async (options: {
     queryText: string;
@@ -165,57 +168,108 @@ const RealtimeSearch: React.FC = () => {
     pageSize: number;
     silent?: boolean;
     recordHistory?: boolean;
-  }) => {
+    snapshotTo?: string;
+    cursor?: RealtimePageCursor;
+    resetCursor?: boolean;
+  }): Promise<boolean> => {
     const requestID = latestQueryRequestRef.current + 1;
     latestQueryRequestRef.current = requestID;
+    const snapshotTo = options.snapshotTo?.trim() || new Date().toISOString();
+    const workingCursorMap = options.resetCursor
+      ? new Map<number, RealtimePageCursor>()
+      : cloneRealtimePageCursorMap(pageCursorMapRef.current);
+    const requestedCursor = cloneRealtimePageCursor(options.cursor) ?? cloneRealtimePageCursor(workingCursorMap.get(options.page));
+    const rootCursor = cloneRealtimePageCursor(workingCursorMap.get(1));
+    const activeCursor = requestedCursor ?? (options.page > 1 && rootCursor?.pitId
+      ? { pitId: rootCursor.pitId }
+      : undefined);
     setTableLoading(true);
     try {
-      const filters = {
-        level: levelFilter || undefined,
-        service: sourceFilter || undefined,
+      const filters = buildRealtimeQueryFilters({
+        levelFilter,
+        sourceFilter,
+        queryText: options.queryText,
+      });
+      const realtimeTableTimeRange = buildRealtimeTableTimeRange(snapshotTo);
+      const aggregateParams = {
+        groupBy: 'minute' as const,
+        timeRange: HISTOGRAM_TIME_RANGE,
+        keywords: options.queryText,
+        filters,
       };
-      const realtimeTableTimeRange = buildRealtimeTableTimeRange();
-      const histogramTimeRange = buildHistogramTimeRange();
-      const [result, histogramResult] = await Promise.all([
+      const totalHistogramPromise = fetchAggregateStats(aggregateParams);
+      const errorHistogramPromise = levelFilter === 'error'
+        ? Promise.resolve(null)
+        : levelFilter
+          ? Promise.resolve(null)
+          : fetchAggregateStats({
+            ...aggregateParams,
+            filters: {
+              ...filters,
+              level: 'error',
+            },
+          });
+      const [result, totalHistogramResult, errorHistogramResult] = await Promise.all([
         queryRealtimeLogs({
           keywords: options.queryText,
           page: options.page,
           pageSize: options.pageSize,
           filters,
           timeRange: realtimeTableTimeRange,
+          pitId: activeCursor?.pitId,
+          searchAfter: activeCursor?.searchAfter,
           recordHistory: options.recordHistory,
         }),
-        queryRealtimeLogs({
-          keywords: options.queryText,
-          page: 1,
-          pageSize: HISTOGRAM_PAGE_SIZE,
-          filters,
-          timeRange: histogramTimeRange,
-          recordHistory: false,
-        }),
+        totalHistogramPromise,
+        errorHistogramPromise,
       ]);
 
       if (requestID !== latestQueryRequestRef.current) {
-        return;
+        return false;
       }
 
+      const errorBuckets = levelFilter === 'error'
+        ? totalHistogramResult.buckets
+        : errorHistogramResult?.buckets ?? [];
+
+      const effectivePitId = result.pitId?.trim() || activeCursor?.pitId?.trim() || '';
+      if (effectivePitId) {
+        refreshCursorMapPitID(workingCursorMap, effectivePitId);
+        workingCursorMap.set(1, { pitId: effectivePitId });
+        const currentPageCursor = workingCursorMap.get(result.page);
+        workingCursorMap.set(result.page, {
+          pitId: effectivePitId,
+          searchAfter: cloneSearchAfter(currentPageCursor?.searchAfter),
+        });
+        workingCursorMap.delete(result.page + 1);
+        if (result.nextSearchAfter && result.nextSearchAfter.length > 0) {
+          workingCursorMap.set(result.page + 1, {
+            pitId: effectivePitId,
+            searchAfter: cloneSearchAfter(result.nextSearchAfter),
+          });
+        }
+      }
+      pageCursorMapRef.current = workingCursorMap;
       setLogs(result.hits);
-      setHistogramLogs(histogramResult.hits);
+      setHistogramData(buildRealtimeHistogramData(totalHistogramResult.buckets, errorBuckets));
       setTotal(result.total);
       setCurrentPage(result.page);
       setQueryTimeMS(result.queryTimeMS);
       setQueryTimedOut(result.timedOut);
+      setTableSnapshotTo(snapshotTo);
       if (result.timedOut && !options.silent) {
         message.warning('查询超时，结果可能不完整');
       }
+      return true;
     } catch (error) {
       if (requestID !== latestQueryRequestRef.current) {
-        return;
+        return false;
       }
       if (!options.silent) {
         const readableError = error instanceof Error ? error.message : '查询失败，请稍后重试';
         message.error(readableError);
       }
+      return false;
     } finally {
       if (requestID === latestQueryRequestRef.current) {
         setTableLoading(false);
@@ -233,6 +287,7 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: true,
+      resetCursor: true,
     });
   }, [executeQuery, pageSize]);
 
@@ -247,6 +302,7 @@ const RealtimeSearch: React.FC = () => {
         page: currentPage,
         pageSize,
         silent: true,
+        resetCursor: currentPage === 1,
       });
     }, 5000);
     return () => window.clearInterval(timer);
@@ -265,6 +321,7 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: false,
+      resetCursor: true,
     });
     navigate(location.pathname, { replace: true, state: null });
   }, [executeQuery, location.pathname, location.state, navigate, pageSize]);
@@ -281,11 +338,11 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: true,
+      resetCursor: true,
     });
-  }, [levelFilter, sourceFilter, executeQuery, activeQuery, pageSize]);
+  }, [levelFilter, sourceFilter, executeQuery]);
 
   // 直方图数据
-  const histogramData = useMemo(() => buildHistogramData(histogramLogs), [histogramLogs]);
   const displayLogs = useMemo(() => aggregateRealtimeDisplayLogs(logs), [logs]);
   const imageAggregationSummary = useMemo(() => summarizeImageAggregation(displayLogs), [displayLogs]);
   const uniqueSources = useMemo(() => {
@@ -296,10 +353,7 @@ const RealtimeSearch: React.FC = () => {
     });
     return Array.from(seen).sort();
   }, [logs]);
-  const totalEvents = useMemo(
-    () => histogramData.reduce((sum, d) => sum + d.normal + d.error, 0),
-    [histogramData],
-  );
+  const totalEvents = useMemo(() => sumRealtimeHistogramEvents(histogramData), [histogramData]);
 
   // 打开日志详情
   const handleRowClick = useCallback((record: LogEntry) => {
@@ -309,6 +363,11 @@ const RealtimeSearch: React.FC = () => {
 
   const runSearch = useCallback((value: string, recordHistory: boolean) => {
     const keyword = value.trim();
+    const shouldRecordHistory = recordHistory && keyword !== '';
+    if (shouldRecordHistory) {
+      setRecentQueries(recordRealtimeRecentQuery(keyword));
+    }
+    setCurrentPage(1);
     setQuery(keyword);
     setActiveQuery(keyword);
     void executeQuery({
@@ -316,9 +375,28 @@ const RealtimeSearch: React.FC = () => {
       page: 1,
       pageSize,
       silent: false,
-      recordHistory,
+      recordHistory: shouldRecordHistory,
+      resetCursor: true,
     });
   }, [executeQuery, pageSize]);
+
+  const handleToggleLive = useCallback(() => {
+    if (isLive) {
+      setIsLive(false);
+      return;
+    }
+    setIsLive(true);
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+      void executeQuery({
+        queryText: activeQuery,
+        page: 1,
+        pageSize,
+        silent: true,
+        resetCursor: true,
+      });
+    }
+  }, [activeQuery, currentPage, executeQuery, isLive, pageSize]);
 
   // 执行检索（仅手动点击执行/回车时写入历史）
   const handleSearch = useCallback((value: string) => {
@@ -580,12 +658,12 @@ const RealtimeSearch: React.FC = () => {
         {/* 最近查询标签 */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs opacity-50">最近查询:</span>
-          {RECENT_QUERIES.map((q) => (
+          {recentQueries.map((q) => (
             <Tag
               key={q}
               className="cursor-pointer"
               style={{ fontSize: 11, margin: 0 }}
-              onClick={() => runSearch(q, false)}
+              onClick={() => runSearch(q, true)}
             >
               {q}
             </Tag>
@@ -640,7 +718,7 @@ const RealtimeSearch: React.FC = () => {
             <Button
               size="small"
               type={isLive ? 'primary' : 'default'}
-              onClick={() => setIsLive(!isLive)}
+              onClick={handleToggleLive}
               icon={
                 <span className="material-symbols-outlined text-sm">
                   {isLive ? 'pause' : 'play_arrow'}
@@ -658,6 +736,11 @@ const RealtimeSearch: React.FC = () => {
               </Tag>
             )}
             {queryTimedOut && <Tag color="warning" style={{ margin: 0 }}>查询超时</Tag>}
+            {total > MAX_PAGINATION_WINDOW_ROWS && (
+              <Tag color="gold" style={{ margin: 0 }}>
+                超过前 {MAX_PAGINATION_WINDOW_ROWS.toLocaleString()} 条后，仅支持顺序翻页或返回已访问页
+              </Tag>
+            )}
           </div>
           <Space size="small">
             <Tooltip title="列设置">
@@ -684,13 +767,40 @@ const RealtimeSearch: React.FC = () => {
             showTotal: (total) => `共 ${total} 条`,
             pageSizeOptions: ['10', '20', '50', '100'],
             onChange: (page, size) => {
-              setCurrentPage(page);
-              setPageSize(size);
+              const nextPageSize = size ?? pageSize;
+              const pageSizeChanged = nextPageSize !== pageSize;
+              const targetPage = pageSizeChanged ? 1 : page;
+              const maxPaginationPage = resolveMaxPaginationPage(nextPageSize);
+              const cachedCursor = cloneRealtimePageCursor(pageCursorMapRef.current.get(targetPage));
+              if (targetPage > maxPaginationPage && !cachedCursor) {
+                message.warning(`超过前 ${MAX_PAGINATION_WINDOW_ROWS.toLocaleString()} 条后仅支持顺序深分页；请先逐页浏览到目标页，或返回已访问页。`);
+                return;
+              }
+              const previousPage = currentPage;
+              const previousPageSize = pageSize;
+              if (targetPage > 1 && isLive) {
+                setIsLive(false);
+              }
+              const requestCursor = cachedCursor ?? (targetPage > 1
+                ? cloneRealtimePageCursor(pageCursorMapRef.current.get(1))
+                : undefined);
+              setCurrentPage(targetPage);
+              setPageSize(nextPageSize);
               void executeQuery({
                 queryText: activeQuery,
-                page,
-                pageSize: size,
-                silent: true,
+                page: targetPage,
+                pageSize: nextPageSize,
+                silent: false,
+                snapshotTo: tableSnapshotTo,
+                cursor: requestCursor,
+                resetCursor: pageSizeChanged,
+              }).then((success) => {
+                if (!success) {
+                  setCurrentPage(previousPage);
+                  if (nextPageSize !== previousPageSize) {
+                    setPageSize(previousPageSize);
+                  }
+                }
               });
             },
             position: ['bottomLeft'],

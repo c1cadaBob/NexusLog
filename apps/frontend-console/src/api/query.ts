@@ -1,6 +1,6 @@
 import { getRuntimeConfig } from '../config/runtime-config';
 import type { LogEntry, QueryHistory, RealtimeLogFields, SavedQuery } from '../types/log';
-import { getAuthStorageItem } from '../utils/authStorage';
+import { getAuthStorageItem, resolveStoredAuthUserID } from '../utils/authStorage';
 
 const ACCESS_TOKEN_KEY = 'nexuslog-access-token';
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
@@ -77,6 +77,8 @@ interface QueryLogsPayload {
     from?: string;
     to?: string;
   };
+  pitId?: string;
+  searchAfter?: unknown[];
   /** 仅用于前端本地功能：是否写入本地查询历史 */
   recordHistory?: boolean;
 }
@@ -90,6 +92,8 @@ export interface QueryLogsResult {
   queryTimeMS: number;
   timedOut: boolean;
   aggregations: Record<string, unknown>;
+  pitId?: string;
+  nextSearchAfter?: unknown[];
 }
 
 export interface QueryHistoryListParams {
@@ -754,12 +758,16 @@ function resolveAccessToken(): string {
 function buildAuthHeaders(accessToken: string): Record<string, string> {
   const runtimeConfig = getRuntimeConfig() as RuntimeConfigWithTenant;
   const tenantId = resolveTenantId(runtimeConfig);
+  const userId = resolveStoredAuthUserID();
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
   if (tenantId) {
     headers['X-Tenant-ID'] = tenantId;
+  }
+  if (userId) {
+    headers['X-User-ID'] = userId;
   }
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
@@ -853,6 +861,8 @@ export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<Quer
         to: payload.timeRange?.to ?? '',
       },
       sort: [{ field: '@timestamp', order: 'desc' }],
+      pit_id: payload.pitId?.trim() || undefined,
+      search_after: Array.isArray(payload.searchAfter) && payload.searchAfter.length > 0 ? payload.searchAfter : undefined,
       record_history: payload.recordHistory === true,
     },
   });
@@ -874,6 +884,10 @@ export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<Quer
     queryTimeMS: Number.isFinite(queryTimeMS) ? queryTimeMS : 0,
     timedOut,
     aggregations: envelope.data?.aggregations ?? {},
+    pitId: typeof envelope.meta?.pit_id === 'string' ? envelope.meta.pit_id.trim() : undefined,
+    nextSearchAfter: Array.isArray(envelope.meta?.next_search_after)
+      ? [...(envelope.meta.next_search_after as unknown[])]
+      : undefined,
   };
   if (payload.recordHistory) {
     appendLocalQueryHistory(payload.keywords, result.queryTimeMS, result.total);
@@ -1056,8 +1070,9 @@ export async function updateSavedQuery(savedQueryID: string, payload: SavedQuery
 
 /** Aggregate stats request for POST /api/v1/query/stats/aggregate */
 export interface FetchAggregateStatsParams {
-  groupBy: 'level' | 'source' | 'hour';
-  timeRange: '1h' | '6h' | '24h' | '7d';
+  groupBy: 'level' | 'source' | 'hour' | 'minute';
+  timeRange: '30m' | '1h' | '6h' | '24h' | '7d';
+  keywords?: string;
   filters?: Record<string, unknown>;
 }
 
@@ -1079,6 +1094,7 @@ export async function fetchAggregateStats(params: FetchAggregateStatsParams): Pr
     body: {
       group_by: params.groupBy,
       time_range: params.timeRange,
+      keywords: params.keywords?.trim() ?? '',
       filters: params.filters ?? {},
     },
   });

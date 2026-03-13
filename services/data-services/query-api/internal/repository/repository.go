@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ const (
 	defaultElasticsearchAddress = "http://localhost:9200"
 	defaultLogsIndex            = "nexuslog-logs-read"
 	defaultRequestTimeout       = 15 * time.Second
+	defaultPITKeepAlive         = "5m"
 )
 
 // SortField 定义 ES 排序字段。
@@ -35,6 +37,8 @@ type SearchLogsInput struct {
 	Sort          []SortField
 	Page          int
 	PageSize      int
+	PITID         string
+	SearchAfter   []any
 }
 
 // RawLogHit 表示 ES 返回的原始日志命中项。
@@ -46,11 +50,13 @@ type RawLogHit struct {
 
 // SearchLogsResult 定义 ES 查询结果。
 type SearchLogsResult struct {
-	TookMS       int
-	TimedOut     bool
-	Total        int64
-	Hits         []RawLogHit
-	Aggregations map[string]any
+	TookMS          int
+	TimedOut        bool
+	Total           int64
+	Hits            []RawLogHit
+	Aggregations    map[string]any
+	PITID           string
+	NextSearchAfter []any
 }
 
 // ElasticsearchRepository 通过 ES REST API 执行日志检索。
@@ -98,46 +104,52 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 		in.PageSize = 50
 	}
 
+	pitID := strings.TrimSpace(in.PITID)
+	usePIT := pitID != ""
+	if !usePIT {
+		openedPIT, err := r.openPointInTime(ctx, defaultPITKeepAlive)
+		if err == nil {
+			pitID = openedPIT
+			usePIT = pitID != ""
+		} else if len(in.SearchAfter) > 0 {
+			return SearchLogsResult{}, err
+		}
+	}
+
 	queryPayload := map[string]any{
 		"track_total_hits": true,
-		"from":             (in.Page - 1) * in.PageSize,
 		"size":             in.PageSize,
-		"query":            buildESQuery(in),
+		"query":            BuildESQuery(in),
 		"sort":             buildESSort(in.Sort),
 	}
-
-	payloadRaw, err := json.Marshal(queryPayload)
-	if err != nil {
-		return SearchLogsResult{}, fmt.Errorf("marshal es query: %w", err)
+	if len(in.SearchAfter) > 0 {
+		queryPayload["search_after"] = in.SearchAfter
+	} else {
+		queryPayload["from"] = (in.Page - 1) * in.PageSize
 	}
-
 	endpoint := fmt.Sprintf("%s/%s/_search", r.address, r.index)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadRaw))
-	if err != nil {
-		return SearchLogsResult{}, fmt.Errorf("build es request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if r.username != "" {
-		req.SetBasicAuth(r.username, r.password)
-	}
-
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return SearchLogsResult{}, fmt.Errorf("execute es request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	bodyRaw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return SearchLogsResult{}, fmt.Errorf("read es response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return SearchLogsResult{}, fmt.Errorf("es search failed: status=%d body=%s", resp.StatusCode, string(bodyRaw))
+	if usePIT {
+		queryPayload["pit"] = map[string]any{
+			"id":         pitID,
+			"keep_alive": defaultPITKeepAlive,
+		}
+		endpoint = fmt.Sprintf("%s/_search", r.address)
 	}
 
-	var parsed esSearchResponse
-	if err := json.Unmarshal(bodyRaw, &parsed); err != nil {
-		return SearchLogsResult{}, fmt.Errorf("decode es response: %w", err)
+	parsed, err := r.executeSearch(ctx, endpoint, queryPayload)
+	if err != nil && usePIT && isRetryablePITError(err) {
+		refreshedPIT, pitErr := r.openPointInTime(ctx, defaultPITKeepAlive)
+		if pitErr == nil {
+			pitID = refreshedPIT
+			queryPayload["pit"] = map[string]any{
+				"id":         pitID,
+				"keep_alive": defaultPITKeepAlive,
+			}
+			parsed, err = r.executeSearch(ctx, fmt.Sprintf("%s/_search", r.address), queryPayload)
+		}
+	}
+	if err != nil {
+		return SearchLogsResult{}, err
 	}
 
 	result := SearchLogsResult{
@@ -146,6 +158,7 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 		Total:        parseHitsTotal(parsed.Hits.Total),
 		Hits:         make([]RawLogHit, 0, len(parsed.Hits.Hits)),
 		Aggregations: parsed.Aggregations,
+		PITID:        strings.TrimSpace(firstNonEmpty(parsed.PITID, pitID)),
 	}
 	for _, hit := range parsed.Hits.Hits {
 		result.Hits = append(result.Hits, RawLogHit{
@@ -153,6 +166,7 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 			Index:  strings.TrimSpace(hit.Index),
 			Source: hit.Source,
 		})
+		result.NextSearchAfter = cloneSlice(hit.Sort)
 	}
 	return result, nil
 }
@@ -211,8 +225,22 @@ func (r *ElasticsearchRepository) SearchWithBody(ctx context.Context, body map[s
 type esSearchResponse struct {
 	Took         int            `json:"took"`
 	TimedOut     bool           `json:"timed_out"`
+	PITID        string         `json:"pit_id"`
 	Hits         esHitsResponse `json:"hits"`
 	Aggregations map[string]any `json:"aggregations"`
+}
+
+type esAPIError struct {
+	Operation string
+	Status    int
+	Body      string
+}
+
+func (e *esAPIError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s failed: status=%d body=%s", e.Operation, e.Status, e.Body)
 }
 
 type esHitsResponse struct {
@@ -221,7 +249,118 @@ type esHitsResponse struct {
 		ID     string         `json:"_id"`
 		Index  string         `json:"_index"`
 		Source map[string]any `json:"_source"`
+		Sort   []any          `json:"sort"`
 	} `json:"hits"`
+}
+
+func (r *ElasticsearchRepository) executeSearch(ctx context.Context, endpoint string, queryPayload map[string]any) (esSearchResponse, error) {
+	payloadRaw, err := json.Marshal(queryPayload)
+	if err != nil {
+		return esSearchResponse{}, fmt.Errorf("marshal es query: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadRaw))
+	if err != nil {
+		return esSearchResponse{}, fmt.Errorf("build es request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if r.username != "" {
+		req.SetBasicAuth(r.username, r.password)
+	}
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return esSearchResponse{}, fmt.Errorf("execute es request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyRaw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return esSearchResponse{}, fmt.Errorf("read es response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return esSearchResponse{}, &esAPIError{
+			Operation: "es search",
+			Status:    resp.StatusCode,
+			Body:      string(bodyRaw),
+		}
+	}
+
+	var parsed esSearchResponse
+	if err := json.Unmarshal(bodyRaw, &parsed); err != nil {
+		return esSearchResponse{}, fmt.Errorf("decode es response: %w", err)
+	}
+	return parsed, nil
+}
+
+func isRetryablePITError(err error) bool {
+	var apiErr *esAPIError
+	if !errors.As(err, &apiErr) || apiErr == nil {
+		return false
+	}
+	body := strings.ToLower(strings.TrimSpace(apiErr.Body))
+	if body == "" {
+		return false
+	}
+	if strings.Contains(body, "point in time") {
+		return true
+	}
+	if strings.Contains(body, "resource_not_found_exception") {
+		return true
+	}
+	if strings.Contains(body, "search_context_missing_exception") {
+		return true
+	}
+	if strings.Contains(body, "no search context found") {
+		return true
+	}
+	return false
+}
+
+func (r *ElasticsearchRepository) openPointInTime(ctx context.Context, keepAlive string) (string, error) {
+	endpoint := fmt.Sprintf("%s/%s/_pit?keep_alive=%s", r.address, r.index, keepAlive)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, http.NoBody)
+	if err != nil {
+		return "", fmt.Errorf("build es pit request: %w", err)
+	}
+	if r.username != "" {
+		req.SetBasicAuth(r.username, r.password)
+	}
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("open es pit: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyRaw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read es pit response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("open es pit failed: status=%d body=%s", resp.StatusCode, string(bodyRaw))
+	}
+
+	var parsed struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(bodyRaw, &parsed); err != nil {
+		return "", fmt.Errorf("decode es pit response: %w", err)
+	}
+	pitID := strings.TrimSpace(parsed.ID)
+	if pitID == "" {
+		return "", fmt.Errorf("open es pit failed: empty id")
+	}
+	return pitID, nil
+}
+
+func cloneSlice(source []any) []any {
+	if len(source) == 0 {
+		return nil
+	}
+	out := make([]any, len(source))
+	copy(out, source)
+	return out
 }
 
 func resolveElasticsearchAddress() string {
@@ -298,9 +437,10 @@ func parseHitsTotal(raw json.RawMessage) int64 {
 	return 0
 }
 
-func buildESQuery(in SearchLogsInput) map[string]any {
+func BuildESQuery(in SearchLogsInput) map[string]any {
 	filterClauses := make([]map[string]any, 0, 8)
 	mustClauses := make([]map[string]any, 0, 2)
+	mustNotClauses := make([]map[string]any, 0, 2)
 
 	keywords := strings.TrimSpace(in.Keywords)
 	if keywords != "" {
@@ -348,6 +488,12 @@ func buildESQuery(in SearchLogsInput) map[string]any {
 	}
 	for key, value := range in.Filters {
 		rawKey := strings.TrimSpace(key)
+		if rawKey == "exclude_internal_noise" {
+			if filterFlagEnabled(value) {
+				mustNotClauses = append(mustNotClauses, buildRealtimeInternalNoiseMustNotClause())
+			}
+			continue
+		}
 		field := normalizeFilterField(rawKey)
 		if field == "" || value == nil {
 			continue
@@ -375,7 +521,7 @@ func buildESQuery(in SearchLogsInput) map[string]any {
 		})
 	}
 
-	if len(mustClauses) == 0 && len(filterClauses) == 0 {
+	if len(mustClauses) == 0 && len(filterClauses) == 0 && len(mustNotClauses) == 0 {
 		return map[string]any{"match_all": map[string]any{}}
 	}
 	boolQuery := map[string]any{}
@@ -385,8 +531,125 @@ func buildESQuery(in SearchLogsInput) map[string]any {
 	if len(filterClauses) > 0 {
 		boolQuery["filter"] = filterClauses
 	}
+	if len(mustNotClauses) > 0 {
+		boolQuery["must_not"] = mustNotClauses
+	}
 	return map[string]any{
 		"bool": boolQuery,
+	}
+}
+
+func filterFlagEnabled(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		normalized := strings.TrimSpace(strings.ToLower(typed))
+		return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
+	default:
+		return false
+	}
+}
+
+func buildRealtimeInternalNoiseMustNotClause() map[string]any {
+	rules := []map[string]any{
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("query-api"), []string{
+			"/api/v1/query/logs",
+			"/api/v1/query/stats/aggregate",
+			"/api/v1/query/stats/overview",
+		}),
+		buildLowValueRealtimeNoiseRule(nil, []string{
+			"/metrics",
+		}),
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("es-compat-proxy"), []string{
+			"POST /_bulk?timeout=1m HTTP/1.1",
+			"GET /_cluster/health HTTP/1.1",
+		}),
+		buildRealtimeNoiseRule(buildServiceCompatibilityFilterClause("control-plane"), []string{
+			"ingest scheduler created task",
+		}, nil),
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("collector-agent"), []string{
+			"kafka_producer.go:153: 发送",
+		}),
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("schema-registry"), []string{
+			"GET /subjects HTTP/1.1",
+		}),
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("zookeeper"), []string{
+			"Processing srvr command from",
+		}),
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("kafka-exporter"), []string{
+			"kafka_exporter.go:678]",
+		}),
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("flink-jobmanager"), []string{
+			"Triggering checkpoint",
+			"Completed checkpoint",
+			"Marking checkpoint",
+		}),
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("postgres"), []string{
+			"checkpoint complete:",
+		}),
+		buildRealtimeNoiseRule(buildServiceCompatibilityFilterClause("flink-taskmanager"), []string{
+			"Name collision: Group already contains a Metric with the name 'pendingCommittables'",
+		}, []string{"warn", "WARN"}),
+	}
+	return map[string]any{
+		"bool": map[string]any{
+			"should":               rules,
+			"minimum_should_match": 1,
+		},
+	}
+}
+
+func buildLowValueRealtimeNoiseRule(serviceClause map[string]any, phrases []string) map[string]any {
+	return buildRealtimeNoiseRule(serviceClause, phrases, []string{"info", "debug", "INFO", "DEBUG"})
+}
+
+func buildRealtimeNoiseRule(serviceClause map[string]any, phrases []string, levels []string) map[string]any {
+	filterClauses := make([]map[string]any, 0, 2)
+	if len(levels) > 0 {
+		filterClauses = append(filterClauses, map[string]any{
+			"terms": map[string]any{
+				"log.level": levels,
+			},
+		})
+	}
+	if len(serviceClause) > 0 {
+		filterClauses = append(filterClauses, serviceClause)
+	}
+	boolQuery := map[string]any{
+		"must": []map[string]any{
+			buildMessagePhraseShouldClause(phrases),
+		},
+	}
+	if len(filterClauses) > 0 {
+		boolQuery["filter"] = filterClauses
+	}
+	return map[string]any{
+		"bool": boolQuery,
+	}
+}
+
+func buildMessagePhraseShouldClause(phrases []string) map[string]any {
+	fields := []string{"message", "event.original"}
+	should := make([]map[string]any, 0, len(fields)*len(phrases))
+	for _, phrase := range phrases {
+		phrase = strings.TrimSpace(phrase)
+		if phrase == "" {
+			continue
+		}
+		for _, field := range fields {
+			should = append(should, map[string]any{
+				"match_phrase": map[string]any{
+					field: phrase,
+				},
+			})
+		}
+	}
+	return map[string]any{
+		"bool": map[string]any{
+			"should":               should,
+			"minimum_should_match": 1,
+		},
 	}
 }
 
