@@ -165,8 +165,10 @@ make dev-test-smoke
 
 ### 7.1 验证采集 Agent 已带出宿主机身份
 
+当前本地开发环境默认启用了 Agent Key 鉴权，因此应这样调用：
+
 ```bash
-curl http://localhost:9091/agent/v1/meta
+curl -H 'X-Agent-Key: dev-agent-key' http://localhost:9091/agent/v1/meta
 ```
 
 预期返回里能看到：
