@@ -24,8 +24,8 @@ type AuditLog struct {
 	ResourceType string
 	ResourceID   string
 	Detail       map[string]any
-	IPAddress   string
-	UserAgent   string
+	IPAddress    string
+	UserAgent    string
 	CreatedAt    time.Time
 }
 
@@ -80,8 +80,8 @@ SELECT COUNT(1)
 FROM audit_logs
 WHERE tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR user_id = $2)
-  AND ($3 = '' OR action = $3)
-  AND ($4 = '' OR resource_type = $4)
+  AND ($3::text IS NULL OR action = $3)
+  AND ($4::text IS NULL OR resource_type = $4)
   AND ($5::timestamptz IS NULL OR created_at >= $5)
   AND ($6::timestamptz IS NULL OR created_at <= $6)
 `
@@ -117,8 +117,8 @@ SELECT
 FROM audit_logs
 WHERE tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR user_id = $2)
-  AND ($3 = '' OR action = $3)
-  AND ($4 = '' OR resource_type = $4)
+  AND ($3::text IS NULL OR action = $3)
+  AND ($4::text IS NULL OR resource_type = $4)
   AND ($5::timestamptz IS NULL OR created_at >= $5)
   AND ($6::timestamptz IS NULL OR created_at <= $6)
 ORDER BY %s %s
@@ -232,4 +232,3 @@ func nullableStringPtr(s *string) any {
 	}
 	return v
 }
-

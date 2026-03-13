@@ -7,6 +7,18 @@ import { fetchAuditLogs, type AuditLogItem, type FetchAuditLogsParams } from '..
 import dayjs from 'dayjs';
 
 const AUDIT_ACTION_OPTIONS = [
+  { value: 'auth.login', label: 'auth.login' },
+  { value: 'auth.logout', label: 'auth.logout' },
+  { value: 'auth.register', label: 'auth.register' },
+  { value: 'users.list', label: 'users.list' },
+  { value: 'users.read', label: 'users.read' },
+  { value: 'users.create', label: 'users.create' },
+  { value: 'users.update', label: 'users.update' },
+  { value: 'users.delete', label: 'users.delete' },
+  { value: 'users.assign_role', label: 'users.assign_role' },
+  { value: 'users.remove_role', label: 'users.remove_role' },
+  { value: 'users.batch_status', label: 'users.batch_status' },
+  { value: 'roles.list', label: 'roles.list' },
   { value: 'USER_LOGIN', label: 'USER_LOGIN' },
   { value: 'USER_START', label: 'USER_START' },
   { value: 'USER_END', label: 'USER_END' },
@@ -18,6 +30,9 @@ const AUDIT_ACTION_OPTIONS = [
 ];
 
 const AUDIT_RESOURCE_TYPE_OPTIONS = [
+  { value: 'auth', label: 'auth' },
+  { value: 'users', label: 'users' },
+  { value: 'roles', label: 'roles' },
   { value: 'sshd', label: 'sshd' },
   { value: 'sudo', label: 'sudo' },
   { value: 'dockerd', label: 'dockerd' },
@@ -50,15 +65,23 @@ function renderDetail(detail: Record<string, unknown> | undefined, textColor: st
   if (!detail || Object.keys(detail).length === 0) {
     return '—';
   }
+  const sourceKind = typeof detail.source_kind === 'string' ? detail.source_kind : '';
   const pairs = [
+    sourceKind === 'application' ? '应用审计' : '',
+    sourceKind === 'system' ? '系统审计' : '',
     detail.operation ? `op=${String(detail.operation)}` : '',
     detail.result ? `res=${String(detail.result)}` : '',
+    detail.username ? `user=${String(detail.username)}` : '',
+    detail.target_user_id ? `target=${String(detail.target_user_id)}` : '',
+    detail.role_id ? `role=${String(detail.role_id)}` : '',
+    detail.status ? `status=${String(detail.status)}` : '',
     detail.process ? `proc=${String(detail.process)}` : '',
     detail.pid ? `pid=${String(detail.pid)}` : '',
     detail.sequence ? `seq=${String(detail.sequence)}` : '',
+    detail.error_code ? `code=${String(detail.error_code)}` : '',
   ].filter(Boolean);
   const summary = pairs.join(' · ') || String(detail.raw_message ?? '—');
-  const raw = typeof detail.raw_message === 'string' ? detail.raw_message : summary;
+  const raw = typeof detail.raw_message === 'string' ? detail.raw_message : JSON.stringify(detail);
   return (
     <Tooltip title={raw}>
       <span style={{ fontSize: 12, color: textColor }}>{summary}</span>

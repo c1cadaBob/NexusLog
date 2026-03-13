@@ -13,47 +13,109 @@ const (
 	auditActionCreate = "create"
 	auditActionUpdate = "update"
 	auditActionDelete = "delete"
+	auditContextKey   = "_nexuslog_audit_event"
 )
 
-// AuditMiddleware creates a Gin middleware that audits POST/PUT/DELETE requests.
+type auditEvent struct {
+	Action       string
+	ResourceType string
+	ResourceID   string
+	UserID       string
+	Details      map[string]any
+	Skip         bool
+}
+
+// AuditMiddleware creates a Gin middleware that audits write operations by default,
+// and also supports explicit handler-driven audit events for login/read flows.
 func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := strings.ToUpper(strings.TrimSpace(c.Request.Method))
-		if method == http.MethodGet {
-			c.Next()
-			return
-		}
-		if method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete {
-			c.Next()
-			return
-		}
-
-		// Capture request data before c.Next() (handler may modify context)
-		tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
-		userID := resolveUserID(c)
 		path := c.Request.URL.Path
 		ip := c.ClientIP()
 		userAgent := c.Request.UserAgent()
 
 		c.Next()
 
-		// Insert audit log asynchronously (do not block response)
-		go func() {
-			action, resourceType, resourceID := deriveAuditFields(method, path, c)
+		tenantID := resolveTenantID(c)
+		userID := resolveUserID(c)
+		auditEntry, hasOverride := getAuditEvent(c)
+		if hasOverride {
+			if auditEntry.Skip {
+				return
+			}
+			if overrideUserID := strings.TrimSpace(auditEntry.UserID); overrideUserID != "" {
+				userID = overrideUserID
+			}
+			action := strings.TrimSpace(auditEntry.Action)
+			resourceType := strings.TrimSpace(auditEntry.ResourceType)
+			resourceID := strings.TrimSpace(auditEntry.ResourceID)
 			if action == "" || resourceType == "" {
 				return
 			}
-			insertAuditLog(db, tenantID, userID, action, resourceType, resourceID, ip, userAgent, nil)
-		}()
+			go insertAuditLog(db, tenantID, userID, action, resourceType, resourceID, ip, userAgent, auditEntry.Details)
+			return
+		}
+
+		if !shouldAutoAuditMethod(method) {
+			return
+		}
+
+		action, resourceType, resourceID := deriveAuditFields(method, path, c)
+		if action == "" || resourceType == "" {
+			return
+		}
+		go insertAuditLog(db, tenantID, userID, action, resourceType, resourceID, ip, userAgent, nil)
 	}
 }
 
+func shouldAutoAuditMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func setAuditEvent(c *gin.Context, event auditEvent) {
+	if c == nil {
+		return
+	}
+	c.Set(auditContextKey, event)
+}
+
+func getAuditEvent(c *gin.Context) (auditEvent, bool) {
+	if c == nil {
+		return auditEvent{}, false
+	}
+	value, exists := c.Get(auditContextKey)
+	if !exists {
+		return auditEvent{}, false
+	}
+	event, ok := value.(auditEvent)
+	if !ok {
+		return auditEvent{}, false
+	}
+	return event, true
+}
+
+func resolveTenantID(c *gin.Context) string {
+	if tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID")); tenantID != "" {
+		return tenantID
+	}
+	if tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-Id")); tenantID != "" {
+		return tenantID
+	}
+	if tenantID := strings.TrimSpace(c.GetString(contextKeyTenantID)); tenantID != "" {
+		return tenantID
+	}
+	return ""
+}
+
 func resolveUserID(c *gin.Context) string {
-	// Prefer X-User-ID header (set by auth middleware or gateway)
 	if uid := strings.TrimSpace(c.GetHeader("X-User-ID")); uid != "" {
 		return uid
 	}
-	// Try JWT claims from context (if auth middleware sets it)
 	if v, exists := c.Get("user_id"); exists {
 		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
 			return strings.TrimSpace(s)
@@ -63,16 +125,14 @@ func resolveUserID(c *gin.Context) string {
 }
 
 func deriveAuditFields(method, path string, c *gin.Context) (action, resourceType, resourceID string) {
-	// Normalize path: /api/v1/users/123 -> users, 123
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) < 2 {
 		return "", "", ""
 	}
-	// Skip "api" and "v1" if present
 	start := 0
-	for i, p := range parts {
-		if p == "api" && i+1 < len(parts) && parts[i+1] == "v1" {
-			start = i + 2
+	for index, part := range parts {
+		if part == "api" && index+1 < len(parts) && parts[index+1] == "v1" {
+			start = index + 2
 			break
 		}
 	}
@@ -81,13 +141,11 @@ func deriveAuditFields(method, path string, c *gin.Context) (action, resourceTyp
 	}
 	resourceType = parts[start]
 	if len(parts) > start+1 {
-		// Check if next part looks like an ID (uuid or numeric)
 		next := parts[start+1]
 		if next != "" && !isPathSegment(next) {
 			resourceID = next
 		}
 	}
-	// Also check :id param from Gin
 	if resourceID == "" {
 		resourceID = strings.TrimSpace(c.Param("id"))
 	}
@@ -106,7 +164,6 @@ func deriveAuditFields(method, path string, c *gin.Context) (action, resourceTyp
 }
 
 func isPathSegment(s string) bool {
-	// Path segments like "login", "register" are not IDs
 	nonIDSegments := map[string]bool{
 		"login": true, "register": true, "refresh": true, "logout": true,
 		"test": true, "password": true, "reset-request": true, "reset-confirm": true,
@@ -114,14 +171,14 @@ func isPathSegment(s string) bool {
 	return nonIDSegments[strings.ToLower(s)]
 }
 
-func insertAuditLog(db *sql.DB, tenantID, userID, action, resourceType, resourceID, ip, userAgent string, details map[string]interface{}) {
+func insertAuditLog(db *sql.DB, tenantID, userID, action, resourceType, resourceID, ip, userAgent string, details map[string]any) {
 	if db == nil {
 		return
 	}
 	detailsJSON := "{}"
 	if details != nil {
-		if b, err := json.Marshal(details); err == nil {
-			detailsJSON = string(b)
+		if encoded, err := json.Marshal(details); err == nil {
+			detailsJSON = string(encoded)
 		}
 	}
 
@@ -129,16 +186,12 @@ func insertAuditLog(db *sql.DB, tenantID, userID, action, resourceType, resource
 INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at)
 VALUES ($1::uuid, $2::uuid, $3, $4, NULLIF($5,''), $6::jsonb, NULLIF($7,'')::inet, NULLIF($8,''), NOW())
 `
-	var tenantArg, userArg interface{}
+	var tenantArg, userArg any
 	if tenantID != "" {
 		tenantArg = tenantID
-	} else {
-		tenantArg = nil
 	}
 	if userID != "" {
 		userArg = userID
-	} else {
-		userArg = nil
 	}
 
 	_, _ = db.Exec(query, tenantArg, userArg, action, resourceType, resourceID, detailsJSON, ip, userAgent)

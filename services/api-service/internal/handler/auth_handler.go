@@ -25,6 +25,11 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req model.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setAuthAuditEvent(c, "auth.register", "", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "AUTH_REGISTER_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "AUTH_REGISTER_INVALID_ARGUMENT",
@@ -38,10 +43,21 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	resp, apiErr := h.authService.Register(c.Request.Context(), c.GetHeader("X-Tenant-ID"), req)
 	if apiErr != nil {
+		setAuthAuditEvent(c, "auth.register", "", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"username":    req.Username,
+			"error_code":  apiErr.Code,
+			"http_status": apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
 
+	setAuthAuditEvent(c, "auth.register", resp.UserID, resp.UserID, buildAuditDetails(map[string]any{
+		"result":      "success",
+		"username":    resp.Username,
+		"http_status": http.StatusCreated,
+	}))
 	httpx.Success(c, http.StatusCreated, resp)
 }
 
@@ -49,6 +65,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req model.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setAuthAuditEvent(c, "auth.login", "", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "AUTH_LOGIN_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "AUTH_LOGIN_INVALID_ARGUMENT",
@@ -68,10 +89,23 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.Request.UserAgent(),
 	)
 	if apiErr != nil {
+		setAuthAuditEvent(c, "auth.login", "", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"username":    req.Username,
+			"remember_me": req.RememberMe,
+			"error_code":  apiErr.Code,
+			"http_status": apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
 
+	setAuthAuditEvent(c, "auth.login", resp.User.UserID, resp.User.UserID, buildAuditDetails(map[string]any{
+		"result":      "success",
+		"username":    resp.User.Username,
+		"remember_me": req.RememberMe,
+		"http_status": http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, resp)
 }
 
@@ -109,6 +143,11 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req model.LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		setAuthAuditEvent(c, "auth.logout", c.GetHeader("X-User-ID"), c.GetHeader("X-User-ID"), buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "AUTH_LOGOUT_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "AUTH_LOGOUT_INVALID_ARGUMENT",
@@ -127,10 +166,19 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		req,
 	)
 	if apiErr != nil {
+		setAuthAuditEvent(c, "auth.logout", c.GetHeader("X-User-ID"), c.GetHeader("X-User-ID"), buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  apiErr.Code,
+			"http_status": apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
 
+	setAuthAuditEvent(c, "auth.logout", c.GetHeader("X-User-ID"), c.GetHeader("X-User-ID"), buildAuditDetails(map[string]any{
+		"result":      "success",
+		"http_status": http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, resp)
 }
 
@@ -190,4 +238,14 @@ func (h *AuthHandler) PasswordResetConfirm(c *gin.Context) {
 	}
 
 	httpx.Success(c, http.StatusOK, resp)
+}
+
+func setAuthAuditEvent(c *gin.Context, action, userID, resourceID string, details map[string]any) {
+	setAuditEvent(c, auditEvent{
+		Action:       action,
+		ResourceType: "auth",
+		ResourceID:   resourceID,
+		UserID:       userID,
+		Details:      details,
+	})
 }

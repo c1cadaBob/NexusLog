@@ -249,9 +249,37 @@ export function mapAuditLogEntry(entry: LogEntry): AuditLogItem {
       pid: parsed.pid || undefined,
       sequence: parsed.sequence || undefined,
       host: entry.host || undefined,
+      source_kind: 'system',
       source: typeof fields?.source === 'string' ? fields.source : (typeof fields?.source_path === 'string' ? fields.source_path : undefined),
       raw_message: rawMessage,
     },
+  };
+}
+
+function normalizeAuditApiItem(item: AuditLogItem): AuditLogItem {
+  const detail = item.detail && typeof item.detail === 'object' ? { ...item.detail } : {};
+  return {
+    ...item,
+    detail: {
+      source_kind: 'application',
+      ...detail,
+    },
+  };
+}
+
+function compareAuditItemsByCreatedAt(left: AuditLogItem, right: AuditLogItem): number {
+  const leftTime = Date.parse(left.created_at || '');
+  const rightTime = Date.parse(right.created_at || '');
+  return rightTime - leftTime;
+}
+
+function resolveAuditFetchWindow(params: FetchAuditLogsParams): { page: number; pageSize: number; windowSize: number } {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.max(1, params.page_size ?? 20);
+  return {
+    page,
+    pageSize,
+    windowSize: page * pageSize,
   };
 }
 
@@ -270,11 +298,10 @@ function buildAuditKeywords(params: FetchAuditLogsParams): string {
 }
 
 async function fetchAuditLogsFromQueryPipeline(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
-  const page = params.page ?? 1;
-  const pageSize = params.page_size ?? 20;
+  const { page, pageSize } = resolveAuditFetchWindow(params);
   const result = await queryRealtimeLogs({
     keywords: buildAuditKeywords(params),
-    page,
+    page: 1,
     pageSize,
     filters: {
       service: 'audit.log',
@@ -290,15 +317,14 @@ async function fetchAuditLogsFromQueryPipeline(params: FetchAuditLogsParams = {}
   return {
     items: result.hits.map(mapAuditLogEntry),
     total: result.total,
-    page: result.page,
-    pageSize: result.pageSize,
-    hasNext: result.hasNext,
+    page,
+    pageSize,
+    hasNext: result.total > pageSize,
   };
 }
 
 async function fetchAuditLogsFromAuditApi(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
-  const page = params.page ?? 1;
-  const pageSize = params.page_size ?? 20;
+  const { page, pageSize } = resolveAuditFetchWindow(params);
 
   const envelope = await requestAuditApi<{ items: AuditLogItem[] }>('/logs', {
     method: 'GET',
@@ -308,35 +334,58 @@ async function fetchAuditLogsFromAuditApi(params: FetchAuditLogsParams = {}): Pr
       resource_type: params.resource_type,
       from: params.from,
       to: params.to,
-      page,
+      page: 1,
       page_size: pageSize,
       sort_by: params.sort_by,
       sort_order: params.sort_order,
     },
   });
 
-  const items = envelope.data?.items ?? [];
+  const items = (envelope.data?.items ?? []).map(normalizeAuditApiItem);
   const metaTotal = envelope.meta?.total;
   const total = typeof metaTotal === 'number' ? metaTotal : (typeof metaTotal === 'string' ? parseInt(metaTotal, 10) : items.length);
-  const hasNext = envelope.meta?.has_next ?? (page * pageSize < total);
 
   return {
     items,
     total: Number.isFinite(total) ? total : items.length,
     page,
     pageSize,
-    hasNext: Boolean(hasNext),
+    hasNext: pageSize < total,
   };
 }
 
 export async function fetchAuditLogs(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
-  try {
-    return await fetchAuditLogsFromQueryPipeline(params);
-  } catch (queryError) {
-    try {
-      return await fetchAuditLogsFromAuditApi(params);
-    } catch {
-      throw queryError;
-    }
+  const { page, pageSize, windowSize } = resolveAuditFetchWindow(params);
+  const mergedParams: FetchAuditLogsParams = {
+    ...params,
+    page: 1,
+    page_size: windowSize,
+  };
+
+  const [applicationResult, systemResult] = await Promise.allSettled([
+    fetchAuditLogsFromAuditApi(mergedParams),
+    fetchAuditLogsFromQueryPipeline(mergedParams),
+  ]);
+
+  const applicationItems = applicationResult.status === 'fulfilled' ? applicationResult.value.items : [];
+  const applicationTotal = applicationResult.status === 'fulfilled' ? applicationResult.value.total : 0;
+  const systemItems = systemResult.status === 'fulfilled' ? systemResult.value.items : [];
+  const systemTotal = systemResult.status === 'fulfilled' ? systemResult.value.total : 0;
+
+  if (applicationResult.status === 'rejected' && systemResult.status === 'rejected') {
+    throw applicationResult.reason instanceof Error ? applicationResult.reason : systemResult.reason;
   }
+
+  const mergedItems = [...applicationItems, ...systemItems].sort(compareAuditItemsByCreatedAt);
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize;
+  const total = applicationTotal + systemTotal;
+
+  return {
+    items: mergedItems.slice(start, end),
+    total,
+    page,
+    pageSize,
+    hasNext: end < total,
+  };
 }

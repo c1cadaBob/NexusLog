@@ -33,9 +33,30 @@ func (h *UserHandler) List(c *gin.Context) {
 
 	resp, apiErr := h.userService.ListUsers(c.Request.Context(), tenantID, page, pageSize, filter)
 	if apiErr != nil {
+		setUserAuditEvent(c, "users.list", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"query":       filter.Query,
+			"status":      filter.Status,
+			"role_id":     filter.RoleID,
+			"page":        page,
+			"page_size":   pageSize,
+			"error_code":  apiErr.Code,
+			"http_status": apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
+	setUserAuditEvent(c, "users.list", "", buildAuditDetails(map[string]any{
+		"result":       "success",
+		"query":        filter.Query,
+		"status":       filter.Status,
+		"role_id":      filter.RoleID,
+		"page":         resp.Page,
+		"page_size":    resp.Limit,
+		"result_count": len(resp.Users),
+		"total":        resp.Total,
+		"http_status":  http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, resp)
 }
 
@@ -43,6 +64,11 @@ func (h *UserHandler) Get(c *gin.Context) {
 	tenantID := c.GetHeader("X-Tenant-ID")
 	userID := c.Param("id")
 	if userID == "" {
+		setUserAuditEvent(c, "users.read", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "USER_GET_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_GET_INVALID_ARGUMENT",
@@ -54,9 +80,21 @@ func (h *UserHandler) Get(c *gin.Context) {
 
 	resp, apiErr := h.userService.GetUser(c.Request.Context(), tenantID, userID)
 	if apiErr != nil {
+		setUserAuditEvent(c, "users.read", userID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"target_user_id": userID,
+			"error_code":     apiErr.Code,
+			"http_status":    apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
+	setUserAuditEvent(c, "users.read", userID, buildAuditDetails(map[string]any{
+		"result":         "success",
+		"target_user_id": userID,
+		"username":       resp.Username,
+		"http_status":    http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, resp)
 }
 
@@ -65,6 +103,11 @@ func (h *UserHandler) Create(c *gin.Context) {
 
 	var req model.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setUserAuditEvent(c, "users.create", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "USER_CREATE_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_CREATE_INVALID_ARGUMENT",
@@ -76,9 +119,22 @@ func (h *UserHandler) Create(c *gin.Context) {
 
 	resp, apiErr := h.userService.CreateUser(c.Request.Context(), tenantID, req)
 	if apiErr != nil {
+		setUserAuditEvent(c, "users.create", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"username":    req.Username,
+			"error_code":  apiErr.Code,
+			"http_status": apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
+	setUserAuditEvent(c, "users.create", resp.ID, buildAuditDetails(map[string]any{
+		"result":         "success",
+		"target_user_id": resp.ID,
+		"username":       resp.Username,
+		"role_id":        req.RoleID,
+		"http_status":    http.StatusCreated,
+	}))
 	httpx.Success(c, http.StatusCreated, resp)
 }
 
@@ -86,6 +142,11 @@ func (h *UserHandler) Update(c *gin.Context) {
 	tenantID := c.GetHeader("X-Tenant-ID")
 	userID := c.Param("id")
 	if userID == "" {
+		setUserAuditEvent(c, "users.update", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "USER_UPDATE_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_UPDATE_INVALID_ARGUMENT",
@@ -97,6 +158,12 @@ func (h *UserHandler) Update(c *gin.Context) {
 
 	var req model.UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setUserAuditEvent(c, "users.update", userID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"target_user_id": userID,
+			"error_code":     "USER_UPDATE_INVALID_ARGUMENT",
+			"http_status":    http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_UPDATE_INVALID_ARGUMENT",
@@ -108,9 +175,26 @@ func (h *UserHandler) Update(c *gin.Context) {
 
 	apiErr := h.userService.UpdateUser(c.Request.Context(), tenantID, userID, req)
 	if apiErr != nil {
+		setUserAuditEvent(c, "users.update", userID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"target_user_id": userID,
+			"display_name":   req.DisplayName,
+			"email":          req.Email,
+			"status":         req.Status,
+			"error_code":     apiErr.Code,
+			"http_status":    apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
+	setUserAuditEvent(c, "users.update", userID, buildAuditDetails(map[string]any{
+		"result":         "success",
+		"target_user_id": userID,
+		"display_name":   req.DisplayName,
+		"email":          req.Email,
+		"status":         req.Status,
+		"http_status":    http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, gin.H{"updated": true})
 }
 
@@ -118,6 +202,11 @@ func (h *UserHandler) Delete(c *gin.Context) {
 	tenantID := c.GetHeader("X-Tenant-ID")
 	userID := c.Param("id")
 	if userID == "" {
+		setUserAuditEvent(c, "users.delete", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "USER_DELETE_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_DELETE_INVALID_ARGUMENT",
@@ -129,9 +218,20 @@ func (h *UserHandler) Delete(c *gin.Context) {
 
 	apiErr := h.userService.DisableUser(c.Request.Context(), tenantID, userID)
 	if apiErr != nil {
+		setUserAuditEvent(c, "users.delete", userID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"target_user_id": userID,
+			"error_code":     apiErr.Code,
+			"http_status":    apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
+	setUserAuditEvent(c, "users.delete", userID, buildAuditDetails(map[string]any{
+		"result":         "success",
+		"target_user_id": userID,
+		"http_status":    http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, gin.H{"disabled": true})
 }
 
@@ -140,6 +240,11 @@ func (h *UserHandler) BatchUpdateStatus(c *gin.Context) {
 
 	var req model.BatchUpdateUsersStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setUserAuditEvent(c, "users.batch_status", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "USER_BATCH_UPDATE_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_BATCH_UPDATE_INVALID_ARGUMENT",
@@ -151,9 +256,24 @@ func (h *UserHandler) BatchUpdateStatus(c *gin.Context) {
 
 	resp, apiErr := h.userService.BatchUpdateUsersStatus(c.Request.Context(), tenantID, req)
 	if apiErr != nil {
+		setUserAuditEvent(c, "users.batch_status", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"user_ids":    req.UserIDs,
+			"status":      req.Status,
+			"error_code":  apiErr.Code,
+			"http_status": apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
+	setUserAuditEvent(c, "users.batch_status", "", buildAuditDetails(map[string]any{
+		"result":      "success",
+		"user_ids":    req.UserIDs,
+		"status":      req.Status,
+		"requested":   resp.Requested,
+		"updated":     resp.Updated,
+		"http_status": http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, resp)
 }
 
@@ -161,6 +281,11 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 	tenantID := c.GetHeader("X-Tenant-ID")
 	userID := c.Param("id")
 	if userID == "" {
+		setUserAuditEvent(c, "users.assign_role", "", buildAuditDetails(map[string]any{
+			"result":      "failed",
+			"error_code":  "USER_ASSIGN_ROLE_INVALID_ARGUMENT",
+			"http_status": http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_ASSIGN_ROLE_INVALID_ARGUMENT",
@@ -172,6 +297,12 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 
 	var req model.AssignRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setUserAuditEvent(c, "users.assign_role", userID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"target_user_id": userID,
+			"error_code":     "USER_ASSIGN_ROLE_INVALID_ARGUMENT",
+			"http_status":    http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_ASSIGN_ROLE_INVALID_ARGUMENT",
@@ -181,6 +312,12 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 		return
 	}
 	if req.RoleID == "" {
+		setUserAuditEvent(c, "users.assign_role", userID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"target_user_id": userID,
+			"error_code":     "USER_ASSIGN_ROLE_INVALID_ARGUMENT",
+			"http_status":    http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_ASSIGN_ROLE_INVALID_ARGUMENT",
@@ -192,9 +329,22 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 
 	apiErr := h.userService.AssignRole(c.Request.Context(), tenantID, userID, req.RoleID)
 	if apiErr != nil {
+		setUserAuditEvent(c, "users.assign_role", userID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"target_user_id": userID,
+			"role_id":        req.RoleID,
+			"error_code":     apiErr.Code,
+			"http_status":    apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
+	setUserAuditEvent(c, "users.assign_role", userID, buildAuditDetails(map[string]any{
+		"result":         "success",
+		"target_user_id": userID,
+		"role_id":        req.RoleID,
+		"http_status":    http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, gin.H{"assigned": true})
 }
 
@@ -203,6 +353,13 @@ func (h *UserHandler) RemoveRole(c *gin.Context) {
 	userID := c.Param("id")
 	roleID := c.Param("roleId")
 	if userID == "" || roleID == "" {
+		setUserAuditEvent(c, "users.remove_role", userID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"target_user_id": userID,
+			"role_id":        roleID,
+			"error_code":     "USER_REMOVE_ROLE_INVALID_ARGUMENT",
+			"http_status":    http.StatusBadRequest,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "USER_REMOVE_ROLE_INVALID_ARGUMENT",
@@ -214,9 +371,22 @@ func (h *UserHandler) RemoveRole(c *gin.Context) {
 
 	apiErr := h.userService.RemoveRole(c.Request.Context(), tenantID, userID, roleID)
 	if apiErr != nil {
+		setUserAuditEvent(c, "users.remove_role", userID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"target_user_id": userID,
+			"role_id":        roleID,
+			"error_code":     apiErr.Code,
+			"http_status":    apiErr.HTTPStatus,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
+	setUserAuditEvent(c, "users.remove_role", userID, buildAuditDetails(map[string]any{
+		"result":         "success",
+		"target_user_id": userID,
+		"role_id":        roleID,
+		"http_status":    http.StatusOK,
+	}))
 	httpx.Success(c, http.StatusOK, gin.H{"removed": true})
 }
 
@@ -225,9 +395,27 @@ func (h *UserHandler) ListRoles(c *gin.Context) {
 
 	resp, apiErr := h.userService.ListRoles(c.Request.Context(), tenantID)
 	if apiErr != nil {
+		setAuditEvent(c, auditEvent{
+			Action:       "roles.list",
+			ResourceType: "roles",
+			Details: buildAuditDetails(map[string]any{
+				"result":      "failed",
+				"error_code":  apiErr.Code,
+				"http_status": apiErr.HTTPStatus,
+			}),
+		})
 		httpx.Error(c, apiErr)
 		return
 	}
+	setAuditEvent(c, auditEvent{
+		Action:       "roles.list",
+		ResourceType: "roles",
+		Details: buildAuditDetails(map[string]any{
+			"result":      "success",
+			"count":       len(resp),
+			"http_status": http.StatusOK,
+		}),
+	})
 	httpx.Success(c, http.StatusOK, gin.H{"roles": resp})
 }
 
@@ -266,4 +454,13 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, resp)
+}
+
+func setUserAuditEvent(c *gin.Context, action, resourceID string, details map[string]any) {
+	setAuditEvent(c, auditEvent{
+		Action:       action,
+		ResourceType: "users",
+		ResourceID:   resourceID,
+		Details:      details,
+	})
 }
