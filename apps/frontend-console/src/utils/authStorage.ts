@@ -155,6 +155,24 @@ export function resolveStoredAuthUserID(): string {
   }
 }
 
+function writeAuthSessionTokens(
+  scope: AuthStorageScope,
+  params: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAtMs: number;
+  },
+): void {
+  setActiveAuthStorageScope(scope);
+  writeStorageValue(scope, ACCESS_TOKEN_KEY, params.accessToken);
+  writeStorageValue(scope, REFRESH_TOKEN_KEY, params.refreshToken);
+  writeStorageValue(scope, TOKEN_EXPIRES_AT_KEY, String(params.expiresAtMs));
+  const fallbackScope = getFallbackScope(scope);
+  removeStorageValue(fallbackScope, ACCESS_TOKEN_KEY);
+  removeStorageValue(fallbackScope, REFRESH_TOKEN_KEY);
+  removeStorageValue(fallbackScope, TOKEN_EXPIRES_AT_KEY);
+}
+
 export function persistAuthSession(params: {
   accessToken: string;
   refreshToken: string;
@@ -163,10 +181,16 @@ export function persistAuthSession(params: {
 }): void {
   const scope: AuthStorageScope = params.remember ? 'local' : 'session';
   clearAuthStorage();
-  setActiveAuthStorageScope(scope);
-  writeStorageValue(scope, ACCESS_TOKEN_KEY, params.accessToken);
-  writeStorageValue(scope, REFRESH_TOKEN_KEY, params.refreshToken);
-  writeStorageValue(scope, TOKEN_EXPIRES_AT_KEY, String(params.expiresAtMs));
+  writeAuthSessionTokens(scope, params);
+}
+
+export function persistRefreshedAuthSession(params: {
+  accessToken: string;
+  refreshToken: string;
+  expiresAtMs: number;
+}): void {
+  const scope = resolveAuthStorageScope();
+  writeAuthSessionTokens(scope, params);
 }
 
 const authStateStorage: StateStorage = {
