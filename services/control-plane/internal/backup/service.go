@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	defaultESAddress     = "http://localhost:9200"
-	defaultRepoPath     = "/usr/share/elasticsearch/data/snapshots"
+	defaultESAddress      = "http://localhost:9200"
+	defaultRepoPath       = "/usr/share/elasticsearch/snapshots"
 	defaultRequestTimeout = 30 * time.Second
 )
 
@@ -107,7 +107,7 @@ func (s *Service) CreateSnapshot(ctx context.Context, repoName, snapshotName, in
 		indices = "nexuslog-*"
 	}
 	body := map[string]interface{}{
-		"indices":     indices,
+		"indices":              indices,
 		"include_global_state": false,
 	}
 	if description != "" {
@@ -171,12 +171,12 @@ func (s *Service) ListSnapshots(ctx context.Context, repoName string) ([]Snapsho
 
 // SnapshotInfo represents a snapshot entry.
 type SnapshotInfo struct {
-	Snapshot   string            `json:"snapshot"`
-	State      string            `json:"state"`
-	Indices    []string          `json:"indices"`
-	StartTime  string            `json:"start_time"`
-	EndTime    string            `json:"end_time"`
-	Metadata   map[string]any    `json:"metadata,omitempty"`
+	Snapshot  string         `json:"snapshot"`
+	State     string         `json:"state"`
+	Indices   []string       `json:"indices"`
+	StartTime string         `json:"start_time"`
+	EndTime   string         `json:"end_time"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 // GetSnapshotStatus returns the status of a snapshot.
@@ -219,8 +219,8 @@ func (s *Service) GetSnapshotStatus(ctx context.Context, repoName, snapshotName 
 	info := result.Snapshots[0]
 	return &SnapshotStatus{
 		Snapshot:  info.Snapshot,
-		State:    info.State,
-		Indices:  info.Indices,
+		State:     info.State,
+		Indices:   info.Indices,
 		StartTime: info.StartTime,
 		EndTime:   info.EndTime,
 		Metadata:  info.Metadata,

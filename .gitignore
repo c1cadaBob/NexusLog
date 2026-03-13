@@ -79,3 +79,7 @@ charts/*/charts/
 # Collector runtime state
 agents/collector-agent/deploy/docker/state/
 .runtime/
+
+# Local Elasticsearch snapshot repository runtime files
+storage/elasticsearch/snapshots/*
+!storage/elasticsearch/snapshots/.gitkeep

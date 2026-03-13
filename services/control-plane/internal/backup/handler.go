@@ -36,8 +36,9 @@ func RegisterRoutes(router gin.IRouter, h *Handler) {
 func (h *Handler) ListRepositories(c *gin.Context) {
 	repos, err := h.svc.ListRepositories(c.Request.Context())
 	if err != nil {
+		setBackupRepositoryAuditEvent(c, "backup_repositories.list", "", buildBackupRepositoryListAuditDetails(0, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": "INTERNAL_ERROR",
+			"code":    "INTERNAL_ERROR",
 			"message": err.Error(),
 		})
 		return
@@ -50,6 +51,7 @@ func (h *Handler) ListRepositories(c *gin.Context) {
 			"settings": info.Settings,
 		})
 	}
+	setBackupRepositoryAuditEvent(c, "backup_repositories.list", "", buildBackupRepositoryListAuditDetails(len(items), http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "success",
@@ -67,6 +69,7 @@ type CreateRepositoryRequest struct {
 func (h *Handler) CreateRepository(c *gin.Context) {
 	var req CreateRepositoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setBackupRepositoryAuditEvent(c, "backup_repositories.create", "", buildBackupRepositoryAuditDetails("", "", http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "invalid request body",
@@ -75,6 +78,7 @@ func (h *Handler) CreateRepository(c *gin.Context) {
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
+		setBackupRepositoryAuditEvent(c, "backup_repositories.create", "", buildBackupRepositoryAuditDetails(req.Name, "", http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "name is required",
@@ -90,13 +94,16 @@ func (h *Handler) CreateRepository(c *gin.Context) {
 	if loc, ok := settings["location"]; !ok || loc == "" {
 		settings["location"] = defaultRepoPath
 	}
+	location, _ := settings["location"].(string)
 	if err := h.svc.CreateRepository(c.Request.Context(), req.Name, settings); err != nil {
+		setBackupRepositoryAuditEvent(c, "backup_repositories.create", req.Name, buildBackupRepositoryAuditDetails(req.Name, location, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
 			"message": err.Error(),
 		})
 		return
 	}
+	setBackupRepositoryAuditEvent(c, "backup_repositories.create", req.Name, buildBackupRepositoryAuditDetails(req.Name, location, http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "repository created",
@@ -108,6 +115,7 @@ func (h *Handler) CreateRepository(c *gin.Context) {
 func (h *Handler) ListSnapshots(c *gin.Context) {
 	repo := strings.TrimSpace(c.Query("repository"))
 	if repo == "" {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.list", "", buildBackupSnapshotListAuditDetails("", 0, http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "repository query param is required",
@@ -116,6 +124,7 @@ func (h *Handler) ListSnapshots(c *gin.Context) {
 	}
 	snapshots, err := h.svc.ListSnapshots(c.Request.Context(), repo)
 	if err != nil {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.list", "", buildBackupSnapshotListAuditDetails(repo, 0, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
 			"message": err.Error(),
@@ -126,13 +135,14 @@ func (h *Handler) ListSnapshots(c *gin.Context) {
 	for _, s := range snapshots {
 		items = append(items, gin.H{
 			"snapshot":   s.Snapshot,
-			"state":     s.State,
-			"indices":   s.Indices,
+			"state":      s.State,
+			"indices":    s.Indices,
 			"start_time": s.StartTime,
 			"end_time":   s.EndTime,
-			"metadata":  s.Metadata,
+			"metadata":   s.Metadata,
 		})
 	}
+	setBackupSnapshotAuditEvent(c, "backup_snapshots.list", "", buildBackupSnapshotListAuditDetails(repo, len(items), http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "success",
@@ -152,6 +162,7 @@ type CreateSnapshotRequest struct {
 func (h *Handler) CreateSnapshot(c *gin.Context) {
 	var req CreateSnapshotRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.create", "", buildBackupSnapshotAuditDetails("", "", "create", nil, "", "", http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "invalid request body",
@@ -161,6 +172,7 @@ func (h *Handler) CreateSnapshot(c *gin.Context) {
 	req.Repository = strings.TrimSpace(req.Repository)
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Repository == "" || req.Name == "" {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.create", req.Name, buildBackupSnapshotAuditDetails(req.Repository, req.Name, "create", req.Indices, "", req.Description, http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "repository and name are required",
@@ -171,19 +183,21 @@ func (h *Handler) CreateSnapshot(c *gin.Context) {
 		req.Indices = "nexuslog-*"
 	}
 	if err := h.svc.CreateSnapshot(c.Request.Context(), req.Repository, req.Name, req.Indices, req.Description); err != nil {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.create", req.Name, buildBackupSnapshotAuditDetails(req.Repository, req.Name, "create", req.Indices, "", req.Description, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
 			"message": err.Error(),
 		})
 		return
 	}
+	setBackupSnapshotAuditEvent(c, "backup_snapshots.create", req.Name, buildBackupSnapshotAuditDetails(req.Repository, req.Name, "create", req.Indices, "", req.Description, http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "snapshot created",
 		"data": gin.H{
 			"repository": req.Repository,
 			"snapshot":   req.Name,
-			"indices":   req.Indices,
+			"indices":    req.Indices,
 		},
 	})
 }
@@ -193,6 +207,7 @@ func (h *Handler) GetSnapshotStatus(c *gin.Context) {
 	name := strings.TrimSpace(c.Param("name"))
 	repo := strings.TrimSpace(c.Query("repository"))
 	if name == "" || repo == "" {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.read", name, buildBackupSnapshotAuditDetails(repo, name, "read", nil, "", "", http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "name is required and repository query param is required",
@@ -202,28 +217,31 @@ func (h *Handler) GetSnapshotStatus(c *gin.Context) {
 	status, err := h.svc.GetSnapshotStatus(c.Request.Context(), repo, name)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
+			setBackupSnapshotAuditEvent(c, "backup_snapshots.read", name, buildBackupSnapshotAuditDetails(repo, name, "read", nil, "", "", http.StatusNotFound, "failed", "RES_NOT_FOUND"))
 			c.JSON(http.StatusNotFound, gin.H{
 				"code":    "RES_NOT_FOUND",
 				"message": err.Error(),
 			})
 			return
 		}
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.read", name, buildBackupSnapshotAuditDetails(repo, name, "read", nil, "", "", http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
 			"message": err.Error(),
 		})
 		return
 	}
+	setBackupSnapshotAuditEvent(c, "backup_snapshots.read", name, buildBackupSnapshotAuditDetails(repo, status.Snapshot, "read", status.Indices, status.State, "", http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "success",
 		"data": gin.H{
 			"snapshot":   status.Snapshot,
-			"state":     status.State,
-			"indices":   status.Indices,
+			"state":      status.State,
+			"indices":    status.Indices,
 			"start_time": status.StartTime,
 			"end_time":   status.EndTime,
-			"metadata":  status.Metadata,
+			"metadata":   status.Metadata,
 		},
 	})
 }
@@ -231,13 +249,14 @@ func (h *Handler) GetSnapshotStatus(c *gin.Context) {
 // RestoreSnapshotRequest for POST /api/v1/backup/snapshots/:name/restore
 type RestoreSnapshotRequest struct {
 	Repository string   `json:"repository"`
-	Indices    []string  `json:"indices,omitempty"`
+	Indices    []string `json:"indices,omitempty"`
 }
 
 // RestoreSnapshot POST /api/v1/backup/snapshots/:name/restore
 func (h *Handler) RestoreSnapshot(c *gin.Context) {
 	name := strings.TrimSpace(c.Param("name"))
 	if name == "" {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.restore", "", buildBackupSnapshotAuditDetails("", "", "restore", nil, "", "", http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "name is required",
@@ -251,6 +270,7 @@ func (h *Handler) RestoreSnapshot(c *gin.Context) {
 		req.Repository = strings.TrimSpace(c.Query("repository"))
 	}
 	if req.Repository == "" {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.restore", name, buildBackupSnapshotAuditDetails(req.Repository, name, "restore", req.Indices, "", "", http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "repository is required (query or body)",
@@ -258,12 +278,14 @@ func (h *Handler) RestoreSnapshot(c *gin.Context) {
 		return
 	}
 	if err := h.svc.RestoreSnapshot(c.Request.Context(), req.Repository, name, req.Indices); err != nil {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.restore", name, buildBackupSnapshotAuditDetails(req.Repository, name, "restore", req.Indices, "", "", http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
 			"message": err.Error(),
 		})
 		return
 	}
+	setBackupSnapshotAuditEvent(c, "backup_snapshots.restore", name, buildBackupSnapshotAuditDetails(req.Repository, name, "restore", req.Indices, "", "", http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "restore started",
@@ -276,6 +298,7 @@ func (h *Handler) DeleteSnapshot(c *gin.Context) {
 	name := strings.TrimSpace(c.Param("name"))
 	repo := strings.TrimSpace(c.Query("repository"))
 	if name == "" || repo == "" {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.delete", name, buildBackupSnapshotAuditDetails(repo, name, "delete", nil, "", "", http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "name and repository query param are required",
@@ -283,12 +306,14 @@ func (h *Handler) DeleteSnapshot(c *gin.Context) {
 		return
 	}
 	if err := h.svc.DeleteSnapshot(c.Request.Context(), repo, name); err != nil {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.delete", name, buildBackupSnapshotAuditDetails(repo, name, "delete", nil, "", "", http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
 			"message": err.Error(),
 		})
 		return
 	}
+	setBackupSnapshotAuditEvent(c, "backup_snapshots.delete", name, buildBackupSnapshotAuditDetails(repo, name, "delete", nil, "", "", http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "snapshot deleted",
@@ -301,6 +326,7 @@ func (h *Handler) CancelSnapshot(c *gin.Context) {
 	name := strings.TrimSpace(c.Param("name"))
 	repo := strings.TrimSpace(c.Query("repository"))
 	if name == "" || repo == "" {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.cancel", name, buildBackupSnapshotAuditDetails(repo, name, "cancel", nil, "", "", http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "REQ_INVALID_PARAMS",
 			"message": "name and repository query param are required",
@@ -308,12 +334,14 @@ func (h *Handler) CancelSnapshot(c *gin.Context) {
 		return
 	}
 	if err := h.svc.CancelSnapshot(c.Request.Context(), repo, name); err != nil {
+		setBackupSnapshotAuditEvent(c, "backup_snapshots.cancel", name, buildBackupSnapshotAuditDetails(repo, name, "cancel", nil, "", "", http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
 			"message": err.Error(),
 		})
 		return
 	}
+	setBackupSnapshotAuditEvent(c, "backup_snapshots.cancel", name, buildBackupSnapshotAuditDetails(repo, name, "cancel", nil, "", "", http.StatusOK, "success", ""))
 	c.JSON(http.StatusOK, gin.H{
 		"code":    "OK",
 		"message": "snapshot cancel requested",

@@ -370,7 +370,10 @@ services:
     environment:
       - xpack.ml.enabled=false
       - ingest.geoip.downloader.enabled=false
+      - path.repo=/usr/share/elasticsearch/snapshots
       - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    volumes:
+      - ./storage/elasticsearch/snapshots:/usr/share/elasticsearch/snapshots
 
   zookeeper:
     cpus: "0.50"
