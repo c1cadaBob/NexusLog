@@ -87,6 +87,10 @@ func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
 		`"GET /subjects HTTP/1.1"`,
 		`"Processing srvr command from"`,
 		`"kafka_exporter.go:678]"`,
+		`"Leader imbalance ratio for broker"`,
+		`"Topics not in preferred replica for broker"`,
+		`"Checking need to trigger auto leader balancing"`,
+		`"Processing automatic preferred replica leader election"`,
 		`"Triggering checkpoint"`,
 		`"Completed checkpoint"`,
 		`"Marking checkpoint"`,
@@ -94,6 +98,10 @@ func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
 		`"Name collision: Group already contains a Metric with the name 'pendingCommittables'"`,
 		`"run-docker-runtime"`,
 		`"Succeeded."`,
+		`"comm=\"iptables\""`,
+		`"type=NETFILTER_CFG"`,
+		`"type=SYSCALL"`,
+		`"type=PROCTITLE"`,
 	})
 }
 

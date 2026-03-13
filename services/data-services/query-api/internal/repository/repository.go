@@ -584,6 +584,12 @@ func buildRealtimeInternalNoiseMustNotClause() map[string]any {
 		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("kafka-exporter"), []string{
 			"kafka_exporter.go:678]",
 		}),
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("kafka"), []string{
+			"Leader imbalance ratio for broker",
+			"Topics not in preferred replica for broker",
+			"Checking need to trigger auto leader balancing",
+			"Processing automatic preferred replica leader election",
+		}),
 		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("flink-jobmanager"), []string{
 			"Triggering checkpoint",
 			"Completed checkpoint",
@@ -598,6 +604,21 @@ func buildRealtimeInternalNoiseMustNotClause() map[string]any {
 		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("messages"), []string{
 			"run-docker-runtime",
 			"Succeeded.",
+		}),
+		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("audit.log"), []string{
+			"type=PROCTITLE",
+		}),
+		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("audit.log"), []string{
+			`comm="iptables"`,
+			"type=NETFILTER_CFG",
+		}),
+		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("audit.log"), []string{
+			`comm="iptables"`,
+			"type=SYSCALL",
+		}),
+		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("audit.log"), []string{
+			`comm="iptables"`,
+			"type=PROCTITLE",
 		}),
 	}
 	return map[string]any{
