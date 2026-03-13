@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -111,8 +112,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 // Refresh handles POST /api/v1/auth/refresh.
 func (h *AuthHandler) Refresh(c *gin.Context) {
+	actorID := strings.TrimSpace(c.GetHeader("X-User-ID"))
 	var req model.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		setAuthAuditEvent(c, "auth.refresh", actorID, actorID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"error_code":     "AUTH_REFRESH_INVALID_ARGUMENT",
+			"http_status":    http.StatusBadRequest,
+			"token_provided": false,
+		}))
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       "AUTH_REFRESH_INVALID_ARGUMENT",
@@ -124,6 +132,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
+	tokenProvided := strings.TrimSpace(req.RefreshToken) != ""
 	resp, apiErr := h.authService.Refresh(
 		c.Request.Context(),
 		c.GetHeader("X-Tenant-ID"),
@@ -132,10 +141,21 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		c.Request.UserAgent(),
 	)
 	if apiErr != nil {
+		setAuthAuditEvent(c, "auth.refresh", actorID, actorID, buildAuditDetails(map[string]any{
+			"result":         "failed",
+			"error_code":     apiErr.Code,
+			"http_status":    apiErr.HTTPStatus,
+			"token_provided": tokenProvided,
+		}))
 		httpx.Error(c, apiErr)
 		return
 	}
 
+	setAuthAuditEvent(c, "auth.refresh", actorID, actorID, buildAuditDetails(map[string]any{
+		"result":         "success",
+		"http_status":    http.StatusOK,
+		"token_provided": tokenProvided,
+	}))
 	httpx.Success(c, http.StatusOK, resp)
 }
 

@@ -9,6 +9,7 @@ import { buildAuditDetailSummary } from './auditDetailSummary';
 
 const AUDIT_ACTION_OPTIONS = [
   { value: 'auth.login', label: 'auth.login' },
+  { value: 'auth.refresh', label: 'auth.refresh' },
   { value: 'auth.logout', label: 'auth.logout' },
   { value: 'auth.register', label: 'auth.register' },
   { value: 'users.list', label: 'users.list' },
