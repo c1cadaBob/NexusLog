@@ -643,8 +643,8 @@ services:
 
   elasticsearch-exporter:
     image: ${MIRROR_DOCKER_HUB}/prometheuscommunity/elasticsearch-exporter:v1.8.0
-    environment:
-      - ES_URI=http://elasticsearch:9200
+    command:
+      - --es.uri=http://elasticsearch:9200
     depends_on:
       elasticsearch:
         condition: service_healthy
