@@ -52,10 +52,11 @@
 - `20-database/08-schema-gap-and-extension-plan.md`
 - `20-database/sql/`
 
-### 5. 发布与监控入口
+### 5. 发布、安全与监控入口
 
 - `30-delivery-security/01-deploy-script-hot-reload-and-auto-rollback.md`
 - `30-delivery-security/07-monitoring-release-workflow-final.md`
+- `30-delivery-security/08-code-security-audit-baseline.md`
 - `40-monitoring/01-worker-implementation-and-metrics.md`
 - `40-monitoring/05-monitoring-rollback-runbook.md`
 
@@ -92,9 +93,10 @@
 
 1. `30-delivery-security/01-deploy-script-hot-reload-and-auto-rollback.md`
 2. `30-delivery-security/02-versioned-deploy-and-rollback.md`
-3. `30-delivery-security/07-monitoring-release-workflow-final.md`
-4. `40-monitoring/01-worker-implementation-and-metrics.md`
-5. `40-monitoring/05-monitoring-rollback-runbook.md`
+3. `30-delivery-security/08-code-security-audit-baseline.md`
+4. `30-delivery-security/07-monitoring-release-workflow-final.md`
+5. `40-monitoring/01-worker-implementation-and-metrics.md`
+6. `40-monitoring/05-monitoring-rollback-runbook.md`
 
 ---
 
