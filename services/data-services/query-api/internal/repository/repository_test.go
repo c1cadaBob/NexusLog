@@ -78,6 +78,8 @@ func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
 		`"/api/v1/query/stats/aggregate"`,
 		`"/api/v1/query/stats/overview"`,
 		`"/metrics"`,
+		`"GET \"/healthz\""`,
+		`"GET \"/readyz\""`,
 		`"POST /_bulk?timeout=1m HTTP/1.1"`,
 		`"GET /_cluster/health HTTP/1.1"`,
 		`"ingest scheduler created task"`,
@@ -90,6 +92,8 @@ func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
 		`"Marking checkpoint"`,
 		`"checkpoint complete:"`,
 		`"Name collision: Group already contains a Metric with the name 'pendingCommittables'"`,
+		`"run-docker-runtime"`,
+		`"Succeeded."`,
 	})
 }
 

@@ -561,6 +561,10 @@ func buildRealtimeInternalNoiseMustNotClause() map[string]any {
 		buildLowValueRealtimeNoiseRule(nil, []string{
 			"/metrics",
 		}),
+		buildLowValueRealtimeNoiseRule(nil, []string{
+			`GET "/healthz"`,
+			`GET "/readyz"`,
+		}),
 		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("es-compat-proxy"), []string{
 			"POST /_bulk?timeout=1m HTTP/1.1",
 			"GET /_cluster/health HTTP/1.1",
@@ -591,6 +595,10 @@ func buildRealtimeInternalNoiseMustNotClause() map[string]any {
 		buildRealtimeNoiseRule(buildServiceCompatibilityFilterClause("flink-taskmanager"), []string{
 			"Name collision: Group already contains a Metric with the name 'pendingCommittables'",
 		}, []string{"warn", "WARN"}),
+		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("messages"), []string{
+			"run-docker-runtime",
+			"Succeeded.",
+		}),
 	}
 	return map[string]any{
 		"bool": map[string]any{
@@ -602,6 +610,10 @@ func buildRealtimeInternalNoiseMustNotClause() map[string]any {
 
 func buildLowValueRealtimeNoiseRule(serviceClause map[string]any, phrases []string) map[string]any {
 	return buildRealtimeNoiseRule(serviceClause, phrases, []string{"info", "debug", "INFO", "DEBUG"})
+}
+
+func buildLowValueRealtimeNoiseRuleAllPhrases(serviceClause map[string]any, phrases []string) map[string]any {
+	return buildRealtimeNoiseRuleAllPhrases(serviceClause, phrases, []string{"info", "debug", "INFO", "DEBUG"})
 }
 
 func buildRealtimeNoiseRule(serviceClause map[string]any, phrases []string, levels []string) map[string]any {
@@ -629,7 +641,57 @@ func buildRealtimeNoiseRule(serviceClause map[string]any, phrases []string, leve
 	}
 }
 
+func buildRealtimeNoiseRuleAllPhrases(serviceClause map[string]any, phrases []string, levels []string) map[string]any {
+	filterClauses := make([]map[string]any, 0, 2)
+	if len(levels) > 0 {
+		filterClauses = append(filterClauses, map[string]any{
+			"terms": map[string]any{
+				"log.level": levels,
+			},
+		})
+	}
+	if len(serviceClause) > 0 {
+		filterClauses = append(filterClauses, serviceClause)
+	}
+	mustClauses := buildMessagePhraseMustClauses(phrases)
+	boolQuery := map[string]any{
+		"must": mustClauses,
+	}
+	if len(filterClauses) > 0 {
+		boolQuery["filter"] = filterClauses
+	}
+	return map[string]any{
+		"bool": boolQuery,
+	}
+}
+
 func buildMessagePhraseShouldClause(phrases []string) map[string]any {
+	return map[string]any{
+		"bool": map[string]any{
+			"should":               buildMessagePhraseMatchClauses(phrases),
+			"minimum_should_match": 1,
+		},
+	}
+}
+
+func buildMessagePhraseMustClauses(phrases []string) []map[string]any {
+	must := make([]map[string]any, 0, len(phrases))
+	for _, phrase := range phrases {
+		matches := buildMessagePhraseMatchClauses([]string{phrase})
+		if len(matches) == 0 {
+			continue
+		}
+		must = append(must, map[string]any{
+			"bool": map[string]any{
+				"should":               matches,
+				"minimum_should_match": 1,
+			},
+		})
+	}
+	return must
+}
+
+func buildMessagePhraseMatchClauses(phrases []string) []map[string]any {
 	fields := []string{"message", "event.original"}
 	should := make([]map[string]any, 0, len(fields)*len(phrases))
 	for _, phrase := range phrases {
@@ -645,12 +707,7 @@ func buildMessagePhraseShouldClause(phrases []string) map[string]any {
 			})
 		}
 	}
-	return map[string]any{
-		"bool": map[string]any{
-			"should":               should,
-			"minimum_should_match": 1,
-		},
-	}
+	return should
 }
 
 func buildESSort(sortFields []SortField) []map[string]any {
