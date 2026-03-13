@@ -605,6 +605,14 @@ func buildRealtimeInternalNoiseMustNotClause() map[string]any {
 			"run-docker-runtime",
 			"Succeeded.",
 		}),
+		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("messages"), []string{
+			"chronyd[",
+			"Selected source",
+		}),
+		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("messages"), []string{
+			"chronyd[",
+			"Detected falseticker",
+		}),
 		buildLowValueRealtimeNoiseRule(buildServiceCompatibilityFilterClause("audit.log"), []string{
 			"type=PROCTITLE",
 		}),
@@ -619,6 +627,14 @@ func buildRealtimeInternalNoiseMustNotClause() map[string]any {
 		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("audit.log"), []string{
 			`comm="iptables"`,
 			"type=PROCTITLE",
+		}),
+		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("audit.log"), []string{
+			`comm="dockerd"`,
+			"type=SYSCALL",
+		}),
+		buildLowValueRealtimeNoiseRuleAllPhrases(buildServiceCompatibilityFilterClause("audit.log"), []string{
+			`comm="dockerd"`,
+			"type=ANOM_PROMISCUOUS",
 		}),
 	}
 	return map[string]any{

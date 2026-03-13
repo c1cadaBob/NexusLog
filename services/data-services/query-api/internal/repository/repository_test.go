@@ -98,10 +98,15 @@ func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
 		`"Name collision: Group already contains a Metric with the name 'pendingCommittables'"`,
 		`"run-docker-runtime"`,
 		`"Succeeded."`,
+		`"chronyd["`,
+		`"Selected source"`,
+		`"Detected falseticker"`,
 		`"comm=\"iptables\""`,
 		`"type=NETFILTER_CFG"`,
 		`"type=SYSCALL"`,
 		`"type=PROCTITLE"`,
+		`"comm=\"dockerd\""`,
+		`"type=ANOM_PROMISCUOUS"`,
 	})
 }
 
