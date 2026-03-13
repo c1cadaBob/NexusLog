@@ -6,6 +6,11 @@
 
 NexusLog 是一个面向企业的统一日志管理平台，覆盖日志采集、传输、存储、检索、分析、告警、审计的完整生命周期。项目采用 Monorepo 组织，前端控制台与多个 Go 微服务、API 网关、安全体系等共存于同一仓库，通过 pnpm workspace + Go workspace 实现多语言协同开发。
 
+## 快速入口
+
+- 本地持久化部署指南：`DEPLOYMENT.md`
+- NexusLog 专题文档导航：`docs/NexusLog/README.md`
+
 ## 技术栈总览（严格生产版）
 
 | 层级 | 技术选型 | 版本 | 审批级别 | 配置策略 | 生效时间 | 阶段 |
