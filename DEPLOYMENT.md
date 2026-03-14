@@ -90,7 +90,14 @@ make local-deploy
 - `./.runtime/tenant/local-tenant-id`
 - `apps/frontend-console/public/config/app-config.local.json`（本地覆盖文件，默认已被 Git 忽略）
 
-如本地默认演示账号已被修改，可在执行前覆盖：
+> 旧本地演示账号已废弃，新登录账号是 `sys-superadmin`。
+>
+> - `demo-admin`、`demo-operator`、`demo-viewer` 不再作为本地登录账号创建
+> - 当前本地 bootstrap 超级管理员账号为 `sys-superadmin`
+> - 默认密码为 `Demo@2026`
+> - `system-automation` 是系统自动化保留账号，不作为日常人工登录账号
+
+如本地默认 bootstrap 账号已被修改，可在执行前覆盖：
 
 ```bash
 LOCAL_BOOTSTRAP_USERNAME=sys-superadmin \
