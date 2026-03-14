@@ -261,9 +261,9 @@ curl -s -X POST http://localhost:8080/api/v1/xxx \
 |------|------|---------|------|
 | api-service | `services/api-service/` | 认证（注册/登录/刷新/登出/密码重置） | 不写业务逻辑 |
 | control-plane | `services/control-plane/` | 采集控制、告警、事件、通知、资源监控、备份 | 服务端校验 Bearer JWT，并以令牌 claims 覆盖 `X-Tenant-ID` / `X-User-ID` |
-| query-api | `services/data-services/query-api/` | 日志检索、Dashboard 统计、聚合分析 | 不写写入逻辑 |
-| audit-api | `services/data-services/audit-api/` | 审计日志查询与导出 | 不写业务日志 |
-| export-api | `services/data-services/export-api/` | 导出任务管理与文件下载 | 不写查询逻辑 |
+| query-api | `services/data-services/query-api/` | 日志检索、Dashboard 统计、聚合分析 | 服务端校验 Bearer JWT，并以令牌 claims 覆盖 `X-Tenant-ID` / `X-User-ID` |
+| audit-api | `services/data-services/audit-api/` | 审计日志查询与导出 | 服务端校验 Bearer JWT，并以令牌 claims 覆盖 `X-Tenant-ID` / `X-User-ID` |
+| export-api | `services/data-services/export-api/` | 导出任务管理与文件下载 | 服务端校验 Bearer JWT，并以令牌 claims 覆盖 `X-Tenant-ID` / `X-User-ID` |
 | health-worker | `services/health-worker/` | 服务健康检查与调度 | 不写 HTTP API |
 | collector-agent | `agents/collector-agent/` | 日志采集、checkpoint、Pull API、系统指标 | 不写服务端逻辑 |
 

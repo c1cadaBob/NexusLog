@@ -1,4 +1,4 @@
-package middleware
+package auth
 
 import (
 	"context"
@@ -12,14 +12,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+type contextKey string
+
 const (
-	authContextKeyUserID   = "user_id"
-	authContextKeyTenantID = "tenant_id"
+	contextKeyUserID   contextKey = "user_id"
+	contextKeyTenantID contextKey = "tenant_id"
 )
 
 var uuidPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
 
-type authClaims struct {
+type accessClaims struct {
 	UserID   string `json:"user_id"`
 	TenantID string `json:"tenant_id"`
 	jwt.RegisteredClaims
@@ -28,7 +30,7 @@ type authClaims struct {
 func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 	jwtSecret = strings.TrimSpace(jwtSecret)
 	return func(c *gin.Context) {
-		if c.Request.Method == http.MethodOptions || isPublicControlPlanePath(c.Request.URL.Path) {
+		if c.Request.Method == http.MethodOptions || isPublicPath(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
@@ -64,19 +66,19 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 			}
 		}
 
-		c.Set(authContextKeyUserID, userID)
-		c.Set(authContextKeyTenantID, tenantID)
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), authContextKeyUserID, userID))
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), authContextKeyTenantID, tenantID))
+		c.Set(string(contextKeyUserID), userID)
+		c.Set(string(contextKeyTenantID), tenantID)
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyUserID, userID))
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyTenantID, tenantID))
 		c.Request.Header.Set("X-User-ID", userID)
 		c.Request.Header.Set("X-Tenant-ID", tenantID)
 		c.Next()
 	}
 }
 
-func isPublicControlPlanePath(path string) bool {
+func isPublicPath(path string) bool {
 	switch strings.TrimSpace(path) {
-	case "/healthz", "/api/v1/health", "/metrics":
+	case "/healthz", "/readyz", "/metrics":
 		return true
 	default:
 		return false
@@ -99,8 +101,8 @@ func extractBearerToken(header string) (string, bool) {
 	return token, true
 }
 
-func validateAccessToken(tokenString, jwtSecret string) (*authClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &authClaims{}, func(t *jwt.Token) (interface{}, error) {
+func validateAccessToken(tokenString, jwtSecret string) (*accessClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &accessClaims{}, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrTokenSignatureInvalid
 		}
@@ -109,7 +111,7 @@ func validateAccessToken(tokenString, jwtSecret string) (*authClaims, error) {
 	if err != nil {
 		return nil, err
 	}
-	claims, ok := token.Claims.(*authClaims)
+	claims, ok := token.Claims.(*accessClaims)
 	if !ok || !token.Valid {
 		return nil, jwt.ErrTokenInvalidClaims
 	}
@@ -146,7 +148,7 @@ func normalizeUUID(raw string) string {
 func writeAuthError(c *gin.Context, status int, message string) {
 	requestID := strings.TrimSpace(c.GetHeader("X-Request-ID"))
 	if requestID == "" {
-		requestID = "cp-auth"
+		requestID = "ds-auth"
 	}
 	c.AbortWithStatusJSON(status, gin.H{
 		"code":       "UNAUTHORIZED",

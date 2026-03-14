@@ -14,6 +14,7 @@ import (
 	"github.com/nexuslog/data-services/query-api/internal/handler"
 	"github.com/nexuslog/data-services/query-api/internal/repository"
 	"github.com/nexuslog/data-services/query-api/internal/service"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 	"github.com/nexuslog/data-services/shared/server"
 )
 
@@ -22,6 +23,7 @@ func main() {
 		Name: "query-api",
 		Port: server.GetEnv("HTTP_PORT", "8082"),
 	}
+	jwtSecret := requireJWTSecret()
 
 	metadataDB, err := newPostgresDBFromEnv()
 	if err != nil {
@@ -43,6 +45,7 @@ func main() {
 	statsHandler := handler.NewStatsHandler(statsSvc)
 
 	server.Run(cfg, func(r *gin.Engine) {
+		r.Use(sharedauth.RequireAuthenticatedIdentity(metadataDB, jwtSecret))
 		v1 := r.Group("/api/v1/query")
 		v1.POST("/logs", queryHandler.SearchLogs)
 		v1.GET("/stats/overview", statsHandler.GetOverviewStats)
@@ -95,4 +98,18 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func requireJWTSecret() string {
+	secret := strings.TrimSpace(getEnv("JWT_SECRET", ""))
+	if secret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
+	if secret == "nexuslog-dev-secret-change-in-production" {
+		log.Fatal("JWT_SECRET uses a known weak default and must be replaced")
+	}
+	if len(secret) < 32 {
+		log.Fatal("JWT_SECRET must be at least 32 characters")
+	}
+	return secret
 }
