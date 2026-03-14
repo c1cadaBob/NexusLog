@@ -57,6 +57,7 @@ const (
 	ErrorCodeAuthResetConfirmTenantRequired  = "AUTH_RESET_CONFIRM_TENANT_REQUIRED"
 	ErrorCodeAuthResetConfirmTenantInvalid   = "AUTH_RESET_CONFIRM_TENANT_INVALID"
 	ErrorCodeAuthResetConfirmTenantNotFound  = "AUTH_RESET_CONFIRM_TENANT_NOT_FOUND"
+	ErrorCodeAuthResetConfirmRateLimited     = "AUTH_RESET_CONFIRM_RATE_LIMITED"
 	ErrorCodeAuthResetConfirmInvalidToken    = "AUTH_RESET_CONFIRM_INVALID_TOKEN"
 	ErrorCodeAuthResetConfirmInternalError   = "AUTH_RESET_CONFIRM_INTERNAL_ERROR"
 )
@@ -106,6 +107,7 @@ var authErrorStatusCatalog = map[string]int{
 	ErrorCodeAuthResetConfirmTenantRequired:  http.StatusBadRequest,
 	ErrorCodeAuthResetConfirmTenantInvalid:   http.StatusBadRequest,
 	ErrorCodeAuthResetConfirmTenantNotFound:  http.StatusNotFound,
+	ErrorCodeAuthResetConfirmRateLimited:     http.StatusTooManyRequests,
 	ErrorCodeAuthResetConfirmInvalidToken:    http.StatusBadRequest,
 	ErrorCodeAuthResetConfirmInternalError:   http.StatusInternalServerError,
 }
@@ -155,6 +157,7 @@ var authErrorMessageCatalog = map[string]string{
 	ErrorCodeAuthResetConfirmTenantRequired:  "tenant header required",
 	ErrorCodeAuthResetConfirmTenantInvalid:   "invalid tenant id",
 	ErrorCodeAuthResetConfirmTenantNotFound:  "tenant not found",
+	ErrorCodeAuthResetConfirmRateLimited:     "too many password reset confirmations, retry later",
 	ErrorCodeAuthResetConfirmInvalidToken:    "reset token invalid or expired",
 	ErrorCodeAuthResetConfirmInternalError:   "internal error",
 }

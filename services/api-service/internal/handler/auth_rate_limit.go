@@ -29,6 +29,8 @@ type authRateLimitConfig struct {
 	registerIP             authRateLimitRule
 	resetRequestIdentifier authRateLimitRule
 	resetRequestIP         authRateLimitRule
+	resetConfirmToken      authRateLimitRule
+	resetConfirmIP         authRateLimitRule
 }
 
 type AuthRateLimitMiddleware struct {
@@ -49,6 +51,10 @@ type passwordResetRequestRateLimitPayload struct {
 	EmailOrUsername string `json:"email_or_username"`
 }
 
+type passwordResetConfirmRateLimitPayload struct {
+	Token string `json:"token"`
+}
+
 func NewDefaultAuthRateLimitMiddleware() *AuthRateLimitMiddleware {
 	config := authRateLimitConfig{
 		loginUsername:          authRateLimitRule{scope: "tenant_username", limit: 10, window: 15 * time.Minute},
@@ -56,6 +62,8 @@ func NewDefaultAuthRateLimitMiddleware() *AuthRateLimitMiddleware {
 		registerIP:             authRateLimitRule{scope: "tenant_ip", limit: 10, window: time.Hour},
 		resetRequestIdentifier: authRateLimitRule{scope: "tenant_identifier", limit: 5, window: time.Hour},
 		resetRequestIP:         authRateLimitRule{scope: "tenant_ip", limit: 20, window: time.Hour},
+		resetConfirmToken:      authRateLimitRule{scope: "tenant_token", limit: 10, window: time.Hour},
+		resetConfirmIP:         authRateLimitRule{scope: "tenant_ip", limit: 30, window: time.Hour},
 	}
 	return newAuthRateLimitMiddleware(time.Now, config)
 }
@@ -73,6 +81,12 @@ func newAuthRateLimitMiddleware(now func() time.Time, config authRateLimitConfig
 	}
 	if config.resetRequestIP.window > maxWindow {
 		maxWindow = config.resetRequestIP.window
+	}
+	if config.resetConfirmToken.window > maxWindow {
+		maxWindow = config.resetConfirmToken.window
+	}
+	if config.resetConfirmIP.window > maxWindow {
+		maxWindow = config.resetConfirmIP.window
 	}
 	if maxWindow <= 0 {
 		maxWindow = time.Hour
@@ -187,6 +201,46 @@ func (m *AuthRateLimitMiddleware) PasswordResetRequest() gin.HandlerFunc {
 	}
 }
 
+func (m *AuthRateLimitMiddleware) PasswordResetConfirm() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tenantKey := tenantRateLimitKey(c)
+		ipKey := clientIPRateLimitKey(c)
+		payload := readPasswordResetConfirmRateLimitPayload(c)
+		token := normalizePasswordResetConfirmToken(payload.Token)
+		tokenProvided := token != ""
+
+		if tokenProvided {
+			if allowed, retryAfter := m.allow(m.config.resetConfirmToken, buildRateLimitKey("auth.password_reset_confirm", m.config.resetConfirmToken.scope, tenantKey, token)); !allowed {
+				setAuthAuditEvent(c, "auth.password_reset_confirm", "", "", buildAuditDetails(map[string]any{
+					"result":              "failed",
+					"token_provided":      tokenProvided,
+					"error_code":          model.ErrorCodeAuthResetConfirmRateLimited,
+					"http_status":         http.StatusTooManyRequests,
+					"rate_limit_scope":    m.config.resetConfirmToken.scope,
+					"retry_after_seconds": retryAfterSeconds(retryAfter),
+				}))
+				writeRateLimitError(c, model.ErrorCodeAuthResetConfirmRateLimited, m.config.resetConfirmToken.scope, retryAfter)
+				return
+			}
+		}
+
+		if allowed, retryAfter := m.allow(m.config.resetConfirmIP, buildRateLimitKey("auth.password_reset_confirm", m.config.resetConfirmIP.scope, tenantKey, ipKey)); !allowed {
+			setAuthAuditEvent(c, "auth.password_reset_confirm", "", "", buildAuditDetails(map[string]any{
+				"result":              "failed",
+				"token_provided":      tokenProvided,
+				"error_code":          model.ErrorCodeAuthResetConfirmRateLimited,
+				"http_status":         http.StatusTooManyRequests,
+				"rate_limit_scope":    m.config.resetConfirmIP.scope,
+				"retry_after_seconds": retryAfterSeconds(retryAfter),
+			}))
+			writeRateLimitError(c, model.ErrorCodeAuthResetConfirmRateLimited, m.config.resetConfirmIP.scope, retryAfter)
+			return
+		}
+
+		c.Next()
+	}
+}
+
 func (m *AuthRateLimitMiddleware) allow(rule authRateLimitRule, key string) (bool, time.Duration) {
 	if rule.limit <= 0 || rule.window <= 0 {
 		return true, 0
@@ -267,6 +321,18 @@ func readPasswordResetRequestRateLimitPayload(c *gin.Context) passwordResetReque
 	return payload
 }
 
+func readPasswordResetConfirmRateLimitPayload(c *gin.Context) passwordResetConfirmRateLimitPayload {
+	rawBody := readRateLimitRequestBody(c)
+	if len(rawBody) == 0 {
+		return passwordResetConfirmRateLimitPayload{}
+	}
+	var payload passwordResetConfirmRateLimitPayload
+	if err := json.Unmarshal(rawBody, &payload); err != nil {
+		return passwordResetConfirmRateLimitPayload{}
+	}
+	return payload
+}
+
 func readRateLimitRequestBody(c *gin.Context) []byte {
 	if c == nil || c.Request == nil || c.Request.Body == nil {
 		return nil
@@ -286,6 +352,10 @@ func normalizePasswordResetRequestIdentifier(identifier string) string {
 		return strings.ToLower(identifier)
 	}
 	return identifier
+}
+
+func normalizePasswordResetConfirmToken(token string) string {
+	return strings.TrimSpace(token)
 }
 
 func tenantRateLimitKey(c *gin.Context) string {
