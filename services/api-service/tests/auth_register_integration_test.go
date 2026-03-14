@@ -263,6 +263,65 @@ func TestRefreshIntegration(t *testing.T) {
 	}
 }
 
+func TestRefreshIntegrationPreservesRememberMeTTL(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-refresh-remember")
+	router := buildRouter(db)
+
+	username := "remember_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+
+	regStatus, regBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    "Password123",
+		Email:       email,
+		DisplayName: "Remember User",
+	})
+	if regStatus != http.StatusCreated || regBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", regStatus, regBody)
+	}
+
+	loginStatus, loginBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username:   username,
+		Password:   "Password123",
+		RememberMe: true,
+	})
+	if loginStatus != http.StatusOK || loginBody["code"] != "OK" {
+		t.Fatalf("login setup failed, status=%d body=%#v", loginStatus, loginBody)
+	}
+
+	loginData, ok := loginBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing login data: %#v", loginBody)
+	}
+	oldRefresh, ok := loginData["refresh_token"].(string)
+	if !ok || oldRefresh == "" {
+		t.Fatalf("missing old refresh token: %#v", loginData)
+	}
+
+	initialTTL := activeSessionTTLForUser(t, ctx, db, tenantID, username)
+	assertApproxDuration(t, initialTTL, 30*24*time.Hour, time.Hour, "initial remember_me ttl")
+
+	refreshStatus, refreshBody := callRefresh(t, router, tenantID, model.RefreshRequest{RefreshToken: oldRefresh})
+	if refreshStatus != http.StatusOK || refreshBody["code"] != "OK" {
+		t.Fatalf("refresh failed, status=%d body=%#v", refreshStatus, refreshBody)
+	}
+
+	rotatedTTL := activeSessionTTLForUser(t, ctx, db, tenantID, username)
+	assertApproxDuration(t, rotatedTTL, 30*24*time.Hour, time.Hour, "rotated remember_me ttl")
+}
+
 func TestLogoutIntegration(t *testing.T) {
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {
@@ -858,6 +917,32 @@ func hasSessionStatus(t *testing.T, ctx context.Context, db *sql.DB, tenantID, s
 		t.Fatalf("check user_sessions status: %v", err)
 	}
 	return exists
+}
+
+func activeSessionTTLForUser(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) time.Duration {
+	t.Helper()
+	const q = `
+		SELECT EXTRACT(EPOCH FROM (s.expires_at - s.created_at))
+		FROM user_sessions s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.tenant_id = $1::uuid
+		  AND u.username = $2
+		  AND s.session_status = 'active'
+		ORDER BY s.created_at DESC
+		LIMIT 1
+	`
+	var seconds float64
+	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&seconds); err != nil {
+		t.Fatalf("query active session ttl: %v", err)
+	}
+	return time.Duration(seconds * float64(time.Second))
+}
+
+func assertApproxDuration(t *testing.T, got, want, tolerance time.Duration, label string) {
+	t.Helper()
+	if got < want-tolerance || got > want+tolerance {
+		t.Fatalf("expected %s near %s (+/-%s), got %s", label, want, tolerance, got)
+	}
 }
 
 func mustUserIDByUsername(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) string {

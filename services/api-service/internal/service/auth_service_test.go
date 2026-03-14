@@ -35,6 +35,8 @@ type mockAuthRepository struct {
 	lockUntil         time.Time
 	lockErr           error
 	lastLoginAttempt  *repository.LoginAttemptInput
+	lastCreateSession *repository.CreateSessionInput
+	lastRotateInput   *repository.RotateSessionInput
 	sessionCreateCall int
 	rotateCall        int
 	createResetCall   int
@@ -99,12 +101,16 @@ func (m *mockAuthRepository) ConfirmPasswordReset(
 	return m.confirmResetUser, nil
 }
 
-func (m *mockAuthRepository) CreateUserSession(_ context.Context, _ repository.CreateSessionInput) error {
+func (m *mockAuthRepository) CreateUserSession(_ context.Context, input repository.CreateSessionInput) error {
+	cp := input
+	m.lastCreateSession = &cp
 	m.sessionCreateCall++
 	return m.createSessionErr
 }
 
-func (m *mockAuthRepository) RotateSessionByRefreshToken(_ context.Context, _ repository.RotateSessionInput) (uuid.UUID, error) {
+func (m *mockAuthRepository) RotateSessionByRefreshToken(_ context.Context, input repository.RotateSessionInput) (uuid.UUID, error) {
+	cp := input
+	m.lastRotateInput = &cp
 	m.rotateCall++
 	if m.rotateErr != nil {
 		return uuid.Nil, m.rotateErr
@@ -307,6 +313,13 @@ func TestLoginInvalidCredentialsAndSuccess(t *testing.T) {
 	}
 	if repoMock.sessionCreateCall != 1 {
 		t.Fatalf("expected session create call once, got %d", repoMock.sessionCreateCall)
+	}
+	if repoMock.lastCreateSession == nil {
+		t.Fatalf("expected session create input recorded")
+	}
+	rememberTTL := time.Until(repoMock.lastCreateSession.ExpiresAt)
+	if rememberTTL < defaultRememberRefresh-time.Minute || rememberTTL > defaultRememberRefresh+time.Minute {
+		t.Fatalf("expected remember_me refresh ttl near %s, got %s", defaultRememberRefresh, rememberTTL)
 	}
 	if repoMock.lastLoginAttempt == nil || repoMock.lastLoginAttempt.Result != "success" {
 		t.Fatalf("expected success login attempt record")

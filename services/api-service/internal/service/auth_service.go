@@ -506,7 +506,6 @@ func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, cur
 		AccessTokenJTI: accessTokenJTI,
 		ClientIP:       clientIP,
 		UserAgent:      userAgent,
-		ExpiresAt:      time.Now().UTC().Add(defaultRefreshTTL),
 	})
 	if err == nil {
 		return userID, nil
@@ -524,7 +523,6 @@ func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, cur
 			AccessTokenJTI: accessTokenJTI,
 			ClientIP:       clientIP,
 			UserAgent:      userAgent,
-			ExpiresAt:      time.Now().UTC().Add(defaultRefreshTTL),
 		})
 		return userID, retryRotateErr
 	}

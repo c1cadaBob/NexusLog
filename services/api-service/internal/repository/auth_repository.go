@@ -71,7 +71,6 @@ type RotateSessionInput struct {
 	AccessTokenJTI string
 	ClientIP       string
 	UserAgent      string
-	ExpiresAt      time.Time
 }
 
 // LoginAttemptInput defines input for writing login attempt audit.
@@ -432,7 +431,7 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 	}()
 
 	const selectSessionSQL = `
-		SELECT s.id, s.user_id, s.expires_at, s.session_status
+		SELECT s.id, s.user_id, s.expires_at, s.created_at, s.session_status
 		FROM user_sessions s
 		JOIN users u ON u.id = s.user_id AND u.tenant_id = s.tenant_id
 		WHERE s.tenant_id = $1 AND s.refresh_token_hash = $2 AND u.status = 'active'
@@ -442,13 +441,14 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 	var sessionID uuid.UUID
 	var userID uuid.UUID
 	var expiresAt time.Time
+	var createdAt time.Time
 	var status string
 	if err = tx.QueryRowContext(
 		ctx,
 		selectSessionSQL,
 		input.TenantID,
 		hashToken(input.CurrentRefresh),
-	).Scan(&sessionID, &userID, &expiresAt, &status); err != nil {
+	).Scan(&sessionID, &userID, &expiresAt, &createdAt, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return uuid.Nil, ErrInvalidRefreshToken
 		}
@@ -459,6 +459,12 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 		err = ErrInvalidRefreshToken
 		return uuid.Nil, err
 	}
+
+	sessionTTL, ttlErr := deriveSessionTTL(createdAt, expiresAt)
+	if ttlErr != nil {
+		return uuid.Nil, fmt.Errorf("derive session ttl: %w", ttlErr)
+	}
+	newExpiresAt := time.Now().UTC().Add(sessionTTL)
 
 	const revokeOldSQL = `
 		UPDATE user_sessions
@@ -492,7 +498,7 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 		input.AccessTokenJTI,
 		input.ClientIP,
 		input.UserAgent,
-		input.ExpiresAt,
+		newExpiresAt,
 	); err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
@@ -644,6 +650,14 @@ func mapConflictError(err error) error {
 		return ErrEmailConflict
 	}
 	return fmt.Errorf("insert user conflict: %w", err)
+}
+
+func deriveSessionTTL(createdAt, expiresAt time.Time) (time.Duration, error) {
+	ttl := expiresAt.Sub(createdAt)
+	if ttl <= 0 {
+		return 0, fmt.Errorf("session ttl must be positive")
+	}
+	return ttl, nil
 }
 
 func hashToken(raw string) string {
