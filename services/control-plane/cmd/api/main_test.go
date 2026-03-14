@@ -16,8 +16,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/nexuslog/control-plane/internal/alert"
+	"github.com/nexuslog/control-plane/internal/incident"
 	"github.com/nexuslog/control-plane/internal/ingest"
 	"github.com/nexuslog/control-plane/internal/ingestv3"
+	"github.com/nexuslog/control-plane/internal/metrics"
 	"github.com/nexuslog/control-plane/internal/middleware"
 	"github.com/nexuslog/control-plane/internal/notification"
 	"github.com/nexuslog/control-plane/internal/resource"
@@ -512,6 +514,223 @@ func TestIngestV3Routes_AllowAdminUser(t *testing.T) {
 	}
 }
 
+func TestAlertEventRoutes_RejectNonOperatorUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newAlertEventOperatorRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-alert-events-non-operator")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-alert-events-non-operator", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/alert/events?page=1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestAlertEventRoutes_AllowOperatorUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newAlertEventOperatorRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-alert-events-operator")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-alert-events-operator", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/alert/events?page=bad", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestIncidentRoutes_RejectNonOperatorUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newIncidentOperatorRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-incidents-non-operator")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-incidents-non-operator", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/incidents", strings.NewReader(`{"title":"incident title"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestIncidentRoutes_AllowOperatorUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newIncidentOperatorRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-incidents-operator")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-incidents-operator", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/incidents", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestMetricsQueryRoutes_RejectNonOperatorUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newMetricsQueryOperatorRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-metrics-query-non-operator")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-metrics-query-non-operator", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/servers/agent-1?range=24h", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestMetricsQueryRoutes_AllowOperatorUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newMetricsQueryOperatorRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-metrics-query-operator")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-metrics-query-operator", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/servers/agent-1?range=bad", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestMetricsReportRoute_AllowsAuthenticatedNonOperatorUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newMetricsReportRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-metrics-report-authenticated")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-metrics-report-authenticated", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics/report", strings.NewReader(`{"agent_id"`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func newNotificationAdminRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
@@ -557,6 +776,40 @@ func newIngestV3AdminRouter(db *sql.DB) *gin.Engine {
 		},
 	}}
 	registerIngestV3Routes(adminRoutes, store, store)
+	return router
+}
+
+func newAlertEventOperatorRouter(db *sql.DB) *gin.Engine {
+	router := gin.New()
+	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
+	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
+	alert.RegisterAlertEventRoutes(operatorRoutes, alert.NewEventHandler(db))
+	return router
+}
+
+func newIncidentOperatorRouter(db *sql.DB) *gin.Engine {
+	router := gin.New()
+	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
+	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
+	incidentHandler := incident.NewHandler(incident.NewService(nil, nil))
+	incident.RegisterIncidentRoutes(operatorRoutes, incidentHandler)
+	return router
+}
+
+func newMetricsQueryOperatorRouter(db *sql.DB) *gin.Engine {
+	router := gin.New()
+	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
+	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
+	metricsHandler := metrics.NewHandler(metrics.NewService(metrics.NewRepository(db)))
+	metrics.RegisterQueryRoutes(operatorRoutes, metricsHandler)
+	return router
+}
+
+func newMetricsReportRouter(db *sql.DB) *gin.Engine {
+	router := gin.New()
+	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
+	metricsHandler := metrics.NewHandler(metrics.NewService(metrics.NewRepository(db)))
+	metrics.RegisterReportRoutes(router, metricsHandler)
 	return router
 }
 

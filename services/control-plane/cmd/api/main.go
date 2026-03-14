@@ -110,7 +110,8 @@ func main() {
 		evaluator := resource.NewThresholdEvaluator(thresholdRepo, pgDB)
 		metricsSvc.WithEvaluator(evaluator)
 		metricsHandler := metrics.NewHandler(metricsSvc)
-		metrics.RegisterRoutes(router, metricsHandler)
+		metrics.RegisterReportRoutes(router, metricsHandler)
+		metrics.RegisterQueryRoutes(operatorRoutes, metricsHandler)
 		// Background cleanup: delete metrics older than 30 days, run daily
 		metrics.StartCleanupJob(workerCtx, metricsRepo, 30, 24*time.Hour)
 		// Resource threshold CRUD (W3-B7)
@@ -123,7 +124,7 @@ func main() {
 		alertRuleService := alert.NewRuleService(alertRuleRepo)
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
 		alert.RegisterAlertRuleRoutes(adminRoutes, alertRuleHandler)
-		alert.RegisterAlertEventRoutes(router, alert.NewEventHandler(pgDB))
+		alert.RegisterAlertEventRoutes(operatorRoutes, alert.NewEventHandler(pgDB))
 
 		// Alert silence policy (W4-B6)
 		silenceSvc := alert.NewSilenceService(pgDB)
@@ -134,7 +135,7 @@ func main() {
 		incidentTimeline := incident.NewTimelineStorePG(pgDB)
 		incidentService := incident.NewService(incidentRepo, incidentTimeline)
 		incidentHandler := incident.NewHandler(incidentService)
-		incident.RegisterIncidentRoutes(router, incidentHandler)
+		incident.RegisterIncidentRoutes(operatorRoutes, incidentHandler)
 
 		if isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "false")) {
 			evaluatorInterval := parseDurationEnv("ALERT_EVALUATOR_INTERVAL", 30*time.Second)

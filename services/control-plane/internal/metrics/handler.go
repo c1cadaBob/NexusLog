@@ -29,9 +29,22 @@ func NewHandler(svc *Service) *Handler {
 
 // RegisterRoutes registers metrics routes.
 func RegisterRoutes(router gin.IRouter, handler *Handler) {
+	RegisterReportRoutes(router, handler)
+	RegisterQueryRoutes(router, handler)
+}
+
+// RegisterReportRoutes registers agent metrics reporting routes.
+func RegisterReportRoutes(router gin.IRouter, handler *Handler) {
 	g := router.Group("/api/v1/metrics")
 	{
 		g.POST("/report", handler.Report)
+	}
+}
+
+// RegisterQueryRoutes registers operator-facing metrics query routes.
+func RegisterQueryRoutes(router gin.IRouter, handler *Handler) {
+	g := router.Group("/api/v1/metrics")
+	{
 		g.GET("/servers/:agent_id", handler.QueryAgentMetrics)
 	}
 }
