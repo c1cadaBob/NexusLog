@@ -126,6 +126,47 @@ func TestAuditMiddleware_ResolvesUserIDAfterDownstreamAuth(t *testing.T) {
 	waitForAuditExpectations(t, mock)
 }
 
+func TestAuditMiddleware_DoesNotTrustSpoofedHeadersWithoutAuthContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec("INSERT INTO audit_logs").
+		WithArgs(
+			nil,
+			nil,
+			"users.create",
+			"users",
+			"",
+			"{}",
+			"192.0.2.22",
+			"audit-spoofed-headers",
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	router := gin.New()
+	router.Use(AuditMiddleware(db))
+	router.POST("/api/v1/users", func(c *gin.Context) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED"})
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", nil)
+	req.RemoteAddr = "192.0.2.22:23456"
+	req.Header.Set("User-Agent", "audit-spoofed-headers")
+	req.Header.Set("X-Tenant-ID", "00000000-0000-0000-0000-000000000099")
+	req.Header.Set("X-User-ID", "99999999-9999-9999-9999-999999999999")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.Code)
+	}
+	waitForAuditExpectations(t, mock)
+}
+
 func TestAuditMiddleware_UsesExplicitAuditEventForAuthRefresh(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()

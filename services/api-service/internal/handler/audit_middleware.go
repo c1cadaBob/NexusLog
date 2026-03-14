@@ -36,9 +36,9 @@ func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
 
 		c.Next()
 
-		tenantID := resolveTenantID(c)
-		userID := resolveUserID(c)
 		auditEntry, hasOverride := getAuditEvent(c)
+		tenantID := resolveTenantID(c, hasOverride)
+		userID := resolveUserID(c)
 		if hasOverride {
 			if auditEntry.Skip {
 				return
@@ -99,29 +99,24 @@ func getAuditEvent(c *gin.Context) (auditEvent, bool) {
 	return event, true
 }
 
-func resolveTenantID(c *gin.Context) string {
+func resolveTenantID(c *gin.Context, allowHeaderFallback bool) string {
+	if tenantID := strings.TrimSpace(c.GetString(contextKeyTenantID)); tenantID != "" {
+		return tenantID
+	}
+	if !allowHeaderFallback {
+		return ""
+	}
 	if tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID")); tenantID != "" {
 		return tenantID
 	}
 	if tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-Id")); tenantID != "" {
 		return tenantID
 	}
-	if tenantID := strings.TrimSpace(c.GetString(contextKeyTenantID)); tenantID != "" {
-		return tenantID
-	}
 	return ""
 }
 
 func resolveUserID(c *gin.Context) string {
-	if uid := strings.TrimSpace(c.GetHeader("X-User-ID")); uid != "" {
-		return uid
-	}
-	if v, exists := c.Get("user_id"); exists {
-		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-			return strings.TrimSpace(s)
-		}
-	}
-	return ""
+	return strings.TrimSpace(c.GetString(contextKeyUserID))
 }
 
 func deriveAuditFields(method, path string, c *gin.Context) (action, resourceType, resourceID string) {

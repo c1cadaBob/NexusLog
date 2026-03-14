@@ -420,18 +420,14 @@ func (h *UserHandler) ListRoles(c *gin.Context) {
 }
 
 // GetMe returns the current user's info, roles, and permissions.
-// Requires user_id from context (set by auth middleware) and X-Tenant-ID header.
+// Requires authenticated user_id context set by auth middleware and X-Tenant-ID header.
 func (h *UserHandler) GetMe(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if userID == "" {
-		userID = c.GetHeader("X-User-ID")
-	}
-	userID = strings.TrimSpace(userID)
+	userID := strings.TrimSpace(c.GetString(contextKeyUserID))
 	if userID == "" {
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusUnauthorized,
 			Code:       "USER_ME_UNAUTHORIZED",
-			Message:    "user_id required (set by auth middleware or X-User-ID header)",
+			Message:    "authenticated user context required",
 			Details:    map[string]any{"field": "user_id"},
 		})
 		return

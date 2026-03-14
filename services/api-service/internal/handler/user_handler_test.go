@@ -114,6 +114,7 @@ func setupUserRouter(h *UserHandler) *gin.Engine {
 	apiV1 := router.Group("/api/v1")
 	userV1 := apiV1.Group("/users")
 	userV1.GET("", h.List)
+	userV1.GET("/me", h.GetMe)
 	userV1.POST("/batch/status", h.BatchUpdateStatus)
 	userV1.GET("/:id", h.Get)
 	userV1.POST("", h.Create)
@@ -578,5 +579,96 @@ func TestRemoveRole(t *testing.T) {
 	}
 	if !data["removed"].(bool) {
 		t.Fatalf("expected removed=true")
+	}
+}
+
+func TestGetMeUsesAuthenticatedContext(t *testing.T) {
+	uid := uuid.New()
+	tenantID := uuid.New()
+	now := time.Now()
+	mock := &userRepoMock{
+		tenantExists: true,
+		getUser: &repository.UserRecord{
+			ID:          uid,
+			TenantID:    tenantID,
+			Username:    "alice",
+			Email:       "alice@example.com",
+			DisplayName: sql.NullString{String: "Alice", Valid: true},
+			Status:      "active",
+			LastLoginAt: sql.NullTime{},
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+		getUserRoles: []repository.RoleRecord{{
+			ID:          uuid.New(),
+			TenantID:    tenantID,
+			Name:        "viewer",
+			Description: sql.NullString{String: "Viewer", Valid: true},
+			Permissions: []byte(`["users:read"]`),
+		}},
+	}
+	h := NewUserHandler(service.NewUserService(mock))
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(contextKeyUserID, uid.String())
+		c.Next()
+	})
+	router.GET("/api/v1/users/me", h.GetMe)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "OK" {
+		t.Fatalf("unexpected code: %v", body["code"])
+	}
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data")
+	}
+	if data["user"].(map[string]any)["id"] != uid.String() {
+		t.Fatalf("unexpected user payload: %#v", data["user"])
+	}
+	roles, ok := data["roles"].([]any)
+	if !ok || len(roles) != 1 {
+		t.Fatalf("unexpected roles payload: %#v", data["roles"])
+	}
+	permissions, ok := data["permissions"].([]any)
+	if !ok || len(permissions) != 1 || permissions[0] != "users:read" {
+		t.Fatalf("unexpected permissions payload: %#v", data["permissions"])
+	}
+}
+
+func TestGetMeRejectsSpoofedUserHeaderWithoutAuthContext(t *testing.T) {
+	h := NewUserHandler(service.NewUserService(&userRepoMock{tenantExists: true}))
+	router := setupUserRouter(h)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	req.Header.Set("X-User-ID", uuid.NewString())
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "USER_ME_UNAUTHORIZED" {
+		t.Fatalf("unexpected code: %v", body["code"])
 	}
 }
