@@ -32,6 +32,37 @@ require_cmd() {
   fi
 }
 
+extract_template_body() {
+  local template_file="$1"
+
+  if command -v jq >/dev/null 2>&1; then
+    jq '.template' "$template_file"
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$template_file" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, 'r', encoding='utf-8') as fp:
+    payload = json.load(fp)
+
+template = payload.get('template')
+if template is None:
+    raise SystemExit(f"template field not found: {path}")
+
+json.dump(template, sys.stdout, ensure_ascii=False, separators=(',', ':'))
+sys.stdout.write('\n')
+PY
+    return 0
+  fi
+
+  error "required command not found: jq or python3"
+  exit 1
+}
+
 wait_for_elasticsearch() {
   local attempt
   for attempt in $(seq 1 "$WAIT_RETRIES"); do
@@ -71,7 +102,7 @@ ensure_index() {
   fi
   if [[ -n "$template_file" ]]; then
     info "creating index: $name using template body: $template_file"
-    jq '.template' "$template_file" | \
+    extract_template_body "$template_file" | \
       curl -fsS -X PUT "$ES_HOST/$name" -H 'Content-Type: application/json' --data-binary @- >/dev/null
     return 0
   fi
@@ -105,7 +136,6 @@ EOF
 }
 
 require_cmd curl
-require_cmd jq
 if [[ -n "$STREAM_INDEX_TEMPLATE_FILE" && ! -f "$STREAM_INDEX_TEMPLATE_FILE" ]]; then
   error "stream index template file not found: $STREAM_INDEX_TEMPLATE_FILE"
   exit 1

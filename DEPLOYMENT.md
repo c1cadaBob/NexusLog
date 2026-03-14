@@ -77,9 +77,24 @@ make local-deploy
    - 注册 Schema Registry subjects
    - 安装 Elasticsearch v2 template
    - 安装 Elasticsearch 读写别名
+   - 自动登录 `api-service` 获取本地 Bearer Token（若未显式提供 `ACCESS_TOKEN`）
    - 创建 / 更新本地 Pull Source
    - 创建 / 复用本地测试告警规则
    - 触发一次手工 Pull，缩短首批日志入链路时间
+
+如本地默认演示账号已被修改，可在执行前覆盖：
+
+```bash
+LOCAL_BOOTSTRAP_USERNAME=demo-admin \
+LOCAL_BOOTSTRAP_PASSWORD=Demo@2026 \
+make local-deploy
+```
+
+也可以直接显式传入已有登录态：
+
+```bash
+ACCESS_TOKEN=<your_access_token> make local-deploy
+```
 
 ### Step 3：执行冒烟检查
 
