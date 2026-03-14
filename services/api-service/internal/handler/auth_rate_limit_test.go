@@ -5,11 +5,59 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+func TestBuildRateLimitKey_HashesSubject(t *testing.T) {
+	rawSubject := strings.Repeat("reset-token-very-sensitive-", 8)
+	key := buildRateLimitKey("auth.password_reset_confirm", "tenant_token", "tenant-a", rawSubject)
+	if strings.Contains(key, rawSubject) {
+		t.Fatalf("expected rate limit key to avoid raw subject, got %q", key)
+	}
+	parts := strings.Split(key, "|")
+	if len(parts) != 4 {
+		t.Fatalf("expected 4 key parts, got %q", key)
+	}
+	if len(parts[3]) != 64 {
+		t.Fatalf("expected hashed subject width 64, got %q", parts[3])
+	}
+}
+
+func TestAuthRateLimitMiddleware_EvictsOldestTrackedKeyAtCapacity(t *testing.T) {
+	current := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	limiter := newAuthRateLimitMiddleware(func() time.Time { return current }, authRateLimitConfig{})
+	limiter.maxEntries = 2
+	rule := authRateLimitRule{scope: "tenant_ip", limit: 5, window: time.Hour}
+
+	if allowed, _ := limiter.allow(rule, "key-a"); !allowed {
+		t.Fatal("expected key-a allowed")
+	}
+	current = current.Add(time.Second)
+	if allowed, _ := limiter.allow(rule, "key-b"); !allowed {
+		t.Fatal("expected key-b allowed")
+	}
+	current = current.Add(time.Second)
+	if allowed, _ := limiter.allow(rule, "key-c"); !allowed {
+		t.Fatal("expected key-c allowed")
+	}
+
+	if got := len(limiter.entries); got != 2 {
+		t.Fatalf("expected capped tracked keys, got %d", got)
+	}
+	if _, exists := limiter.entries["key-a"]; exists {
+		t.Fatalf("expected oldest key to be evicted")
+	}
+	if _, exists := limiter.entries["key-b"]; !exists {
+		t.Fatalf("expected newer key-b retained")
+	}
+	if _, exists := limiter.entries["key-c"]; !exists {
+		t.Fatalf("expected newest key-c retained")
+	}
+}
 
 func TestAuthRateLimitMiddleware_LoginBlocksByUsername(t *testing.T) {
 	gin.SetMode(gin.TestMode)

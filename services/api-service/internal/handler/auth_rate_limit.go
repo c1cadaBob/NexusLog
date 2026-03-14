@@ -2,6 +2,8 @@ package handler
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"math"
@@ -38,6 +40,7 @@ type AuthRateLimitMiddleware struct {
 	now             func() time.Time
 	cleanupInterval time.Duration
 	maxWindow       time.Duration
+	maxEntries      int
 	lastCleanup     time.Time
 	entries         map[string][]time.Time
 	config          authRateLimitConfig
@@ -54,6 +57,11 @@ type passwordResetRequestRateLimitPayload struct {
 type passwordResetConfirmRateLimitPayload struct {
 	Token string `json:"token"`
 }
+
+const (
+	maxAuthRateLimitBodyBytes = 16 * 1024
+	defaultAuthRateLimitKeys  = 10000
+)
 
 func NewDefaultAuthRateLimitMiddleware() *AuthRateLimitMiddleware {
 	config := authRateLimitConfig{
@@ -99,6 +107,7 @@ func newAuthRateLimitMiddleware(now func() time.Time, config authRateLimitConfig
 		now:             now,
 		cleanupInterval: cleanupInterval,
 		maxWindow:       maxWindow,
+		maxEntries:      defaultAuthRateLimitKeys,
 		entries:         make(map[string][]time.Time),
 		config:          config,
 	}
@@ -255,6 +264,10 @@ func (m *AuthRateLimitMiddleware) allow(rule authRateLimitRule, key string) (boo
 	m.cleanupLocked(now)
 
 	timestamps := m.entries[key]
+	if len(timestamps) == 0 {
+		m.ensureCapacityLocked(key)
+		timestamps = m.entries[key]
+	}
 	keepFrom := 0
 	for keepFrom < len(timestamps) && !timestamps[keepFrom].After(cutoff) {
 		keepFrom++
@@ -337,7 +350,7 @@ func readRateLimitRequestBody(c *gin.Context) []byte {
 	if c == nil || c.Request == nil || c.Request.Body == nil {
 		return nil
 	}
-	rawBody, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	rawBody, err := io.ReadAll(io.LimitReader(c.Request.Body, maxAuthRateLimitBodyBytes))
 	if err != nil {
 		c.Request.Body = io.NopCloser(bytes.NewReader(nil))
 		return nil
@@ -384,7 +397,7 @@ func clientIPRateLimitKey(c *gin.Context) string {
 }
 
 func buildRateLimitKey(action, scope, tenantKey, subject string) string {
-	return strings.Join([]string{action, scope, tenantKey, strings.TrimSpace(subject)}, "|")
+	return strings.Join([]string{action, scope, tenantKey, hashRateLimitSubject(subject)}, "|")
 }
 
 func writeRateLimitError(c *gin.Context, code, scope string, retryAfter time.Duration) {
@@ -407,4 +420,39 @@ func retryAfterSeconds(retryAfter time.Duration) int {
 		return 1
 	}
 	return seconds
+}
+
+func (m *AuthRateLimitMiddleware) ensureCapacityLocked(key string) {
+	if key == "" || m.maxEntries <= 0 {
+		return
+	}
+	if _, exists := m.entries[key]; exists || len(m.entries) < m.maxEntries {
+		return
+	}
+
+	oldestKey := ""
+	var oldestSeen time.Time
+	for existingKey, timestamps := range m.entries {
+		if len(timestamps) == 0 {
+			delete(m.entries, existingKey)
+			continue
+		}
+		lastSeen := timestamps[len(timestamps)-1]
+		if oldestKey == "" || lastSeen.Before(oldestSeen) {
+			oldestKey = existingKey
+			oldestSeen = lastSeen
+		}
+	}
+	if oldestKey != "" {
+		delete(m.entries, oldestKey)
+	}
+}
+
+func hashRateLimitSubject(subject string) string {
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(subject))
+	return hex.EncodeToString(sum[:])
 }
