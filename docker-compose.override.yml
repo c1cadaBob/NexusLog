@@ -75,12 +75,13 @@ services:
     image: ${MIRROR_DOCKER_HUB}/golang:1.23-bullseye
     working_dir: /workspace/services/control-plane
     command:
-      - /bin/bash
-      - -c
-      - |
-        export PATH="/usr/local/go/bin:/go/bin:$$PATH"
-        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.52.3
-        air --build.cmd "go build -buildvcs=false -o /tmp/control-plane ./cmd/api" --build.bin "/tmp/control-plane" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+      - /workspace/scripts/dev-go-runner.sh
+      - "go build -buildvcs=false -o /tmp/control-plane ./cmd/api"
+      - /tmp/control-plane
+      - --build.delay
+      - "1000"
+      - --build.exclude_dir
+      - "tmp,vendor,.git,node_modules"
     volumes:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
@@ -118,12 +119,13 @@ services:
     image: ${MIRROR_DOCKER_HUB}/golang:1.23-bullseye
     working_dir: /workspace/services/api-service
     command:
-      - /bin/bash
-      - -c
-      - |
-        export PATH="/usr/local/go/bin:/go/bin:$$PATH"
-        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.52.3
-        air --build.cmd "go build -buildvcs=false -o /tmp/api-service ./cmd/api" --build.bin "/tmp/api-service" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+      - /workspace/scripts/dev-go-runner.sh
+      - "go build -buildvcs=false -o /tmp/api-service ./cmd/api"
+      - /tmp/api-service
+      - --build.delay
+      - "1000"
+      - --build.exclude_dir
+      - "tmp,vendor,.git,node_modules"
     volumes:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
@@ -141,12 +143,13 @@ services:
     image: ${MIRROR_DOCKER_HUB}/golang:1.23-bullseye
     working_dir: /workspace/services/data-services/query-api
     command:
-      - /bin/bash
-      - -c
-      - |
-        export PATH="/usr/local/go/bin:/go/bin:$$PATH"
-        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.52.3
-        air --build.cmd "go build -buildvcs=false -o /tmp/query-api ./cmd/api" --build.bin "/tmp/query-api" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+      - /workspace/scripts/dev-go-runner.sh
+      - "go build -buildvcs=false -o /tmp/query-api ./cmd/api"
+      - /tmp/query-api
+      - --build.delay
+      - "1000"
+      - --build.exclude_dir
+      - "tmp,vendor,.git,node_modules"
     volumes:
       - ./:/workspace
       - /var/lib/docker/containers:/host-docker-containers:ro
@@ -168,12 +171,13 @@ services:
     image: ${MIRROR_DOCKER_HUB}/golang:1.23-bullseye
     working_dir: /workspace/services/data-services/audit-api
     command:
-      - /bin/bash
-      - -c
-      - |
-        export PATH="/usr/local/go/bin:/go/bin:$$PATH"
-        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.52.3
-        air --build.cmd "go build -buildvcs=false -o /tmp/audit-api ./cmd/api" --build.bin "/tmp/audit-api" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+      - /workspace/scripts/dev-go-runner.sh
+      - "go build -buildvcs=false -o /tmp/audit-api ./cmd/api"
+      - /tmp/audit-api
+      - --build.delay
+      - "1000"
+      - --build.exclude_dir
+      - "tmp,vendor,.git,node_modules"
     volumes:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
@@ -191,12 +195,13 @@ services:
     image: ${MIRROR_DOCKER_HUB}/golang:1.23-bullseye
     working_dir: /workspace/services/data-services/export-api
     command:
-      - /bin/bash
-      - -c
-      - |
-        export PATH="/usr/local/go/bin:/go/bin:$$PATH"
-        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.52.3
-        air --build.cmd "go build -buildvcs=false -o /tmp/export-api ./cmd/api" --build.bin "/tmp/export-api" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+      - /workspace/scripts/dev-go-runner.sh
+      - "go build -buildvcs=false -o /tmp/export-api ./cmd/api"
+      - /tmp/export-api
+      - --build.delay
+      - "1000"
+      - --build.exclude_dir
+      - "tmp,vendor,.git,node_modules"
     volumes:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
@@ -214,12 +219,13 @@ services:
     image: ${MIRROR_DOCKER_HUB}/golang:1.23-bullseye
     working_dir: /workspace/services/health-worker
     command:
-      - /bin/bash
-      - -c
-      - |
-        export PATH="/usr/local/go/bin:/go/bin:$$PATH"
-        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.52.3
-        air --build.cmd "go build -buildvcs=false -o /tmp/health-worker ./cmd/worker" --build.bin "/tmp/health-worker" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+      - /workspace/scripts/dev-go-runner.sh
+      - "go build -buildvcs=false -o /tmp/health-worker ./cmd/worker"
+      - /tmp/health-worker
+      - --build.delay
+      - "1000"
+      - --build.exclude_dir
+      - "tmp,vendor,.git,node_modules"
     volumes:
       - ./:/workspace
       - go-pkg-mod:/go/pkg/mod
@@ -238,12 +244,13 @@ services:
     user: root
     working_dir: /workspace/agents/collector-agent
     command:
-      - /bin/bash
-      - -c
-      - |
-        export PATH="/usr/local/go/bin:/go/bin:$$PATH"
-        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.52.3
-        air --build.cmd "go build -buildvcs=false -o /tmp/collector-agent ./cmd/agent" --build.bin "/tmp/collector-agent" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+      - /workspace/scripts/dev-go-runner.sh
+      - "go build -buildvcs=false -o /tmp/collector-agent ./cmd/agent"
+      - /tmp/collector-agent
+      - --build.delay
+      - "1000"
+      - --build.exclude_dir
+      - "tmp,vendor,.git,node_modules"
     environment:
       - HTTP_PORT=9091
       - LEGACY_LOG_PIPELINE_ENABLED=false
@@ -304,12 +311,13 @@ services:
     image: ${MIRROR_DOCKER_HUB}/golang:1.23-bullseye
     working_dir: /workspace/agents/collector-agent
     command:
-      - /bin/bash
-      - -c
-      - |
-        export PATH="/usr/local/go/bin:/go/bin:$$PATH"
-        command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.52.3
-        air --build.cmd "go build -buildvcs=false -o /tmp/collector-agent-remote ./cmd/agent" --build.bin "/tmp/collector-agent-remote" --build.delay "1000" --build.exclude_dir "tmp,vendor,.git,node_modules"
+      - /workspace/scripts/dev-go-runner.sh
+      - "go build -buildvcs=false -o /tmp/collector-agent-remote ./cmd/agent"
+      - /tmp/collector-agent-remote
+      - --build.delay
+      - "1000"
+      - --build.exclude_dir
+      - "tmp,vendor,.git,node_modules"
     environment:
       # 按需求使用 16666 暴露“远程日志记录/拉取”端口
       - HTTP_PORT=16666
