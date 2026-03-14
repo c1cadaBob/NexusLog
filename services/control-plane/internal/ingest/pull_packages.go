@@ -313,7 +313,7 @@ func RegisterPullPackageRoutes(router gin.IRouter, store *PullPackageStore) {
 func (h *PullPackageHandler) ListPullPackages(c *gin.Context) {
 	query, err := parseListPullPackagesQuery(c)
 	if err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodePackageInvalidArgument, err.Error(), gin.H{"field": "query"})
+		writeError(c, http.StatusBadRequest, ErrorCodePackageInvalidArgument, sanitizeIngestValidationError(err, "invalid query parameters"), gin.H{"field": "query"})
 		return
 	}
 

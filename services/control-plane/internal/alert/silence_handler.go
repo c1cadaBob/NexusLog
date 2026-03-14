@@ -39,7 +39,7 @@ func (h *SilenceHandler) ListSilences(c *gin.Context) {
 		setAlertSilenceAuditEvent(c, "alert_silences.list", "", buildSilenceListAuditDetails(0, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    ErrorCodeInternalError,
-			"message": err.Error(),
+			"message": "failed to list silences",
 		})
 		return
 	}
@@ -107,7 +107,7 @@ func (h *SilenceHandler) CreateSilence(c *gin.Context) {
 		setAlertSilenceAuditEvent(c, "alert_silences.create", "", buildSilenceCreateRequestAuditDetails(req, createdBy, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    ErrorCodeInternalError,
-			"message": err.Error(),
+			"message": "failed to create silence",
 		})
 		return
 	}
@@ -181,14 +181,14 @@ func (h *SilenceHandler) UpdateSilence(c *gin.Context) {
 			setAlertSilenceAuditEvent(c, "alert_silences.update", id, buildSilenceUpdateAuditDetails(id, req, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
 			c.JSON(http.StatusNotFound, gin.H{
 				"code":    ErrorCodeResourceNotFound,
-				"message": err.Error(),
+				"message": "silence not found",
 			})
 			return
 		}
 		setAlertSilenceAuditEvent(c, "alert_silences.update", id, buildSilenceUpdateAuditDetails(id, req, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    ErrorCodeInternalError,
-			"message": err.Error(),
+			"message": "failed to update silence",
 		})
 		return
 	}
@@ -219,14 +219,14 @@ func (h *SilenceHandler) DeleteSilence(c *gin.Context) {
 			setAlertSilenceAuditEvent(c, "alert_silences.delete", id, buildSilenceDeleteAuditDetails(id, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
 			c.JSON(http.StatusNotFound, gin.H{
 				"code":    ErrorCodeResourceNotFound,
-				"message": err.Error(),
+				"message": "silence not found",
 			})
 			return
 		}
 		setAlertSilenceAuditEvent(c, "alert_silences.delete", id, buildSilenceDeleteAuditDetails(id, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    ErrorCodeInternalError,
-			"message": err.Error(),
+			"message": "failed to delete silence",
 		})
 		return
 	}

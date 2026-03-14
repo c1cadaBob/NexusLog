@@ -121,13 +121,13 @@ func RegisterReceiptRoutes(router gin.IRouter, packageStore *PullPackageStore, r
 func (h *ReceiptHandler) CreateReceipt(c *gin.Context) {
 	var req ReceiptRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodeReceiptInvalidArgument, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodeReceiptInvalidArgument, "invalid request body", nil)
 		return
 	}
 
 	normalized, err := normalizeReceiptRequest(req)
 	if err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodeReceiptInvalidArgument, err.Error(), nil)
+		writeError(c, http.StatusBadRequest, ErrorCodeReceiptInvalidArgument, sanitizeIngestValidationError(err, "invalid receipt payload"), nil)
 		return
 	}
 

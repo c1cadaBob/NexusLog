@@ -201,13 +201,13 @@ func RegisterDeadLetterRoutes(router gin.IRouter, store *DeadLetterStore) {
 func (h *DeadLetterHandler) ReplayDeadLetters(c *gin.Context) {
 	var req DeadLetterReplayRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodeDeadLetterInvalidArgument, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodeDeadLetterInvalidArgument, "invalid request body", nil)
 		return
 	}
 
 	normalized, err := normalizeDeadLetterReplayRequest(req)
 	if err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodeDeadLetterInvalidArgument, err.Error(), nil)
+		writeError(c, http.StatusBadRequest, ErrorCodeDeadLetterInvalidArgument, sanitizeIngestValidationError(err, "invalid replay payload"), nil)
 		return
 	}
 

@@ -47,14 +47,21 @@ func (h *Handler) Report(c *gin.Context) {
 	var req ReportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code": ErrorCodeInvalidParams, "message": "invalid request body: " + err.Error(),
+			"code": ErrorCodeInvalidParams, "message": "invalid request body",
+		})
+		return
+	}
+
+	if err := h.svc.ValidateMetrics(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": ErrorCodeInvalidParams, "message": sanitizeMetricsValidationError(err),
 		})
 		return
 	}
 
 	if err := h.svc.ReportMetrics(c.Request.Context(), tenantID, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": ErrorCodeInvalidParams, "message": err.Error(),
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": ErrorCodeInternal, "message": "failed to report metrics",
 		})
 		return
 	}
@@ -85,7 +92,7 @@ func (h *Handler) QueryAgentMetrics(c *gin.Context) {
 	from, to, err := parseRange(rangeParam)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code": ErrorCodeInvalidParams, "message": "invalid range: " + err.Error(),
+			"code": ErrorCodeInvalidParams, "message": "range must be one of 1h, 6h, 24h, 7d",
 		})
 		return
 	}
@@ -98,13 +105,12 @@ func (h *Handler) QueryAgentMetrics(c *gin.Context) {
 		return
 	}
 
-	// Filter by metric_name if specified
 	series := buildTimeSeries(metrics, metricName)
 	c.JSON(http.StatusOK, gin.H{
-		"data":   series,
-		"from":   from.Format(time.RFC3339),
-		"to":     to.Format(time.RFC3339),
-		"range":  rangeParam,
+		"data":  series,
+		"from":  from.Format(time.RFC3339),
+		"to":    to.Format(time.RFC3339),
+		"range": rangeParam,
 	})
 }
 
@@ -121,10 +127,19 @@ func parseRange(r string) (from, to time.Time, err error) {
 	case "7d":
 		d = 7 * 24 * time.Hour
 	default:
-		return from, to, fmt.Errorf("unsupported range: %s (use 1h, 6h, 24h, 7d)", r)
+		return from, to, fmt.Errorf("unsupported range")
 	}
 	from = to.Add(-d)
 	return from, to, nil
+}
+
+func sanitizeMetricsValidationError(err error) string {
+	switch strings.TrimSpace(err.Error()) {
+	case "agent_id is required", "server_id is required":
+		return strings.TrimSpace(err.Error())
+	default:
+		return "invalid metrics payload"
+	}
 }
 
 // TimeSeriesPoint represents a single point in a time series.

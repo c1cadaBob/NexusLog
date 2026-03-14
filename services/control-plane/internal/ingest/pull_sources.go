@@ -438,7 +438,7 @@ func (h *PullSourceHandler) ListPullSources(c *gin.Context) {
 			"http_status": http.StatusBadRequest,
 			"error_code":  ErrorCodePullSourceInvalidArgument,
 		}))
-		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, err.Error(), gin.H{"field": "query"})
+		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, sanitizeIngestValidationError(err, "invalid query parameters"), gin.H{"field": "query"})
 		return
 	}
 
@@ -464,14 +464,14 @@ func (h *PullSourceHandler) CreatePullSource(c *gin.Context) {
 			"http_status": http.StatusBadRequest,
 			"error_code":  ErrorCodePullSourceInvalidArgument,
 		}))
-		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "invalid request body", nil)
 		return
 	}
 
 	normalized, err := normalizeCreatePullSourceRequest(req)
 	if err != nil {
 		setPullSourceAuditEvent(c, "pull_sources.create", "", buildPullSourceRequestAuditDetails(req, http.StatusBadRequest, "failed", ErrorCodePullSourceInvalidArgument))
-		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, err.Error(), nil)
+		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, sanitizeIngestValidationError(err, "invalid pull source payload"), nil)
 		return
 	}
 
@@ -523,7 +523,7 @@ func (h *PullSourceHandler) UpdatePullSourceByBody(c *gin.Context) {
 			"http_status": http.StatusBadRequest,
 			"error_code":  ErrorCodePullSourceInvalidArgument,
 		}))
-		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "invalid request body", nil)
 		return
 	}
 	sourceID := strings.TrimSpace(req.SourceID)
@@ -545,7 +545,7 @@ func (h *PullSourceHandler) updatePullSource(c *gin.Context, sourceID string) {
 			"http_status":      http.StatusBadRequest,
 			"error_code":       ErrorCodePullSourceInvalidArgument,
 		}))
-		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "invalid request body", nil)
 		return
 	}
 	h.updatePullSourceWithRequest(c, sourceID, req)
@@ -556,7 +556,7 @@ func (h *PullSourceHandler) updatePullSourceWithRequest(c *gin.Context, sourceID
 	normalized, err := normalizeUpdatePullSourceRequest(req)
 	if err != nil {
 		setPullSourceAuditEvent(c, resolvePullSourceUpdateAction(req), sourceID, buildPullSourceUpdateAuditDetails(sourceID, req, http.StatusBadRequest, "failed", ErrorCodePullSourceInvalidArgument))
-		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, err.Error(), nil)
+		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, sanitizeIngestValidationError(err, "invalid pull source payload"), nil)
 		return
 	}
 

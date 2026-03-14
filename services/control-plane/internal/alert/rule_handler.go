@@ -138,7 +138,7 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 	var req CreateRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
-		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", nil)
 		return
 	}
 
@@ -179,7 +179,7 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 		}
 		if errors.Is(err, ErrInvalidCondition) {
 			setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
-			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, err.Error(), nil)
+			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, sanitizeRuleConditionError(err), nil)
 			return
 		}
 		setAlertRuleAuditEvent(c, "alert_rules.create", "", buildRuleCreateRequestAuditDetails(req, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
@@ -219,7 +219,7 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 	var req UpdateRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		setAlertRuleAuditEvent(c, "alert_rules.update", ruleID, buildRuleUpdateAuditDetails(ruleID, req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
-		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", nil)
 		return
 	}
 
@@ -260,7 +260,7 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 		}
 		if errors.Is(err, ErrInvalidCondition) {
 			setAlertRuleAuditEvent(c, "alert_rules.update", ruleID, buildRuleUpdateAuditDetails(ruleID, req, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
-			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, err.Error(), nil)
+			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, sanitizeRuleConditionError(err), nil)
 			return
 		}
 		setAlertRuleAuditEvent(c, "alert_rules.update", ruleID, buildRuleUpdateAuditDetails(ruleID, req, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
@@ -363,6 +363,29 @@ func (h *RuleHandler) DisableRule(c *gin.Context) {
 
 	setAlertRuleAuditEvent(c, "alert_rules.disable", ruleID, buildRuleToggleAuditDetails(ruleID, false, http.StatusOK, "success", ""))
 	writeSuccess(c, http.StatusOK, gin.H{"enabled": false}, gin.H{})
+}
+
+func sanitizeRuleConditionError(err error) string {
+	if !errors.Is(err, ErrInvalidCondition) {
+		return "invalid condition payload"
+	}
+	message := strings.TrimSpace(err.Error())
+	if message == ErrInvalidCondition.Error() {
+		return "invalid condition payload"
+	}
+	prefix := ErrInvalidCondition.Error() + ":"
+	if strings.HasPrefix(message, prefix) {
+		detail := strings.TrimSpace(strings.TrimPrefix(message, prefix))
+		if detail == "" {
+			return "invalid condition payload"
+		}
+		lower := strings.ToLower(detail)
+		if strings.Contains(lower, "invalid character") || strings.Contains(lower, "cannot unmarshal") {
+			return "invalid condition payload"
+		}
+		return detail
+	}
+	return "invalid condition payload"
 }
 
 func getTenantID(c *gin.Context) string {

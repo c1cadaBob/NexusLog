@@ -87,7 +87,7 @@ func registerIngestV3Routes(router *gin.Engine, lookup ingestv3.CursorLookup, wr
 		if err := ingestv3.CommitPulledFiles(sourceID, req.Files, writer); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"code":       "INTERNAL_ERROR",
-				"message":    err.Error(),
+				"message":    "failed to commit pulled files",
 				"request_id": resolveRequestID(c),
 				"data":       gin.H{},
 				"meta":       gin.H{},

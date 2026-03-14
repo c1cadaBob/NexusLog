@@ -39,7 +39,7 @@ func (h *Handler) ListRepositories(c *gin.Context) {
 		setBackupRepositoryAuditEvent(c, "backup_repositories.list", "", buildBackupRepositoryListAuditDetails(0, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
-			"message": err.Error(),
+			"message": "failed to list repositories",
 		})
 		return
 	}
@@ -99,7 +99,7 @@ func (h *Handler) CreateRepository(c *gin.Context) {
 		setBackupRepositoryAuditEvent(c, "backup_repositories.create", req.Name, buildBackupRepositoryAuditDetails(req.Name, location, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
-			"message": err.Error(),
+			"message": "failed to create repository",
 		})
 		return
 	}
@@ -127,7 +127,7 @@ func (h *Handler) ListSnapshots(c *gin.Context) {
 		setBackupSnapshotAuditEvent(c, "backup_snapshots.list", "", buildBackupSnapshotListAuditDetails(repo, 0, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
-			"message": err.Error(),
+			"message": "failed to list snapshots",
 		})
 		return
 	}
@@ -186,7 +186,7 @@ func (h *Handler) CreateSnapshot(c *gin.Context) {
 		setBackupSnapshotAuditEvent(c, "backup_snapshots.create", req.Name, buildBackupSnapshotAuditDetails(req.Repository, req.Name, "create", req.Indices, "", req.Description, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
-			"message": err.Error(),
+			"message": "failed to create snapshot",
 		})
 		return
 	}
@@ -220,14 +220,14 @@ func (h *Handler) GetSnapshotStatus(c *gin.Context) {
 			setBackupSnapshotAuditEvent(c, "backup_snapshots.read", name, buildBackupSnapshotAuditDetails(repo, name, "read", nil, "", "", http.StatusNotFound, "failed", "RES_NOT_FOUND"))
 			c.JSON(http.StatusNotFound, gin.H{
 				"code":    "RES_NOT_FOUND",
-				"message": err.Error(),
+				"message": "snapshot not found",
 			})
 			return
 		}
 		setBackupSnapshotAuditEvent(c, "backup_snapshots.read", name, buildBackupSnapshotAuditDetails(repo, name, "read", nil, "", "", http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
-			"message": err.Error(),
+			"message": "failed to get snapshot status",
 		})
 		return
 	}
@@ -281,7 +281,7 @@ func (h *Handler) RestoreSnapshot(c *gin.Context) {
 		setBackupSnapshotAuditEvent(c, "backup_snapshots.restore", name, buildBackupSnapshotAuditDetails(req.Repository, name, "restore", req.Indices, "", "", http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
-			"message": err.Error(),
+			"message": "failed to restore snapshot",
 		})
 		return
 	}
@@ -309,7 +309,7 @@ func (h *Handler) DeleteSnapshot(c *gin.Context) {
 		setBackupSnapshotAuditEvent(c, "backup_snapshots.delete", name, buildBackupSnapshotAuditDetails(repo, name, "delete", nil, "", "", http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
-			"message": err.Error(),
+			"message": "failed to delete snapshot",
 		})
 		return
 	}
@@ -337,7 +337,7 @@ func (h *Handler) CancelSnapshot(c *gin.Context) {
 		setBackupSnapshotAuditEvent(c, "backup_snapshots.cancel", name, buildBackupSnapshotAuditDetails(repo, name, "cancel", nil, "", "", http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
-			"message": err.Error(),
+			"message": "failed to cancel snapshot",
 		})
 		return
 	}

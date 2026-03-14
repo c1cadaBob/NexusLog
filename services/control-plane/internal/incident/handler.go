@@ -116,7 +116,7 @@ type CreateIncidentRequest struct {
 	Severity           string  `json:"severity"`
 	AssignedTo         *string `json:"assigned_to,omitempty"`
 	SLAResponseMinutes *int    `json:"sla_response_minutes,omitempty"`
-	SLAResolveMinutes   *int    `json:"sla_resolve_minutes,omitempty"`
+	SLAResolveMinutes  *int    `json:"sla_resolve_minutes,omitempty"`
 }
 
 // CreateIncident handles POST /api/v1/incidents.
@@ -129,7 +129,7 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 
 	var req CreateIncidentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", nil)
 		return
 	}
 
@@ -153,7 +153,7 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 	id, err := h.svc.CreateIncident(c.Request.Context(), inc)
 	if err != nil {
 		if err == ErrInvalidSeverity {
-			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, err.Error(), nil)
+			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, ErrInvalidSeverity.Error(), nil)
 			return
 		}
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to create incident", nil)
@@ -172,7 +172,7 @@ type UpdateIncidentRequest struct {
 	RootCause          *string `json:"root_cause,omitempty"`
 	Resolution         *string `json:"resolution,omitempty"`
 	SLAResponseMinutes *int    `json:"sla_response_minutes,omitempty"`
-	SLAResolveMinutes   *int    `json:"sla_resolve_minutes,omitempty"`
+	SLAResolveMinutes  *int    `json:"sla_resolve_minutes,omitempty"`
 }
 
 // UpdateIncident handles PUT /api/v1/incidents/:id.
@@ -190,7 +190,7 @@ func (h *Handler) UpdateIncident(c *gin.Context) {
 
 	var req UpdateIncidentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", nil)
 		return
 	}
 
@@ -233,7 +233,7 @@ func (h *Handler) UpdateIncident(c *gin.Context) {
 			return
 		}
 		if err == ErrInvalidSeverity {
-			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, err.Error(), nil)
+			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, ErrInvalidSeverity.Error(), nil)
 			return
 		}
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to update incident", nil)
@@ -263,7 +263,7 @@ func (h *Handler) ArchiveIncident(c *gin.Context) {
 
 	var req ArchiveIncidentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", nil)
 		return
 	}
 	if strings.TrimSpace(req.Verdict) == "" {

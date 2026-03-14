@@ -62,8 +62,8 @@ func (h *ThresholdHandler) List(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": "OK", "message": "success",
-		"data":  gin.H{"items": items},
-		"meta":  gin.H{"page": page, "page_size": pageSize, "total": total, "has_next": page*pageSize < total},
+		"data": gin.H{"items": items},
+		"meta": gin.H{"page": page, "page_size": pageSize, "total": total, "has_next": page*pageSize < total},
 	})
 }
 
@@ -97,7 +97,7 @@ type CreateRequest struct {
 	Comparison           string          `json:"comparison"`
 	AlertSeverity        string          `json:"alert_severity"`
 	Enabled              *bool           `json:"enabled"`
-	NotificationChannels json.RawMessage  `json:"notification_channels"`
+	NotificationChannels json.RawMessage `json:"notification_channels"`
 }
 
 // Create handles POST /api/v1/resource/thresholds.
@@ -110,7 +110,7 @@ func (h *ThresholdHandler) Create(c *gin.Context) {
 
 	var req CreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": ErrorCodeInvalidParams, "message": "invalid request body: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"code": ErrorCodeInvalidParams, "message": "invalid request body"})
 		return
 	}
 
@@ -192,7 +192,7 @@ func (h *ThresholdHandler) Update(c *gin.Context) {
 
 	var req UpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": ErrorCodeInvalidParams, "message": "invalid request body: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"code": ErrorCodeInvalidParams, "message": "invalid request body"})
 		return
 	}
 

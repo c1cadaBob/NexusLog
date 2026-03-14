@@ -332,7 +332,7 @@ func RegisterPullTaskRoutes(router gin.IRouter, sourceStore *PullSourceStore, ta
 func (h *PullTaskHandler) ListPullTasks(c *gin.Context) {
 	query, err := parseListPullTasksQuery(c)
 	if err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodePullTaskInvalidArgument, err.Error(), gin.H{"field": "query"})
+		writeError(c, http.StatusBadRequest, ErrorCodePullTaskInvalidArgument, sanitizeIngestValidationError(err, "invalid query parameters"), gin.H{"field": "query"})
 		return
 	}
 
@@ -344,13 +344,13 @@ func (h *PullTaskHandler) ListPullTasks(c *gin.Context) {
 func (h *PullTaskHandler) RunPullTask(c *gin.Context) {
 	var req RunPullTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodePullTaskInvalidArgument, "invalid request body", gin.H{"error": err.Error()})
+		writeError(c, http.StatusBadRequest, ErrorCodePullTaskInvalidArgument, "invalid request body", nil)
 		return
 	}
 
 	normalized, err := normalizeRunPullTaskRequest(req)
 	if err != nil {
-		writeError(c, http.StatusBadRequest, ErrorCodePullTaskInvalidArgument, err.Error(), nil)
+		writeError(c, http.StatusBadRequest, ErrorCodePullTaskInvalidArgument, sanitizeIngestValidationError(err, "invalid pull task payload"), nil)
 		return
 	}
 

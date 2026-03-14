@@ -66,6 +66,27 @@ func RegisterChannelRoutes(router gin.IRouter, repo *ChannelRepository, sender *
 	g.POST("/:id/test", h.TestChannel)
 }
 
+func sanitizeNotificationValidationError(err error, fallback string) string {
+	if err == nil {
+		return fallback
+	}
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		return fallback
+	}
+	lower := strings.ToLower(message)
+	switch {
+	case strings.HasPrefix(lower, "config must be valid json:"):
+		return "config must be valid JSON object"
+	case strings.HasPrefix(lower, "smtp_port must be a number:"):
+		return "smtp_port must be a number"
+	case strings.Contains(lower, "invalid character"), strings.Contains(lower, "cannot unmarshal"):
+		return fallback
+	default:
+		return message
+	}
+}
+
 func (h *ChannelHandler) getTenantID(c *gin.Context) string {
 	return strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
 }
@@ -164,7 +185,7 @@ func (h *ChannelHandler) CreateChannel(c *gin.Context) {
 
 	var req CreateChannelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid request body", gin.H{"error": err.Error()})
+		h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid request body", nil)
 		return
 	}
 
@@ -174,11 +195,11 @@ func (h *ChannelHandler) CreateChannel(c *gin.Context) {
 		return
 	}
 	if err := ValidateChannelType(req.Type); err != nil {
-		h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, err.Error(), nil)
+		h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, sanitizeNotificationValidationError(err, "invalid channel type"), nil)
 		return
 	}
 	if err := ValidateConfig(req.Type, req.Config); err != nil {
-		h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, err.Error(), nil)
+		h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, sanitizeNotificationValidationError(err, "invalid channel config"), nil)
 		return
 	}
 
@@ -221,7 +242,7 @@ func (h *ChannelHandler) UpdateChannel(c *gin.Context) {
 
 	var req UpdateChannelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid request body", gin.H{"error": err.Error()})
+		h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid request body", nil)
 		return
 	}
 
@@ -248,7 +269,7 @@ func (h *ChannelHandler) UpdateChannel(c *gin.Context) {
 		}
 		req.Config = &mergedConfig
 		if err := ValidateConfig(ch.Type, mergedConfig); err != nil {
-			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, err.Error(), nil)
+			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, sanitizeNotificationValidationError(err, "invalid channel config"), nil)
 			return
 		}
 	}
@@ -346,7 +367,7 @@ func (h *ChannelHandler) TestChannel(c *gin.Context) {
 			return
 		}
 		if err := validateEmailTestTarget(cfg, to); err != nil {
-			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, err.Error(), nil)
+			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, sanitizeNotificationValidationError(err, "invalid email test target"), nil)
 			return
 		}
 		if err := h.sender.SendTestEmail(cfg, to); err != nil {
@@ -361,7 +382,7 @@ func (h *ChannelHandler) TestChannel(c *gin.Context) {
 			return
 		}
 		if err := validateDingTalkTarget(cfg); err != nil {
-			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, err.Error(), nil)
+			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, sanitizeNotificationValidationError(err, "invalid dingtalk target"), nil)
 			return
 		}
 		testAlert := AlertMessage{
