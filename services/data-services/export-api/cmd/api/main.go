@@ -46,7 +46,7 @@ func main() {
 
 	server.Run(cfg, func(r *gin.Engine) {
 		r.Use(sharedauth.RequireAuthenticatedIdentity(db, jwtSecret))
-		v1 := r.Group("/api/v1/export")
+		v1 := r.Group("/api/v1/export", sharedauth.RequirePermission("logs:export"))
 		{
 			v1.POST("/jobs", exportHandler.CreateExportJob)
 			v1.GET("/jobs", exportHandler.ListExportJobs)

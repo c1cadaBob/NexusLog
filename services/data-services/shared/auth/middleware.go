@@ -54,6 +54,7 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 			return
 		}
 
+		authorizationReady := false
 		if db != nil {
 			active, err := isAccessTokenSessionActive(c.Request.Context(), db, tenantID, userID, claims.ID)
 			if err != nil {
@@ -64,10 +65,18 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 				writeAuthError(c, http.StatusUnauthorized, "session is revoked or expired")
 				return
 			}
+			permissions, err := loadUserPermissions(c.Request.Context(), db, tenantID, userID)
+			if err != nil {
+				writeAuthError(c, http.StatusInternalServerError, "failed to load permissions")
+				return
+			}
+			c.Set(string(contextKeyUserPermissions), permissions)
+			authorizationReady = true
 		}
 
 		c.Set(string(contextKeyUserID), userID)
 		c.Set(string(contextKeyTenantID), tenantID)
+		c.Set(string(contextKeyAuthorizationReady), authorizationReady)
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyUserID, userID))
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyTenantID, tenantID))
 		c.Request.Header.Set("X-User-ID", userID)

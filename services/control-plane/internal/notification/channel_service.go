@@ -73,6 +73,9 @@ func validateEmailConfig(m map[string]interface{}) error {
 	if portNum <= 0 || portNum > 65535 {
 		return fmt.Errorf("smtp_port must be between 1 and 65535")
 	}
+	if err := validateSMTPHost(host); err != nil {
+		return fmt.Errorf("smtp_host is not allowed")
+	}
 	from, _ := m["from_email"].(string)
 	if strings.TrimSpace(from) == "" {
 		username, _ := m["smtp_username"].(string)

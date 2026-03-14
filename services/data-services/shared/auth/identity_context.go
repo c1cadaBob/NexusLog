@@ -21,3 +21,27 @@ func AuthenticatedUserID(c *gin.Context) string {
 	}
 	return strings.TrimSpace(c.GetString(string(contextKeyUserID)))
 }
+
+// AuthenticatedPermissions returns permissions loaded by the authentication middleware.
+func AuthenticatedPermissions(c *gin.Context) []string {
+	if c == nil {
+		return nil
+	}
+	value, ok := c.Get(string(contextKeyUserPermissions))
+	if !ok {
+		return nil
+	}
+	permissions, ok := value.([]string)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(permissions))
+	for _, permission := range permissions {
+		trimmed := strings.TrimSpace(permission)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}

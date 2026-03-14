@@ -43,7 +43,7 @@ func main() {
 
 	server.Run(cfg, func(r *gin.Engine) {
 		r.Use(sharedauth.RequireAuthenticatedIdentity(db, jwtSecret))
-		v1 := r.Group("/api/v1/audit")
+		v1 := r.Group("/api/v1/audit", sharedauth.RequirePermission("audit:read"))
 		{
 			v1.GET("/logs", auditHandler.ListAuditLogs)
 		}

@@ -46,7 +46,7 @@ func main() {
 
 	server.Run(cfg, func(r *gin.Engine) {
 		r.Use(sharedauth.RequireAuthenticatedIdentity(metadataDB, jwtSecret))
-		v1 := r.Group("/api/v1/query")
+		v1 := r.Group("/api/v1/query", sharedauth.RequirePermission("logs:read"))
 		v1.POST("/logs", queryHandler.SearchLogs)
 		v1.GET("/stats/overview", statsHandler.GetOverviewStats)
 		v1.POST("/stats/aggregate", statsHandler.Aggregate)

@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -8,13 +9,31 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 const maskedSecretValue = "********"
 
-var defaultDingTalkHosts = map[string]struct{}{
-	"oapi.dingtalk.com": {},
-	"api.dingtalk.com":  {},
+var (
+	defaultDingTalkHosts = map[string]struct{}{
+		"oapi.dingtalk.com": {},
+		"api.dingtalk.com":  {},
+	}
+	blockedOutboundHosts = map[string]struct{}{
+		"metadata.google.internal": {},
+		"metadata.aliyun.com":      {},
+		"metadata.tencentyun.com":  {},
+	}
+	lookupNotificationHostIPs = func(ctx context.Context, host string) ([]net.IP, error) {
+		return net.DefaultResolver.LookupIP(ctx, "ip", host)
+	}
+)
+
+type outboundHostValidationOptions struct {
+	allowPrivate      bool
+	allowedHosts      []string
+	allowedCIDRs      []*net.IPNet
+	failOnLookupError bool
 }
 
 func sanitizeChannel(ch Channel) Channel {
@@ -78,7 +97,7 @@ func validateEmailTestTarget(cfg EmailConfig, to string) error {
 	if _, err := mail.ParseAddress(strings.TrimSpace(to)); err != nil {
 		return fmt.Errorf("invalid recipient email")
 	}
-	if err := validateHostForOutboundTest(cfg.SMTPHost, true); err != nil {
+	if err := validateSMTPHost(cfg.SMTPHost); err != nil {
 		return fmt.Errorf("smtp target is not allowed")
 	}
 	if !cfg.UseTLS && !envBool("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_TESTS", false) {
@@ -103,7 +122,10 @@ func validateDingTalkTarget(cfg DingTalkConfig) error {
 		return fmt.Errorf("dingtalk webhook must not contain credentials")
 	}
 	host := strings.TrimSpace(parsed.Hostname())
-	if err := validateHostForOutboundTest(host, false); err != nil {
+	if err := validateHostForOutboundTarget(host, outboundHostValidationOptions{
+		allowPrivate:      false,
+		failOnLookupError: true,
+	}); err != nil {
 		return fmt.Errorf("dingtalk webhook host is not allowed")
 	}
 	if !isAllowedDingTalkHost(host) {
@@ -112,27 +134,69 @@ func validateDingTalkTarget(cfg DingTalkConfig) error {
 	return nil
 }
 
+func validateSMTPHost(rawHost string) error {
+	allowedCIDRs, err := parseCIDREnv("NOTIFICATION_SMTP_ALLOWED_CIDRS")
+	if err != nil {
+		return err
+	}
+	return validateHostForOutboundTarget(rawHost, outboundHostValidationOptions{
+		allowPrivate:      envBool("NOTIFICATION_SMTP_ALLOW_PRIVATE_HOSTS", false),
+		allowedHosts:      parseCSVEnv("NOTIFICATION_SMTP_ALLOWED_HOSTS"),
+		allowedCIDRs:      allowedCIDRs,
+		failOnLookupError: true,
+	})
+}
+
 func validateHostForOutboundTest(rawHost string, allowPrivate bool) error {
+	return validateHostForOutboundTarget(rawHost, outboundHostValidationOptions{
+		allowPrivate:      allowPrivate,
+		failOnLookupError: true,
+	})
+}
+
+func validateHostForOutboundTarget(rawHost string, opts outboundHostValidationOptions) error {
 	host := strings.TrimSpace(rawHost)
 	if host == "" {
 		return fmt.Errorf("host is required")
 	}
 	lower := strings.ToLower(host)
-	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") || lower == "metadata.google.internal" {
+	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") {
 		return fmt.Errorf("host is not allowed")
 	}
+	if _, blocked := blockedOutboundHosts[lower]; blocked {
+		return fmt.Errorf("host is not allowed")
+	}
+	allowedByHost := hostMatchesAllowlist(lower, opts.allowedHosts)
 	if ip := net.ParseIP(host); ip != nil {
-		if isBlockedIP(ip, allowPrivate) {
+		if isAlwaysBlockedIP(ip) {
+			return fmt.Errorf("ip is not allowed")
+		}
+		if isPrivateIP(ip) && !(opts.allowPrivate || allowedByHost || ipWithinAllowedCIDRs(ip, opts.allowedCIDRs)) {
 			return fmt.Errorf("ip is not allowed")
 		}
 		return nil
 	}
-	addrs, err := net.LookupIP(host)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	addrs, err := lookupNotificationHostIPs(ctx, host)
 	if err != nil {
+		if opts.failOnLookupError {
+			return fmt.Errorf("host lookup failed")
+		}
+		return nil
+	}
+	if len(addrs) == 0 {
+		if opts.failOnLookupError {
+			return fmt.Errorf("host resolved to no addresses")
+		}
 		return nil
 	}
 	for _, ip := range addrs {
-		if isBlockedIP(ip, allowPrivate) {
+		if isAlwaysBlockedIP(ip) {
+			return fmt.Errorf("resolved IP is not allowed")
+		}
+		if isPrivateIP(ip) && !(opts.allowPrivate || allowedByHost || ipWithinAllowedCIDRs(ip, opts.allowedCIDRs)) {
 			return fmt.Errorf("resolved IP is not allowed")
 		}
 	}
@@ -140,6 +204,16 @@ func validateHostForOutboundTest(rawHost string, allowPrivate bool) error {
 }
 
 func isBlockedIP(ip net.IP, allowPrivate bool) bool {
+	if isAlwaysBlockedIP(ip) {
+		return true
+	}
+	if !allowPrivate && isPrivateIP(ip) {
+		return true
+	}
+	return false
+}
+
+func isAlwaysBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
@@ -153,9 +227,6 @@ func isBlockedIP(ip net.IP, allowPrivate bool) bool {
 		if ip4[0] == 100 && ip4[1] == 100 && ip4[2] == 100 && ip4[3] == 200 {
 			return true
 		}
-	}
-	if !allowPrivate && isPrivateIP(ip) {
-		return true
 	}
 	return false
 }
@@ -214,6 +285,48 @@ func parseCSVEnv(key string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+
+func parseCIDREnv(key string) ([]*net.IPNet, error) {
+	items := parseCSVEnv(key)
+	if len(items) == 0 {
+		return nil, nil
+	}
+	result := make([]*net.IPNet, 0, len(items))
+	for _, item := range items {
+		_, network, err := net.ParseCIDR(item)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR in %s", key)
+		}
+		result = append(result, network)
+	}
+	return result, nil
+}
+
+func hostMatchesAllowlist(host string, allowed []string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return false
+	}
+	for _, item := range allowed {
+		trimmed := strings.ToLower(strings.TrimSpace(item))
+		if trimmed == "" {
+			continue
+		}
+		if host == trimmed || strings.HasSuffix(host, "."+trimmed) {
+			return true
+		}
+	}
+	return false
+}
+
+func ipWithinAllowedCIDRs(ip net.IP, networks []*net.IPNet) bool {
+	for _, network := range networks {
+		if network != nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func envBool(key string, fallback bool) bool {

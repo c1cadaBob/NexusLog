@@ -1,7 +1,10 @@
 package notification
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"testing"
 )
@@ -63,15 +66,66 @@ func TestValidateDingTalkTargetRejectsPrivateOrInsecureHosts(t *testing.T) {
 
 func TestValidateDingTalkTargetAllowsOfficialHost(t *testing.T) {
 	os.Unsetenv("NOTIFICATION_DINGTALK_ALLOWED_HOSTS")
+	stubNotificationHostLookup(t, func(ctx context.Context, host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("203.0.113.10")}, nil
+	})
 	if err := validateDingTalkTarget(DingTalkConfig{WebhookURL: "https://oapi.dingtalk.com/robot/send?access_token=abc"}); err != nil {
 		t.Fatalf("validateDingTalkTarget() error = %v", err)
 	}
 }
 
+func TestValidateDingTalkTargetRejectsLookupFailure(t *testing.T) {
+	os.Unsetenv("NOTIFICATION_DINGTALK_ALLOWED_HOSTS")
+	stubNotificationHostLookup(t, func(ctx context.Context, host string) ([]net.IP, error) {
+		return nil, errors.New("lookup failed")
+	})
+	if err := validateDingTalkTarget(DingTalkConfig{WebhookURL: "https://oapi.dingtalk.com/robot/send?access_token=abc"}); err == nil {
+		t.Fatalf("validateDingTalkTarget() expected error")
+	}
+}
+
 func TestValidateEmailTestTargetRejectsPlaintextSMTPByDefault(t *testing.T) {
 	os.Unsetenv("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_TESTS")
+	stubNotificationHostLookup(t, func(ctx context.Context, host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("203.0.113.20")}, nil
+	})
 	cfg := EmailConfig{SMTPHost: "smtp.example.com", SMTPPort: 25, UseTLS: false}
 	if err := validateEmailTestTarget(cfg, "ops@example.com"); err == nil {
 		t.Fatalf("validateEmailTestTarget() expected error")
 	}
+}
+
+func TestValidateEmailConfigRejectsPrivateSMTPHostByDefault(t *testing.T) {
+	os.Unsetenv("NOTIFICATION_SMTP_ALLOW_PRIVATE_HOSTS")
+	os.Unsetenv("NOTIFICATION_SMTP_ALLOWED_HOSTS")
+	os.Unsetenv("NOTIFICATION_SMTP_ALLOWED_CIDRS")
+	cfg := map[string]interface{}{
+		"smtp_host":  "10.0.0.5",
+		"smtp_port":  465,
+		"from_email": "ops@example.com",
+	}
+	if err := validateEmailConfig(cfg); err == nil {
+		t.Fatalf("validateEmailConfig() expected error")
+	}
+}
+
+func TestValidateEmailConfigAllowsPrivateSMTPHostWhenCIDRAllowlisted(t *testing.T) {
+	t.Setenv("NOTIFICATION_SMTP_ALLOWED_CIDRS", "10.0.0.0/8")
+	cfg := map[string]interface{}{
+		"smtp_host":  "10.0.0.5",
+		"smtp_port":  465,
+		"from_email": "ops@example.com",
+	}
+	if err := validateEmailConfig(cfg); err != nil {
+		t.Fatalf("validateEmailConfig() error = %v", err)
+	}
+}
+
+func stubNotificationHostLookup(t *testing.T, fn func(context.Context, string) ([]net.IP, error)) {
+	t.Helper()
+	previous := lookupNotificationHostIPs
+	lookupNotificationHostIPs = fn
+	t.Cleanup(func() {
+		lookupNotificationHostIPs = previous
+	})
 }

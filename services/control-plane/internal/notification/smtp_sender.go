@@ -17,7 +17,7 @@ type EmailConfig struct {
 	SMTPPassword string `json:"smtp_password"`
 	FromEmail    string `json:"from_email"`
 	FromName     string `json:"from_name"`
-	UseTLS      bool   `json:"use_tls"`
+	UseTLS       bool   `json:"use_tls"`
 }
 
 // ParseEmailConfig parses JSON config into EmailConfig.
@@ -80,6 +80,9 @@ func (s *SMTPSender) Send(config EmailConfig, subject, body, to string) error {
 	}
 	if config.SMTPPort <= 0 || config.SMTPPort > 65535 {
 		return fmt.Errorf("smtp_port must be between 1 and 65535")
+	}
+	if err := validateSMTPHost(config.SMTPHost); err != nil {
+		return fmt.Errorf("smtp target is not allowed")
 	}
 
 	from := config.FromEmail

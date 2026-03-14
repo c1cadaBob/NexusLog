@@ -35,3 +35,16 @@ func TestAuthenticatedUserIDIgnoresHeadersWithoutContext(t *testing.T) {
 		t.Fatalf("AuthenticatedUserID() = %q, want empty", got)
 	}
 }
+
+func TestAuthenticatedPermissionsUsesContextOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set(string(contextKeyUserPermissions), []string{"logs:read", "logs:export"})
+
+	permissions := AuthenticatedPermissions(c)
+	if len(permissions) != 2 {
+		t.Fatalf("AuthenticatedPermissions() = %#v, want 2 permissions", permissions)
+	}
+}

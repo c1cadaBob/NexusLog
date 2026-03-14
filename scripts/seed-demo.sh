@@ -51,7 +51,7 @@ VALUES
    'admin', 'Full system access including user management and system settings', '["*"]'),
   ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
    'operator', 'Operational access: log search, alert management, incident handling, monitoring',
-   '["logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read"]'),
+   '["logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'),
   ('10000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
    'viewer', 'Read-only access: view logs, dashboards, and monitoring data',
    '["logs:read","dashboards:read","metrics:read"]')
