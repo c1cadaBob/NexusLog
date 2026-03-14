@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { App, Button, Card, Drawer, Empty, Input, Result, Space, Table, Tag } from 'antd';
+import { Alert, App, Button, Card, Drawer, Empty, Input, Result, Space, Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
 import { fetchRoles, type RoleData } from '../../api/user';
+import { isProtectedRole, protectedGovernanceTagLabel } from './securityGovernance';
 
 interface LoadErrorState {
   message: string;
@@ -73,6 +74,10 @@ const RolePermissions: React.FC = () => {
     () => roles.reduce((sum, role) => sum + (role.permissions?.length ?? 0), 0),
     [roles],
   );
+  const protectedRoleCount = useMemo(
+    () => roles.filter((role) => isProtectedRole(role)).length,
+    [roles],
+  );
 
   const openRoleDrawer = useCallback((role: RoleData) => {
     setSelectedRole(role);
@@ -131,6 +136,7 @@ const RolePermissions: React.FC = () => {
             </div>
             <div>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{record.name}</div>
+              {isProtectedRole(record) ? <Tag color="magenta" style={{ marginTop: 4 }}>{protectedGovernanceTagLabel}</Tag> : null}
               <div style={{ fontSize: 12, color: palette.textSecondary }}>Role ID: #{record.id}</div>
             </div>
           </div>
@@ -222,7 +228,7 @@ const RolePermissions: React.FC = () => {
         style={{
           padding: '16px 24px 0',
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
           gap: 16,
           flexShrink: 0,
         }}
@@ -260,7 +266,29 @@ const RolePermissions: React.FC = () => {
             </div>
           </div>
         </Card>
+        <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: 13, color: palette.textSecondary }}>{protectedGovernanceTagLabel}角色</div>
+              <div style={{ fontSize: 28, fontWeight: 700 }}>{protectedRoleCount}</div>
+            </div>
+            <div style={{ padding: 8, borderRadius: 8, background: `${COLORS.purple}15`, color: COLORS.purple }}>
+              <span className="material-symbols-outlined">verified_user</span>
+            </div>
+          </div>
+        </Card>
       </div>
+
+      {!loadError ? (
+        <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
+          <Alert
+            showIcon
+            type="info"
+            message="角色治理说明"
+            description="系统保留角色仍会在当前页面展示，便于审计与查看；但它们不会出现在“用户管理”的可分配角色下拉中。"
+          />
+        </div>
+      ) : null}
 
       <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
         {loadError ? (
@@ -320,6 +348,8 @@ const RolePermissions: React.FC = () => {
                 <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{selectedRole.id}</span>
                 <span style={{ color: palette.textSecondary }}>角色描述</span>
                 <span>{selectedRole.description || '-'}</span>
+                <span style={{ color: palette.textSecondary }}>治理属性</span>
+                <span>{isProtectedRole(selectedRole) ? protectedGovernanceTagLabel : '普通角色'}</span>
                 <span style={{ color: palette.textSecondary }}>权限数量</span>
                 <span>{selectedRole.permissions?.length ?? 0}</span>
               </div>

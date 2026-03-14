@@ -36,6 +36,12 @@ import {
   type RoleData,
   type UserData,
 } from '../../api/user';
+import {
+  getAssignableRoles,
+  isProtectedRole,
+  isProtectedUser,
+  protectedGovernanceTagLabel,
+} from './securityGovernance';
 
 interface LoadErrorState {
   message: string;
@@ -46,6 +52,9 @@ type UserStatus = 'active' | 'disabled';
 
 const roleColorMap: Record<string, string> = {
   admin: 'purple',
+  system_admin: 'purple',
+  super_admin: 'red',
+  system_automation: 'gold',
   sre: 'blue',
   developer: 'default',
   viewer: 'cyan',
@@ -88,7 +97,7 @@ function renderRoleTags(roles: RoleData[] | undefined, limit = 2) {
     <Space size={4} wrap>
       {safeRoles.slice(0, limit).map((role) => (
         <Tag key={role.id} color={roleColorMap[role.name.toLowerCase()] || 'default'}>
-          {role.name}
+          {isProtectedRole(role) ? `${role.name} · ${protectedGovernanceTagLabel}` : role.name}
         </Tag>
       ))}
       {safeRoles.length > limit ? <Tag color="default">+{safeRoles.length - limit}</Tag> : null}
@@ -202,7 +211,14 @@ const UserManagement: React.FC = () => {
   }, [loadCurrentUser, loadRoles]);
 
   const roleOptions = useMemo(
-    () => roles.map((role) => ({ value: role.id, label: role.name })),
+    () => roles.map((role) => ({
+      value: role.id,
+      label: isProtectedRole(role) ? `${role.name} · ${protectedGovernanceTagLabel}` : role.name,
+    })),
+    [roles],
+  );
+  const assignableRoleOptions = useMemo(
+    () => getAssignableRoles(roles).map((role) => ({ value: role.id, label: role.name })),
     [roles],
   );
 
@@ -230,6 +246,10 @@ const UserManagement: React.FC = () => {
 
   const openEditModal = useCallback(
     (user: UserData) => {
+      if (isProtectedUser(user)) {
+        messageApi.warning('系统保留账号仅支持查看，不支持在此页编辑或重新授权');
+        return;
+      }
       setEditingUser(user);
       form.setFieldsValue({
         display_name: user.display_name || user.username,
@@ -238,7 +258,7 @@ const UserManagement: React.FC = () => {
       });
       setIsEditModalOpen(true);
     },
-    [form],
+    [form, messageApi],
   );
 
   const openDetailDrawer = useCallback(
@@ -292,6 +312,10 @@ const UserManagement: React.FC = () => {
 
   const handleEditUser = useCallback(async () => {
     if (!editingUser) return;
+    if (isProtectedUser(editingUser)) {
+      messageApi.warning('系统保留账号不支持在此页编辑');
+      return;
+    }
     try {
       const values = await form.validateFields();
       setActionLoading(true);
@@ -327,6 +351,10 @@ const UserManagement: React.FC = () => {
 
   const updateSingleUserStatus = useCallback(
     async (user: UserData, nextStatus: UserStatus) => {
+      if (isProtectedUser(user)) {
+        messageApi.warning('系统保留账号不支持启用、禁用或删除');
+        return;
+      }
       setActionLoading(true);
       try {
         if (nextStatus === 'disabled') {
@@ -350,8 +378,13 @@ const UserManagement: React.FC = () => {
 
   const handleBatchStatusChange = useCallback(
     async (nextStatus: UserStatus) => {
-      const candidates = selectedUsers.filter((user) => user.status !== nextStatus);
+      const skippedProtectedUsers = selectedUsers.filter((user) => isProtectedUser(user));
+      const candidates = selectedUsers.filter((user) => !isProtectedUser(user) && user.status !== nextStatus);
       if (candidates.length === 0) {
+        if (skippedProtectedUsers.length > 0) {
+          messageApi.warning('系统保留账号不会参与批量状态变更');
+          return;
+        }
         messageApi.info(nextStatus === 'active' ? '所选用户均已启用' : '所选用户均已禁用');
         return;
       }
@@ -361,6 +394,8 @@ const UserManagement: React.FC = () => {
         const result = await batchUpdateUsersStatus(candidates.map((user) => user.id), nextStatus);
         if (result.updated < result.requested) {
           messageApi.warning(`批量操作完成：请求 ${result.requested} 个，实际更新 ${result.updated} 个`);
+        } else if (skippedProtectedUsers.length > 0) {
+          messageApi.warning(`已处理 ${result.updated} 个普通用户；${skippedProtectedUsers.length} 个系统保留账号已跳过`);
         } else {
           messageApi.success(nextStatus === 'active' ? `已批量启用 ${result.updated} 个用户` : `已批量禁用 ${result.updated} 个用户`);
         }
@@ -402,7 +437,7 @@ const UserManagement: React.FC = () => {
       name: 'user-select-all',
     }),
     getCheckboxProps: (record: UserData) => ({
-      disabled: record.id === currentSessionUserId,
+      disabled: record.id === currentSessionUserId || isProtectedUser(record),
       name: `user-select-${record.id}`,
     }),
   };
@@ -447,6 +482,7 @@ const UserManagement: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 500 }}>{getUserDisplayName(record)}</span>
               {record.id === currentSessionUserId ? <Tag color="success">当前登录</Tag> : null}
+              {isProtectedUser(record) ? <Tag color="magenta">{protectedGovernanceTagLabel}</Tag> : null}
             </div>
             <div style={{ fontSize: 12, color: palette.textSecondary }}>{record.username}</div>
             <div style={{ fontSize: 12, color: palette.textSecondary, fontFamily: 'JetBrains Mono, monospace' }}>
@@ -494,19 +530,37 @@ const UserManagement: React.FC = () => {
       width: 220,
       render: (_, record) => {
         const isSelf = record.id === currentSessionUserId;
+        const isProtected = isProtectedUser(record);
         const nextStatus: UserStatus = record.status === 'active' ? 'disabled' : 'active';
         const toggleLabel = nextStatus === 'active' ? '启用用户' : '禁用用户';
         const toggleButton = (
           <Button
             type="text"
             size="small"
-            disabled={isSelf || actionLoading}
-            title={isSelf ? '当前登录用户不可在此页修改状态' : toggleLabel}
+            disabled={isSelf || isProtected || actionLoading}
+            title={
+              isProtected
+                ? '系统保留账号不可修改状态'
+                : isSelf
+                  ? '当前登录用户不可在此页修改状态'
+                  : toggleLabel
+            }
             icon={
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
                 {nextStatus === 'active' ? 'check_circle' : 'block'}
               </span>
             }
+          />
+        );
+
+        const editButton = (
+          <Button
+            type="text"
+            size="small"
+            title={isProtected ? '系统保留账号不可编辑' : '编辑用户'}
+            onClick={() => openEditModal(record)}
+            disabled={isProtected}
+            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>}
           />
         );
 
@@ -519,14 +573,10 @@ const UserManagement: React.FC = () => {
               onClick={() => void openDetailDrawer(record)}
               icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>visibility</span>}
             />
-            <Button
-              type="text"
-              size="small"
-              title="编辑用户"
-              onClick={() => openEditModal(record)}
-              icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>}
-            />
-            {isSelf ? (
+            {isProtected ? <Tooltip title="系统保留账号不可在此页编辑、启用或禁用">{editButton}</Tooltip> : editButton}
+            {isProtected ? (
+              <Tooltip title="系统保留账号不可在此页编辑、启用或禁用">{toggleButton}</Tooltip>
+            ) : isSelf ? (
               <Tooltip title="当前登录用户不可在此页禁用自己">{toggleButton}</Tooltip>
             ) : (
               <Popconfirm
@@ -732,6 +782,15 @@ const UserManagement: React.FC = () => {
       </div>
 
       <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
+        <Alert
+          showIcon
+          type="info"
+          message="账号治理说明"
+          description="系统保留账号用于平台治理与自动化审计归因，会在列表与详情中展示，但不会参与批量操作，也不支持在此页编辑、改权或修改状态。"
+        />
+      </div>
+
+      <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
         <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -879,7 +938,7 @@ const UserManagement: React.FC = () => {
             <Select
               placeholder={roleLoadError ? '角色加载失败，暂不可选' : '选择角色（可选）'}
               allowClear
-              options={roleOptions}
+              options={assignableRoleOptions}
               disabled={Boolean(roleLoadError)}
             />
           </Form.Item>
@@ -918,7 +977,7 @@ const UserManagement: React.FC = () => {
             <Select
               placeholder={roleLoadError ? '角色加载失败，暂不可选' : '选择角色'}
               allowClear
-              options={roleOptions}
+              options={assignableRoleOptions}
               disabled={Boolean(roleLoadError)}
             />
           </Form.Item>
@@ -951,6 +1010,14 @@ const UserManagement: React.FC = () => {
           <Result status="warning" title="加载用户详情失败" subTitle={detailError.message} extra={<Button onClick={() => detailUser && void openDetailDrawer(detailUser)}>重试</Button>} />
         ) : detailUser ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {isProtectedUser(detailUser) ? (
+              <Alert
+                showIcon
+                type="info"
+                message="系统保留账号"
+                description="该账号由系统治理规则保护，仅用于平台管理或自动化审计归因，不支持在当前页面修改状态或角色。"
+              />
+            ) : null}
             <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
               <Descriptions
                 column={1}
@@ -974,8 +1041,14 @@ const UserManagement: React.FC = () => {
             </Card>
             <Card size="small" title="快捷操作" style={{ background: palette.bgContainer, borderColor: palette.border }}>
               <Space wrap>
-                <Button onClick={() => { closeDetailDrawer(); openEditModal(detailUser); }}>编辑资料</Button>
-                {detailUser.id === currentSessionUserId ? (
+                <Button disabled={isProtectedUser(detailUser)} onClick={() => { closeDetailDrawer(); openEditModal(detailUser); }}>编辑资料</Button>
+                {isProtectedUser(detailUser) ? (
+                  <Tooltip title="系统保留账号不可在此页修改状态">
+                    <Button disabled>
+                      {detailUser.status === 'active' ? '禁用用户' : '启用用户'}
+                    </Button>
+                  </Tooltip>
+                ) : detailUser.id === currentSessionUserId ? (
                   <Tooltip title="当前登录用户不可在此页禁用自己">
                     <Button disabled>
                       {detailUser.status === 'active' ? '禁用用户' : '启用用户'}
