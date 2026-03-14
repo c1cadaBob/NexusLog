@@ -122,11 +122,17 @@ $COMPOSE logs --tail=200 elasticsearch-init schema-registry-init flink-sql-init
 
 ## 步骤 4：创建一个用于本次验收的 Pull Source
 
+> 从 `2026-03-14` 起，`control-plane` 的 `/api/v1/*` 与 `/api/v2/*` 接口要求同时携带 `Authorization: Bearer <access_token>` 与 `X-Tenant-ID: <tenant_id>`。`ACCESS_TOKEN` 可通过前端登录后的浏览器存储读取，或直接调用 `/api/v1/auth/login` 获取。
+
 ```bash
 SOURCE_NAME="local-agent-e2e-$(date -u +%Y%m%d%H%M%S)"
+: "${ACCESS_TOKEN:?set ACCESS_TOKEN before calling control-plane APIs}"
+: "${TENANT_ID:?set TENANT_ID before calling control-plane APIs}"
 
 SOURCE_ID="$({
   curl -fsS -X POST http://localhost:8080/api/v1/ingest/pull-sources \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    -H "X-Tenant-ID: ${TENANT_ID}" \
     -H 'Content-Type: application/json' \
     -d '{
       "name": "'"$SOURCE_NAME"'",
@@ -169,6 +175,8 @@ echo "$E2E_TOKEN"
 ```bash
 TASK_ID="$({
   curl -fsS -X POST http://localhost:8080/api/v1/ingest/pull-tasks/run \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    -H "X-Tenant-ID: ${TENANT_ID}" \
     -H 'Content-Type: application/json' \
     -d '{
       "source_id": "'"$SOURCE_ID"'",
@@ -183,7 +191,9 @@ TASK_ID="$({
 echo "$TASK_ID"
 
 for i in $(seq 1 30); do
-  RESP="$(curl -fsS "http://localhost:8080/api/v1/ingest/pull-tasks?source_id=${SOURCE_ID}&page=1&page_size=20")"
+  RESP="$(curl -fsS "http://localhost:8080/api/v1/ingest/pull-tasks?source_id=${SOURCE_ID}&page=1&page_size=20" \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    -H "X-Tenant-ID: ${TENANT_ID}")"
   STATUS="$(echo "$RESP" | jq -r --arg id "$TASK_ID" '.data.items[] | select(.task_id == $id) | .status' | head -n1)"
   BATCH_ID="$(echo "$RESP" | jq -r --arg id "$TASK_ID" '.data.items[] | select(.task_id == $id) | .batch_id // empty' | head -n1)"
   LAST_CURSOR="$(echo "$RESP" | jq -r --arg id "$TASK_ID" '.data.items[] | select(.task_id == $id) | .last_cursor // empty' | head -n1)"
@@ -335,6 +345,8 @@ curl -fsS -X POST http://localhost:8082/api/v1/query/stats/aggregate \
 
 ```bash
 curl -fsS -X PUT "http://localhost:8080/api/v1/ingest/pull-sources/${SOURCE_ID}" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "X-Tenant-ID: ${TENANT_ID}" \
   -H 'Content-Type: application/json' \
   -d '{
     "status": "disabled"

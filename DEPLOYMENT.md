@@ -92,6 +92,7 @@ make dev-test-smoke
 
 - 前端：`frontend-console`、`bff-service`
 - 控制与数据服务：`control-plane`、`api-service`、`query-api`、`audit-api`、`export-api`、`health-worker`
+- 认证密钥约束：`control-plane` 与所有签发/校验业务访问令牌的服务必须使用同一组 `JWT_SECRET`；若密钥不一致，`control-plane` 的受保护接口会拒绝合法 Bearer Token
 - 采集：`collector-agent`
 - 流式链路：`zookeeper`、`kafka`、`schema-registry`、`flink-jobmanager`、`flink-taskmanager`
 - 存储：`postgres`、`redis`、`elasticsearch`

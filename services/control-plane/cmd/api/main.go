@@ -39,6 +39,8 @@ func main() {
 	router := gin.Default()
 	router.Use(gin.Recovery())
 
+	jwtSecret := requireJWTSecret()
+
 	// ingest 仓储默认使用 PostgreSQL；连接失败时可按配置降级为内存模式。
 	backendMode := strings.ToLower(strings.TrimSpace(getEnv("INGEST_STORE_BACKEND", "postgres")))
 	allowMemoryFallback := strings.EqualFold(getEnv("INGEST_STORE_ALLOW_FALLBACK", "true"), "true")
@@ -66,6 +68,7 @@ func main() {
 		log.Printf("ingest store backend: memory")
 	}
 
+	router.Use(middleware.RequireAuthenticatedIdentity(pgDB, jwtSecret))
 	if pgDB != nil {
 		router.Use(middleware.AuditMiddleware(pgDB))
 	}
@@ -289,6 +292,20 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func requireJWTSecret() string {
+	secret := strings.TrimSpace(getEnv("JWT_SECRET", ""))
+	if secret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
+	if secret == "nexuslog-dev-secret-change-in-production" {
+		log.Fatal("JWT_SECRET uses a known weak default and must be replaced")
+	}
+	if len(secret) < 32 {
+		log.Fatal("JWT_SECRET must be at least 32 characters")
+	}
+	return secret
 }
 
 func parseEnvInt(key string, fallback int) int {

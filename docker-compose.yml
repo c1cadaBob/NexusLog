@@ -37,6 +37,7 @@ services:
     environment:
       - SERVER_HTTP_PORT=8080
       - SERVER_GRPC_PORT=9090
+      - JWT_SECRET=nexuslog-local-dev-jwt-secret-20260314-change-before-production
       - DATABASE_POSTGRESQL_HOST=postgres
       - DATABASE_POSTGRESQL_PORT=5432
       - DATABASE_POSTGRESQL_DBNAME=nexuslog

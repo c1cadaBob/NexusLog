@@ -194,8 +194,10 @@
 # 检查服务健康
 curl -s http://localhost:8080/healthz | jq .
 
-# 验证 API 响应格式
+# 验证 API 响应格式（受保护接口需携带 Bearer Token 与租户头）
 curl -s -X POST http://localhost:8080/api/v1/xxx \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "X-Tenant-ID: ${TENANT_ID}" \
   -H "Content-Type: application/json" \
   -d '{"key": "value"}' | jq .
 ```
@@ -258,7 +260,7 @@ curl -s -X POST http://localhost:8080/api/v1/xxx \
 | 服务 | 目录 | 职责范围 | 禁止 |
 |------|------|---------|------|
 | api-service | `services/api-service/` | 认证（注册/登录/刷新/登出/密码重置） | 不写业务逻辑 |
-| control-plane | `services/control-plane/` | 采集控制、告警、事件、通知、资源监控、备份 | 不写认证逻辑 |
+| control-plane | `services/control-plane/` | 采集控制、告警、事件、通知、资源监控、备份 | 服务端校验 Bearer JWT，并以令牌 claims 覆盖 `X-Tenant-ID` / `X-User-ID` |
 | query-api | `services/data-services/query-api/` | 日志检索、Dashboard 统计、聚合分析 | 不写写入逻辑 |
 | audit-api | `services/data-services/audit-api/` | 审计日志查询与导出 | 不写业务日志 |
 | export-api | `services/data-services/export-api/` | 导出任务管理与文件下载 | 不写查询逻辑 |
