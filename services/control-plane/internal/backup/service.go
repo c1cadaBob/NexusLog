@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -83,8 +84,9 @@ func (s *Service) CreateRepository(ctx context.Context, repoName string, setting
 	if err := s.validate(); err != nil {
 		return err
 	}
-	if repoName == "" {
-		return fmt.Errorf("repository name is required")
+	repoName, err := normalizeRepositoryName(repoName)
+	if err != nil {
+		return err
 	}
 	path, err := resolveRepositoryLocation(settings)
 	if err != nil {
@@ -97,8 +99,8 @@ func (s *Service) CreateRepository(ctx context.Context, repoName string, setting
 		},
 	}
 	raw, _ := json.Marshal(body)
-	url := s.endpoint + "/_snapshot/" + repoName
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(raw))
+	requestURL := s.endpoint + "/_snapshot/" + url.PathEscape(repoName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, requestURL, bytes.NewReader(raw))
 	if err != nil {
 		return err
 	}
@@ -123,8 +125,13 @@ func (s *Service) CreateSnapshot(ctx context.Context, repoName, snapshotName, in
 	if err := s.validate(); err != nil {
 		return err
 	}
-	if repoName == "" || snapshotName == "" {
-		return fmt.Errorf("repository and snapshot name are required")
+	repoName, err := normalizeRepositoryName(repoName)
+	if err != nil {
+		return err
+	}
+	snapshotName, err = normalizeSnapshotName(snapshotName)
+	if err != nil {
+		return err
 	}
 	if indices == "" {
 		indices = "nexuslog-*"
@@ -137,8 +144,8 @@ func (s *Service) CreateSnapshot(ctx context.Context, repoName, snapshotName, in
 		body["metadata"] = map[string]interface{}{"description": description}
 	}
 	raw, _ := json.Marshal(body)
-	url := s.endpoint + "/_snapshot/" + repoName + "/" + snapshotName
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(raw))
+	requestURL := s.endpoint + "/_snapshot/" + url.PathEscape(repoName) + "/" + url.PathEscape(snapshotName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, requestURL, bytes.NewReader(raw))
 	if err != nil {
 		return err
 	}
@@ -163,11 +170,12 @@ func (s *Service) ListSnapshots(ctx context.Context, repoName string) ([]Snapsho
 	if err := s.validate(); err != nil {
 		return nil, err
 	}
-	if repoName == "" {
-		return nil, fmt.Errorf("repository name is required")
+	repoName, err := normalizeRepositoryName(repoName)
+	if err != nil {
+		return nil, err
 	}
-	url := s.endpoint + "/_snapshot/" + repoName + "/_all?ignore_unavailable=true"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	requestURL := s.endpoint + "/_snapshot/" + url.PathEscape(repoName) + "/_all?ignore_unavailable=true"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -210,11 +218,16 @@ func (s *Service) GetSnapshotStatus(ctx context.Context, repoName, snapshotName 
 	if err := s.validate(); err != nil {
 		return nil, err
 	}
-	if repoName == "" || snapshotName == "" {
-		return nil, fmt.Errorf("repository and snapshot name are required")
+	repoName, err := normalizeRepositoryName(repoName)
+	if err != nil {
+		return nil, err
 	}
-	url := s.endpoint + "/_snapshot/" + repoName + "/" + snapshotName
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	snapshotName, err = normalizeSnapshotName(snapshotName)
+	if err != nil {
+		return nil, err
+	}
+	requestURL := s.endpoint + "/_snapshot/" + url.PathEscape(repoName) + "/" + url.PathEscape(snapshotName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -271,16 +284,21 @@ func (s *Service) RestoreSnapshot(ctx context.Context, repoName, snapshotName st
 	if err := s.validate(); err != nil {
 		return err
 	}
-	if repoName == "" || snapshotName == "" {
-		return fmt.Errorf("repository and snapshot name are required")
+	repoName, err := normalizeRepositoryName(repoName)
+	if err != nil {
+		return err
+	}
+	snapshotName, err = normalizeSnapshotName(snapshotName)
+	if err != nil {
+		return err
 	}
 	body := map[string]interface{}{}
 	if len(indices) > 0 {
 		body["indices"] = strings.Join(indices, ",")
 	}
 	raw, _ := json.Marshal(body)
-	url := s.endpoint + "/_snapshot/" + repoName + "/" + snapshotName + "/_restore"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	requestURL := s.endpoint + "/_snapshot/" + url.PathEscape(repoName) + "/" + url.PathEscape(snapshotName) + "/_restore"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(raw))
 	if err != nil {
 		return err
 	}
@@ -305,11 +323,16 @@ func (s *Service) DeleteSnapshot(ctx context.Context, repoName, snapshotName str
 	if err := s.validate(); err != nil {
 		return err
 	}
-	if repoName == "" || snapshotName == "" {
-		return fmt.Errorf("repository and snapshot name are required")
+	repoName, err := normalizeRepositoryName(repoName)
+	if err != nil {
+		return err
 	}
-	url := s.endpoint + "/_snapshot/" + repoName + "/" + snapshotName
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	snapshotName, err = normalizeSnapshotName(snapshotName)
+	if err != nil {
+		return err
+	}
+	requestURL := s.endpoint + "/_snapshot/" + url.PathEscape(repoName) + "/" + url.PathEscape(snapshotName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, requestURL, nil)
 	if err != nil {
 		return err
 	}
@@ -333,11 +356,16 @@ func (s *Service) CancelSnapshot(ctx context.Context, repoName, snapshotName str
 	if err := s.validate(); err != nil {
 		return err
 	}
-	if repoName == "" || snapshotName == "" {
-		return fmt.Errorf("repository and snapshot name are required")
+	repoName, err := normalizeRepositoryName(repoName)
+	if err != nil {
+		return err
 	}
-	url := s.endpoint + "/_snapshot/" + repoName + "/" + snapshotName + "/_cancel"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	snapshotName, err = normalizeSnapshotName(snapshotName)
+	if err != nil {
+		return err
+	}
+	requestURL := s.endpoint + "/_snapshot/" + url.PathEscape(repoName) + "/" + url.PathEscape(snapshotName) + "/_cancel"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, nil)
 	if err != nil {
 		return err
 	}

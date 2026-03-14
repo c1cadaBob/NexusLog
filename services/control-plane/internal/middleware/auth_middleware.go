@@ -15,6 +15,7 @@ import (
 const (
 	authContextKeyUserID   = "user_id"
 	authContextKeyTenantID = "tenant_id"
+	authContextKeyAgentID  = "agent_id"
 )
 
 var uuidPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
@@ -29,6 +30,13 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 	jwtSecret = strings.TrimSpace(jwtSecret)
 	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions || isPublicControlPlanePath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+		if isAgentControlPlanePath(c.Request.URL.Path) {
+			if !authenticateAgentIdentity(c, db) {
+				return
+			}
 			c.Next()
 			return
 		}
@@ -64,12 +72,7 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 			}
 		}
 
-		c.Set(authContextKeyUserID, userID)
-		c.Set(authContextKeyTenantID, tenantID)
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), authContextKeyUserID, userID))
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), authContextKeyTenantID, tenantID))
-		c.Request.Header.Set("X-User-ID", userID)
-		c.Request.Header.Set("X-Tenant-ID", tenantID)
+		bindAuthenticatedUserIdentity(c, tenantID, userID)
 		c.Next()
 	}
 }
@@ -77,6 +80,15 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 func isPublicControlPlanePath(path string) bool {
 	switch strings.TrimSpace(path) {
 	case "/healthz", "/api/v1/health", "/metrics":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAgentControlPlanePath(path string) bool {
+	switch strings.TrimSpace(path) {
+	case "/api/v1/metrics/report":
 		return true
 	default:
 		return false
@@ -114,6 +126,118 @@ func validateAccessToken(tokenString, jwtSecret string) (*authClaims, error) {
 		return nil, jwt.ErrTokenInvalidClaims
 	}
 	return claims, nil
+}
+
+func authenticateAgentIdentity(c *gin.Context, db *sql.DB) bool {
+	if db == nil {
+		writeAuthError(c, http.StatusServiceUnavailable, "authentication backend unavailable")
+		return false
+	}
+	agentKey := strings.TrimSpace(c.GetHeader("X-Agent-Key"))
+	if agentKey == "" {
+		writeAuthError(c, http.StatusUnauthorized, "missing or invalid agent key")
+		return false
+	}
+	tenantID, agentID, ok, err := lookupAgentIdentity(c.Request.Context(), db, strings.TrimSpace(c.GetHeader("X-Key-Id")), agentKey)
+	if err != nil {
+		writeAuthError(c, http.StatusInternalServerError, "failed to validate agent key")
+		return false
+	}
+	if !ok {
+		writeAuthError(c, http.StatusUnauthorized, "unauthorized")
+		return false
+	}
+	bindAuthenticatedAgentIdentity(c, tenantID, agentID)
+	return true
+}
+
+func lookupAgentIdentity(ctx context.Context, db *sql.DB, keyID, agentKey string) (string, string, bool, error) {
+	var (
+		query string
+		args  []any
+	)
+	now := time.Now().UTC()
+	if strings.TrimSpace(keyID) != "" {
+		query = `
+			SELECT tenant_id::text, COALESCE(agent_id, '')
+			FROM agent_pull_auth_keys
+			WHERE tenant_id IS NOT NULL
+			  AND status IN ('active', 'rotating')
+			  AND (expires_at IS NULL OR expires_at > $3)
+			  AND (
+				(active_key_id = $1 AND active_key_ciphertext = $2)
+				OR (next_key_id = $1 AND next_key_ciphertext = $2)
+			  )
+			ORDER BY updated_at DESC
+			LIMIT 1
+		`
+		args = []any{keyID, agentKey, now}
+	} else {
+		query = `
+			SELECT tenant_id::text, COALESCE(agent_id, '')
+			FROM agent_pull_auth_keys
+			WHERE tenant_id IS NOT NULL
+			  AND status IN ('active', 'rotating')
+			  AND (expires_at IS NULL OR expires_at > $2)
+			  AND (
+				active_key_ciphertext = $1
+				OR next_key_ciphertext = $1
+			  )
+			ORDER BY updated_at DESC
+			LIMIT 1
+		`
+		args = []any{agentKey, now}
+	}
+
+	var tenantID string
+	var agentID string
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&tenantID, &agentID); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", false, nil
+		}
+		return "", "", false, err
+	}
+	tenantID = normalizeUUID(tenantID)
+	if tenantID == "" {
+		return "", "", false, nil
+	}
+	return tenantID, strings.TrimSpace(agentID), true, nil
+}
+
+func bindAuthenticatedUserIdentity(c *gin.Context, tenantID, userID string) {
+	if c == nil {
+		return
+	}
+	c.Set(authContextKeyUserID, userID)
+	c.Set(authContextKeyTenantID, tenantID)
+	c.Set(authContextKeyAgentID, "")
+	ctx := context.WithValue(c.Request.Context(), authContextKeyUserID, userID)
+	ctx = context.WithValue(ctx, authContextKeyTenantID, tenantID)
+	c.Request = c.Request.WithContext(ctx)
+	c.Request.Header.Set("X-User-ID", userID)
+	c.Request.Header.Set("X-Tenant-ID", tenantID)
+	c.Request.Header.Del("X-Agent-ID")
+}
+
+func bindAuthenticatedAgentIdentity(c *gin.Context, tenantID, agentID string) {
+	if c == nil {
+		return
+	}
+	c.Set(authContextKeyUserID, "")
+	c.Set(authContextKeyTenantID, tenantID)
+	c.Set(authContextKeyAgentID, agentID)
+	ctx := context.WithValue(c.Request.Context(), authContextKeyTenantID, tenantID)
+	if strings.TrimSpace(agentID) != "" {
+		ctx = context.WithValue(ctx, authContextKeyAgentID, strings.TrimSpace(agentID))
+	}
+	c.Request = c.Request.WithContext(ctx)
+	c.Request.Header.Del("X-User-ID")
+	c.Request.Header.Set("X-Tenant-ID", tenantID)
+	if strings.TrimSpace(agentID) != "" {
+		c.Request.Header.Set("X-Agent-ID", strings.TrimSpace(agentID))
+	} else {
+		c.Request.Header.Del("X-Agent-ID")
+	}
 }
 
 func isAccessTokenSessionActive(ctx context.Context, db *sql.DB, tenantID, userID, accessTokenJTI string) (bool, error) {

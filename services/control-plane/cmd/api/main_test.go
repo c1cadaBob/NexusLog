@@ -702,7 +702,7 @@ func TestMetricsQueryRoutes_AllowOperatorUser(t *testing.T) {
 	}
 }
 
-func TestMetricsReportRoute_AllowsAuthenticatedNonOperatorUser(t *testing.T) {
+func TestMetricsReportRoute_RejectsBearerSession(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -713,12 +713,37 @@ func TestMetricsReportRoute_AllowsAuthenticatedNonOperatorUser(t *testing.T) {
 	router := newMetricsReportRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-metrics-report-authenticated")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-metrics-report-authenticated", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics/report", strings.NewReader(`{"agent_id"`))
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestMetricsReportRoute_AllowsAgentKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newMetricsReportRouter(db)
+
+	mock.ExpectQuery(`FROM agent_pull_auth_keys`).
+		WithArgs("active", "metrics-agent-secret", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "agent_id"}).AddRow(testRouteTenantID, "agent-1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics/report", strings.NewReader(`{"agent_id"`))
+	req.Header.Set("X-Agent-Key", "metrics-agent-secret")
+	req.Header.Set("X-Key-Id", "active")
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)

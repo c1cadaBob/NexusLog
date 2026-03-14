@@ -45,6 +45,77 @@ func TestRequireAuthenticatedIdentity_RejectsInvalidToken(t *testing.T) {
 	}
 }
 
+func TestRequireAuthenticatedIdentity_RejectsMetricsReportWithoutAgentKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := gin.New()
+	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
+	router.POST("/api/v1/metrics/report", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics/report", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestRequireAuthenticatedIdentity_SetsTenantFromAgentKeyForMetricsReport(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := gin.New()
+	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
+	router.POST("/api/v1/metrics/report", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"tenant_id": c.GetHeader("X-Tenant-ID"),
+			"user_id":   c.GetHeader("X-User-ID"),
+			"agent_id":  c.GetHeader("X-Agent-ID"),
+		})
+	})
+
+	mock.ExpectQuery(`FROM agent_pull_auth_keys`).
+		WithArgs("active", "metrics-agent-secret", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "agent_id"}).AddRow("10000000-0000-0000-0000-000000000001", "agent-metrics-1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics/report", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-Key", "metrics-agent-secret")
+	req.Header.Set("X-Key-Id", "active")
+	req.Header.Set("X-Tenant-ID", "spoofed-tenant")
+	req.Header.Set("X-User-ID", "spoofed-user")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "10000000-0000-0000-0000-000000000001") || !strings.Contains(body, "agent-metrics-1") {
+		t.Fatalf("unexpected body: %s", body)
+	}
+	if strings.Contains(body, "spoofed-user") {
+		t.Fatalf("unexpected spoofed user header in body: %s", body)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestRequireAuthenticatedIdentity_SetsIdentityHeadersFromToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
