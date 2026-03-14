@@ -37,6 +37,10 @@ GO_MODULES=(
     "services/control-plane"
     "services/health-worker"
     "services/api-service"
+    "services/data-services/shared"
+    "services/data-services/query-api"
+    "services/data-services/audit-api"
+    "services/data-services/export-api"
     "agents/collector-agent"
 )
 
@@ -66,7 +70,7 @@ for module in "${GO_MODULES[@]}"; do
             COVER_FILE="../../coverage/$(echo $module | tr '/' '-').out"
             if go test $TEST_FLAGS -coverprofile="$COVER_FILE" ./... 2>/dev/null; then
                 echo -e "  ${GREEN}✓ $module 测试通过${NC}"
-                ((PASSED_TESTS++))
+                PASSED_TESTS=$((PASSED_TESTS + 1))
             else
                 echo -e "  ${RED}✗ $module 测试失败${NC}"
                 TEST_FAILED=1
@@ -74,14 +78,14 @@ for module in "${GO_MODULES[@]}"; do
         else
             if go test $TEST_FLAGS ./... 2>/dev/null; then
                 echo -e "  ${GREEN}✓ $module 测试通过${NC}"
-                ((PASSED_TESTS++))
+                PASSED_TESTS=$((PASSED_TESTS + 1))
             else
                 echo -e "  ${RED}✗ $module 测试失败${NC}"
                 TEST_FAILED=1
             fi
         fi
 
-        ((TOTAL_TESTS++))
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
         cd - > /dev/null
     else
         echo -e "  ${YELLOW}⚠ $module 不存在或无 go.mod，跳过${NC}"
