@@ -40,11 +40,11 @@ func ParseDingTalkConfig(config json.RawMessage) (DingTalkConfig, error) {
 
 // AlertMessage represents an alert to send via DingTalk.
 type AlertMessage struct {
-	Title   string `json:"title"`
-	Detail  string `json:"detail"`
-	RuleID  string `json:"rule_id"`
+	Title    string `json:"title"`
+	Detail   string `json:"detail"`
+	RuleID   string `json:"rule_id"`
 	Severity string `json:"severity"`
-	FiredAt string `json:"fired_at"`
+	FiredAt  string `json:"fired_at"`
 }
 
 // DingTalkSender sends alerts to DingTalk via webhook.
@@ -62,13 +62,12 @@ func (s *DingTalkSender) Send(config DingTalkConfig, alert AlertMessage) error {
 		return fmt.Errorf("webhook_url is required")
 	}
 
-	// Validate URL format
-	u, err := url.Parse(webhookURL)
-	if err != nil {
-		return fmt.Errorf("invalid webhook URL: %w", err)
+	if err := validateDingTalkTarget(config); err != nil {
+		return err
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("webhook URL must use http or https")
+
+	if _, err := url.Parse(webhookURL); err != nil {
+		return fmt.Errorf("invalid webhook URL")
 	}
 
 	if config.Secret != "" {
@@ -93,8 +92,8 @@ func (s *DingTalkSender) Send(config DingTalkConfig, alert AlertMessage) error {
 	body := map[string]interface{}{
 		"msgtype": "actionCard",
 		"actionCard": map[string]interface{}{
-			"title":      title,
-			"text":       text,
+			"title":       title,
+			"text":        text,
 			"singleTitle": "View Details",
 			"singleURL":   "",
 		},

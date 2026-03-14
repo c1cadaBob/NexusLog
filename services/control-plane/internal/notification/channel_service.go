@@ -8,9 +8,9 @@ import (
 )
 
 var allowedChannelTypes = map[string]struct{}{
-	"email":   {},
+	"email":    {},
 	"dingtalk": {},
-	"sms":     {},
+	"sms":      {},
 }
 
 // ValidateChannelType checks that type is one of email/dingtalk/sms.
@@ -84,13 +84,27 @@ func validateEmailConfig(m map[string]interface{}) error {
 }
 
 func validateDingTalkConfig(m map[string]interface{}) error {
-	// DingTalk typically needs webhook URL or app key/secret
 	webhook, _ := m["webhook_url"].(string)
 	accessToken, _ := m["access_token"].(string)
 	if strings.TrimSpace(webhook) == "" && strings.TrimSpace(accessToken) == "" {
 		return fmt.Errorf("dingtalk config requires webhook_url or access_token")
 	}
+	cfg, err := ParseDingTalkConfig(mustMarshalConfigMap(m))
+	if err != nil {
+		return fmt.Errorf("invalid dingtalk config")
+	}
+	if err := validateDingTalkTarget(cfg); err != nil {
+		return err
+	}
 	return nil
+}
+
+func mustMarshalConfigMap(m map[string]interface{}) json.RawMessage {
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return json.RawMessage("{}")
+	}
+	return raw
 }
 
 func validateSMSConfig(m map[string]interface{}) error {

@@ -20,17 +20,17 @@ const (
 
 // ChannelHandler handles notification channel HTTP endpoints.
 type ChannelHandler struct {
-	repo            *ChannelRepository
-	sender          *SMTPSender
-	dingTalkSender  *DingTalkSender
+	repo           *ChannelRepository
+	sender         *SMTPSender
+	dingTalkSender *DingTalkSender
 }
 
 // NewChannelHandler creates a channel handler.
 func NewChannelHandler(repo *ChannelRepository, sender *SMTPSender) *ChannelHandler {
 	return &ChannelHandler{
 		repo:           repo,
-		sender:          sender,
-		dingTalkSender:  NewDingTalkSender(),
+		sender:         sender,
+		dingTalkSender: NewDingTalkSender(),
 	}
 }
 
@@ -44,9 +44,9 @@ type CreateChannelRequest struct {
 
 // UpdateChannelRequest for PUT body.
 type UpdateChannelRequest struct {
-	Name    *string         `json:"name"`
+	Name    *string          `json:"name"`
 	Config  *json.RawMessage `json:"config"`
-	Enabled *bool           `json:"enabled"`
+	Enabled *bool            `json:"enabled"`
 }
 
 // TestChannelRequest for POST :id/test body (optional to address).
@@ -124,7 +124,7 @@ func (h *ChannelHandler) ListChannels(c *gin.Context) {
 		return
 	}
 
-	h.writeSuccess(c, http.StatusOK, gin.H{"items": items}, gin.H{
+	h.writeSuccess(c, http.StatusOK, gin.H{"items": sanitizeChannels(items)}, gin.H{
 		"page":      page,
 		"page_size": pageSize,
 		"total":     total,
@@ -151,7 +151,7 @@ func (h *ChannelHandler) GetChannel(c *gin.Context) {
 		return
 	}
 
-	h.writeSuccess(c, http.StatusOK, ch, gin.H{})
+	h.writeSuccess(c, http.StatusOK, sanitizeChannel(ch), gin.H{})
 }
 
 // CreateChannel POST /api/v1/notification/channels
@@ -241,7 +241,13 @@ func (h *ChannelHandler) UpdateChannel(c *gin.Context) {
 	}
 
 	if req.Config != nil {
-		if err := ValidateConfig(ch.Type, *req.Config); err != nil {
+		mergedConfig, err := mergeMaskedConfig(ch.Type, ch.Config, *req.Config)
+		if err != nil {
+			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid config payload", nil)
+			return
+		}
+		req.Config = &mergedConfig
+		if err := ValidateConfig(ch.Type, mergedConfig); err != nil {
 			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, err.Error(), nil)
 			return
 		}
@@ -261,7 +267,7 @@ func (h *ChannelHandler) UpdateChannel(c *gin.Context) {
 		return
 	}
 
-	h.writeSuccess(c, http.StatusOK, updated, gin.H{})
+	h.writeSuccess(c, http.StatusOK, sanitizeChannel(updated), gin.H{})
 }
 
 // DeleteChannel DELETE /api/v1/notification/channels/:id
@@ -336,17 +342,25 @@ func (h *ChannelHandler) TestChannel(c *gin.Context) {
 		}
 		cfg, err := ParseEmailConfig(ch.Config)
 		if err != nil {
+			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid email channel config", nil)
+			return
+		}
+		if err := validateEmailTestTarget(cfg, to); err != nil {
 			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, err.Error(), nil)
 			return
 		}
 		if err := h.sender.SendTestEmail(cfg, to); err != nil {
-			h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to send test email: "+err.Error(), nil)
+			h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to send test email", nil)
 			return
 		}
 		h.writeSuccess(c, http.StatusOK, gin.H{"sent": true, "to": to}, gin.H{})
 	case "dingtalk":
 		cfg, err := ParseDingTalkConfig(ch.Config)
 		if err != nil {
+			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid dingtalk channel config", nil)
+			return
+		}
+		if err := validateDingTalkTarget(cfg); err != nil {
 			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, err.Error(), nil)
 			return
 		}
@@ -356,7 +370,7 @@ func (h *ChannelHandler) TestChannel(c *gin.Context) {
 			FiredAt: time.Now().UTC().Format(time.RFC3339),
 		}
 		if err := h.dingTalkSender.Send(cfg, testAlert); err != nil {
-			h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to send dingtalk test: "+err.Error(), nil)
+			h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to send dingtalk test", nil)
 			return
 		}
 		h.writeSuccess(c, http.StatusOK, gin.H{"sent": true, "type": "dingtalk"}, gin.H{})

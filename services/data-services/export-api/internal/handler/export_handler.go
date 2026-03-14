@@ -155,11 +155,11 @@ func writeServiceError(c *gin.Context, err error) {
 	case errors.Is(err, repository.ErrExportNotFound):
 		writeError(c, http.StatusNotFound, CodeExportNotFound, "export job not found")
 	case strings.Contains(err.Error(), "not completed"):
-		writeError(c, http.StatusBadRequest, CodeExportInvalidParams, err.Error())
+		writeError(c, http.StatusBadRequest, CodeExportInvalidParams, "export file is not ready")
 	case strings.Contains(err.Error(), "file not found"), strings.Contains(err.Error(), "file not available"):
-		writeError(c, http.StatusNotFound, CodeExportNotFound, err.Error())
+		writeError(c, http.StatusNotFound, CodeExportNotFound, "export file is not available")
 	default:
-		writeError(c, http.StatusInternalServerError, CodeExportInternalError, err.Error())
+		writeError(c, http.StatusInternalServerError, CodeExportInternalError, "internal error")
 	}
 }
 

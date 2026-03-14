@@ -92,7 +92,7 @@ func writeServiceError(c *gin.Context, err error) {
 	case strings.Contains(errStr, "not configured"):
 		writeError(c, http.StatusServiceUnavailable, CodeAuditServiceUnavailable, "audit service is unavailable")
 	default:
-		writeError(c, http.StatusInternalServerError, CodeAuditInternalError, errStr)
+		writeError(c, http.StatusInternalServerError, CodeAuditInternalError, "internal error")
 	}
 }
 

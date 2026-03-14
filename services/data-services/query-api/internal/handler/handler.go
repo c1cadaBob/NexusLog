@@ -263,7 +263,7 @@ func writeServiceError(c *gin.Context, err error) {
 	case errors.Is(err, repository.ErrConflict):
 		writeError(c, http.StatusConflict, CodeQueryConflict, "resource conflict")
 	default:
-		writeError(c, http.StatusInternalServerError, CodeQueryInternalError, err.Error())
+		writeError(c, http.StatusInternalServerError, CodeQueryInternalError, "internal error")
 	}
 }
 
