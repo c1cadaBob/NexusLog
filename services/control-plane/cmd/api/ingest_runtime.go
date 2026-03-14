@@ -12,9 +12,12 @@ import (
 	"github.com/nexuslog/control-plane/internal/ingest"
 )
 
-func enablePullIngestRuntime(router *gin.Engine, workerCtx context.Context, pgBackend *ingest.PGBackend) error {
-	if router == nil {
-		return fmt.Errorf("router is nil")
+func enablePullIngestRuntime(authenticatedRoutes gin.IRouter, adminRoutes gin.IRouter, workerCtx context.Context, pgBackend *ingest.PGBackend) error {
+	if authenticatedRoutes == nil {
+		return fmt.Errorf("authenticated routes are nil")
+	}
+	if adminRoutes == nil {
+		return fmt.Errorf("admin routes are nil")
 	}
 	if workerCtx == nil {
 		workerCtx = context.Background()
@@ -83,12 +86,12 @@ func enablePullIngestRuntime(router *gin.Engine, workerCtx context.Context, pgBa
 	)
 	taskStore.SetExecutor(executor.Execute)
 
-	ingest.RegisterPullSourceRoutes(router, sourceStore)
-	ingest.RegisterPullTaskRoutes(router, sourceStore, taskStore)
-	ingest.RegisterPullPackageRoutes(router, packageStore)
-	ingest.RegisterReceiptRoutes(router, packageStore, receiptStore, deadLetterStore)
-	ingest.RegisterDeadLetterRoutes(router, deadLetterStore)
-	ingest.RegisterPullLatencyRoutes(router, latencyMonitor)
+	ingest.RegisterPullSourceRoutes(adminRoutes, sourceStore)
+	ingest.RegisterPullTaskRoutes(adminRoutes, sourceStore, taskStore)
+	ingest.RegisterPullPackageRoutes(adminRoutes, packageStore)
+	ingest.RegisterReceiptRoutes(authenticatedRoutes, packageStore, receiptStore, deadLetterStore)
+	ingest.RegisterDeadLetterRoutes(adminRoutes, deadLetterStore)
+	ingest.RegisterPullLatencyRoutes(adminRoutes, latencyMonitor)
 
 	scheduler := ingest.NewPullTaskScheduler(sourceStore, taskStore, ingest.PullTaskSchedulerConfig{
 		CheckInterval:           parseDurationSecondsEnv("INGEST_SCHEDULER_CHECK_INTERVAL_SEC", time.Second),

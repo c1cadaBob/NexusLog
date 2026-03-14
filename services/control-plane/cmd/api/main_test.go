@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/nexuslog/control-plane/internal/alert"
+	"github.com/nexuslog/control-plane/internal/ingest"
 	"github.com/nexuslog/control-plane/internal/middleware"
 	"github.com/nexuslog/control-plane/internal/notification"
 	"github.com/nexuslog/control-plane/internal/resource"
@@ -222,6 +225,132 @@ func TestNotificationRoutes_AllowAdminUser(t *testing.T) {
 	}
 }
 
+func TestIngestAdminRoutes_RejectNonAdminUser(t *testing.T) {
+	testCases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "pull sources list", method: http.MethodGet, path: "/api/v1/ingest/pull-sources"},
+		{name: "pull task run", method: http.MethodPost, path: "/api/v1/ingest/pull-tasks/run"},
+		{name: "packages list", method: http.MethodGet, path: "/api/v1/ingest/packages"},
+		{name: "dead letter replay", method: http.MethodPost, path: "/api/v1/ingest/dead-letters/replay"},
+		{name: "latency metrics", method: http.MethodGet, path: "/api/v1/ingest/metrics/latency"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock: %v", err)
+			}
+			defer db.Close()
+
+			router := newIngestRuntimeRouter(t, db)
+			token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-non-admin")
+
+			mock.ExpectQuery(`FROM user_sessions s`).
+				WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-non-admin", sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+			mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
+				WithArgs(testRouteUserID, testRouteTenantID).
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			if tc.body != "" {
+				req = httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+				req.Header.Set("Content-Type", "application/json")
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("expectations: %v", err)
+			}
+		})
+	}
+}
+
+func TestIngestAdminRoutes_AllowAdminUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newIngestRuntimeRouter(t, db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-admin")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-admin", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ingest/pull-sources", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "OK" {
+		t.Fatalf("unexpected response code: %#v", body["code"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestIngestReceiptRoute_AllowsAuthenticatedNonAdminUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newIngestRuntimeRouter(t, db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-receipt")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-receipt", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ingest/receipts", strings.NewReader(`{"package_id":"missing-package","status":"ack","checksum":"checksum-1"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != ingest.ErrorCodeReceiptPackageNotFound {
+		t.Fatalf("unexpected response code: %#v", body["code"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func newNotificationAdminRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
@@ -237,6 +366,19 @@ func newManagementAdminRouter(db *sql.DB) *gin.Engine {
 	resource.RegisterRoutes(adminRoutes, resource.NewThresholdHandler(resource.NewThresholdRepository(db)))
 	alertRuleRepo := alert.NewRuleRepositoryPG(db)
 	alert.RegisterAlertRuleRoutes(adminRoutes, alert.NewRuleHandler(alert.NewRuleService(alertRuleRepo)))
+	return router
+}
+
+func newIngestRuntimeRouter(t *testing.T, db *sql.DB) *gin.Engine {
+	t.Helper()
+	router := gin.New()
+	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
+	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
+	workerCtx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := enablePullIngestRuntime(router, adminRoutes, workerCtx, nil); err != nil {
+		t.Fatalf("enable pull ingest runtime: %v", err)
+	}
 	return router
 }
 
