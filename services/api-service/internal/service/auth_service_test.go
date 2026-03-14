@@ -168,6 +168,11 @@ func TestRegisterValidationAndTenantErrors(t *testing.T) {
 	if err == nil || err.Code != "AUTH_REGISTER_INVALID_ARGUMENT" {
 		t.Fatalf("expected invalid argument for email, got %#v", err)
 	}
+
+	_, err = svc.Register(context.Background(), uuid.NewString(), model.RegisterRequest{Username: reservedUsernameSuperAdmin, Password: "Password123", Email: "a@example.com"})
+	if err == nil || err.Code != "AUTH_REGISTER_RESERVED_USERNAME" {
+		t.Fatalf("expected reserved username error, got %#v", err)
+	}
 }
 
 func TestRegisterConflictAndSuccess(t *testing.T) {

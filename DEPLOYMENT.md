@@ -85,7 +85,7 @@ make local-deploy
 如本地默认演示账号已被修改，可在执行前覆盖：
 
 ```bash
-LOCAL_BOOTSTRAP_USERNAME=demo-admin \
+LOCAL_BOOTSTRAP_USERNAME=sys-superadmin \
 LOCAL_BOOTSTRAP_PASSWORD=Demo@2026 \
 make local-deploy
 ```

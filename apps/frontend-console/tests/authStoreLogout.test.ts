@@ -67,8 +67,8 @@ describe('authStore logout', () => {
       isAuthenticated: true,
       user: {
         id: '20000000-0000-0000-0000-000000000001',
-        username: 'demo-admin',
-        email: 'admin@nexuslog.dev',
+        username: 'sys-superadmin',
+        email: 'superadmin@nexuslog.dev',
         role: 'admin',
       },
       permissions: ['*'],
@@ -115,8 +115,8 @@ describe('authStore logout', () => {
       isAuthenticated: true,
       user: {
         id: '20000000-0000-0000-0000-000000000001',
-        username: 'demo-admin',
-        email: 'admin@nexuslog.dev',
+        username: 'sys-superadmin',
+        email: 'superadmin@nexuslog.dev',
         role: 'admin',
       },
       permissions: ['*'],

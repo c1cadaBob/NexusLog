@@ -35,6 +35,8 @@ type userRepoMock struct {
 	removeRoleErr    error
 	listRoles        []repository.RoleRecord
 	listRolesErr     error
+	getRole          *repository.RoleRecord
+	getRoleErr       error
 	getUserRoles     []repository.RoleRecord
 }
 
@@ -98,6 +100,16 @@ func (m *userRepoMock) ListRoles(_ context.Context, _ string) ([]repository.Role
 		return nil, m.listRolesErr
 	}
 	return m.listRoles, nil
+}
+
+func (m *userRepoMock) GetRole(_ context.Context, _, _ string) (*repository.RoleRecord, error) {
+	if m.getRoleErr != nil {
+		return nil, m.getRoleErr
+	}
+	if m.getRole != nil {
+		return m.getRole, nil
+	}
+	return nil, repository.ErrRoleNotFound
 }
 
 func (m *userRepoMock) GetUserRoles(_ context.Context, _, _ string) ([]repository.RoleRecord, error) {
@@ -245,6 +257,31 @@ func TestCreateUserDuplicateUsernameReturns409(t *testing.T) {
 	}
 }
 
+func TestCreateUserReservedUsernameReturns403(t *testing.T) {
+	mock := &userRepoMock{tenantExists: true}
+	h := NewUserHandler(service.NewUserService(mock))
+	router := setupUserRouter(h)
+
+	payload := model.CreateUserRequest{
+		Username:    "sys-superadmin",
+		Password:    "SecureP@ss1",
+		Email:       "root@example.com",
+		DisplayName: "Root",
+	}
+	raw, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestListUsersPagination(t *testing.T) {
 	uid := uuid.New()
 	tenantID := uuid.New()
@@ -347,6 +384,7 @@ func TestAssignRole(t *testing.T) {
 	now := time.Now()
 	mock := &userRepoMock{
 		tenantExists: true,
+		getRole:      &repository.RoleRecord{ID: uuid.New(), Name: "operator"},
 		getUser: &repository.UserRecord{
 			ID:          uid,
 			TenantID:    tenantID,
@@ -469,6 +507,31 @@ func TestDeleteUser(t *testing.T) {
 	}
 }
 
+func TestDeleteProtectedUserReturns403(t *testing.T) {
+	mock := &userRepoMock{
+		tenantExists: true,
+		getRole:      &repository.RoleRecord{ID: uuid.New(), Name: "operator"},
+		getUser: &repository.UserRecord{
+			ID:       uuid.New(),
+			Username: "sys-superadmin",
+			Email:    "superadmin@example.com",
+			Status:   "active",
+		},
+	}
+	h := NewUserHandler(service.NewUserService(mock))
+	router := setupUserRouter(h)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+uuid.NewString(), nil)
+	req.Header.Set("X-Tenant-ID", uuid.NewString())
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestBatchUpdateUsersStatus(t *testing.T) {
 	mock := &userRepoMock{
 		tenantExists:     true,
@@ -547,6 +610,7 @@ func TestRemoveRole(t *testing.T) {
 	now := time.Now()
 	mock := &userRepoMock{
 		tenantExists: true,
+		getRole:      &repository.RoleRecord{ID: uuid.New(), Name: "operator"},
 		getUser: &repository.UserRecord{
 			ID:          uid,
 			TenantID:    tenantID,

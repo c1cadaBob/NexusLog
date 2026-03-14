@@ -80,6 +80,7 @@ type UserRepositoryInterface interface {
 	AssignRole(ctx context.Context, tenantID, userID, roleID string) error
 	RemoveRole(ctx context.Context, tenantID, userID, roleID string) error
 	ListRoles(ctx context.Context, tenantID string) ([]RoleRecord, error)
+	GetRole(ctx context.Context, tenantID, roleID string) (*RoleRecord, error)
 	GetUserRoles(ctx context.Context, tenantID, userID string) ([]RoleRecord, error)
 	IsLoginLocked(ctx context.Context, tenantID, username string) (bool, time.Time, error)
 }
@@ -518,6 +519,37 @@ func (r *UserRepository) ListRoles(ctx context.Context, tenantID string) ([]Role
 		return nil, fmt.Errorf("iterate roles: %w", err)
 	}
 	return roles, nil
+}
+
+func (r *UserRepository) GetRole(ctx context.Context, tenantID, roleID string) (*RoleRecord, error) {
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tenant id: %w", err)
+	}
+	roleUUID, err := uuid.Parse(roleID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid role id: %w", err)
+	}
+
+	const q = `
+		SELECT id, tenant_id, name, description, permissions
+		FROM roles
+		WHERE tenant_id = $1 AND id = $2
+	`
+	var role RoleRecord
+	if err := r.db.QueryRowContext(ctx, q, tenantUUID, roleUUID).Scan(
+		&role.ID,
+		&role.TenantID,
+		&role.Name,
+		&role.Description,
+		&role.Permissions,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrRoleNotFound
+		}
+		return nil, fmt.Errorf("get role: %w", err)
+	}
+	return &role, nil
 }
 
 func (r *UserRepository) GetUserRoles(ctx context.Context, tenantID, userID string) ([]RoleRecord, error) {

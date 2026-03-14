@@ -60,7 +60,7 @@ test.describe("Week 2 前端页面调试", () => {
       (await page.locator('input[id="login-username"], input[name="username"]').count()) > 0;
 
     if (isLoginPage) {
-      await page.locator("#login-username").fill("demo-admin");
+      await page.locator("#login-username").fill("sys-superadmin");
       await page.getByPlaceholder("请输入密码").fill("Demo@2026");
       await page.locator('button[type="submit"]').click();
       await page.waitForTimeout(4000); // 等待 syncPermissions
@@ -103,7 +103,7 @@ test.describe("Week 2 前端页面调试", () => {
       });
     }
 
-    // 3. 菜单权限检查：demo-admin 应有 * 权限，所有菜单可见
+    // 3. 菜单权限检查：sys-superadmin 应有 * 权限，所有菜单可见
     await page.goto(`${BASE_URL}/#/`);
     await page.waitForTimeout(2000);
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# seed-demo.sh — Create demo users (admin/operator/viewer) for dev environment.
+# seed-demo.sh — Create minimal bootstrap users for dev environment.
 # Idempotent: safe to run repeatedly.
 #
 # Usage:
@@ -34,7 +34,7 @@ run_sql() {
   fi
 }
 
-echo "=== NexusLog Demo Seed ==="
+echo "=== NexusLog Bootstrap Seed ==="
 
 run_sql <<'EOSQL'
 BEGIN;
@@ -48,44 +48,141 @@ ON CONFLICT (name) DO NOTHING;
 INSERT INTO roles (id, tenant_id, name, description, permissions)
 VALUES
   ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
-   'admin', 'Full system access including user management and system settings', '["*"]'),
+   'system_admin', 'System administrator with user, audit, alert, incident, and monitoring management permissions',
+   '["users:read","users:write","logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'),
   ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
    'operator', 'Operational access: log search, alert management, incident handling, monitoring',
    '["logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'),
   ('10000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
    'viewer', 'Read-only access: view logs, dashboards, and monitoring data',
-   '["logs:read","dashboards:read","metrics:read"]')
+   '["logs:read","dashboards:read","metrics:read"]'),
+  ('10000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
+   'super_admin', 'Reserved super administrator role. Only one bootstrap user may hold this role.', '["*"]'),
+  ('10000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001',
+   'system_automation', 'Reserved system account role for automated operation and audit attribution.', '["audit:write"]')
 ON CONFLICT (tenant_id, name) DO NOTHING;
 
--- Create 3 demo users (password: Demo@2026)
+-- Create reserved bootstrap users (password: Demo@2026 only for sys-superadmin)
 INSERT INTO users (id, tenant_id, username, email, display_name, status)
 VALUES
   ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
-   'demo-admin', 'admin@nexuslog.dev', 'Demo Admin', 'active'),
-  ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
-   'demo-operator', 'operator@nexuslog.dev', 'Demo Operator', 'active'),
-  ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
-   'demo-viewer', 'viewer@nexuslog.dev', 'Demo Viewer', 'active')
-ON CONFLICT (tenant_id, username) DO NOTHING;
+   'sys-superadmin', 'superadmin@nexuslog.dev', 'System Super Admin', 'active'),
+  ('20000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001',
+   'system-automation', 'system-automation@nexuslog.dev', 'System Automation', 'active')
+ON CONFLICT (tenant_id, username) DO UPDATE
+SET email = EXCLUDED.email,
+    display_name = EXCLUDED.display_name,
+    status = 'active',
+    updated_at = NOW();
 
 -- Credentials (bcrypt hash of "Demo@2026", cost=12)
 INSERT INTO user_credentials (tenant_id, user_id, password_hash, password_algo, password_cost)
 VALUES
   ('00000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
-   '$2a$12$Grb472rXmEStVJprIfaFwONirfpwc7iouq/IS1SPYX9kVUVCe188i', 'bcrypt', 12),
-  ('00000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002',
-   '$2a$12$Grb472rXmEStVJprIfaFwONirfpwc7iouq/IS1SPYX9kVUVCe188i', 'bcrypt', 12),
-  ('00000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000003',
    '$2a$12$Grb472rXmEStVJprIfaFwONirfpwc7iouq/IS1SPYX9kVUVCe188i', 'bcrypt', 12)
-ON CONFLICT (user_id) DO NOTHING;
+ON CONFLICT (user_id) DO UPDATE
+SET password_hash = EXCLUDED.password_hash,
+    password_algo = EXCLUDED.password_algo,
+    password_cost = EXCLUDED.password_cost,
+    password_updated_at = NOW(),
+    updated_at = NOW();
+
+DELETE FROM user_credentials
+WHERE user_id = '20000000-0000-0000-0000-000000000005';
+
+DELETE FROM user_roles
+WHERE user_id IN ('20000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000005');
 
 -- Assign roles to users
 INSERT INTO user_roles (user_id, role_id)
 VALUES
-  ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001'),
-  ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002'),
-  ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000003')
+  ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004'),
+  ('20000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000005')
 ON CONFLICT (user_id, role_id) DO NOTHING;
+
+UPDATE alert_rules
+SET created_by = NULL
+WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND created_by IN (
+      SELECT id FROM users
+      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+  );
+
+UPDATE audit_logs
+SET user_id = NULL
+WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND user_id IN (
+      SELECT id FROM users
+      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+  );
+
+UPDATE notification_channels
+SET created_by = NULL
+WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND created_by IN (
+      SELECT id FROM users
+      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+  );
+
+UPDATE incidents
+SET assigned_to = NULL
+WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND assigned_to IN (
+      SELECT id FROM users
+      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+  );
+
+UPDATE incidents
+SET created_by = NULL
+WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND created_by IN (
+      SELECT id FROM users
+      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+  );
+
+UPDATE incident_timeline
+SET actor_id = NULL
+WHERE actor_id IN (
+    SELECT id FROM users
+    WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+      AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+);
+
+UPDATE resource_thresholds
+SET created_by = NULL
+WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND created_by IN (
+      SELECT id FROM users
+      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+  );
+
+UPDATE export_jobs
+SET created_by = NULL
+WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND created_by IN (
+      SELECT id FROM users
+      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+  );
+
+UPDATE alert_silences
+SET created_by = NULL
+WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND created_by IN (
+      SELECT id FROM users
+      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+  );
+
+DELETE FROM users
+WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND username IN ('demo-admin', 'demo-operator', 'demo-viewer');
 
 COMMIT;
 
@@ -94,10 +191,11 @@ SELECT u.username, r.name AS role, u.email
 FROM users u
 JOIN user_roles ur ON ur.user_id = u.id
 JOIN roles r ON r.id = ur.role_id
-WHERE u.username LIKE 'demo-%'
+WHERE u.username IN ('sys-superadmin', 'system-automation')
 ORDER BY u.username;
 EOSQL
 
 echo ""
-echo "Demo password: Demo@2026"
+echo "Bootstrap username: sys-superadmin"
+echo "Bootstrap password: Demo@2026"
 echo "=== Done ==="

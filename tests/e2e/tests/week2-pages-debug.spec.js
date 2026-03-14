@@ -56,7 +56,7 @@ test.describe("Week 2 页面调试", () => {
       (await page.locator('input[id="login-username"], input[name="username"]').count()) > 0;
 
     if (isLoginPage) {
-      await page.locator("#login-username").fill("demo-admin");
+      await page.locator("#login-username").fill("sys-superadmin");
       await page.getByPlaceholder("请输入密码").fill("Demo@2026");
       await page.locator('button[type="submit"]').click();
       await page.waitForTimeout(3500);
@@ -196,7 +196,7 @@ test.describe("Week 2 页面调试", () => {
     await page.screenshot({ path: "test-results/w2-06-menu.png", fullPage: false });
 
     report.push({
-      page: "Menu Permission (demo-admin)",
+      page: "Menu Permission (sys-superadmin)",
       url: "/",
       menusVisible: { users: hasUsersMenu, roles: hasRolesMenu, alerts: hasAlertsMenu },
     });
@@ -205,7 +205,7 @@ test.describe("Week 2 页面调试", () => {
     console.log("\n========== Week 2 页面调试报告 ==========\n");
 
     report.forEach((r, i) => {
-      if (r.page === "Menu Permission (demo-admin)") {
+      if (r.page === "Menu Permission (sys-superadmin)") {
         console.log(`\n--- ${r.page} ---`);
         console.log("URL:", BASE_URL + "/#/" + (r.url === "/" ? "" : r.url.slice(1)));
         console.log("用户管理可见:", r.menusVisible.users);

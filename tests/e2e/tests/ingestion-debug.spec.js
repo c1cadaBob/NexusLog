@@ -52,7 +52,7 @@ test.describe("SourceManagement & AgentManagement 调试 - W1-F3 & W1-F4", () =>
       (await page.locator('input[id="login-username"], input[name="username"]').count()) > 0;
 
     if (isLoginPage) {
-      await page.locator("#login-username").fill("demo-admin");
+      await page.locator("#login-username").fill("sys-superadmin");
       await page.getByPlaceholder("请输入密码").fill("Demo@2026");
       await page.locator('button[type="submit"]').click();
       await page.waitForTimeout(3000);
@@ -131,7 +131,7 @@ test.describe("SourceManagement & AgentManagement 调试 - W1-F3 & W1-F4", () =>
 
     const isLoginPage = (await page.locator('input[id="login-username"]').count()) > 0;
     if (isLoginPage) {
-      await page.locator("#login-username").fill("demo-admin");
+      await page.locator("#login-username").fill("sys-superadmin");
       await page.getByPlaceholder("请输入密码").fill("Demo@2026");
       await page.locator('button[type="submit"]').click();
       await page.waitForTimeout(3000);

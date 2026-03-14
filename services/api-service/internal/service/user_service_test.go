@@ -31,6 +31,8 @@ type mockUserRepository struct {
 	lastRemoveTenant       string
 	listRoles              []repository.RoleRecord
 	listRolesErr           error
+	getRole                *repository.RoleRecord
+	getRoleErr             error
 	getUserRoles           []repository.RoleRecord
 	lastGetUserRolesTenant string
 }
@@ -97,6 +99,16 @@ func (m *mockUserRepository) ListRoles(_ context.Context, _ string) ([]repositor
 		return nil, m.listRolesErr
 	}
 	return m.listRoles, nil
+}
+
+func (m *mockUserRepository) GetRole(_ context.Context, _, _ string) (*repository.RoleRecord, error) {
+	if m.getRoleErr != nil {
+		return nil, m.getRoleErr
+	}
+	if m.getRole != nil {
+		return m.getRole, nil
+	}
+	return nil, repository.ErrRoleNotFound
 }
 
 func (m *mockUserRepository) GetUserRoles(_ context.Context, tenantID, _ string) ([]repository.RoleRecord, error) {
@@ -178,6 +190,21 @@ func TestUserServiceCreateUserDuplicateUsername(t *testing.T) {
 	}
 }
 
+func TestUserServiceCreateUserRejectsReservedUsername(t *testing.T) {
+	svc := NewUserService(&mockUserRepository{tenantExists: true})
+	_, apiErr := svc.CreateUser(context.Background(), uuid.NewString(), model.CreateUserRequest{
+		Username: reservedUsernameSuperAdmin,
+		Password: "SecureP@ss1",
+		Email:    "root@example.com",
+	})
+	if apiErr == nil {
+		t.Fatal("expected reserved username error")
+	}
+	if apiErr.HTTPStatus != 403 || apiErr.Code != "USER_CREATE_RESERVED_USERNAME" {
+		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+}
+
 func TestUserServiceCreateUserAssignRoleUsesTenant(t *testing.T) {
 	newID := uuid.NewString()
 	tenantID := uuid.NewString()
@@ -185,6 +212,7 @@ func TestUserServiceCreateUserAssignRoleUsesTenant(t *testing.T) {
 	repo := &mockUserRepository{
 		tenantExists: true,
 		createUserID: newID,
+		getRole:      &repository.RoleRecord{ID: uuid.New(), Name: "operator"},
 	}
 	svc := NewUserService(repo)
 	_, apiErr := svc.CreateUser(context.Background(), tenantID, model.CreateUserRequest{
@@ -242,6 +270,7 @@ func TestUserServiceAssignRoleConflict(t *testing.T) {
 	repo := &mockUserRepository{
 		tenantExists:  true,
 		getUser:       &repository.UserRecord{ID: uid, Username: "alice", Email: "a@b.com", Status: "active"},
+		getRole:       &repository.RoleRecord{ID: uuid.New(), Name: "operator"},
 		assignRoleErr: repository.ErrRoleConflict,
 	}
 	svc := NewUserService(repo)
@@ -263,6 +292,7 @@ func TestUserServiceRemoveRoleNotFound(t *testing.T) {
 	repo := &mockUserRepository{
 		tenantExists:  true,
 		getUser:       &repository.UserRecord{ID: uid, Username: "alice", Email: "a@b.com", Status: "active"},
+		getRole:       &repository.RoleRecord{ID: uuid.New(), Name: "operator"},
 		removeRoleErr: repository.ErrRoleNotFound,
 	}
 	svc := NewUserService(repo)
@@ -275,6 +305,44 @@ func TestUserServiceRemoveRoleNotFound(t *testing.T) {
 	}
 	if repo.lastRemoveTenant != tenantID {
 		t.Fatalf("expected remove role tenant %s, got %s", tenantID, repo.lastRemoveTenant)
+	}
+}
+
+func TestUserServiceUpdateRejectsProtectedUser(t *testing.T) {
+	displayName := "New Name"
+	svc := NewUserService(&mockUserRepository{
+		tenantExists: true,
+		getUser: &repository.UserRecord{
+			ID:       uuid.New(),
+			Username: reservedUsernameSuperAdmin,
+			Email:    "superadmin@example.com",
+			Status:   "active",
+		},
+	})
+	apiErr := svc.UpdateUser(context.Background(), uuid.NewString(), uuid.NewString(), model.UpdateUserRequest{DisplayName: &displayName})
+	if apiErr == nil {
+		t.Fatal("expected protected user error")
+	}
+	if apiErr.HTTPStatus != 403 || apiErr.Code != "USER_UPDATE_PROTECTED" {
+		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+}
+
+func TestUserServiceAssignRoleRejectsProtectedRole(t *testing.T) {
+	uid := uuid.New()
+	tenantID := uuid.NewString()
+	repo := &mockUserRepository{
+		tenantExists: true,
+		getUser:      &repository.UserRecord{ID: uid, Username: "alice", Email: "a@b.com", Status: "active"},
+		getRole:      &repository.RoleRecord{ID: uuid.New(), Name: protectedRoleNameSuperAdmin},
+	}
+	svc := NewUserService(repo)
+	apiErr := svc.AssignRole(context.Background(), tenantID, uid.String(), uuid.NewString())
+	if apiErr == nil {
+		t.Fatal("expected protected role error")
+	}
+	if apiErr.HTTPStatus != 403 || apiErr.Code != "USER_ASSIGN_ROLE_PROTECTED_ROLE" {
+		t.Fatalf("unexpected error: %+v", apiErr)
 	}
 }
 

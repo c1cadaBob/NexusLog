@@ -19,7 +19,7 @@ const operatorRoleExistsQuery = `
 		  AND u.status = 'active'
 		  AND r.tenant_id = $2::uuid
 		  AND (
-			LOWER(r.name) IN ('admin', 'operator')
+			LOWER(r.name) IN ('super_admin', 'system_admin', 'operator')
 			OR COALESCE(r.permissions, '[]'::jsonb) ? '*'
 		  )
 	)

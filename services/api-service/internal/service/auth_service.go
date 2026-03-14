@@ -600,6 +600,14 @@ func normalizeAndValidate(req model.RegisterRequest) (model.RegisterRequest, *mo
 	if !usernamePattern.MatchString(req.Username) {
 		return model.RegisterRequest{}, invalidField("username", "AUTH_REGISTER_INVALID_ARGUMENT", "invalid request")
 	}
+	if isReservedUsername(req.Username) {
+		return model.RegisterRequest{}, &model.APIError{
+			HTTPStatus: http.StatusForbidden,
+			Code:       "AUTH_REGISTER_RESERVED_USERNAME",
+			Message:    "username is reserved",
+			Details:    map[string]any{"field": "username"},
+		}
+	}
 
 	if len(req.Password) < 8 || len(req.Password) > 72 {
 		return model.RegisterRequest{}, invalidField("password", "AUTH_REGISTER_INVALID_ARGUMENT", "invalid request")

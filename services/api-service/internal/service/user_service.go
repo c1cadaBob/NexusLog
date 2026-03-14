@@ -33,6 +33,7 @@ type userRepository interface {
 	AssignRole(ctx context.Context, tenantID, userID, roleID string) error
 	RemoveRole(ctx context.Context, tenantID, userID, roleID string) error
 	ListRoles(ctx context.Context, tenantID string) ([]repository.RoleRecord, error)
+	GetRole(ctx context.Context, tenantID, roleID string) (*repository.RoleRecord, error)
 	GetUserRoles(ctx context.Context, tenantID, userID string) ([]repository.RoleRecord, error)
 	IsLoginLocked(ctx context.Context, tenantID, username string) (bool, time.Time, error)
 }
@@ -148,6 +149,31 @@ func (s *UserService) CreateUser(ctx context.Context, tenantHeader string, req m
 	if apiErr := validatePassword(normalized.Password); apiErr != nil {
 		return model.CreateUserResponseData{}, apiErr
 	}
+	if isReservedUsername(normalized.Username) {
+		return model.CreateUserResponseData{}, forbiddenUser("USER_CREATE_RESERVED_USERNAME", "username is reserved", map[string]any{"field": "username"})
+	}
+
+	if normalized.RoleID != nil && *normalized.RoleID != "" {
+		role, err := s.repo.GetRole(ctx, tenantID.String(), *normalized.RoleID)
+		if err != nil {
+			if errors.Is(err, repository.ErrRoleNotFound) {
+				return model.CreateUserResponseData{}, &model.APIError{
+					HTTPStatus: http.StatusNotFound,
+					Code:       "USER_ROLE_NOT_FOUND",
+					Message:    "role not found",
+					Details:    map[string]any{"field": "role_id"},
+				}
+			}
+			return model.CreateUserResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       "USER_CREATE_INTERNAL_ERROR",
+				Message:    "internal error",
+			}
+		}
+		if isProtectedRole(*role) {
+			return model.CreateUserResponseData{}, forbiddenUser("USER_CREATE_PROTECTED_ROLE", "protected role cannot be assigned", map[string]any{"field": "role_id"})
+		}
+	}
 
 	hashBytes, err := bcrypt.GenerateFromPassword([]byte(normalized.Password), userBcryptCost)
 	if err != nil {
@@ -191,7 +217,30 @@ func (s *UserService) CreateUser(ctx context.Context, tenantHeader string, req m
 	}
 
 	if normalized.RoleID != nil && *normalized.RoleID != "" {
-		_ = s.repo.AssignRole(ctx, tenantID.String(), id, *normalized.RoleID)
+		err = s.repo.AssignRole(ctx, tenantID.String(), id, *normalized.RoleID)
+		if err != nil {
+			if errors.Is(err, repository.ErrRoleConflict) {
+				return model.CreateUserResponseData{}, &model.APIError{
+					HTTPStatus: http.StatusConflict,
+					Code:       "USER_ASSIGN_ROLE_CONFLICT",
+					Message:    "role already assigned",
+					Details:    map[string]any{"field": "role_id"},
+				}
+			}
+			if errors.Is(err, repository.ErrRoleNotFound) {
+				return model.CreateUserResponseData{}, &model.APIError{
+					HTTPStatus: http.StatusNotFound,
+					Code:       "USER_ROLE_NOT_FOUND",
+					Message:    "role not found",
+					Details:    map[string]any{"field": "role_id"},
+				}
+			}
+			return model.CreateUserResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       "USER_CREATE_INTERNAL_ERROR",
+				Message:    "internal error",
+			}
+		}
 	}
 
 	return model.CreateUserResponseData{
@@ -216,7 +265,26 @@ func (s *UserService) UpdateUser(ctx context.Context, tenantHeader, userID strin
 		}
 	}
 
-	err := s.repo.UpdateUser(ctx, tenantID.String(), userID, *normalized)
+	user, err := s.repo.GetUser(ctx, tenantID.String(), userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return &model.APIError{
+				HTTPStatus: http.StatusNotFound,
+				Code:       "USER_NOT_FOUND",
+				Message:    "user not found",
+			}
+		}
+		return &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "USER_UPDATE_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+	if isProtectedUser(*user) {
+		return forbiddenUser("USER_UPDATE_PROTECTED", "protected users cannot be modified", map[string]any{"user_id": userID})
+	}
+
+	err = s.repo.UpdateUser(ctx, tenantID.String(), userID, *normalized)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return &model.APIError{
@@ -278,6 +346,22 @@ func (s *UserService) BatchUpdateUsersStatus(ctx context.Context, tenantHeader s
 		seen[parsedID] = struct{}{}
 		uniqueIDs = append(uniqueIDs, parsedID)
 	}
+	for _, userID := range uniqueIDs {
+		user, err := s.repo.GetUser(ctx, tenantID.String(), userID.String())
+		if err != nil {
+			if errors.Is(err, repository.ErrUserNotFound) {
+				continue
+			}
+			return model.BatchUpdateUsersStatusResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       "USER_BATCH_UPDATE_INTERNAL_ERROR",
+				Message:    "internal error",
+			}
+		}
+		if isProtectedUser(*user) {
+			return model.BatchUpdateUsersStatusResponseData{}, forbiddenUser("USER_BATCH_UPDATE_PROTECTED", "protected users cannot be updated in batch", map[string]any{"user_id": userID.String()})
+		}
+	}
 
 	updated, err := s.repo.BatchUpdateUsersStatus(ctx, tenantID.String(), uniqueIDs, normalizedStatus)
 	if err != nil {
@@ -301,7 +385,7 @@ func (s *UserService) AssignRole(ctx context.Context, tenantHeader, userID strin
 		return apiErr
 	}
 
-	_, err := s.repo.GetUser(ctx, tenantID.String(), userID)
+	user, err := s.repo.GetUser(ctx, tenantID.String(), userID)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
 			return &model.APIError{
@@ -315,6 +399,29 @@ func (s *UserService) AssignRole(ctx context.Context, tenantHeader, userID strin
 			Code:       "USER_ASSIGN_ROLE_INTERNAL_ERROR",
 			Message:    "internal error",
 		}
+	}
+	if isProtectedUser(*user) {
+		return forbiddenUser("USER_ASSIGN_ROLE_PROTECTED_USER", "protected users cannot be re-authorized", map[string]any{"user_id": userID})
+	}
+
+	role, err := s.repo.GetRole(ctx, tenantID.String(), roleID)
+	if err != nil {
+		if errors.Is(err, repository.ErrRoleNotFound) {
+			return &model.APIError{
+				HTTPStatus: http.StatusNotFound,
+				Code:       "USER_ROLE_NOT_FOUND",
+				Message:    "role not found",
+				Details:    map[string]any{"field": "role_id"},
+			}
+		}
+		return &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "USER_ASSIGN_ROLE_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+	if isProtectedRole(*role) {
+		return forbiddenUser("USER_ASSIGN_ROLE_PROTECTED_ROLE", "protected role cannot be assigned", map[string]any{"field": "role_id"})
 	}
 
 	err = s.repo.AssignRole(ctx, tenantID.String(), userID, roleID)
@@ -349,8 +456,46 @@ func (s *UserService) RemoveRole(ctx context.Context, tenantHeader, userID, role
 	if apiErr != nil {
 		return apiErr
 	}
+	user, err := s.repo.GetUser(ctx, tenantID.String(), userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return &model.APIError{
+				HTTPStatus: http.StatusNotFound,
+				Code:       "USER_NOT_FOUND",
+				Message:    "user not found",
+			}
+		}
+		return &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "USER_REMOVE_ROLE_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+	if isProtectedUser(*user) {
+		return forbiddenUser("USER_REMOVE_ROLE_PROTECTED_USER", "protected users cannot be re-authorized", map[string]any{"user_id": userID})
+	}
 
-	err := s.repo.RemoveRole(ctx, tenantID.String(), userID, roleID)
+	role, err := s.repo.GetRole(ctx, tenantID.String(), roleID)
+	if err != nil {
+		if errors.Is(err, repository.ErrRoleNotFound) {
+			return &model.APIError{
+				HTTPStatus: http.StatusNotFound,
+				Code:       "USER_ROLE_NOT_FOUND",
+				Message:    "role not found or not assigned",
+				Details:    map[string]any{"field": "role_id"},
+			}
+		}
+		return &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "USER_REMOVE_ROLE_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+	if isProtectedRole(*role) {
+		return forbiddenUser("USER_REMOVE_ROLE_PROTECTED_ROLE", "protected role cannot be removed", map[string]any{"field": "role_id"})
+	}
+
+	err = s.repo.RemoveRole(ctx, tenantID.String(), userID, roleID)
 	if err != nil {
 		if errors.Is(err, repository.ErrRoleNotFound) {
 			return &model.APIError{
@@ -572,6 +717,15 @@ func invalidFieldUser(field, code, message string) *model.APIError {
 		Code:       code,
 		Message:    message,
 		Details:    map[string]any{"field": field},
+	}
+}
+
+func forbiddenUser(code, message string, details map[string]any) *model.APIError {
+	return &model.APIError{
+		HTTPStatus: http.StatusForbidden,
+		Code:       code,
+		Message:    message,
+		Details:    details,
 	}
 }
 
