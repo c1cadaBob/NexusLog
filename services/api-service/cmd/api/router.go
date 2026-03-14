@@ -54,7 +54,7 @@ func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
 	authV1.POST("/register", authRateLimiter.Register(), authHandler.Register)
 	authV1.POST("/login", authRateLimiter.Login(), authHandler.Login)
 	authV1.POST("/refresh", authHandler.Refresh)
-	authV1.POST("/password/reset-request", authHandler.PasswordResetRequest)
+	authV1.POST("/password/reset-request", authRateLimiter.PasswordResetRequest(), authHandler.PasswordResetRequest)
 	authV1.POST("/password/reset-confirm", authHandler.PasswordResetConfirm)
 
 	protected := apiV1.Group("")

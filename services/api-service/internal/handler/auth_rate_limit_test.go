@@ -91,6 +91,54 @@ func TestAuthRateLimitMiddleware_RegisterBlocksByIP(t *testing.T) {
 	assertRateLimitedResponse(t, second, http.StatusTooManyRequests, "AUTH_REGISTER_RATE_LIMITED", "tenant_ip")
 }
 
+func TestAuthRateLimitMiddleware_PasswordResetRequestBlocksByIdentifier(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	limiter := newAuthRateLimitMiddleware(time.Now, authRateLimitConfig{
+		loginUsername:          authRateLimitRule{scope: "tenant_username", limit: 10, window: time.Hour},
+		loginIP:                authRateLimitRule{scope: "tenant_ip", limit: 10, window: time.Hour},
+		registerIP:             authRateLimitRule{scope: "tenant_ip", limit: 10, window: time.Hour},
+		resetRequestIdentifier: authRateLimitRule{scope: "tenant_identifier", limit: 1, window: time.Hour},
+		resetRequestIP:         authRateLimitRule{scope: "tenant_ip", limit: 10, window: time.Hour},
+	})
+
+	router := gin.New()
+	router.POST("/api/v1/auth/password/reset-request", limiter.PasswordResetRequest(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"accepted": true})
+	})
+
+	first := performJSONRequest(t, router, http.MethodPost, "/api/v1/auth/password/reset-request", map[string]any{"email_or_username": "Alice@Example.com"}, "tenant-a", "10.0.0.5:1234")
+	if first.Code != http.StatusOK {
+		t.Fatalf("expected first reset request 200, got %d body=%s", first.Code, first.Body.String())
+	}
+
+	second := performJSONRequest(t, router, http.MethodPost, "/api/v1/auth/password/reset-request", map[string]any{"email_or_username": "alice@example.com"}, "tenant-a", "10.0.0.6:1234")
+	assertRateLimitedResponse(t, second, http.StatusTooManyRequests, "AUTH_RESET_REQUEST_RATE_LIMITED", "tenant_identifier")
+}
+
+func TestAuthRateLimitMiddleware_PasswordResetRequestBlocksByIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	limiter := newAuthRateLimitMiddleware(time.Now, authRateLimitConfig{
+		loginUsername:          authRateLimitRule{scope: "tenant_username", limit: 10, window: time.Hour},
+		loginIP:                authRateLimitRule{scope: "tenant_ip", limit: 10, window: time.Hour},
+		registerIP:             authRateLimitRule{scope: "tenant_ip", limit: 10, window: time.Hour},
+		resetRequestIdentifier: authRateLimitRule{scope: "tenant_identifier", limit: 10, window: time.Hour},
+		resetRequestIP:         authRateLimitRule{scope: "tenant_ip", limit: 1, window: time.Hour},
+	})
+
+	router := gin.New()
+	router.POST("/api/v1/auth/password/reset-request", limiter.PasswordResetRequest(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"accepted": true})
+	})
+
+	first := performJSONRequest(t, router, http.MethodPost, "/api/v1/auth/password/reset-request", map[string]any{"email_or_username": "alice@example.com"}, "tenant-a", "10.0.0.7:1234")
+	if first.Code != http.StatusOK {
+		t.Fatalf("expected first reset request 200, got %d body=%s", first.Code, first.Body.String())
+	}
+
+	second := performJSONRequest(t, router, http.MethodPost, "/api/v1/auth/password/reset-request", map[string]any{"email_or_username": "bob@example.com"}, "tenant-a", "10.0.0.7:5678")
+	assertRateLimitedResponse(t, second, http.StatusTooManyRequests, "AUTH_RESET_REQUEST_RATE_LIMITED", "tenant_ip")
+}
+
 func performJSONRequest(t *testing.T, router *gin.Engine, method, path string, payload map[string]any, tenantID, remoteAddr string) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, err := json.Marshal(payload)

@@ -44,7 +44,7 @@ func TestNormalizeAPIErrorUseCatalogStatusAndMessage(t *testing.T) {
 
 func TestAuthErrorCatalogCoverage(t *testing.T) {
 	catalog := AuthErrorCatalog()
-	if len(catalog) < 32 {
+	if len(catalog) < 33 {
 		t.Fatalf("unexpected catalog size: %d", len(catalog))
 	}
 
@@ -55,6 +55,7 @@ func TestAuthErrorCatalogCoverage(t *testing.T) {
 		ErrorCodeAuthLoginRateLimited,
 		ErrorCodeAuthRefreshInvalidToken,
 		ErrorCodeAuthLogoutInvalidToken,
+		ErrorCodeAuthResetRequestRateLimited,
 		ErrorCodeAuthResetRequestInternalError,
 		ErrorCodeAuthResetConfirmInvalidToken,
 	}

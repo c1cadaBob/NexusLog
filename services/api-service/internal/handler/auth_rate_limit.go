@@ -24,9 +24,11 @@ type authRateLimitRule struct {
 }
 
 type authRateLimitConfig struct {
-	loginUsername authRateLimitRule
-	loginIP       authRateLimitRule
-	registerIP    authRateLimitRule
+	loginUsername          authRateLimitRule
+	loginIP                authRateLimitRule
+	registerIP             authRateLimitRule
+	resetRequestIdentifier authRateLimitRule
+	resetRequestIP         authRateLimitRule
 }
 
 type AuthRateLimitMiddleware struct {
@@ -43,11 +45,17 @@ type loginRateLimitPayload struct {
 	Username string `json:"username"`
 }
 
+type passwordResetRequestRateLimitPayload struct {
+	EmailOrUsername string `json:"email_or_username"`
+}
+
 func NewDefaultAuthRateLimitMiddleware() *AuthRateLimitMiddleware {
 	config := authRateLimitConfig{
-		loginUsername: authRateLimitRule{scope: "tenant_username", limit: 10, window: 15 * time.Minute},
-		loginIP:       authRateLimitRule{scope: "tenant_ip", limit: 60, window: 15 * time.Minute},
-		registerIP:    authRateLimitRule{scope: "tenant_ip", limit: 10, window: time.Hour},
+		loginUsername:          authRateLimitRule{scope: "tenant_username", limit: 10, window: 15 * time.Minute},
+		loginIP:                authRateLimitRule{scope: "tenant_ip", limit: 60, window: 15 * time.Minute},
+		registerIP:             authRateLimitRule{scope: "tenant_ip", limit: 10, window: time.Hour},
+		resetRequestIdentifier: authRateLimitRule{scope: "tenant_identifier", limit: 5, window: time.Hour},
+		resetRequestIP:         authRateLimitRule{scope: "tenant_ip", limit: 20, window: time.Hour},
 	}
 	return newAuthRateLimitMiddleware(time.Now, config)
 }
@@ -59,6 +67,12 @@ func newAuthRateLimitMiddleware(now func() time.Time, config authRateLimitConfig
 	}
 	if config.registerIP.window > maxWindow {
 		maxWindow = config.registerIP.window
+	}
+	if config.resetRequestIdentifier.window > maxWindow {
+		maxWindow = config.resetRequestIdentifier.window
+	}
+	if config.resetRequestIP.window > maxWindow {
+		maxWindow = config.resetRequestIP.window
 	}
 	if maxWindow <= 0 {
 		maxWindow = time.Hour
@@ -134,6 +148,45 @@ func (m *AuthRateLimitMiddleware) Login() gin.HandlerFunc {
 	}
 }
 
+func (m *AuthRateLimitMiddleware) PasswordResetRequest() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tenantKey := tenantRateLimitKey(c)
+		ipKey := clientIPRateLimitKey(c)
+		payload := readPasswordResetRequestRateLimitPayload(c)
+		identifier := normalizePasswordResetRequestIdentifier(payload.EmailOrUsername)
+
+		if identifier != "" {
+			if allowed, retryAfter := m.allow(m.config.resetRequestIdentifier, buildRateLimitKey("auth.password_reset_request", m.config.resetRequestIdentifier.scope, tenantKey, identifier)); !allowed {
+				setAuthAuditEvent(c, "auth.password_reset_request", "", "", buildAuditDetails(map[string]any{
+					"result":              "failed",
+					"email_or_username":   identifier,
+					"error_code":          model.ErrorCodeAuthResetRequestRateLimited,
+					"http_status":         http.StatusTooManyRequests,
+					"rate_limit_scope":    m.config.resetRequestIdentifier.scope,
+					"retry_after_seconds": retryAfterSeconds(retryAfter),
+				}))
+				writeRateLimitError(c, model.ErrorCodeAuthResetRequestRateLimited, m.config.resetRequestIdentifier.scope, retryAfter)
+				return
+			}
+		}
+
+		if allowed, retryAfter := m.allow(m.config.resetRequestIP, buildRateLimitKey("auth.password_reset_request", m.config.resetRequestIP.scope, tenantKey, ipKey)); !allowed {
+			setAuthAuditEvent(c, "auth.password_reset_request", "", "", buildAuditDetails(map[string]any{
+				"result":              "failed",
+				"email_or_username":   identifier,
+				"error_code":          model.ErrorCodeAuthResetRequestRateLimited,
+				"http_status":         http.StatusTooManyRequests,
+				"rate_limit_scope":    m.config.resetRequestIP.scope,
+				"retry_after_seconds": retryAfterSeconds(retryAfter),
+			}))
+			writeRateLimitError(c, model.ErrorCodeAuthResetRequestRateLimited, m.config.resetRequestIP.scope, retryAfter)
+			return
+		}
+
+		c.Next()
+	}
+}
+
 func (m *AuthRateLimitMiddleware) allow(rule authRateLimitRule, key string) (bool, time.Duration) {
 	if rule.limit <= 0 || rule.window <= 0 {
 		return true, 0
@@ -191,15 +244,7 @@ func (m *AuthRateLimitMiddleware) cleanupLocked(now time.Time) {
 }
 
 func readLoginRateLimitPayload(c *gin.Context) loginRateLimitPayload {
-	if c == nil || c.Request == nil || c.Request.Body == nil {
-		return loginRateLimitPayload{}
-	}
-	rawBody, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
-	if err != nil {
-		c.Request.Body = io.NopCloser(bytes.NewReader(nil))
-		return loginRateLimitPayload{}
-	}
-	c.Request.Body = io.NopCloser(bytes.NewReader(rawBody))
+	rawBody := readRateLimitRequestBody(c)
 	if len(rawBody) == 0 {
 		return loginRateLimitPayload{}
 	}
@@ -208,6 +253,39 @@ func readLoginRateLimitPayload(c *gin.Context) loginRateLimitPayload {
 		return loginRateLimitPayload{}
 	}
 	return payload
+}
+
+func readPasswordResetRequestRateLimitPayload(c *gin.Context) passwordResetRequestRateLimitPayload {
+	rawBody := readRateLimitRequestBody(c)
+	if len(rawBody) == 0 {
+		return passwordResetRequestRateLimitPayload{}
+	}
+	var payload passwordResetRequestRateLimitPayload
+	if err := json.Unmarshal(rawBody, &payload); err != nil {
+		return passwordResetRequestRateLimitPayload{}
+	}
+	return payload
+}
+
+func readRateLimitRequestBody(c *gin.Context) []byte {
+	if c == nil || c.Request == nil || c.Request.Body == nil {
+		return nil
+	}
+	rawBody, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	if err != nil {
+		c.Request.Body = io.NopCloser(bytes.NewReader(nil))
+		return nil
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(rawBody))
+	return rawBody
+}
+
+func normalizePasswordResetRequestIdentifier(identifier string) string {
+	identifier = strings.TrimSpace(identifier)
+	if strings.Contains(identifier, "@") {
+		return strings.ToLower(identifier)
+	}
+	return identifier
 }
 
 func tenantRateLimitKey(c *gin.Context) string {
