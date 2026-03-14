@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -85,6 +86,36 @@ func TestRequireAuthenticatedIdentity_RejectsInvalidUUIDClaims(t *testing.T) {
 
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.Code)
+	}
+}
+
+func TestRequireAuthenticatedIdentity_RejectsInactiveUserSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := gin.New()
+	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
+	router.GET("/api/v1/incidents", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	token := mustIssueToken(t, "20000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001", "jti-disabled")
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs("20000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001", "jti-disabled", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/incidents", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }
 

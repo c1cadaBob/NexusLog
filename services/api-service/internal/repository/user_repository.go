@@ -310,7 +310,17 @@ func (r *UserRepository) UpdateUser(ctx context.Context, tenantID, userID string
 		WHERE tenant_id = $%d AND id = $%d
 	`, strings.Join(set, ", "), argIdx, argIdx+1)
 
-	result, err := r.db.ExecContext(ctx, q, args...)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	result, err := tx.ExecContext(ctx, q, args...)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
@@ -321,7 +331,23 @@ func (r *UserRepository) UpdateUser(ctx context.Context, tenantID, userID string
 
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
-		return ErrUserNotFound // from auth_repository
+		err = ErrUserNotFound // from auth_repository
+		return err
+	}
+
+	if input.Status != nil && *input.Status == "disabled" {
+		const revokeSessionsSQL = `
+			UPDATE user_sessions
+			SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+			WHERE tenant_id = $1 AND user_id = $2 AND session_status = 'active'
+		`
+		if _, err = tx.ExecContext(ctx, revokeSessionsSQL, tenantUUID, userUUID); err != nil {
+			return fmt.Errorf("revoke active sessions for disabled user: %w", err)
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit user update: %w", err)
 	}
 	return nil
 }
@@ -351,11 +377,36 @@ func (r *UserRepository) BatchUpdateUsersStatus(ctx context.Context, tenantID st
 		  AND id = ANY($3::uuid[])
 		  AND status <> $1
 	`
-	result, err := r.db.ExecContext(ctx, q, status, tenantUUID, pq.Array(idStrings))
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	result, err := tx.ExecContext(ctx, q, status, tenantUUID, pq.Array(idStrings))
 	if err != nil {
 		return 0, fmt.Errorf("batch update users status: %w", err)
 	}
 	updated, _ := result.RowsAffected()
+
+	if status == "disabled" {
+		const revokeSessionsSQL = `
+			UPDATE user_sessions
+			SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+			WHERE tenant_id = $1 AND user_id = ANY($2::uuid[]) AND session_status = 'active'
+		`
+		if _, err = tx.ExecContext(ctx, revokeSessionsSQL, tenantUUID, pq.Array(idStrings)); err != nil {
+			return 0, fmt.Errorf("revoke active sessions for disabled users: %w", err)
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit batch user status update: %w", err)
+	}
 	return int(updated), nil
 }
 

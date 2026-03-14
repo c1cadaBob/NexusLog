@@ -432,10 +432,11 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 	}()
 
 	const selectSessionSQL = `
-		SELECT id, user_id, expires_at, session_status
-		FROM user_sessions
-		WHERE tenant_id = $1 AND refresh_token_hash = $2
-		FOR UPDATE
+		SELECT s.id, s.user_id, s.expires_at, s.session_status
+		FROM user_sessions s
+		JOIN users u ON u.id = s.user_id AND u.tenant_id = s.tenant_id
+		WHERE s.tenant_id = $1 AND s.refresh_token_hash = $2 AND u.status = 'active'
+		FOR UPDATE OF s
 	`
 
 	var sessionID uuid.UUID
@@ -455,7 +456,8 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 	}
 
 	if status != "active" || expiresAt.Before(time.Now().UTC()) {
-		return uuid.Nil, ErrInvalidRefreshToken
+		err = ErrInvalidRefreshToken
+		return uuid.Nil, err
 	}
 
 	const revokeOldSQL = `

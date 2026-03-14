@@ -282,6 +282,79 @@ func TestLogoutIntegration(t *testing.T) {
 	}
 }
 
+func TestDisableUserRevokesSessionsIntegration(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-disable-user")
+	router := buildRouter(db)
+
+	username := "disable_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+
+	regStatus, regBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    "Password123",
+		Email:       email,
+		DisplayName: "Disable User",
+	})
+	if regStatus != http.StatusCreated || regBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", regStatus, regBody)
+	}
+
+	loginStatus, loginBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: "Password123",
+	})
+	if loginStatus != http.StatusOK || loginBody["code"] != "OK" {
+		t.Fatalf("login setup failed, status=%d body=%#v", loginStatus, loginBody)
+	}
+	loginData, ok := loginBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing login data: %#v", loginBody)
+	}
+	refreshToken, ok := loginData["refresh_token"].(string)
+	if !ok || refreshToken == "" {
+		t.Fatalf("missing refresh token: %#v", loginData)
+	}
+	accessToken, ok := loginData["access_token"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("missing access token: %#v", loginData)
+	}
+
+	userRepo := repository.NewUserRepository(db)
+	userID := mustUserIDByUsername(t, ctx, db, tenantID, username)
+	if err := userRepo.DisableUser(ctx, tenantID, userID); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+
+	if hasActiveSessionForUser(t, ctx, db, tenantID, username) {
+		t.Fatalf("expected active sessions revoked after disable")
+	}
+	if !hasSessionStatusForUser(t, ctx, db, tenantID, username, "revoked") {
+		t.Fatalf("expected revoked session after disable")
+	}
+
+	refreshStatus, refreshBody := callRefresh(t, router, tenantID, model.RefreshRequest{RefreshToken: refreshToken})
+	if refreshStatus != http.StatusUnauthorized || refreshBody["code"] != "AUTH_REFRESH_INVALID_TOKEN" {
+		t.Fatalf("expected refresh invalid after disable, status=%d body=%#v", refreshStatus, refreshBody)
+	}
+
+	sessionStatus, sessionBody := callSessionCheck(t, router, tenantID, accessToken)
+	if sessionStatus != http.StatusUnauthorized || sessionBody["code"] != "UNAUTHORIZED" {
+		t.Fatalf("expected protected access rejected after disable, status=%d body=%#v", sessionStatus, sessionBody)
+	}
+}
+
 func TestPasswordResetRequestIntegration(t *testing.T) {
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {
@@ -521,6 +594,9 @@ func buildRouter(db *sql.DB) *gin.Engine {
 	protected := r.Group("")
 	protected.Use(handler.AuthRequired(db, "integration-test-secret"))
 	protected.POST("/api/v1/auth/logout", authH.Logout)
+	protected.GET("/api/v1/auth/session-check", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
 	return r
 }
 
@@ -577,6 +653,23 @@ func callLogout(t *testing.T, r *gin.Engine, tenantID string, payload model.Logo
 	raw, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", bytes.NewBuffer(raw))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
+	if accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return resp.Code, body
+}
+
+func callSessionCheck(t *testing.T, r *gin.Engine, tenantID, accessToken string) (int, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session-check", nil)
 	req.Header.Set("X-Tenant-ID", tenantID)
 	if accessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+accessToken)
@@ -718,6 +811,38 @@ func hasSessionStatus(t *testing.T, ctx context.Context, db *sql.DB, tenantID, s
 	var exists bool
 	if err := db.QueryRowContext(ctx, q, tenantID, status).Scan(&exists); err != nil {
 		t.Fatalf("check user_sessions status: %v", err)
+	}
+	return exists
+}
+
+func mustUserIDByUsername(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) string {
+	t.Helper()
+	const q = `SELECT id::text FROM users WHERE tenant_id = $1::uuid AND username = $2 LIMIT 1`
+	var userID string
+	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&userID); err != nil {
+		t.Fatalf("query user id: %v", err)
+	}
+	return userID
+}
+
+func hasActiveSessionForUser(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) bool {
+	t.Helper()
+	return hasSessionStatusForUser(t, ctx, db, tenantID, username, "active")
+}
+
+func hasSessionStatusForUser(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username, status string) bool {
+	t.Helper()
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_sessions s
+			JOIN users u ON u.id = s.user_id
+			WHERE s.tenant_id = $1::uuid AND u.username = $2 AND s.session_status = $3
+		)
+	`
+	var exists bool
+	if err := db.QueryRowContext(ctx, q, tenantID, username, status).Scan(&exists); err != nil {
+		t.Fatalf("check user session status: %v", err)
 	}
 	return exists
 }

@@ -332,6 +332,39 @@ func TestAuthRequired_ThreeRoleIsolation(t *testing.T) {
 	}
 }
 
+func TestAuthRequired_InactiveSessionRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+	mock.ExpectQuery(`FROM user_sessions`).
+		WithArgs(tenantID.String(), userID.String(), accessTokenJTI, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	router := gin.New()
+	router.Use(AuthRequired(db, testJWTSecret))
+	router.GET("/protected", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 when session inactive, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestAuthRequired_UserNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()

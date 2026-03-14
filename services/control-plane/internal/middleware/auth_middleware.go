@@ -120,12 +120,14 @@ func isAccessTokenSessionActive(ctx context.Context, db *sql.DB, tenantID, userI
 	const q = `
 		SELECT EXISTS(
 			SELECT 1
-			FROM user_sessions
-			WHERE tenant_id = $1::uuid
-			  AND user_id = $2::uuid
-			  AND access_token_jti = $3
-			  AND session_status = 'active'
-			  AND expires_at > $4
+			FROM user_sessions s
+			JOIN users u ON u.id = s.user_id AND u.tenant_id = s.tenant_id
+			WHERE s.tenant_id = $1::uuid
+			  AND s.user_id = $2::uuid
+			  AND s.access_token_jti = $3
+			  AND s.session_status = 'active'
+			  AND s.expires_at > $4
+			  AND u.status = 'active'
 		)
 	`
 	var active bool
