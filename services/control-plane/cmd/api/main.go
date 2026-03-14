@@ -72,6 +72,7 @@ func main() {
 	if pgDB != nil {
 		router.Use(middleware.AuditMiddleware(pgDB))
 	}
+	operatorRoutes := router.Group("", middleware.RequireOperatorRole(pgDB))
 	adminRoutes := router.Group("", middleware.RequireAdminRole(pgDB))
 
 	var pullCursorStore *ingest.PullCursorStore
@@ -91,9 +92,9 @@ func main() {
 	}
 	registerIngestV3Routes(adminRoutes, v3CursorAdapter, v3CursorAdapter)
 
-	if err := enablePullIngestRuntime(router, adminRoutes, workerCtx, pgBackend); err != nil {
+	if err := enablePullIngestRuntime(operatorRoutes, adminRoutes, workerCtx, pgBackend); err != nil {
 		log.Printf("pull ingest runtime unavailable, fallback to gone routes: %v", err)
-		registerLegacyPipelineRemovedRoutes(router, adminRoutes)
+		registerLegacyPipelineRemovedRoutes(operatorRoutes, adminRoutes)
 	}
 
 	// ES Snapshot Backup/Restore (W4-B3)
@@ -262,7 +263,7 @@ func main() {
 	fmt.Println("Servers stopped")
 }
 
-func registerLegacyPipelineRemovedRoutes(authenticatedRoutes gin.IRouter, adminRoutes gin.IRouter) {
+func registerLegacyPipelineRemovedRoutes(operatorRoutes gin.IRouter, adminRoutes gin.IRouter) {
 	respondGone := func(c *gin.Context) {
 		c.JSON(http.StatusGone, gin.H{
 			"code":       "LEGACY_PIPELINE_REMOVED",
@@ -272,8 +273,8 @@ func registerLegacyPipelineRemovedRoutes(authenticatedRoutes gin.IRouter, adminR
 			"meta":       gin.H{},
 		})
 	}
-	if authenticatedRoutes != nil {
-		authenticatedRoutes.POST("/api/v1/ingest/receipts", respondGone)
+	if operatorRoutes != nil {
+		operatorRoutes.POST("/api/v1/ingest/receipts", respondGone)
 	}
 	if adminRoutes != nil {
 		adminRoutes.GET("/api/v1/ingest/pull-sources", respondGone)

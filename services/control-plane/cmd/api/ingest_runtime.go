@@ -17,9 +17,9 @@ const (
 	minAgentSharedKeyLength   = 24
 )
 
-func enablePullIngestRuntime(authenticatedRoutes gin.IRouter, adminRoutes gin.IRouter, workerCtx context.Context, pgBackend *ingest.PGBackend) error {
-	if authenticatedRoutes == nil {
-		return fmt.Errorf("authenticated routes are nil")
+func enablePullIngestRuntime(operatorRoutes gin.IRouter, adminRoutes gin.IRouter, workerCtx context.Context, pgBackend *ingest.PGBackend) error {
+	if operatorRoutes == nil {
+		return fmt.Errorf("operator routes are nil")
 	}
 	if adminRoutes == nil {
 		return fmt.Errorf("admin routes are nil")
@@ -99,7 +99,7 @@ func enablePullIngestRuntime(authenticatedRoutes gin.IRouter, adminRoutes gin.IR
 	ingest.RegisterPullSourceRoutes(adminRoutes, sourceStore)
 	ingest.RegisterPullTaskRoutes(adminRoutes, sourceStore, taskStore)
 	ingest.RegisterPullPackageRoutes(adminRoutes, packageStore)
-	ingest.RegisterReceiptRoutes(authenticatedRoutes, packageStore, receiptStore, deadLetterStore)
+	ingest.RegisterReceiptRoutes(operatorRoutes, packageStore, receiptStore, deadLetterStore)
 	ingest.RegisterDeadLetterRoutes(adminRoutes, deadLetterStore)
 	ingest.RegisterPullLatencyRoutes(adminRoutes, latencyMonitor)
 

@@ -46,6 +46,23 @@ const testAdminRoleExistsQuery = `
 	)
 `
 
+const testOperatorRoleExistsQuery = `
+	SELECT EXISTS(
+		SELECT 1
+		FROM users u
+		JOIN user_roles ur ON ur.user_id = u.id
+		JOIN roles r ON r.id = ur.role_id
+		WHERE u.id = $1::uuid
+		  AND u.tenant_id = $2::uuid
+		  AND u.status = 'active'
+		  AND r.tenant_id = $2::uuid
+		  AND (
+			LOWER(r.name) IN ('admin', 'operator')
+			OR COALESCE(r.permissions, '[]'::jsonb) ? '*'
+		  )
+	)
+`
+
 type routeAuthClaims struct {
 	UserID   string `json:"user_id"`
 	TenantID string `json:"tenant_id"`
@@ -316,7 +333,7 @@ func TestIngestAdminRoutes_AllowAdminUser(t *testing.T) {
 	}
 }
 
-func TestIngestReceiptRoute_AllowsAuthenticatedNonAdminUser(t *testing.T) {
+func TestIngestReceiptRoute_RejectsNonOperatorUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -325,10 +342,45 @@ func TestIngestReceiptRoute_AllowsAuthenticatedNonAdminUser(t *testing.T) {
 	defer db.Close()
 
 	router := newIngestRuntimeRouter(t, db)
-	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-receipt")
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-receipt-non-operator")
 
 	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-receipt", sqlmock.AnyArg()).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-receipt-non-operator", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ingest/receipts", strings.NewReader(`{"package_id":"missing-package","status":"ack","checksum":"checksum-1"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestIngestReceiptRoute_AllowsOperatorUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newIngestRuntimeRouter(t, db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-receipt-operator")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-receipt-operator", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/ingest/receipts", strings.NewReader(`{"package_id":"missing-package","status":"ack","checksum":"checksum-1"}`))
@@ -482,10 +534,11 @@ func newIngestRuntimeRouter(t *testing.T, db *sql.DB) *gin.Engine {
 	t.Helper()
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
+	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
 	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
 	workerCtx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	if err := enablePullIngestRuntime(router, adminRoutes, workerCtx, nil); err != nil {
+	if err := enablePullIngestRuntime(operatorRoutes, adminRoutes, workerCtx, nil); err != nil {
 		t.Fatalf("enable pull ingest runtime: %v", err)
 	}
 	return router

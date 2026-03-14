@@ -154,7 +154,7 @@
 | `/api/v1/ingest/pull-tasks/run` | POST | session | `source_id,trigger_type,options` | `task_id,status=pending` | `ingest_pull_tasks` | M2 |
 | `/api/v1/ingest/pull-tasks` | GET | session | `source_id,status,page,page_size` | `items[]` | `ingest_pull_tasks` | M2 |
 | `/api/v1/ingest/packages` | GET | session | `agent_id,source_ref,status,page,page_size` | `items[]` | `agent_incremental_packages,agent_package_files` | M2 |
-| `/api/v1/ingest/receipts` | POST | session | `package_id,status(ack/nack),reason,checksum` | `receipt_id,accepted` | `ingest_delivery_receipts,ingest_file_checkpoints,ingest_dead_letters` | M2 |
+| `/api/v1/ingest/receipts` | POST | operator+ | `package_id,status(ack/nack),reason,checksum` | `receipt_id,accepted` | `ingest_delivery_receipts,ingest_file_checkpoints,ingest_dead_letters` | M2 |
 | `/api/v1/ingest/dead-letters/replay` | POST | session | `dead_letter_ids[],reason` | `replay_batch_id,replayed_count` | `ingest_dead_letters` | M2 |
 
 状态机建议：
