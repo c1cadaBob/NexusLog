@@ -15,14 +15,15 @@
 
 | 模式 | 命令 | 适用场景 |
 |---|---|---|
-| 完整本地持久化部署 | `make local-deploy` | 推荐默认方式；启动全链路并做本地自举 |
-| 完整热更新环境 | `make dev-up` | 已知链路已自举，仅需拉起全部服务 |
+| 完整本地持久化部署 | `make local-deploy` | 推荐默认方式；启动全链路、执行数据库迁移并做本地自举 |
+| 完整热更新环境 | `make dev-up` | 已知链路与数据库迁移均已就绪，仅需拉起全部服务 |
 | 轻量开发环境 | `make dev-up-lite` | 机器资源不足时，仅起最小开发集 |
 | 仅补链路自举 | `make local-bootstrap` | 服务已启动，但需要重装 alias / schema / pull source / alert rule |
 
 说明：
 
-- `make local-deploy` = `make dev-up` + `make local-bootstrap`
+- `make local-deploy` = `make dev-up` + `make local-db-migrate-up` + `make local-bootstrap`
+- `make dev-up` 只负责启动服务，不会自动推进数据库 schema；拉取到包含新迁移的代码后，请优先执行 `make local-deploy` 或至少执行一次 `make local-db-migrate-up`
 - 本仓库当前推荐通过 `docker-compose.yml` + `docker-compose.override.yml` 在本地运行
 - 默认会保留 Docker named volumes，因此重启 Docker 后数据仍可继续使用
 
@@ -32,6 +33,7 @@
 
 - 已安装 Docker Engine 与 Docker Compose v2
 - 已安装 `make`、`curl`、`jq`
+- 已安装 `golang-migrate` 命令，或确保当前环境可直接执行仓库里的 `make local-db-migrate-up`
 - 当前用户可执行 `docker compose`
 - 宿主机有足够资源运行完整链路；如果资源偏紧，先使用 `make dev-up-lite`
 - 常用端口未被占用：`3000`、`3001`、`3002`、`8080`、`8081`、`8082`、`8083`、`8084`、`8085`、`8088`、`9091`、`9200`、`18081`、`19090`、`19093`
@@ -67,10 +69,11 @@ bash ./scripts/local/write-host-identity.sh
 make local-deploy
 ```
 
-这个命令会自动完成两件事：
+这个命令会自动完成三件事：
 
 1. 启动本地开发热更新环境
-2. 自动执行链路自举，包括：
+2. 等待 PostgreSQL ready 后执行运行时数据库迁移
+3. 自动执行链路自举，包括：
    - 注册 Schema Registry subjects
    - 安装 Elasticsearch v2 template
    - 安装 Elasticsearch 读写别名
@@ -279,6 +282,7 @@ make local-deploy
 因此：
 
 - **重启 Docker / 重启宿主机** 后，重新执行 `make dev-up` 或 `make local-deploy` 即可继续使用
+- **拉取到包含新数据库迁移的代码** 后，优先执行 `make local-deploy`；如果只想补 schema，可单独执行 `make local-db-migrate-up`
 - **如宿主机 IP 或主机名发生变化**，请重新执行一次：
 
 ```bash

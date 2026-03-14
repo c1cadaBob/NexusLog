@@ -6,10 +6,14 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push test-contracts stream-install-es stream-register-schemas stream-deploy-local stream-bootstrap-local stream-compare
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
+LOCAL_DB_DSN ?= postgres://nexuslog:nexuslog_dev@localhost:5432/nexuslog?sslmode=disable
+LOCAL_PG_CONTAINER ?= nexuslog-postgres-1
+LOCAL_PG_USER ?= nexuslog
+LOCAL_PG_DB ?= nexuslog
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.override.yml
 DEV_SERVICES := \
 	postgres redis elasticsearch elasticsearch-init zookeeper kafka kafka-init schema-registry schema-registry-init \
@@ -199,13 +203,29 @@ dev-test-smoke:
 	fi; \
 	echo "✅ dev 冒烟检查通过"
 
+## 对正在运行的本地环境补齐数据库迁移（等待 postgres ready 后执行）
+local-db-migrate-up:
+	@echo "🗃️ 确保本地数据库迁移已执行..."
+	@set -e; \
+	for attempt in $$(seq 1 60); do \
+		if docker exec $(LOCAL_PG_CONTAINER) pg_isready -U $(LOCAL_PG_USER) -d $(LOCAL_PG_DB) >/dev/null 2>&1; then \
+			break; \
+		fi; \
+		if [ "$$attempt" -eq 60 ]; then \
+			echo "ERROR: postgres not ready for migrations ($(LOCAL_PG_CONTAINER))"; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done; \
+	DB_DSN="$${DB_DSN:-$(LOCAL_DB_DSN)}" $(DB_MIGRATE_SCRIPT) up
+
 ## 对正在运行的本地环境执行链路自举（schema / alias / pull source / alert rule）
 local-bootstrap:
 	@echo "🧩 自举本地日志全链路..."
 	@bash ./scripts/bootstrap-local-log-chain.sh
 
 ## 一键启动并完成本地持久化部署
-local-deploy: dev-up local-bootstrap
+local-deploy: dev-up local-db-migrate-up local-bootstrap
 	@echo "✅ 本地持久化部署完成"
 
 ## api-service register 冒烟检查（需 SMOKE_TENANT_ID）
@@ -338,6 +358,7 @@ help:
 	@echo "开发热更新:"
 	@echo "  make dev-up         - 启动 dev 热更新环境"
 	@echo "  make dev-up-lite    - 启动 dev 轻量热更新环境（低资源）"
+	@echo "  make local-db-migrate-up - 对本地 postgres 执行迁移 up"
 	@echo "  make dev-down       - 停止 dev 热更新环境"
 	@echo "  make dev-logs       - 查看 dev 热更新日志"
 	@echo "  make dev-test-smoke - 执行 dev 冒烟检查"
