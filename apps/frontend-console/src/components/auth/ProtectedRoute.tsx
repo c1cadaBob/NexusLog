@@ -168,7 +168,15 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const hasCleanedRef = useRef(false);
+  const isMountedRef = useRef(false);
   const refreshAttemptKeyRef = useRef('');
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 5000);
@@ -198,18 +206,17 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     }
 
     refreshAttemptKeyRef.current = attemptKey;
-    let cancelled = false;
     setIsRefreshing(true);
 
     void refreshAccessToken(refreshToken).then((refreshed) => {
-      if (cancelled) {
+      if (!isMountedRef.current || refreshAttemptKeyRef.current !== attemptKey) {
         return;
       }
 
+      refreshAttemptKeyRef.current = '';
       setIsRefreshing(false);
       if (refreshed) {
         hasCleanedRef.current = false;
-        refreshAttemptKeyRef.current = '';
         setNowMs(Date.now());
         return;
       }
@@ -218,10 +225,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       clearAuthStorage();
       logout();
     });
-
-    return () => {
-      cancelled = true;
-    };
   }, [shouldAttemptRefresh, tokenValidation.reason, tokenValidation.isValid, refreshToken, isRefreshing, logout]);
 
   useEffect(() => {
