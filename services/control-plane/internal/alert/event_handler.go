@@ -218,7 +218,7 @@ func (h *EventHandler) SilenceEvent(c *gin.Context) {
 		if target.SourceID != "" {
 			matchers["source_id"] = target.SourceID
 		}
-		createdBy := strings.TrimSpace(c.GetHeader("X-User-ID"))
+		createdBy := getActorID(c)
 		_, err := h.silenceSvc.Create(
 			c.Request.Context(),
 			tenantID,

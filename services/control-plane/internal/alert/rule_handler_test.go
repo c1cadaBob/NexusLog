@@ -6,14 +6,29 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 )
 
-func setupTestRouter() *gin.Engine {
+func newAlertTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		if tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID")); tenantID != "" {
+			c.Set("tenant_id", tenantID)
+		}
+		if userID := strings.TrimSpace(c.GetHeader("X-User-ID")); userID != "" {
+			c.Set("user_id", userID)
+		}
+		c.Next()
+	})
+	return router
+}
+
+func setupTestRouter() *gin.Engine {
+	router := newAlertTestRouter()
 	repo := newMockRuleRepo()
 	svc := NewRuleService(repo)
 	handler := NewRuleHandler(svc)
@@ -48,8 +63,8 @@ func TestRuleHandler_CreateRule_ValidCondition(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Code    string `json:"code"`
-		Data    struct {
+		Code string `json:"code"`
+		Data struct {
 			ID      string `json:"id"`
 			Enabled bool   `json:"enabled"`
 		} `json:"data"`
@@ -88,6 +103,23 @@ func TestRuleHandler_CreateRule_MissingTenant(t *testing.T) {
 	}
 }
 
+func TestRuleHandler_CreateRule_IgnoresTenantHeaderWithoutAuthenticatedContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	repo := newMockRuleRepo()
+	handler := NewRuleHandler(NewRuleService(repo))
+	RegisterAlertRuleRoutes(router, handler)
+
+	body := map[string]any{
+		"name":      "test-rule",
+		"condition": map[string]any{"type": "keyword", "keyword": "error", "field": "message"},
+	}
+	rec := performRequest(router, http.MethodPost, "/api/v1/alert/rules", body, "00000000-0000-0000-0000-000000000001")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when only tenant header is present, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRuleHandler_ListRules_Pagination(t *testing.T) {
 	router := setupTestRouter()
 
@@ -123,8 +155,7 @@ func TestRuleHandler_DeleteRule(t *testing.T) {
 	}
 	svc := NewRuleService(repo)
 	handler := NewRuleHandler(svc)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
+	r := newAlertTestRouter()
 	RegisterAlertRuleRoutes(r, handler)
 
 	rec := performRequest(r, http.MethodDelete, "/api/v1/alert/rules/rule-123", nil, "00000000-0000-0000-0000-000000000001")
@@ -148,8 +179,7 @@ func TestRuleHandler_EnableDisable(t *testing.T) {
 	}
 	svc := NewRuleService(repo)
 	handler := NewRuleHandler(svc)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
+	r := newAlertTestRouter()
 	RegisterAlertRuleRoutes(r, handler)
 
 	rec := performRequest(r, http.MethodPut, "/api/v1/alert/rules/rule-enable/disable", nil, "00000000-0000-0000-0000-000000000001")
@@ -166,15 +196,14 @@ func TestRuleHandler_EnableDisable(t *testing.T) {
 func TestRuleHandler_GetRule_Found(t *testing.T) {
 	repo := newMockRuleRepo()
 	repo.rules["rule-get"] = AlertRule{
-		ID:       "rule-get",
-		TenantID: "00000000-0000-0000-0000-000000000001",
-		Name:     "get-test",
+		ID:        "rule-get",
+		TenantID:  "00000000-0000-0000-0000-000000000001",
+		Name:      "get-test",
 		Condition: json.RawMessage(`{"type":"keyword","keyword":"err"}`),
 	}
 	svc := NewRuleService(repo)
 	handler := NewRuleHandler(svc)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
+	r := newAlertTestRouter()
 	RegisterAlertRuleRoutes(r, handler)
 
 	rec := performRequest(r, http.MethodGet, "/api/v1/alert/rules/rule-get", nil, "00000000-0000-0000-0000-000000000001")
@@ -204,15 +233,14 @@ func TestRuleHandler_GetRule_NotFound(t *testing.T) {
 func TestRuleHandler_UpdateRule(t *testing.T) {
 	repo := newMockRuleRepo()
 	repo.rules["rule-upd"] = AlertRule{
-		ID:       "rule-upd",
-		TenantID: "00000000-0000-0000-0000-000000000001",
-		Name:     "old-name",
+		ID:        "rule-upd",
+		TenantID:  "00000000-0000-0000-0000-000000000001",
+		Name:      "old-name",
 		Condition: json.RawMessage(`{"type":"keyword","keyword":"err"}`),
 	}
 	svc := NewRuleService(repo)
 	handler := NewRuleHandler(svc)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
+	r := newAlertTestRouter()
 	RegisterAlertRuleRoutes(r, handler)
 
 	body := map[string]any{"name": "new-name"}
@@ -237,8 +265,7 @@ func TestRuleHandler_RuleLimitExceeded(t *testing.T) {
 	}
 	svc := NewRuleService(repo)
 	handler := NewRuleHandler(svc)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
+	r := newAlertTestRouter()
 	RegisterAlertRuleRoutes(r, handler)
 
 	body := map[string]any{
@@ -305,15 +332,14 @@ func TestRuleHandler_UpdateRule_NotFound(t *testing.T) {
 func TestRuleHandler_UpdateRule_InvalidCondition(t *testing.T) {
 	repo := newMockRuleRepo()
 	repo.rules["rule-1"] = AlertRule{
-		ID:       "rule-1",
-		TenantID: "00000000-0000-0000-0000-000000000001",
-		Name:     "test",
+		ID:        "rule-1",
+		TenantID:  "00000000-0000-0000-0000-000000000001",
+		Name:      "test",
 		Condition: json.RawMessage(`{"type":"keyword","keyword":"err"}`),
 	}
 	svc := NewRuleService(repo)
 	handler := NewRuleHandler(svc)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
+	r := newAlertTestRouter()
 	RegisterAlertRuleRoutes(r, handler)
 
 	body := map[string]any{"condition": map[string]any{"type": "invalid"}}

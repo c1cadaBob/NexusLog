@@ -31,6 +31,8 @@ func newTestContext(method, target string, body any) (*gin.Context, *httptest.Re
 	req.Header.Set("X-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 	req.Header.Set("X-User-ID", "20000000-0000-0000-0000-000000000001")
 	c.Request = req
+	c.Set("tenant_id", "00000000-0000-0000-0000-000000000001")
+	c.Set("user_id", "20000000-0000-0000-0000-000000000001")
 	return c, w
 }
 

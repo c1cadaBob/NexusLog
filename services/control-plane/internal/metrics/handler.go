@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 const (
@@ -36,7 +38,7 @@ func RegisterRoutes(router gin.IRouter, handler *Handler) {
 
 // Report handles POST /api/v1/metrics/report.
 func (h *Handler) Report(c *gin.Context) {
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := getTenantID(c)
 	if tenantID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": ErrorCodeInvalidParams, "message": "X-Tenant-ID header is required",
@@ -71,7 +73,7 @@ func (h *Handler) Report(c *gin.Context) {
 
 // QueryAgentMetrics handles GET /api/v1/metrics/servers/:agent_id.
 func (h *Handler) QueryAgentMetrics(c *gin.Context) {
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := getTenantID(c)
 	if tenantID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": ErrorCodeInvalidParams, "message": "X-Tenant-ID header is required",
@@ -131,6 +133,10 @@ func parseRange(r string) (from, to time.Time, err error) {
 	}
 	from = to.Add(-d)
 	return from, to, nil
+}
+
+func getTenantID(c *gin.Context) string {
+	return cpMiddleware.AuthenticatedTenantID(c)
 }
 
 func sanitizeMetricsValidationError(err error) string {

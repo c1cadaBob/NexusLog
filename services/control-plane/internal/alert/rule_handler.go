@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 const (
@@ -389,7 +391,11 @@ func sanitizeRuleConditionError(err error) string {
 }
 
 func getTenantID(c *gin.Context) string {
-	return strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	return cpMiddleware.AuthenticatedTenantID(c)
+}
+
+func getActorID(c *gin.Context) string {
+	return cpMiddleware.AuthenticatedUserID(c)
 }
 
 func parsePositiveInt(raw string, fallback int) (int, error) {

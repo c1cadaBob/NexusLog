@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 const (
@@ -39,7 +41,7 @@ func RegisterRoutes(router gin.IRouter, handler *ThresholdHandler) {
 
 // List handles GET /api/v1/resource/thresholds.
 func (h *ThresholdHandler) List(c *gin.Context) {
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := getTenantID(c)
 	if tenantID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": ErrorCodeInvalidParams, "message": "X-Tenant-ID header is required"})
 		return
@@ -69,7 +71,7 @@ func (h *ThresholdHandler) List(c *gin.Context) {
 
 // Get handles GET /api/v1/resource/thresholds/:id.
 func (h *ThresholdHandler) Get(c *gin.Context) {
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := getTenantID(c)
 	id := strings.TrimSpace(c.Param("id"))
 	if tenantID == "" || id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": ErrorCodeInvalidParams, "message": "X-Tenant-ID and id are required"})
@@ -102,7 +104,7 @@ type CreateRequest struct {
 
 // Create handles POST /api/v1/resource/thresholds.
 func (h *ThresholdHandler) Create(c *gin.Context) {
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := getTenantID(c)
 	if tenantID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": ErrorCodeInvalidParams, "message": "X-Tenant-ID header is required"})
 		return
@@ -158,9 +160,7 @@ func (h *ThresholdHandler) Create(c *gin.Context) {
 		Enabled:              enabled,
 		NotificationChannels: notifCh,
 	}
-	if uid := strings.TrimSpace(c.GetHeader("X-User-ID")); uid != "" {
-		t.CreatedBy = &uid
-	}
+	t.CreatedBy = getActorID(c)
 
 	if err := h.repo.Create(c.Request.Context(), t); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": ErrorCodeInternal, "message": "failed to create threshold"})
@@ -183,7 +183,7 @@ type UpdateRequest struct {
 
 // Update handles PUT /api/v1/resource/thresholds/:id.
 func (h *ThresholdHandler) Update(c *gin.Context) {
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := getTenantID(c)
 	id := strings.TrimSpace(c.Param("id"))
 	if tenantID == "" || id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": ErrorCodeInvalidParams, "message": "X-Tenant-ID and id are required"})
@@ -218,7 +218,7 @@ func (h *ThresholdHandler) Update(c *gin.Context) {
 
 // Delete handles DELETE /api/v1/resource/thresholds/:id.
 func (h *ThresholdHandler) Delete(c *gin.Context) {
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := getTenantID(c)
 	id := strings.TrimSpace(c.Param("id"))
 	if tenantID == "" || id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": ErrorCodeInvalidParams, "message": "X-Tenant-ID and id are required"})
@@ -235,4 +235,12 @@ func (h *ThresholdHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": "OK", "message": "success", "data": gin.H{"deleted": true}})
+}
+
+func getTenantID(c *gin.Context) string {
+	return cpMiddleware.AuthenticatedTenantID(c)
+}
+
+func getActorID(c *gin.Context) *string {
+	return cpMiddleware.AuthenticatedUserIDPtr(c)
 }

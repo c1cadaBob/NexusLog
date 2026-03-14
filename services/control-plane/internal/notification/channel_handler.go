@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 const (
@@ -88,7 +90,11 @@ func sanitizeNotificationValidationError(err error, fallback string) string {
 }
 
 func (h *ChannelHandler) getTenantID(c *gin.Context) string {
-	return strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	return cpMiddleware.AuthenticatedTenantID(c)
+}
+
+func (h *ChannelHandler) getActorID(c *gin.Context) *string {
+	return cpMiddleware.AuthenticatedUserIDPtr(c)
 }
 
 func (h *ChannelHandler) getRequestID(c *gin.Context) string {
@@ -208,10 +214,7 @@ func (h *ChannelHandler) CreateChannel(c *gin.Context) {
 		enabled = *req.Enabled
 	}
 
-	var createdBy *string
-	if uid := strings.TrimSpace(c.GetHeader("X-User-ID")); uid != "" {
-		createdBy = &uid
-	}
+	createdBy := h.getActorID(c)
 
 	ch, err := h.repo.CreateChannel(c.Request.Context(), tenantID, name, req.Type, req.Config, enabled, createdBy)
 	if err != nil {

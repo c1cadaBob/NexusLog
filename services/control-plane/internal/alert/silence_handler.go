@@ -68,7 +68,7 @@ type CreateSilenceRequest struct {
 // CreateSilence POST /api/v1/alert/silences
 func (h *SilenceHandler) CreateSilence(c *gin.Context) {
 	tenantID := strings.TrimSpace(getTenantID(c))
-	createdBy := strings.TrimSpace(c.GetHeader("X-User-ID"))
+	createdBy := getActorID(c)
 
 	var req CreateSilenceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
