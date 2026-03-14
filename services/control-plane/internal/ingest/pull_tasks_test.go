@@ -19,9 +19,9 @@ func createPullSourceForTask(t *testing.T, router *gin.Engine, name string) stri
 		"host":           host,
 		"port":           443,
 		"protocol":       "https",
-		"path":           "/api/pull",
+		"path":           "/api/pull/" + name,
 		"auth":           "token-ref-" + name,
-		"agent_base_url": "https://" + host + ":443",
+		"agent_base_url": "https://172.29.0.1:443",
 	})
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create pull source failed: %d %s", createResp.Code, createResp.Body.String())

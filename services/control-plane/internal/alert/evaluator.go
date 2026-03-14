@@ -6,10 +6,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/nexuslog/control-plane/internal/httpguard"
 )
 
 // ESSearchClient performs Elasticsearch search queries.
@@ -57,7 +58,7 @@ func (c *httpESSearchClient) Search(ctx context.Context, index string, body []by
 		return 0, err
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := httpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
 		return 0, err
 	}

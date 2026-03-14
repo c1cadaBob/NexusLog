@@ -5,11 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nexuslog/control-plane/internal/httpguard"
 )
 
 const (
@@ -170,7 +171,7 @@ func (c *AgentClient) doJSON(ctx context.Context, method, endpoint string, crede
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := httpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
 		return err
 	}

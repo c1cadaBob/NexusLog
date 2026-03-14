@@ -5,11 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/nexuslog/control-plane/internal/httpguard"
 )
 
 const (
@@ -64,11 +65,9 @@ func (s *Service) CreateRepository(ctx context.Context, repoName string, setting
 	if repoName == "" {
 		return fmt.Errorf("repository name is required")
 	}
-	path := defaultRepoPath
-	if settings != nil {
-		if loc, ok := settings["location"].(string); ok && loc != "" {
-			path = loc
-		}
+	path, err := resolveRepositoryLocation(settings)
+	if err != nil {
+		return err
 	}
 	body := map[string]interface{}{
 		"type": "fs",
@@ -91,7 +90,7 @@ func (s *Service) CreateRepository(ctx context.Context, repoName string, setting
 		return err
 	}
 	defer resp.Body.Close()
-	rb, _ := io.ReadAll(resp.Body)
+	rb, _ := httpguard.ReadLimitedBody(resp.Body, 0)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("create repository failed: status=%d body=%s", resp.StatusCode, string(rb))
 	}
@@ -128,7 +127,7 @@ func (s *Service) CreateSnapshot(ctx context.Context, repoName, snapshotName, in
 		return err
 	}
 	defer resp.Body.Close()
-	rb, _ := io.ReadAll(resp.Body)
+	rb, _ := httpguard.ReadLimitedBody(resp.Body, 0)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("create snapshot failed: status=%d body=%s", resp.StatusCode, string(rb))
 	}
@@ -153,7 +152,7 @@ func (s *Service) ListSnapshots(ctx context.Context, repoName string) ([]Snapsho
 		return nil, err
 	}
 	defer resp.Body.Close()
-	rb, err := io.ReadAll(resp.Body)
+	rb, err := httpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +196,7 @@ func (s *Service) GetSnapshotStatus(ctx context.Context, repoName, snapshotName 
 		return nil, err
 	}
 	defer resp.Body.Close()
-	rb, err := io.ReadAll(resp.Body)
+	rb, err := httpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +260,7 @@ func (s *Service) RestoreSnapshot(ctx context.Context, repoName, snapshotName st
 		return err
 	}
 	defer resp.Body.Close()
-	rb, _ := io.ReadAll(resp.Body)
+	rb, _ := httpguard.ReadLimitedBody(resp.Body, 0)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("restore snapshot failed: status=%d body=%s", resp.StatusCode, string(rb))
 	}
@@ -286,7 +285,7 @@ func (s *Service) DeleteSnapshot(ctx context.Context, repoName, snapshotName str
 		return err
 	}
 	defer resp.Body.Close()
-	rb, _ := io.ReadAll(resp.Body)
+	rb, _ := httpguard.ReadLimitedBody(resp.Body, 0)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("delete snapshot failed: status=%d body=%s", resp.StatusCode, string(rb))
 	}
@@ -311,7 +310,7 @@ func (s *Service) CancelSnapshot(ctx context.Context, repoName, snapshotName str
 		return err
 	}
 	defer resp.Body.Close()
-	rb, _ := io.ReadAll(resp.Body)
+	rb, _ := httpguard.ReadLimitedBody(resp.Body, 0)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("cancel snapshot failed: status=%d body=%s", resp.StatusCode, string(rb))
 	}
@@ -333,7 +332,7 @@ func (s *Service) ListRepositories(ctx context.Context) (map[string]RepositoryIn
 		return nil, err
 	}
 	defer resp.Body.Close()
-	rb, err := io.ReadAll(resp.Body)
+	rb, err := httpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
 		return nil, err
 	}

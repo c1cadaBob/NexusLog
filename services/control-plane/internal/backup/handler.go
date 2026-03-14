@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -91,11 +92,25 @@ func (h *Handler) CreateRepository(c *gin.Context) {
 			settings[k] = v
 		}
 	}
-	if loc, ok := settings["location"]; !ok || loc == "" {
-		settings["location"] = defaultRepoPath
+	location, err := resolveRepositoryLocation(settings)
+	if err != nil {
+		setBackupRepositoryAuditEvent(c, "backup_repositories.create", req.Name, buildBackupRepositoryAuditDetails(req.Name, "", http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "REQ_INVALID_PARAMS",
+			"message": "invalid repository location",
+		})
+		return
 	}
-	location, _ := settings["location"].(string)
+	settings["location"] = location
 	if err := h.svc.CreateRepository(c.Request.Context(), req.Name, settings); err != nil {
+		if errors.Is(err, ErrInvalidRepositoryLocation) {
+			setBackupRepositoryAuditEvent(c, "backup_repositories.create", req.Name, buildBackupRepositoryAuditDetails(req.Name, location, http.StatusBadRequest, "failed", "REQ_INVALID_PARAMS"))
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code":    "REQ_INVALID_PARAMS",
+				"message": "invalid repository location",
+			})
+			return
+		}
 		setBackupRepositoryAuditEvent(c, "backup_repositories.create", req.Name, buildBackupRepositoryAuditDetails(req.Name, location, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",

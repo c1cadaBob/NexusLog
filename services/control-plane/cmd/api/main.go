@@ -97,7 +97,8 @@ func main() {
 
 	// ES Snapshot Backup/Restore (W4-B3)
 	backupSvc := backup.NewService()
-	backup.RegisterRoutes(router, backup.NewHandler(backupSvc))
+	backupAdminRoutes := router.Group("", middleware.RequireAdminRole(pgDB))
+	backup.RegisterRoutes(backupAdminRoutes, backup.NewHandler(backupSvc))
 
 	// Metrics report + query API (W3-B6, W3-B8)
 	if pgDB != nil {

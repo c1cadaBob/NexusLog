@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nexuslog/control-plane/internal/httpguard"
 )
 
 const defaultSemanticDedupWindow = 10 * time.Second
@@ -217,7 +218,7 @@ func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSou
 		return ESSinkResult{}, err
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := httpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
 		return ESSinkResult{}, err
 	}

@@ -45,6 +45,14 @@ const (
 )
 
 var (
+	lookupAgentBaseURLHostIPs = func(ctx context.Context, host string) ([]net.IP, error) {
+		return net.DefaultResolver.LookupIP(ctx, "ip", host)
+	}
+	blockedAgentBaseURLHosts = map[string]struct{}{
+		"metadata.google.internal": {},
+		"metadata.aliyun.com":      {},
+		"metadata.tencentyun.com":  {},
+	}
 	// allowedProtocols 对齐迁移 000013 中 protocol 约束。
 	allowedProtocols = map[string]struct{}{
 		"ssh":        {},
@@ -776,18 +784,61 @@ func normalizeAndValidateAgentBaseURL(raw string) (string, error) {
 		return "", fmt.Errorf("agent_base_url must not contain query or fragment")
 	}
 	hostname := strings.TrimSpace(parsed.Hostname())
-	if strings.EqualFold(hostname, "localhost") {
-		return "", fmt.Errorf("agent_base_url localhost is not allowed")
-	}
-	if ip := net.ParseIP(hostname); ip != nil {
-		if ip.IsUnspecified() {
-			return "", fmt.Errorf("agent_base_url unspecified address is not allowed")
-		}
-		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return "", fmt.Errorf("agent_base_url link-local address is not allowed")
-		}
+	if err := validateAgentBaseURLHost(hostname); err != nil {
+		return "", err
 	}
 	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+func validateAgentBaseURLHost(hostname string) error {
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		return fmt.Errorf("agent_base_url host is required")
+	}
+	lowerHost := strings.ToLower(hostname)
+	if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {
+		return fmt.Errorf("agent_base_url localhost is not allowed")
+	}
+	if _, blocked := blockedAgentBaseURLHosts[lowerHost]; blocked {
+		return fmt.Errorf("agent_base_url host is not allowed")
+	}
+	if ip := net.ParseIP(hostname); ip != nil {
+		if isBlockedAgentBaseURLIP(ip) {
+			return fmt.Errorf("agent_base_url address is not allowed")
+		}
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	resolvedIPs, err := lookupAgentBaseURLHostIPs(ctx, hostname)
+	if err != nil {
+		return fmt.Errorf("agent_base_url host lookup failed")
+	}
+	if len(resolvedIPs) == 0 {
+		return fmt.Errorf("agent_base_url host resolved to no addresses")
+	}
+	for _, ip := range resolvedIPs {
+		if isBlockedAgentBaseURLIP(ip) {
+			return fmt.Errorf("agent_base_url resolved address is not allowed")
+		}
+	}
+	return nil
+}
+
+func isBlockedAgentBaseURLIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return true
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 100 && ip4[1] == 100 && ip4[2] == 100 && ip4[3] == 200 {
+			return true
+		}
+	}
+	return false
 }
 
 func applyPullSourceUpdate(current PullSource, req UpdatePullSourceRequest) PullSource {

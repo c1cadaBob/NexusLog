@@ -167,7 +167,7 @@ func createSchedulerSourceForTest(t *testing.T, store *PullSourceStore, status s
 		Protocol:        "http",
 		Path:            "/var/log/*.log",
 		Auth:            "agent-key",
-		AgentBaseURL:    "http://127.0.0.1:16666",
+		AgentBaseURL:    "http://172.29.0.1:16666",
 		PullIntervalSec: intervalSec,
 		PullTimeoutSec:  timeoutSec,
 		KeyRef:          "",

@@ -6,11 +6,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/nexuslog/control-plane/internal/httpguard"
 )
 
 type alertmanagerEvent struct {
@@ -205,7 +206,7 @@ func (b *AlertmanagerBridge) pushEvent(ctx context.Context, event alertmanagerEv
 	}
 	defer response.Body.Close()
 
-	responseBody, err := io.ReadAll(response.Body)
+	responseBody, err := httpguard.ReadLimitedBody(response.Body, 0)
 	if err != nil {
 		return err
 	}
