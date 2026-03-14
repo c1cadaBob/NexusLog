@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   App,
@@ -133,8 +133,10 @@ const UserManagement: React.FC = () => {
   const [detailError, setDetailError] = useState<LoadErrorState | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<UserData[]>([]);
+  const [userTableViewportWidth, setUserTableViewportWidth] = useState(0);
   const [form] = Form.useForm();
   const [createForm] = Form.useForm();
+  const userTableContainerRef = useRef<HTMLDivElement | null>(null);
 
   const clearSelection = useCallback(() => {
     setSelectedRowKeys([]);
@@ -209,6 +211,31 @@ const UserManagement: React.FC = () => {
     void loadRoles();
     void loadCurrentUser();
   }, [loadCurrentUser, loadRoles]);
+
+  useEffect(() => {
+    const tableContainer = userTableContainerRef.current;
+    if (!tableContainer) {
+      return undefined;
+    }
+
+    const syncWidth = () => {
+      setUserTableViewportWidth(Math.floor(tableContainer.clientWidth));
+    };
+
+    syncWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', syncWidth);
+      return () => window.removeEventListener('resize', syncWidth);
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      syncWidth();
+    });
+    resizeObserver.observe(tableContainer);
+
+    return () => resizeObserver.disconnect();
+  }, []);
 
   const roleOptions = useMemo(
     () => roles.map((role) => ({
@@ -446,7 +473,7 @@ const UserManagement: React.FC = () => {
     {
       title: '序号',
       key: 'index',
-      width: 80,
+      width: 72,
       align: 'center',
       render: (_, __, index) => (
         <span style={{ fontFamily: 'JetBrains Mono, monospace', color: palette.textSecondary }}>
@@ -458,7 +485,7 @@ const UserManagement: React.FC = () => {
       title: '用户 (USER)',
       dataIndex: 'display_name',
       key: 'name',
-      width: 260,
+      width: 190,
       render: (_, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div
@@ -496,19 +523,19 @@ const UserManagement: React.FC = () => {
       title: '邮箱 (EMAIL)',
       dataIndex: 'email',
       key: 'email',
-      width: 240,
+      width: 220,
       render: (text: string) => <span style={{ color: palette.textSecondary }}>{text}</span>,
     },
     {
       title: '角色 (ROLE)',
       key: 'roles',
-      width: 220,
+      width: 160,
       render: (_, record) => renderRoleTags(record.roles),
     },
     {
       title: '最后登录 (LAST LOGIN)',
       key: 'lastLogin',
-      width: 180,
+      width: 160,
       render: (_, record) => (
         <span style={{ fontFamily: 'JetBrains Mono, monospace', color: palette.textSecondary }}>
           {formatDateTime(record.last_login_at)}
@@ -519,7 +546,7 @@ const UserManagement: React.FC = () => {
       title: '状态 (STATUS)',
       dataIndex: 'status',
       key: 'status',
-      width: 110,
+      width: 100,
       align: 'center',
       render: (status: string) => <Tag color={status === 'active' ? 'success' : 'default'}>{getStatusLabel(status)}</Tag>,
     },
@@ -527,7 +554,7 @@ const UserManagement: React.FC = () => {
       title: '操作 (ACTIONS)',
       key: 'actions',
       align: 'right',
-      width: 220,
+      width: 160,
       render: (_, record) => {
         const isSelf = record.id === currentSessionUserId;
         const isProtected = isProtectedUser(record);
@@ -594,6 +621,11 @@ const UserManagement: React.FC = () => {
       },
     },
   ];
+
+  const userTableMinWidth = 1180;
+  const userTableScroll = userTableViewportWidth > 0 && userTableViewportWidth < userTableMinWidth
+    ? { x: userTableMinWidth }
+    : undefined;
 
   const userErrorPresentation = userLoadError?.status === 401
     ? {
@@ -833,7 +865,7 @@ const UserManagement: React.FC = () => {
         </Card>
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+      <div ref={userTableContainerRef} style={{ flex: 1, overflow: 'auto', padding: 24 }}>
         {userLoadError ? (
           <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Result
@@ -859,7 +891,7 @@ const UserManagement: React.FC = () => {
               rowKey="id"
               size="middle"
               loading={false}
-              scroll={{ x: 1380 }}
+              scroll={userTableScroll}
               onRow={(record) => ({
                 onDoubleClick: () => {
                   void openDetailDrawer(record);
