@@ -23,8 +23,6 @@ const (
 	MaxPageSize = 200
 	// MaxSearchResultWindow 定义 ES from/size 允许的最大结果窗口。
 	MaxSearchResultWindow = 10000
-	// DefaultTenantID 用于请求缺失租户上下文时兜底。
-	DefaultTenantID = "00000000-0000-0000-0000-000000000001"
 )
 
 var (

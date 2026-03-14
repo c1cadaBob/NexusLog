@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -87,10 +88,16 @@ func (r *ESExportRepository) ensureReady() error {
 	return nil
 }
 
+var ErrTenantScopeRequired = errors.New("tenant scope is required")
+
 // ScrollSearch 使用 scroll API 批量拉取日志，最多 maxRecords 条，回调每批
 func (r *ESExportRepository) ScrollSearch(ctx context.Context, params ExportQueryParams, maxRecords int, batchFn func([]LogHit) error) error {
 	if err := r.ensureReady(); err != nil {
 		return err
+	}
+	params.TenantID = strings.TrimSpace(params.TenantID)
+	if params.TenantID == "" {
+		return ErrTenantScopeRequired
 	}
 	if maxRecords <= 0 || maxRecords > maxExportRecords {
 		maxRecords = maxExportRecords
@@ -208,17 +215,22 @@ func buildExportESQuery(params ExportQueryParams) map[string]any {
 	mustClauses := make([]map[string]any, 0, 2)
 
 	tenantID := strings.TrimSpace(params.TenantID)
-	if tenantID != "" {
-		filterClauses = append(filterClauses, map[string]any{
+	if tenantID == "" {
+		return map[string]any{
 			"bool": map[string]any{
-				"should": []any{
-					map[string]any{"term": map[string]any{"tenant_id": tenantID}},
-					map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
-				},
-				"minimum_should_match": 1,
+				"filter": []map[string]any{{"match_none": map[string]any{}}},
 			},
-		})
+		}
 	}
+	filterClauses = append(filterClauses, map[string]any{
+		"bool": map[string]any{
+			"should": []any{
+				map[string]any{"term": map[string]any{"tenant_id": tenantID}},
+				map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
+			},
+			"minimum_should_match": 1,
+		},
+	})
 
 	keywords := strings.TrimSpace(params.Keywords)
 	if keywords != "" {

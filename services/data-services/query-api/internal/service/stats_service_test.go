@@ -40,8 +40,9 @@ func TestStatsServiceAggregate_UsesMinuteHistogramAndStructuredQuery(t *testing.
 	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
 	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
 
+	tenantID := "11111111-1111-1111-1111-111111111111"
 	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
-	result, err := svc.Aggregate(context.Background(), DefaultTenantID, AggregateRequest{
+	result, err := svc.Aggregate(context.Background(), tenantID, AggregateRequest{
 		GroupBy:   "minute",
 		TimeRange: "30m",
 		Keywords:  "level:error AND service:query-api",
@@ -102,5 +103,15 @@ func TestStatsServiceAggregate_UsesMinuteHistogramAndStructuredQuery(t *testing.
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("expected request body to contain %s, got %s", fragment, body)
 		}
+	}
+}
+
+func TestAppendTenantFilter_UsesMatchNoneWhenTenantMissing(t *testing.T) {
+	filters := appendTenantFilter(nil, "")
+	if len(filters) != 1 {
+		t.Fatalf("appendTenantFilter() len = %d, want 1", len(filters))
+	}
+	if _, ok := filters[0]["match_none"]; !ok {
+		t.Fatalf("appendTenantFilter() = %#v, want match_none guard", filters)
 	}
 }

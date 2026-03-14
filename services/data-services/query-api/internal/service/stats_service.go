@@ -371,7 +371,7 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 func appendTenantFilter(filters []map[string]any, tenantID string) []map[string]any {
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" {
-		return filters
+		return append(filters, map[string]any{"match_none": map[string]any{}})
 	}
 	return append(filters, map[string]any{
 		"bool": map[string]any{

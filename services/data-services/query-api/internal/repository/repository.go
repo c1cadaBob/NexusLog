@@ -116,10 +116,16 @@ func (r *ElasticsearchRepository) ensureReady() error {
 	return nil
 }
 
+var ErrTenantScopeRequired = errors.New("tenant scope is required")
+
 // SearchLogs 调用 ES _search 执行检索。
 func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsInput) (SearchLogsResult, error) {
 	if err := r.ensureReady(); err != nil {
 		return SearchLogsResult{}, err
+	}
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	if in.TenantID == "" {
+		return SearchLogsResult{}, ErrTenantScopeRequired
 	}
 	if in.Page <= 0 {
 		in.Page = 1
@@ -472,17 +478,10 @@ func BuildESQuery(in SearchLogsInput) map[string]any {
 	mustClauses := make([]map[string]any, 0, 2)
 
 	tenantID := strings.TrimSpace(in.TenantID)
-	if tenantID != "" {
-		filterClauses = append(filterClauses, map[string]any{
-			"bool": map[string]any{
-				"should": []any{
-					map[string]any{"term": map[string]any{"tenant_id": tenantID}},
-					map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
-				},
-				"minimum_should_match": 1,
-			},
-		})
+	if tenantID == "" {
+		return tenantScopedMatchNoneQuery()
 	}
+	filterClauses = append(filterClauses, tenantScopeFilterClause(tenantID))
 	mustNotClauses := make([]map[string]any, 0, 2)
 
 	keywords := strings.TrimSpace(in.Keywords)
@@ -580,6 +579,26 @@ func BuildESQuery(in SearchLogsInput) map[string]any {
 	}
 	return map[string]any{
 		"bool": boolQuery,
+	}
+}
+
+func tenantScopeFilterClause(tenantID string) map[string]any {
+	return map[string]any{
+		"bool": map[string]any{
+			"should": []any{
+				map[string]any{"term": map[string]any{"tenant_id": tenantID}},
+				map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
+			},
+			"minimum_should_match": 1,
+		},
+	}
+}
+
+func tenantScopedMatchNoneQuery() map[string]any {
+	return map[string]any{
+		"bool": map[string]any{
+			"filter": []map[string]any{{"match_none": map[string]any{}}},
+		},
 	}
 }
 

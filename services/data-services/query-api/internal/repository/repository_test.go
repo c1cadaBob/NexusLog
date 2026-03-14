@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 func TestBuildESQuery_UsesStructuredV2FieldsAndFilterAliases(t *testing.T) {
 	query := BuildESQuery(SearchLogsInput{
+		TenantID: "tenant-a",
 		Keywords: "dnf.exceptions.RepoError",
 		Filters: map[string]any{
 			"level":      "error",
@@ -61,6 +63,7 @@ func TestBuildESQuery_UsesStructuredV2FieldsAndFilterAliases(t *testing.T) {
 
 func TestBuildESQuery_TreatsKeywordsAsLiteralTextAndDropsUnknownFilters(t *testing.T) {
 	query := BuildESQuery(SearchLogsInput{
+		TenantID: "tenant-a",
 		Keywords: `error OR *`,
 		Filters: map[string]any{
 			"unknown.field": "boom",
@@ -92,6 +95,7 @@ func TestBuildESQuery_TreatsKeywordsAsLiteralTextAndDropsUnknownFilters(t *testi
 
 func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
 	query := BuildESQuery(SearchLogsInput{
+		TenantID: "tenant-a",
 		Filters: map[string]any{
 			"exclude_internal_noise": true,
 		},
@@ -139,6 +143,22 @@ func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
 		`"comm=\"dockerd\""`,
 		`"type=ANOM_PROMISCUOUS"`,
 	})
+}
+
+func TestBuildESQuery_UsesMatchNoneWhenTenantMissing(t *testing.T) {
+	query := BuildESQuery(SearchLogsInput{Keywords: "error"})
+
+	raw, err := json.Marshal(query)
+	if err != nil {
+		t.Fatalf("marshal query failed: %v", err)
+	}
+	encoded := string(raw)
+	if !strings.Contains(encoded, `"match_none"`) {
+		t.Fatalf("expected match_none query, got %s", encoded)
+	}
+	if strings.Contains(encoded, `"tenant_id"`) {
+		t.Fatalf("unexpected tenant filter in %s", encoded)
+	}
 }
 
 func TestNormalizeFilterField_MapsFrontendAliasesToV2Fields(t *testing.T) {
@@ -292,6 +312,7 @@ func TestSearchLogs_OpensPITAndReturnsNextSearchAfter(t *testing.T) {
 		client:  server.Client(),
 	}
 	result, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		TenantID: "tenant-a",
 		Page:     2,
 		PageSize: 20,
 		Sort:     []SortField{{Field: "@timestamp", Order: "desc"}},
@@ -361,6 +382,7 @@ func TestSearchLogs_UsesProvidedCursorForDeepPagination(t *testing.T) {
 		client:  server.Client(),
 	}
 	_, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		TenantID:    "tenant-a",
 		Page:        501,
 		PageSize:    20,
 		Sort:        []SortField{{Field: "@timestamp", Order: "desc"}},
@@ -442,6 +464,7 @@ func TestSearchLogs_ReopensPITWhenExistingPITExpires(t *testing.T) {
 		client:  server.Client(),
 	}
 	result, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		TenantID:    "tenant-a",
 		Page:        501,
 		PageSize:    20,
 		Sort:        []SortField{{Field: "@timestamp", Order: "desc"}},
@@ -474,6 +497,28 @@ func TestSearchLogs_ReopensPITWhenExistingPITExpires(t *testing.T) {
 	}
 	if len(result.Hits) != 1 || result.Hits[0].ID != "log-recovered" {
 		t.Fatalf("unexpected result hits: %+v", result.Hits)
+	}
+}
+
+func TestSearchLogs_RejectsMissingTenantScope(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	_, err := repo.SearchLogs(context.Background(), SearchLogsInput{Page: 1, PageSize: 20})
+	if !errors.Is(err, ErrTenantScopeRequired) {
+		t.Fatalf("SearchLogs() error = %v, want ErrTenantScopeRequired", err)
+	}
+	if called {
+		t.Fatal("expected repository to reject before issuing network request")
 	}
 }
 
