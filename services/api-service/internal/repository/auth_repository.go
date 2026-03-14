@@ -227,8 +227,19 @@ func (r *AuthRepository) CreatePasswordResetToken(
 	expiresAt time.Time,
 	requestedIP, userAgent string,
 ) error {
-	// requested_ip 列类型为 INET，NULLIF 返回 text，需显式转换为 inet。
-	const q = `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	tokenHash := hashToken(rawToken)
+
+	const insertTokenSQL = `
 		INSERT INTO password_reset_tokens (
 			tenant_id,
 			user_id,
@@ -239,17 +250,33 @@ func (r *AuthRepository) CreatePasswordResetToken(
 		)
 		VALUES ($1, $2, $3, $4, NULLIF($5, '')::inet, NULLIF($6, ''))
 	`
-	if _, err := r.db.ExecContext(
+	if _, err = tx.ExecContext(
 		ctx,
-		q,
+		insertTokenSQL,
 		tenantID,
 		userID,
-		hashToken(rawToken),
+		tokenHash,
 		expiresAt,
 		requestedIP,
 		userAgent,
 	); err != nil {
 		return fmt.Errorf("create password reset token: %w", err)
+	}
+
+	const invalidateOtherTokensSQL = `
+		UPDATE password_reset_tokens
+		SET used_at = NOW()
+		WHERE tenant_id = $1
+		  AND user_id = $2
+		  AND used_at IS NULL
+		  AND token_hash <> $3
+	`
+	if _, err = tx.ExecContext(ctx, invalidateOtherTokensSQL, tenantID, userID, tokenHash); err != nil {
+		return fmt.Errorf("invalidate prior password reset tokens: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -272,13 +299,12 @@ func (r *AuthRepository) ConfirmPasswordReset(
 	}()
 
 	const selectResetTokenSQL = `
-		SELECT id, user_id, expires_at, used_at
+		SELECT user_id, expires_at, used_at
 		FROM password_reset_tokens
 		WHERE tenant_id = $1 AND token_hash = $2
 		FOR UPDATE
 	`
 
-	var tokenID uuid.UUID
 	var userID uuid.UUID
 	var expiresAt time.Time
 	var usedAt sql.NullTime
@@ -287,7 +313,7 @@ func (r *AuthRepository) ConfirmPasswordReset(
 		selectResetTokenSQL,
 		tenantID,
 		hashToken(rawToken),
-	).Scan(&tokenID, &userID, &expiresAt, &usedAt); err != nil {
+	).Scan(&userID, &expiresAt, &usedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return uuid.Nil, ErrInvalidResetToken
 		}
@@ -329,13 +355,15 @@ func (r *AuthRepository) ConfirmPasswordReset(
 		return uuid.Nil, fmt.Errorf("update user credentials password: no row updated")
 	}
 
-	const markUsedSQL = `
+	const invalidateOutstandingTokensSQL = `
 		UPDATE password_reset_tokens
 		SET used_at = NOW()
-		WHERE id = $1
+		WHERE tenant_id = $1
+		  AND user_id = $2
+		  AND used_at IS NULL
 	`
-	if _, err = tx.ExecContext(ctx, markUsedSQL, tokenID); err != nil {
-		return uuid.Nil, fmt.Errorf("mark password reset token used: %w", err)
+	if _, err = tx.ExecContext(ctx, invalidateOutstandingTokensSQL, tenantID, userID); err != nil {
+		return uuid.Nil, fmt.Errorf("invalidate outstanding password reset tokens: %w", err)
 	}
 
 	const revokeSessionsSQL = `

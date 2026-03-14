@@ -410,15 +410,6 @@ func (s *AuthService) PasswordResetRequest(
 	userRec, err := s.repo.FindUserByEmailOrUsername(ctx, tenantID, normalizedReq.EmailOrUsername)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
-			_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
-				TenantID:  tenantID,
-				Username:  normalizedReq.EmailOrUsername,
-				Email:     inferEmailOrEmpty(normalizedReq.EmailOrUsername),
-				IPAddress: clientIP,
-				UserAgent: userAgent,
-				Result:    "failed",
-				Reason:    "password_reset_user_not_found",
-			})
 			return model.PasswordResetRequestResponseData{Accepted: true}, nil
 		}
 		return model.PasswordResetRequestResponseData{}, &model.APIError{
@@ -452,18 +443,6 @@ func (s *AuthService) PasswordResetRequest(
 			Message:    "internal error",
 		}
 	}
-
-	uid := userRec.UserID
-	_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
-		TenantID:  tenantID,
-		UserID:    &uid,
-		Username:  userRec.Username,
-		Email:     userRec.Email,
-		IPAddress: clientIP,
-		UserAgent: userAgent,
-		Result:    "success",
-		Reason:    "password_reset_requested",
-	})
 
 	return model.PasswordResetRequestResponseData{Accepted: true}, nil
 }
@@ -692,13 +671,6 @@ func normalizeAndValidateResetConfirm(req model.PasswordResetConfirmRequest) (mo
 func normalizeLogout(req model.LogoutRequest) model.LogoutRequest {
 	req.RefreshToken = strings.TrimSpace(req.RefreshToken)
 	return req
-}
-
-func inferEmailOrEmpty(identifier string) string {
-	if _, err := mail.ParseAddress(identifier); err == nil {
-		return strings.ToLower(identifier)
-	}
-	return ""
 }
 
 func parseAndCheckTenant(ctx context.Context, repo authRepository, tenantHeader, codePrefix string) (uuid.UUID, *model.APIError) {

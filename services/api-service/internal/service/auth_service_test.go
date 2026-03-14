@@ -438,8 +438,8 @@ func TestPasswordResetRequestValidationAndSuccess(t *testing.T) {
 	if err != nil || !resp.Accepted {
 		t.Fatalf("expected accepted for user-not-found, resp=%#v err=%#v", resp, err)
 	}
-	if repoMock.lastLoginAttempt == nil || repoMock.lastLoginAttempt.Result != "failed" {
-		t.Fatalf("expected failed attempt record for user-not-found")
+	if repoMock.lastLoginAttempt != nil {
+		t.Fatalf("password reset request should not record login attempts, got %#v", repoMock.lastLoginAttempt)
 	}
 
 	repoMock.findUserErr = nil
@@ -457,8 +457,8 @@ func TestPasswordResetRequestValidationAndSuccess(t *testing.T) {
 	if repoMock.createResetCall == 0 {
 		t.Fatalf("expected reset token creation")
 	}
-	if repoMock.lastLoginAttempt == nil || repoMock.lastLoginAttempt.Result != "success" {
-		t.Fatalf("expected success attempt record for reset request")
+	if repoMock.lastLoginAttempt != nil {
+		t.Fatalf("password reset request should not record login attempts, got %#v", repoMock.lastLoginAttempt)
 	}
 
 	repoMock.createResetErr = errors.New("db failed")
