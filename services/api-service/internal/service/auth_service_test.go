@@ -237,6 +237,30 @@ func TestLoginValidationAndTenantErrors(t *testing.T) {
 	}
 }
 
+func TestLoginLockedRecordsLockedAttempt(t *testing.T) {
+	tenantID := uuid.NewString()
+	repoMock := &mockAuthRepository{
+		tenantExists: true,
+		lockActive:   true,
+		lockUntil:    time.Now().UTC().Add(10 * time.Minute),
+	}
+	svc := NewAuthService(repoMock, "test-secret")
+
+	_, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "valid_user", Password: "Password123"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTH_LOGIN_LOCKED" {
+		t.Fatalf("expected locked error, got %#v", err)
+	}
+	if repoMock.lastLoginAttempt == nil {
+		t.Fatal("expected locked login attempt record")
+	}
+	if repoMock.lastLoginAttempt.Result != "locked" {
+		t.Fatalf("expected locked result, got %#v", repoMock.lastLoginAttempt)
+	}
+	if repoMock.lastLoginAttempt.Reason != "account_locked" {
+		t.Fatalf("expected account_locked reason, got %#v", repoMock.lastLoginAttempt)
+	}
+}
+
 func TestLoginInvalidCredentialsAndSuccess(t *testing.T) {
 	tenantID := uuid.NewString()
 	userID := uuid.New()

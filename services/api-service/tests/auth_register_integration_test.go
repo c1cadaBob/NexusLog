@@ -78,6 +78,51 @@ func TestRegisterIntegration(t *testing.T) {
 	}
 }
 
+func TestLoginLockedIntegrationRecordsLockedAttempt(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-login-locked")
+	router := buildRouter(db)
+
+	username := "locked_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+
+	registerStatus, registerBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    "Password123",
+		Email:       email,
+		DisplayName: "Locked User",
+	})
+	if registerStatus != http.StatusCreated || registerBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", registerStatus, registerBody)
+	}
+
+	for i := 0; i < 5; i++ {
+		status, body := callLogin(t, router, tenantID, model.LoginRequest{Username: username, Password: "bad-password"})
+		if status != http.StatusUnauthorized || body["code"] != "AUTH_LOGIN_INVALID_CREDENTIALS" {
+			t.Fatalf("expected invalid credentials on attempt %d, status=%d body=%#v", i+1, status, body)
+		}
+	}
+
+	status, body := callLogin(t, router, tenantID, model.LoginRequest{Username: username, Password: "bad-password"})
+	if status != http.StatusLocked || body["code"] != "AUTH_LOGIN_LOCKED" {
+		t.Fatalf("expected locked response, status=%d body=%#v", status, body)
+	}
+	if got := latestLoginAttemptResult(t, ctx, db, tenantID, username); got != "locked" {
+		t.Fatalf("expected latest login_attempt result locked, got %q", got)
+	}
+}
+
 func TestLoginIntegration(t *testing.T) {
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {
@@ -963,6 +1008,22 @@ func hasFailedLoginAttemptReason(t *testing.T, ctx context.Context, db *sql.DB, 
 		t.Fatalf("check login_attempts failed reason: %v", err)
 	}
 	return exists
+}
+
+func latestLoginAttemptResult(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) string {
+	t.Helper()
+	const q = `
+		SELECT result
+		FROM login_attempts
+		WHERE tenant_id = $1::uuid AND username = $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	var result string
+	if err := db.QueryRowContext(ctx, q, tenantID, username).Scan(&result); err != nil {
+		t.Fatalf("query latest login_attempt result: %v", err)
+	}
+	return result
 }
 
 func hashResetToken(raw string) string {

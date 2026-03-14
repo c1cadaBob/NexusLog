@@ -208,7 +208,7 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 			Username:  normalizedReq.Username,
 			IPAddress: clientIP,
 			UserAgent: userAgent,
-			Result:    "failed",
+			Result:    "locked",
 			Reason:    "account_locked",
 		})
 		return model.LoginResponseData{}, &model.APIError{
