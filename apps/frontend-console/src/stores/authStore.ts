@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '../types/user';
+import { revokeCurrentSession } from '../api/auth';
 import { fetchCurrentUser } from '../api/user';
 import {
   ACCESS_TOKEN_KEY,
@@ -20,13 +21,17 @@ function resetPermissionSyncTracking(): void {
   recentPermissionSyncAt.clear();
 }
 
+export interface LogoutOptions {
+  revokeSession?: boolean;
+}
+
 export interface AuthState {
   isAuthenticated: boolean;
   user: User | null;
   permissions: string[];
   isLoading: boolean;
   login: (user: User) => void;
-  logout: () => void;
+  logout: (options?: LogoutOptions) => Promise<void>;
   setLoading: (loading: boolean) => void;
   setPermissions: (permissions: string[]) => void;
   /** Fetch current user permissions (call after login or on app load when authenticated) */
@@ -41,10 +46,20 @@ export const useAuthStore = create<AuthState>()(
       permissions: [],
       isLoading: false,
       login: (user) => set({ isAuthenticated: true, user, isLoading: false }),
-      logout: () => {
-        resetPermissionSyncTracking();
-        clearAuthStorage();
-        set({ isAuthenticated: false, user: null, permissions: [] });
+      logout: async (options) => {
+        const shouldRevokeSession = options?.revokeSession !== false;
+
+        try {
+          if (shouldRevokeSession) {
+            await revokeCurrentSession();
+          }
+        } catch (error) {
+          console.warn('[authStore] 服务端注销失败，继续清理本地会话:', error);
+        } finally {
+          resetPermissionSyncTracking();
+          clearAuthStorage();
+          set({ isAuthenticated: false, user: null, permissions: [] });
+        }
       },
       setLoading: (isLoading) => set({ isLoading }),
       setPermissions: (permissions) => set({ permissions }),

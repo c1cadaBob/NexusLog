@@ -223,7 +223,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
       hasCleanedRef.current = true;
       clearAuthStorage();
-      logout();
+      void logout({ revokeSession: false });
     });
   }, [shouldAttemptRefresh, tokenValidation.reason, tokenValidation.isValid, refreshToken, isRefreshing, logout]);
 
@@ -241,7 +241,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     hasCleanedRef.current = true;
     clearAuthStorage();
     if (isAuthenticated) {
-      logout();
+      void logout({ revokeSession: false });
     }
   }, [tokenValidation.isValid, isRefreshing, shouldAttemptRefresh, isAuthenticated, logout]);
 
