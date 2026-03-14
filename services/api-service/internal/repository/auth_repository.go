@@ -385,23 +385,27 @@ func (r *AuthRepository) CreateUserSession(ctx context.Context, input CreateSess
 	// client_ip 列类型为 INET，NULLIF 返回 text，需显式转换为 inet。
 	const q = `
 		INSERT INTO user_sessions (
+			id,
 			tenant_id,
 			user_id,
 			refresh_token_hash,
 			access_token_jti,
+			session_family_id,
 			session_status,
 			client_ip,
 			user_agent,
 			expires_at,
 			last_seen_at
 		)
-		VALUES ($1, $2, $3, $4, 'active', NULLIF($5, '')::inet, NULLIF($6, ''), $7, NOW())
+		VALUES ($1, $2, $3, $4, $5, $1, 'active', NULLIF($6, '')::inet, NULLIF($7, ''), $8, NOW())
 	`
 
 	refreshHash := hashToken(input.RefreshToken)
+	sessionID := uuid.New()
 	if _, err := r.db.ExecContext(
 		ctx,
 		q,
+		sessionID,
 		input.TenantID,
 		input.UserID,
 		refreshHash,
@@ -424,14 +428,15 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("begin tx: %w", err)
 	}
+	committed := false
 	defer func() {
-		if err != nil {
+		if !committed {
 			_ = tx.Rollback()
 		}
 	}()
 
 	const selectSessionSQL = `
-		SELECT s.id, s.user_id, s.expires_at, s.created_at, s.session_status
+		SELECT s.id, s.user_id, s.expires_at, s.created_at, s.session_status, s.session_family_id, s.replaced_by_session_id
 		FROM user_sessions s
 		JOIN users u ON u.id = s.user_id AND u.tenant_id = s.tenant_id
 		WHERE s.tenant_id = $1 AND s.refresh_token_hash = $2 AND u.status = 'active'
@@ -443,59 +448,75 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 	var expiresAt time.Time
 	var createdAt time.Time
 	var status string
+	var familyID uuid.UUID
+	var replacedBySessionID sql.NullString
 	if err = tx.QueryRowContext(
 		ctx,
 		selectSessionSQL,
 		input.TenantID,
 		hashToken(input.CurrentRefresh),
-	).Scan(&sessionID, &userID, &expiresAt, &createdAt, &status); err != nil {
+	).Scan(&sessionID, &userID, &expiresAt, &createdAt, &status, &familyID, &replacedBySessionID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return uuid.Nil, ErrInvalidRefreshToken
 		}
 		return uuid.Nil, fmt.Errorf("query refresh session: %w", err)
 	}
 
-	if status != "active" || expiresAt.Before(time.Now().UTC()) {
-		err = ErrInvalidRefreshToken
-		return uuid.Nil, err
+	now := time.Now().UTC()
+	if status != "active" || expiresAt.Before(now) {
+		if status == "revoked" && replacedBySessionID.Valid {
+			if revokeErr := revokeActiveSessionFamily(ctx, tx, input.TenantID, familyID); revokeErr != nil {
+				return uuid.Nil, revokeErr
+			}
+			if err = tx.Commit(); err != nil {
+				return uuid.Nil, fmt.Errorf("commit replay revocation: %w", err)
+			}
+			committed = true
+		}
+		return uuid.Nil, ErrInvalidRefreshToken
 	}
 
 	sessionTTL, ttlErr := deriveSessionTTL(createdAt, expiresAt)
 	if ttlErr != nil {
 		return uuid.Nil, fmt.Errorf("derive session ttl: %w", ttlErr)
 	}
-	newExpiresAt := time.Now().UTC().Add(sessionTTL)
+	newExpiresAt := now.Add(sessionTTL)
+	newSessionID := uuid.New()
 
 	const revokeOldSQL = `
 		UPDATE user_sessions
-		SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+		SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW(), replaced_by_session_id = $2
 		WHERE id = $1 AND session_status = 'active'
 	`
-	if _, err = tx.ExecContext(ctx, revokeOldSQL, sessionID); err != nil {
+	if _, err = tx.ExecContext(ctx, revokeOldSQL, sessionID, newSessionID); err != nil {
 		return uuid.Nil, fmt.Errorf("revoke old session: %w", err)
 	}
 
 	const insertNewSQL = `
 		INSERT INTO user_sessions (
+			id,
 			tenant_id,
 			user_id,
 			refresh_token_hash,
 			access_token_jti,
+			session_family_id,
 			session_status,
 			client_ip,
 			user_agent,
 			expires_at,
 			last_seen_at
 		)
-		VALUES ($1, $2, $3, $4, 'active', NULLIF($5, '')::inet, NULLIF($6, ''), $7, NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, 'active', NULLIF($7, '')::inet, NULLIF($8, ''), $9, NOW())
 	`
 	if _, err = tx.ExecContext(
 		ctx,
 		insertNewSQL,
+		newSessionID,
 		input.TenantID,
 		userID,
 		hashToken(input.NewRefresh),
 		input.AccessTokenJTI,
+		familyID,
 		input.ClientIP,
 		input.UserAgent,
 		newExpiresAt,
@@ -510,6 +531,7 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 	if err = tx.Commit(); err != nil {
 		return uuid.Nil, fmt.Errorf("commit tx: %w", err)
 	}
+	committed = true
 
 	return userID, nil
 }
@@ -658,6 +680,18 @@ func deriveSessionTTL(createdAt, expiresAt time.Time) (time.Duration, error) {
 		return 0, fmt.Errorf("session ttl must be positive")
 	}
 	return ttl, nil
+}
+
+func revokeActiveSessionFamily(ctx context.Context, tx *sql.Tx, tenantID, familyID uuid.UUID) error {
+	const q = `
+		UPDATE user_sessions
+		SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+		WHERE tenant_id = $1 AND session_family_id = $2 AND session_status = 'active'
+	`
+	if _, err := tx.ExecContext(ctx, q, tenantID, familyID); err != nil {
+		return fmt.Errorf("revoke replayed session family: %w", err)
+	}
+	return nil
 }
 
 func hashToken(raw string) string {
