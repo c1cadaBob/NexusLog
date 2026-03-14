@@ -17,9 +17,13 @@ import (
 )
 
 const (
-	exportDir         = "/tmp/nexuslog-exports"
-	maxExportRecords  = 100000
-	exportRetentionDays = 7
+	exportDir                     = "/tmp/nexuslog-exports"
+	maxExportRecords              = 100000
+	exportRetentionDays           = 7
+	exportJobFailedMessage        = "export job failed"
+	exportJobTimedOutMessage      = "export job timed out"
+	exportJobCanceledMessage      = "export job was canceled"
+	exportServiceUnavailableError = "export service unavailable"
 )
 
 // CreateExportJobRequest 创建导出任务请求
@@ -30,16 +34,16 @@ type CreateExportJobRequest struct {
 
 // ExportJobItem 导出任务项
 type ExportJobItem struct {
-	ID           string  `json:"id"`
-	Format       string  `json:"format"`
-	Status       string  `json:"status"`
-	TotalRecords *int    `json:"total_records,omitempty"`
-	FilePath     *string `json:"file_path,omitempty"`
-	FileSizeBytes *int64 `json:"file_size_bytes,omitempty"`
-	ErrorMessage *string `json:"error_message,omitempty"`
-	CreatedAt    string  `json:"created_at"`
-	CompletedAt  *string `json:"completed_at,omitempty"`
-	ExpiresAt    *string `json:"expires_at,omitempty"`
+	ID            string  `json:"id"`
+	Format        string  `json:"format"`
+	Status        string  `json:"status"`
+	TotalRecords  *int    `json:"total_records,omitempty"`
+	FilePath      *string `json:"-"`
+	FileSizeBytes *int64  `json:"file_size_bytes,omitempty"`
+	ErrorMessage  *string `json:"error_message,omitempty"`
+	CreatedAt     string  `json:"created_at"`
+	CompletedAt   *string `json:"completed_at,omitempty"`
+	ExpiresAt     *string `json:"expires_at,omitempty"`
 }
 
 // ListExportJobsResult 导出任务列表结果
@@ -52,8 +56,8 @@ type ListExportJobsResult struct {
 
 // ExportService 封装导出业务逻辑
 type ExportService struct {
-	exportRepo *repository.ExportRepository
-	esRepo     *repository.ESExportRepository
+	exportRepo  *repository.ExportRepository
+	esRepo      *repository.ESExportRepository
 	cleanupOnce sync.Once
 }
 
@@ -106,7 +110,7 @@ func (s *ExportService) runExportJob(ctx context.Context, jobID, tenantID string
 
 	// 2. 确保导出目录存在
 	if err := os.MkdirAll(exportDir, 0755); err != nil {
-		msg := err.Error()
+		msg := sanitizeExportJobErrorMessage(err.Error())
 		_ = s.exportRepo.UpdateJobStatus(ctx, jobID, "failed", nil, nil, nil, &msg)
 		return
 	}
@@ -125,7 +129,7 @@ func (s *ExportService) runExportJob(ctx context.Context, jobID, tenantID string
 
 	if writeErr != nil {
 		_ = os.Remove(filePath)
-		msg := writeErr.Error()
+		msg := sanitizeExportJobErrorMessage(writeErr.Error())
 		_ = s.exportRepo.UpdateJobStatus(ctx, jobID, "failed", nil, nil, nil, &msg)
 		return
 	}
@@ -382,9 +386,10 @@ func jobToItem(job *repository.ExportJob) *ExportJobItem {
 		CreatedAt: job.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	item.TotalRecords = job.TotalRecords
-	item.FilePath = job.FilePath
 	item.FileSizeBytes = job.FileSizeBytes
-	item.ErrorMessage = job.ErrorMessage
+	if msg := sanitizeExportJobErrorMessage(derefString(job.ErrorMessage)); msg != "" {
+		item.ErrorMessage = &msg
+	}
 	if job.CompletedAt != nil {
 		s := job.CompletedAt.UTC().Format(time.RFC3339)
 		item.CompletedAt = &s
@@ -394,4 +399,29 @@ func jobToItem(job *repository.ExportJob) *ExportJobItem {
 		item.ExpiresAt = &s
 	}
 	return item
+}
+
+func sanitizeExportJobErrorMessage(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.Contains(lower, "deadline exceeded"), strings.Contains(lower, "timed out"), strings.Contains(lower, "timeout"):
+		return exportJobTimedOutMessage
+	case strings.Contains(lower, "canceled"), strings.Contains(lower, "cancelled"):
+		return exportJobCanceledMessage
+	case strings.Contains(lower, "not configured"), strings.Contains(lower, "unavailable"):
+		return exportServiceUnavailableError
+	default:
+		return exportJobFailedMessage
+	}
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

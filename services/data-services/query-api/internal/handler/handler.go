@@ -252,7 +252,7 @@ func writeServiceError(c *gin.Context, err error) {
 		writeError(c, http.StatusBadRequest, CodeQueryInvalidParams, "invalid saved query payload")
 	case errors.Is(err, service.ErrInvalidSearchCursor),
 		errors.Is(err, service.ErrPageBeyondResultWindow):
-		writeError(c, http.StatusBadRequest, CodeQueryInvalidParams, err.Error())
+		writeError(c, http.StatusBadRequest, CodeQueryInvalidParams, sanitizeQueryValidationError(err))
 	case errors.Is(err, service.ErrMetadataNotConfigured),
 		errors.Is(err, repository.ErrMetadataStoreNotConfigured):
 		writeError(c, http.StatusServiceUnavailable, CodeQueryServiceUnavailable, "query metadata store is unavailable")
@@ -262,6 +262,17 @@ func writeServiceError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, CodeQueryConflict, "resource conflict")
 	default:
 		writeError(c, http.StatusInternalServerError, CodeQueryInternalError, "internal error")
+	}
+}
+
+func sanitizeQueryValidationError(err error) string {
+	switch {
+	case errors.Is(err, service.ErrInvalidSearchCursor):
+		return "invalid search cursor"
+	case errors.Is(err, service.ErrPageBeyondResultWindow):
+		return "requested page exceeds supported result window; use cursor pagination"
+	default:
+		return "invalid query parameters"
 	}
 }
 
