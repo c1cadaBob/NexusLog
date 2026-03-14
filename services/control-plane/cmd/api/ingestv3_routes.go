@@ -18,7 +18,7 @@ type commitPullCursorsRequest struct {
 	Files    []ingestv3.PulledFile `json:"files"`
 }
 
-func registerIngestV3Routes(router *gin.Engine, lookup ingestv3.CursorLookup, writer ingestv3.CursorWriter) {
+func registerIngestV3Routes(router gin.IRouter, lookup ingestv3.CursorLookup, writer ingestv3.CursorWriter) {
 	if router == nil {
 		return
 	}

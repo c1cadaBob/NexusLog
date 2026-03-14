@@ -17,6 +17,7 @@ import (
 
 	"github.com/nexuslog/control-plane/internal/alert"
 	"github.com/nexuslog/control-plane/internal/ingest"
+	"github.com/nexuslog/control-plane/internal/ingestv3"
 	"github.com/nexuslog/control-plane/internal/middleware"
 	"github.com/nexuslog/control-plane/internal/notification"
 	"github.com/nexuslog/control-plane/internal/resource"
@@ -351,6 +352,114 @@ func TestIngestReceiptRoute_AllowsAuthenticatedNonAdminUser(t *testing.T) {
 	}
 }
 
+type ingestV3TestCursorStore struct {
+	items map[string]ingestv3.CursorEntry
+}
+
+func (s *ingestV3TestCursorStore) key(sourceID, filePath string) string {
+	return sourceID + "|" + filePath
+}
+
+func (s *ingestV3TestCursorStore) Get(sourceID string, filePath string) (ingestv3.CursorEntry, bool) {
+	if s == nil || s.items == nil {
+		return ingestv3.CursorEntry{}, false
+	}
+	item, ok := s.items[s.key(sourceID, filePath)]
+	return item, ok
+}
+
+func (s *ingestV3TestCursorStore) Put(entry ingestv3.CursorEntry) error {
+	if s.items == nil {
+		s.items = make(map[string]ingestv3.CursorEntry)
+	}
+	s.items[s.key(entry.SourceID, entry.FilePath)] = entry
+	return nil
+}
+
+func TestIngestV3Routes_RejectNonAdminUser(t *testing.T) {
+	testCases := []struct {
+		name string
+		path string
+		body string
+	}{
+		{name: "resolve plans", path: "/api/v2/ingest/plans/resolve", body: `{"source_id":"source-1","file_paths":["/var/log/a.log"]}`},
+		{name: "commit cursors", path: "/api/v2/ingest/cursors/commit", body: `{"source_id":"source-1","files":[{"file_path":"/var/log/a.log","next_cursor":"100","last_offset":10}]}`},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock: %v", err)
+			}
+			defer db.Close()
+
+			router := newIngestV3AdminRouter(db)
+			token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingestv3-non-admin")
+
+			mock.ExpectQuery(`FROM user_sessions s`).
+				WithArgs(testRouteTenantID, testRouteUserID, "jti-ingestv3-non-admin", sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+			mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
+				WithArgs(testRouteUserID, testRouteTenantID).
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("expectations: %v", err)
+			}
+		})
+	}
+}
+
+func TestIngestV3Routes_AllowAdminUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newIngestV3AdminRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingestv3-admin")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingestv3-admin", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/ingest/plans/resolve", strings.NewReader(`{"source_id":"source-1","file_paths":["/var/log/a.log"]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "OK" {
+		t.Fatalf("unexpected response code: %#v", body["code"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func newNotificationAdminRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
@@ -379,6 +488,22 @@ func newIngestRuntimeRouter(t *testing.T, db *sql.DB) *gin.Engine {
 	if err := enablePullIngestRuntime(router, adminRoutes, workerCtx, nil); err != nil {
 		t.Fatalf("enable pull ingest runtime: %v", err)
 	}
+	return router
+}
+
+func newIngestV3AdminRouter(db *sql.DB) *gin.Engine {
+	router := gin.New()
+	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
+	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
+	store := &ingestV3TestCursorStore{items: map[string]ingestv3.CursorEntry{
+		"source-1|/var/log/a.log": {
+			SourceID:   "source-1",
+			FilePath:   "/var/log/a.log",
+			LastCursor: "42",
+			LastOffset: 10,
+		},
+	}}
+	registerIngestV3Routes(adminRoutes, store, store)
 	return router
 }
 

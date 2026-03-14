@@ -89,7 +89,7 @@ func main() {
 		Store:        pullCursorStore,
 		DefaultAgent: getEnv("INGESTV3_DEFAULT_AGENT_ID", "ingestv3-rewrite"),
 	}
-	registerIngestV3Routes(router, v3CursorAdapter, v3CursorAdapter)
+	registerIngestV3Routes(adminRoutes, v3CursorAdapter, v3CursorAdapter)
 
 	if err := enablePullIngestRuntime(router, adminRoutes, workerCtx, pgBackend); err != nil {
 		log.Printf("pull ingest runtime unavailable, fallback to gone routes: %v", err)
