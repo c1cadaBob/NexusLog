@@ -20,10 +20,11 @@ type ESSearchClient interface {
 
 // httpESSearchClient implements ESSearchClient via HTTP.
 type httpESSearchClient struct {
-	endpoint string
-	username string
-	password string
-	client   *http.Client
+	endpoint    string
+	endpointErr error
+	username    string
+	password    string
+	client      *http.Client
 }
 
 // NewHTTPESSearchClient creates an ES search client.
@@ -31,16 +32,27 @@ func NewHTTPESSearchClient(endpoint, username, password string, timeout time.Dur
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
+	normalizedEndpoint, endpointErr := httpguard.NormalizeBaseURL(endpoint, httpguard.BaseURLOptions{
+		AllowPrivate:  true,
+		AllowLoopback: true,
+	})
 	return &httpESSearchClient{
-		endpoint: strings.TrimRight(strings.TrimSpace(endpoint), "/"),
-		username: strings.TrimSpace(username),
-		password: strings.TrimSpace(password),
-		client:   &http.Client{Timeout: timeout},
+		endpoint:    normalizedEndpoint,
+		endpointErr: endpointErr,
+		username:    strings.TrimSpace(username),
+		password:    strings.TrimSpace(password),
+		client:      &http.Client{Timeout: timeout},
 	}
 }
 
 // Search executes a search and returns the total hit count.
 func (c *httpESSearchClient) Search(ctx context.Context, index string, body []byte) (int64, error) {
+	if c == nil || c.client == nil {
+		return 0, fmt.Errorf("es client is not configured")
+	}
+	if c.endpointErr != nil {
+		return 0, fmt.Errorf("es endpoint is invalid: %w", c.endpointErr)
+	}
 	if c.endpoint == "" || index == "" {
 		return 0, fmt.Errorf("es endpoint and index are required")
 	}

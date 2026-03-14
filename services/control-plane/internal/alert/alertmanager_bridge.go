@@ -38,6 +38,7 @@ type alertmanagerPayload struct {
 type AlertmanagerBridge struct {
 	db           *sql.DB
 	endpoint     string
+	endpointErr  error
 	generatorURL string
 	interval     time.Duration
 	batchSize    int
@@ -45,9 +46,14 @@ type AlertmanagerBridge struct {
 }
 
 func NewAlertmanagerBridge(db *sql.DB, endpoint, generatorURL string) *AlertmanagerBridge {
+	normalizedEndpoint, endpointErr := httpguard.NormalizeBaseURL(endpoint, httpguard.BaseURLOptions{
+		AllowPrivate:  true,
+		AllowLoopback: true,
+	})
 	return &AlertmanagerBridge{
 		db:           db,
-		endpoint:     strings.TrimRight(strings.TrimSpace(endpoint), "/"),
+		endpoint:     normalizedEndpoint,
+		endpointErr:  endpointErr,
 		generatorURL: strings.TrimSpace(generatorURL),
 		interval:     10 * time.Second,
 		batchSize:    50,
@@ -72,7 +78,14 @@ func (b *AlertmanagerBridge) WithBatchSize(batchSize int) *AlertmanagerBridge {
 }
 
 func (b *AlertmanagerBridge) Run(ctx context.Context) {
-	if b == nil || b.db == nil || b.endpoint == "" {
+	if b == nil || b.db == nil || b.client == nil {
+		return
+	}
+	if b.endpointErr != nil {
+		log.Printf("alertmanager bridge: invalid endpoint: %v", b.endpointErr)
+		return
+	}
+	if b.endpoint == "" {
 		return
 	}
 

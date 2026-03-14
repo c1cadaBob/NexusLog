@@ -21,22 +21,26 @@ const (
 
 // Service interfaces with Elasticsearch Snapshot API.
 type Service struct {
-	endpoint string
-	username string
-	password string
-	client   *http.Client
+	endpoint    string
+	endpointErr error
+	username    string
+	password    string
+	client      *http.Client
 }
 
 // NewService creates a backup service from environment.
 func NewService() *Service {
-	endpoint := strings.TrimSpace(os.Getenv("SEARCH_ELASTICSEARCH_ADDRESSES"))
-	if endpoint == "" {
-		endpoint = strings.TrimSpace(os.Getenv("ELASTICSEARCH_URL"))
+	rawEndpoint := strings.TrimSpace(os.Getenv("SEARCH_ELASTICSEARCH_ADDRESSES"))
+	if rawEndpoint == "" {
+		rawEndpoint = strings.TrimSpace(os.Getenv("ELASTICSEARCH_URL"))
 	}
-	if endpoint == "" {
-		endpoint = defaultESAddress
+	if rawEndpoint == "" {
+		rawEndpoint = defaultESAddress
 	}
-	endpoint = strings.TrimRight(endpoint, "/")
+	normalizedEndpoint, endpointErr := httpguard.NormalizeBaseURL(rawEndpoint, httpguard.BaseURLOptions{
+		AllowPrivate:  true,
+		AllowLoopback: true,
+	})
 
 	username := strings.TrimSpace(os.Getenv("INGEST_ES_USERNAME"))
 	password := strings.TrimSpace(os.Getenv("INGEST_ES_PASSWORD"))
@@ -53,15 +57,32 @@ func NewService() *Service {
 	}
 
 	return &Service{
-		endpoint: endpoint,
-		username: username,
-		password: password,
-		client:   &http.Client{Timeout: timeout},
+		endpoint:    normalizedEndpoint,
+		endpointErr: endpointErr,
+		username:    username,
+		password:    password,
+		client:      &http.Client{Timeout: timeout},
 	}
+}
+
+func (s *Service) validate() error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("backup service is not configured")
+	}
+	if s.endpointErr != nil {
+		return fmt.Errorf("es endpoint is invalid: %w", s.endpointErr)
+	}
+	if s.endpoint == "" {
+		return fmt.Errorf("es endpoint is required")
+	}
+	return nil
 }
 
 // CreateRepository registers a snapshot repository (type: fs).
 func (s *Service) CreateRepository(ctx context.Context, repoName string, settings map[string]interface{}) error {
+	if err := s.validate(); err != nil {
+		return err
+	}
 	if repoName == "" {
 		return fmt.Errorf("repository name is required")
 	}
@@ -99,6 +120,9 @@ func (s *Service) CreateRepository(ctx context.Context, repoName string, setting
 
 // CreateSnapshot creates a full/incremental snapshot.
 func (s *Service) CreateSnapshot(ctx context.Context, repoName, snapshotName, indices, description string) error {
+	if err := s.validate(); err != nil {
+		return err
+	}
 	if repoName == "" || snapshotName == "" {
 		return fmt.Errorf("repository and snapshot name are required")
 	}
@@ -136,6 +160,9 @@ func (s *Service) CreateSnapshot(ctx context.Context, repoName, snapshotName, in
 
 // ListSnapshots lists all snapshots in a repository.
 func (s *Service) ListSnapshots(ctx context.Context, repoName string) ([]SnapshotInfo, error) {
+	if err := s.validate(); err != nil {
+		return nil, err
+	}
 	if repoName == "" {
 		return nil, fmt.Errorf("repository name is required")
 	}
@@ -180,6 +207,9 @@ type SnapshotInfo struct {
 
 // GetSnapshotStatus returns the status of a snapshot.
 func (s *Service) GetSnapshotStatus(ctx context.Context, repoName, snapshotName string) (*SnapshotStatus, error) {
+	if err := s.validate(); err != nil {
+		return nil, err
+	}
 	if repoName == "" || snapshotName == "" {
 		return nil, fmt.Errorf("repository and snapshot name are required")
 	}
@@ -238,6 +268,9 @@ type SnapshotStatus struct {
 
 // RestoreSnapshot restores a snapshot.
 func (s *Service) RestoreSnapshot(ctx context.Context, repoName, snapshotName string, indices []string) error {
+	if err := s.validate(); err != nil {
+		return err
+	}
 	if repoName == "" || snapshotName == "" {
 		return fmt.Errorf("repository and snapshot name are required")
 	}
@@ -269,6 +302,9 @@ func (s *Service) RestoreSnapshot(ctx context.Context, repoName, snapshotName st
 
 // DeleteSnapshot deletes a snapshot.
 func (s *Service) DeleteSnapshot(ctx context.Context, repoName, snapshotName string) error {
+	if err := s.validate(); err != nil {
+		return err
+	}
 	if repoName == "" || snapshotName == "" {
 		return fmt.Errorf("repository and snapshot name are required")
 	}
@@ -294,6 +330,9 @@ func (s *Service) DeleteSnapshot(ctx context.Context, repoName, snapshotName str
 
 // CancelSnapshot cancels an in-progress snapshot.
 func (s *Service) CancelSnapshot(ctx context.Context, repoName, snapshotName string) error {
+	if err := s.validate(); err != nil {
+		return err
+	}
 	if repoName == "" || snapshotName == "" {
 		return fmt.Errorf("repository and snapshot name are required")
 	}
@@ -319,6 +358,9 @@ func (s *Service) CancelSnapshot(ctx context.Context, repoName, snapshotName str
 
 // ListRepositories lists all snapshot repositories.
 func (s *Service) ListRepositories(ctx context.Context) (map[string]RepositoryInfo, error) {
+	if err := s.validate(); err != nil {
+		return nil, err
+	}
 	url := s.endpoint + "/_snapshot/_all"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

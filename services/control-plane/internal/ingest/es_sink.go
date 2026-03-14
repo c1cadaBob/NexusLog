@@ -22,6 +22,7 @@ var esBulkFieldPattern = regexp.MustCompile(`(?:for|field) \[([^\]]+)\]`)
 // ESSink 定义写入 Elasticsearch 的最小能力。
 type ESSink struct {
 	endpoint            string
+	endpointErr         error
 	indexName           string
 	username            string
 	password            string
@@ -128,8 +129,13 @@ func NewESSink(endpoint, indexName, username, password string, timeout time.Dura
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
+	normalizedEndpoint, endpointErr := httpguard.NormalizeBaseURL(endpoint, httpguard.BaseURLOptions{
+		AllowPrivate:  true,
+		AllowLoopback: true,
+	})
 	return &ESSink{
-		endpoint:            strings.TrimRight(strings.TrimSpace(endpoint), "/"),
+		endpoint:            normalizedEndpoint,
+		endpointErr:         endpointErr,
 		indexName:           strings.TrimSpace(indexName),
 		username:            strings.TrimSpace(username),
 		password:            strings.TrimSpace(password),
@@ -143,6 +149,9 @@ func NewESSink(endpoint, indexName, username, password string, timeout time.Dura
 func (s *ESSink) WriteRecords(ctx context.Context, task PullTask, source PullSource, agentID string, response AgentPullResponse) (ESSinkResult, error) {
 	if s == nil || s.client == nil {
 		return ESSinkResult{}, fmt.Errorf("es sink is not configured")
+	}
+	if s.endpointErr != nil {
+		return ESSinkResult{}, fmt.Errorf("es endpoint is invalid: %w", s.endpointErr)
 	}
 	if s.endpoint == "" {
 		return ESSinkResult{}, fmt.Errorf("es endpoint is empty")

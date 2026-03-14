@@ -63,11 +63,12 @@ type SearchLogsResult struct {
 
 // ElasticsearchRepository 通过 ES REST API 执行日志检索。
 type ElasticsearchRepository struct {
-	address  string
-	index    string
-	username string
-	password string
-	client   *http.Client
+	address    string
+	addressErr error
+	index      string
+	username   string
+	password   string
+	client     *http.Client
 }
 
 // NewElasticsearchRepositoryFromEnv 读取环境变量创建 ES 仓储。
@@ -83,21 +84,42 @@ func NewElasticsearchRepositoryFromEnv() *ElasticsearchRepository {
 		os.Getenv("DATABASE_ELASTICSEARCH_PASSWORD"),
 		os.Getenv("ELASTICSEARCH_PASSWORD"),
 	))
+	normalizedAddress, addressErr := sharedhttpguard.NormalizeBaseURL(address, sharedhttpguard.BaseURLOptions{
+		AllowPrivate:  true,
+		AllowLoopback: true,
+	})
 	return &ElasticsearchRepository{
-		address:  strings.TrimRight(address, "/"),
-		index:    index,
-		username: username,
-		password: password,
+		address:    normalizedAddress,
+		addressErr: addressErr,
+		index:      index,
+		username:   username,
+		password:   password,
 		client: &http.Client{
 			Timeout: timeout,
 		},
 	}
 }
 
+func (r *ElasticsearchRepository) ensureReady() error {
+	if r == nil || r.client == nil {
+		return fmt.Errorf("elasticsearch repository is not configured")
+	}
+	if r.addressErr != nil {
+		return fmt.Errorf("elasticsearch endpoint is invalid: %w", r.addressErr)
+	}
+	if r.address == "" {
+		return fmt.Errorf("elasticsearch endpoint is not configured")
+	}
+	if strings.TrimSpace(r.index) == "" {
+		return fmt.Errorf("elasticsearch index is not configured")
+	}
+	return nil
+}
+
 // SearchLogs 调用 ES _search 执行检索。
 func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsInput) (SearchLogsResult, error) {
-	if r == nil || r.client == nil {
-		return SearchLogsResult{}, fmt.Errorf("elasticsearch repository is not configured")
+	if err := r.ensureReady(); err != nil {
+		return SearchLogsResult{}, err
 	}
 	if in.Page <= 0 {
 		in.Page = 1
@@ -175,8 +197,8 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 
 // SearchWithBody executes a raw ES _search with custom body (for aggregations).
 func (r *ElasticsearchRepository) SearchWithBody(ctx context.Context, body map[string]any) (SearchLogsResult, error) {
-	if r == nil || r.client == nil {
-		return SearchLogsResult{}, fmt.Errorf("elasticsearch repository is not configured")
+	if err := r.ensureReady(); err != nil {
+		return SearchLogsResult{}, err
 	}
 	payloadRaw, err := json.Marshal(body)
 	if err != nil {
@@ -256,6 +278,9 @@ type esHitsResponse struct {
 }
 
 func (r *ElasticsearchRepository) executeSearch(ctx context.Context, endpoint string, queryPayload map[string]any) (esSearchResponse, error) {
+	if err := r.ensureReady(); err != nil {
+		return esSearchResponse{}, err
+	}
 	payloadRaw, err := json.Marshal(queryPayload)
 	if err != nil {
 		return esSearchResponse{}, fmt.Errorf("marshal es query: %w", err)
@@ -320,6 +345,9 @@ func isRetryablePITError(err error) bool {
 }
 
 func (r *ElasticsearchRepository) openPointInTime(ctx context.Context, keepAlive string) (string, error) {
+	if err := r.ensureReady(); err != nil {
+		return "", err
+	}
 	endpoint := fmt.Sprintf("%s/%s/_pit?keep_alive=%s", r.address, r.index, keepAlive)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, http.NoBody)
 	if err != nil {

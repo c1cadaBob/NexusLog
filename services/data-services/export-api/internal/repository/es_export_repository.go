@@ -45,30 +45,52 @@ type ExportQueryParams struct {
 
 // ESExportRepository 通过 ES scroll API 批量拉取日志用于导出
 type ESExportRepository struct {
-	address  string
-	index    string
-	username string
-	password string
-	client   *http.Client
+	address    string
+	addressErr error
+	index      string
+	username   string
+	password   string
+	client     *http.Client
 }
 
 // NewESExportRepositoryFromEnv 从环境变量创建 ES 导出仓储
 func NewESExportRepositoryFromEnv() *ESExportRepository {
 	address := resolveESAddress()
 	index := resolveLogsIndex()
+	normalizedAddress, addressErr := sharedhttpguard.NormalizeBaseURL(address, sharedhttpguard.BaseURLOptions{
+		AllowPrivate:  true,
+		AllowLoopback: true,
+	})
 	return &ESExportRepository{
-		address:  strings.TrimRight(address, "/"),
-		index:    index,
-		username: strings.TrimSpace(firstNonEmpty(os.Getenv("DATABASE_ELASTICSEARCH_USERNAME"), os.Getenv("ELASTICSEARCH_USERNAME"))),
-		password: strings.TrimSpace(firstNonEmpty(os.Getenv("DATABASE_ELASTICSEARCH_PASSWORD"), os.Getenv("ELASTICSEARCH_PASSWORD"))),
-		client:   &http.Client{Timeout: defaultESTimeout},
+		address:    normalizedAddress,
+		addressErr: addressErr,
+		index:      index,
+		username:   strings.TrimSpace(firstNonEmpty(os.Getenv("DATABASE_ELASTICSEARCH_USERNAME"), os.Getenv("ELASTICSEARCH_USERNAME"))),
+		password:   strings.TrimSpace(firstNonEmpty(os.Getenv("DATABASE_ELASTICSEARCH_PASSWORD"), os.Getenv("ELASTICSEARCH_PASSWORD"))),
+		client:     &http.Client{Timeout: defaultESTimeout},
 	}
+}
+
+func (r *ESExportRepository) ensureReady() error {
+	if r == nil || r.client == nil {
+		return fmt.Errorf("es export repository is not configured")
+	}
+	if r.addressErr != nil {
+		return fmt.Errorf("elasticsearch endpoint is invalid: %w", r.addressErr)
+	}
+	if r.address == "" {
+		return fmt.Errorf("elasticsearch endpoint is not configured")
+	}
+	if strings.TrimSpace(r.index) == "" {
+		return fmt.Errorf("elasticsearch index is not configured")
+	}
+	return nil
 }
 
 // ScrollSearch 使用 scroll API 批量拉取日志，最多 maxRecords 条，回调每批
 func (r *ESExportRepository) ScrollSearch(ctx context.Context, params ExportQueryParams, maxRecords int, batchFn func([]LogHit) error) error {
-	if r == nil || r.client == nil {
-		return fmt.Errorf("es export repository is not configured")
+	if err := r.ensureReady(); err != nil {
+		return err
 	}
 	if maxRecords <= 0 || maxRecords > maxExportRecords {
 		maxRecords = maxExportRecords
