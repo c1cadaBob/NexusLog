@@ -29,6 +29,11 @@ import (
 	"github.com/nexuslog/collector-agent/plugins"
 )
 
+const (
+	weakDefaultAgentAPIKey = "dev-agent-key"
+	minAgentAPIKeyLength   = 24
+)
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	log.Println("启动 NexusLog Collector Agent...")
@@ -63,13 +68,18 @@ func main() {
 	//   registry.Register(grpcPlugin)
 	log.Println("插件注册表已初始化")
 
+	activeKeyID, activeKey, nextKeyID, nextKey, err := resolveAgentAPIKeyConfig()
+	if err != nil {
+		log.Fatalf("初始化 Agent API Key 配置失败: %v", err)
+	}
+
 	// 3. 初始化 pull API 服务（供控制面主动拉取日志）
 	pullService := pullapi.New(ckpStore)
 	authConfig := pullapi.NewAuthConfig(
-		getEnv("AGENT_API_KEY_ACTIVE_ID", "active"),
-		getEnv("AGENT_API_KEY_ACTIVE", "dev-agent-key"),
-		getEnv("AGENT_API_KEY_NEXT_ID", "next"),
-		getEnv("AGENT_API_KEY_NEXT", ""),
+		activeKeyID,
+		activeKey,
+		nextKeyID,
+		nextKey,
 	)
 
 	pullV2RecordBufferingEnabled := rewriteMode && isTruthy(getEnv("PULLV2_ENABLE_RECORD_BUFFERING", "false"))
@@ -82,10 +92,10 @@ func main() {
 			pullV2CheckpointSaver{store: ckpStore},
 		)
 		pullV2Auth = pullv2.NewAuthConfig(
-			getEnv("AGENT_API_KEY_ACTIVE_ID", "active"),
-			getEnv("AGENT_API_KEY_ACTIVE", "dev-agent-key"),
-			getEnv("AGENT_API_KEY_NEXT_ID", "next"),
-			getEnv("AGENT_API_KEY_NEXT", ""),
+			activeKeyID,
+			activeKey,
+			nextKeyID,
+			nextKey,
 		)
 		if pullV2RecordBufferingEnabled {
 			log.Printf("pullv2 record buffering enabled, max_buffered_records=%d", pullV2MaxBufferedRecords)
@@ -785,6 +795,52 @@ func ensureRecordHostMetadata(record *plugins.Record, sourceHostname, sourceIP s
 	if strings.TrimSpace(record.Metadata["agent_ip"]) == "" && agentIP != "" {
 		record.Metadata["agent_ip"] = agentIP
 	}
+}
+
+func resolveAgentAPIKeyConfig() (string, string, string, string, error) {
+	activeKeyID := strings.TrimSpace(getEnv("AGENT_API_KEY_ACTIVE_ID", "active"))
+	if activeKeyID == "" {
+		activeKeyID = "active"
+	}
+	activeKey, err := validateAgentAPIKeyValue("AGENT_API_KEY_ACTIVE", getEnv("AGENT_API_KEY_ACTIVE", ""), true)
+	if err != nil {
+		return "", "", "", "", err
+	}
+
+	nextKeyID := strings.TrimSpace(getEnv("AGENT_API_KEY_NEXT_ID", "next"))
+	if nextKeyID == "" {
+		nextKeyID = "next"
+	}
+	nextKey, err := validateAgentAPIKeyValue("AGENT_API_KEY_NEXT", getEnv("AGENT_API_KEY_NEXT", ""), false)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	if nextKey != "" {
+		if nextKeyID == activeKeyID {
+			return "", "", "", "", fmt.Errorf("AGENT_API_KEY_NEXT_ID must differ from AGENT_API_KEY_ACTIVE_ID")
+		}
+		if nextKey == activeKey {
+			return "", "", "", "", fmt.Errorf("AGENT_API_KEY_NEXT must differ from AGENT_API_KEY_ACTIVE")
+		}
+	}
+	return activeKeyID, activeKey, nextKeyID, nextKey, nil
+}
+
+func validateAgentAPIKeyValue(envKey, value string, required bool) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		if required {
+			return "", fmt.Errorf("%s is required", envKey)
+		}
+		return "", nil
+	}
+	if trimmed == weakDefaultAgentAPIKey {
+		return "", fmt.Errorf("%s uses a known weak default and must be replaced", envKey)
+	}
+	if len(trimmed) < minAgentAPIKeyLength {
+		return "", fmt.Errorf("%s must be at least %d characters", envKey, minAgentAPIKeyLength)
+	}
+	return trimmed, nil
 }
 
 func getEnv(key, fallback string) string {

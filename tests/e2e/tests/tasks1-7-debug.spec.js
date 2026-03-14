@@ -114,7 +114,7 @@ test.describe("任务1~7前端页面调试补充", () => {
     const authorized = await page.evaluate(async () => {
       const res = await fetch("/agent/v1/meta", {
         headers: {
-          "X-Agent-Key": "dev-agent-key",
+          "X-Agent-Key": "nexuslog-local-dev-agent-key-20260314-change-before-production",
           "X-Key-Id": "active",
         },
       });

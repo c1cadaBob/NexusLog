@@ -12,6 +12,11 @@ import (
 	"github.com/nexuslog/control-plane/internal/ingest"
 )
 
+const (
+	weakDefaultAgentSharedKey = "dev-agent-key"
+	minAgentSharedKeyLength   = 24
+)
+
 func enablePullIngestRuntime(authenticatedRoutes gin.IRouter, adminRoutes gin.IRouter, workerCtx context.Context, pgBackend *ingest.PGBackend) error {
 	if authenticatedRoutes == nil {
 		return fmt.Errorf("authenticated routes are nil")
@@ -64,6 +69,11 @@ func enablePullIngestRuntime(authenticatedRoutes gin.IRouter, adminRoutes gin.IR
 		parseDurationSecondsEnv("INGEST_ES_TIMEOUT_SEC", 15*time.Second),
 	)
 
+	defaultAgentKeyID, defaultAgentKey, err := resolveDefaultAgentCredential()
+	if err != nil {
+		return err
+	}
+
 	executor := ingest.NewPullTaskExecutor(
 		sourceStore,
 		taskStore,
@@ -79,8 +89,8 @@ func enablePullIngestRuntime(authenticatedRoutes gin.IRouter, adminRoutes gin.IR
 			MaxRetries:        parseEnvInt("INGEST_MAX_RETRIES", 1),
 			RetryBackoff:      parseDurationSecondsEnv("INGEST_RETRY_BACKOFF_SEC", 3*time.Second),
 			ExecutionTimeout:  parseDurationSecondsEnv("INGEST_EXECUTION_TIMEOUT_SEC", 120*time.Second),
-			DefaultAgentKeyID: strings.TrimSpace(getEnv("INGEST_DEFAULT_AGENT_KEY_ID", "active")),
-			DefaultAgentKey:   strings.TrimSpace(getEnv("INGEST_DEFAULT_AGENT_KEY", "dev-agent-key")),
+			DefaultAgentKeyID: defaultAgentKeyID,
+			DefaultAgentKey:   defaultAgentKey,
 			LatencyMonitor:    latencyMonitor,
 		},
 	)
@@ -102,6 +112,35 @@ func enablePullIngestRuntime(authenticatedRoutes gin.IRouter, adminRoutes gin.IR
 	go scheduler.Start(workerCtx)
 
 	log.Printf("pull ingest runtime enabled: backend=%s es_index=%s", backendName, strings.TrimSpace(getEnv("INGEST_ES_INDEX", "nexuslog-logs-write-pull")))
+	return nil
+}
+
+func resolveDefaultAgentCredential() (string, string, error) {
+	keyID := strings.TrimSpace(getEnv("INGEST_DEFAULT_AGENT_KEY_ID", "active"))
+	if keyID == "" {
+		keyID = "active"
+	}
+	key := strings.TrimSpace(getEnv("INGEST_DEFAULT_AGENT_KEY", ""))
+	if key == "" {
+		return keyID, "", nil
+	}
+	if err := validateSharedAgentKey("INGEST_DEFAULT_AGENT_KEY", key); err != nil {
+		return "", "", err
+	}
+	return keyID, key, nil
+}
+
+func validateSharedAgentKey(envKey, key string) error {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return fmt.Errorf("%s is required", envKey)
+	}
+	if trimmed == weakDefaultAgentSharedKey {
+		return fmt.Errorf("%s uses a known weak default and must be replaced", envKey)
+	}
+	if len(trimmed) < minAgentSharedKeyLength {
+		return fmt.Errorf("%s must be at least %d characters", envKey, minAgentSharedKeyLength)
+	}
 	return nil
 }
 

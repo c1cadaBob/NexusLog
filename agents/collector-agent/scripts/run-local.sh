@@ -51,7 +51,7 @@ export KAFKA_TOPIC="nexuslog.logs.raw"
 
 # Pull API 鉴权
 export AGENT_API_KEY_ACTIVE_ID="active"
-export AGENT_API_KEY_ACTIVE="dev-agent-key"
+export AGENT_API_KEY_ACTIVE="nexuslog-local-dev-agent-key-20260314-change-before-production"
 
 echo "========================================="
 echo "NexusLog Collector Agent (本地部署)"
