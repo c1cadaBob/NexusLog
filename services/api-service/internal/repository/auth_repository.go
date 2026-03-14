@@ -483,15 +483,6 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 	newExpiresAt := now.Add(sessionTTL)
 	newSessionID := uuid.New()
 
-	const revokeOldSQL = `
-		UPDATE user_sessions
-		SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW(), replaced_by_session_id = $2
-		WHERE id = $1 AND session_status = 'active'
-	`
-	if _, err = tx.ExecContext(ctx, revokeOldSQL, sessionID, newSessionID); err != nil {
-		return uuid.Nil, fmt.Errorf("revoke old session: %w", err)
-	}
-
 	const insertNewSQL = `
 		INSERT INTO user_sessions (
 			id,
@@ -526,6 +517,15 @@ func (r *AuthRepository) RotateSessionByRefreshToken(ctx context.Context, input 
 			return uuid.Nil, ErrSessionTokenConflict
 		}
 		return uuid.Nil, fmt.Errorf("insert rotated session: %w", err)
+	}
+
+	const revokeOldSQL = `
+		UPDATE user_sessions
+		SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW(), replaced_by_session_id = $2
+		WHERE id = $1 AND session_status = 'active'
+	`
+	if _, err = tx.ExecContext(ctx, revokeOldSQL, sessionID, newSessionID); err != nil {
+		return uuid.Nil, fmt.Errorf("revoke old session: %w", err)
 	}
 
 	if err = tx.Commit(); err != nil {

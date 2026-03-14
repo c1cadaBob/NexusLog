@@ -87,9 +87,6 @@ func TestRotateSessionByRefreshToken_PreservesOriginalSessionTTL(t *testing.T) {
 		WithArgs(input.TenantID, hashToken(input.CurrentRefresh)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "expires_at", "created_at", "session_status", "session_family_id", "replaced_by_session_id"}).
 			AddRow(sessionID, userID, expiresAt, createdAt, "active", familyID, nil))
-	mock.ExpectExec(`UPDATE user_sessions\s+SET[\s\S]*replaced_by_session_id = \$2[\s\S]*WHERE id = \$1`).
-		WithArgs(sessionID, sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO user_sessions`).
 		WithArgs(
 			sqlmock.AnyArg(),
@@ -102,6 +99,9 @@ func TestRotateSessionByRefreshToken_PreservesOriginalSessionTTL(t *testing.T) {
 			input.UserAgent,
 			timeBetweenMatcher{min: lowerBound, max: upperBound},
 		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE user_sessions\s+SET[\s\S]*replaced_by_session_id = \$2[\s\S]*WHERE id = \$1`).
+		WithArgs(sessionID, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
