@@ -13,8 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/nexuslog/control-plane/internal/alert"
 	"github.com/nexuslog/control-plane/internal/middleware"
 	"github.com/nexuslog/control-plane/internal/notification"
+	"github.com/nexuslog/control-plane/internal/resource"
 )
 
 const (
@@ -77,6 +79,105 @@ func TestNotificationRoutes_RejectNonAdminUser(t *testing.T) {
 	}
 }
 
+func TestResourceThresholdRoutes_RejectNonAdminUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newManagementAdminRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-threshold-non-admin")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-threshold-non-admin", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/resource/thresholds", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestResourceThresholdRoutes_AllowAdminUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newManagementAdminRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-threshold-admin")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-threshold-admin", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(1) FROM resource_thresholds WHERE tenant_id = $1::uuid`)).
+		WithArgs(testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`SELECT id, tenant_id, agent_id, metric_name, threshold_value, comparison, alert_severity, enabled,`).
+		WithArgs(testRouteTenantID, 20, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "agent_id", "metric_name", "threshold_value", "comparison", "alert_severity", "enabled", "created_by", "created_at", "updated_at", "notification_channels"}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/resource/thresholds", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestAlertRuleRoutes_RejectNonAdminUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newManagementAdminRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-alert-rule-non-admin")
+
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, "jti-alert-rule-non-admin", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/alert/rules", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func TestNotificationRoutes_AllowAdminUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
@@ -126,6 +227,16 @@ func newNotificationAdminRouter(db *sql.DB) *gin.Engine {
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
 	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
 	notification.RegisterChannelRoutes(adminRoutes, notification.NewChannelRepository(db), notification.NewSMTPSender())
+	return router
+}
+
+func newManagementAdminRouter(db *sql.DB) *gin.Engine {
+	router := gin.New()
+	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
+	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
+	resource.RegisterRoutes(adminRoutes, resource.NewThresholdHandler(resource.NewThresholdRepository(db)))
+	alertRuleRepo := alert.NewRuleRepositoryPG(db)
+	alert.RegisterAlertRuleRoutes(adminRoutes, alert.NewRuleHandler(alert.NewRuleService(alertRuleRepo)))
 	return router
 }
 

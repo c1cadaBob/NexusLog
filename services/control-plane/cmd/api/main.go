@@ -113,7 +113,7 @@ func main() {
 		// Background cleanup: delete metrics older than 30 days, run daily
 		metrics.StartCleanupJob(workerCtx, metricsRepo, 30, 24*time.Hour)
 		// Resource threshold CRUD (W3-B7)
-		resource.RegisterRoutes(router, resource.NewThresholdHandler(thresholdRepo))
+		resource.RegisterRoutes(adminRoutes, resource.NewThresholdHandler(thresholdRepo))
 	}
 
 	// Alert rules API (requires PostgreSQL)
@@ -121,12 +121,12 @@ func main() {
 		alertRuleRepo := alert.NewRuleRepositoryPG(pgDB)
 		alertRuleService := alert.NewRuleService(alertRuleRepo)
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
-		alert.RegisterAlertRuleRoutes(router, alertRuleHandler)
+		alert.RegisterAlertRuleRoutes(adminRoutes, alertRuleHandler)
 		alert.RegisterAlertEventRoutes(router, alert.NewEventHandler(pgDB))
 
 		// Alert silence policy (W4-B6)
 		silenceSvc := alert.NewSilenceService(pgDB)
-		alert.RegisterSilenceRoutes(router, alert.NewSilenceHandler(silenceSvc))
+		alert.RegisterSilenceRoutes(adminRoutes, alert.NewSilenceHandler(silenceSvc))
 
 		// Incident API
 		incidentRepo := incident.NewRepositoryPG(pgDB)
