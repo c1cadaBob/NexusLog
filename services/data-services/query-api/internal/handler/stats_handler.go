@@ -2,10 +2,10 @@ package handler
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nexuslog/data-services/query-api/internal/service"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 // StatsHandler handles stats HTTP endpoints.
@@ -20,7 +20,7 @@ func NewStatsHandler(svc *service.StatsService) *StatsHandler {
 
 // GetOverviewStats GET /api/v1/query/stats/overview
 func (h *StatsHandler) GetOverviewStats(c *gin.Context) {
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := sharedauth.AuthenticatedTenantID(c)
 	if tenantID == "" {
 		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "tenant context is required")
 		return
@@ -37,7 +37,7 @@ func (h *StatsHandler) GetOverviewStats(c *gin.Context) {
 
 // Aggregate POST /api/v1/query/stats/aggregate
 func (h *StatsHandler) Aggregate(c *gin.Context) {
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := sharedauth.AuthenticatedTenantID(c)
 	if tenantID == "" {
 		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "tenant context is required")
 		return

@@ -22,7 +22,7 @@ func NewUserHandler(userService *service.UserService) *UserHandler {
 }
 
 func (h *UserHandler) List(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := authenticatedTenantID(c)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
 	filter := model.ListUsersFilter{
@@ -61,7 +61,7 @@ func (h *UserHandler) List(c *gin.Context) {
 }
 
 func (h *UserHandler) Get(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := authenticatedTenantID(c)
 	userID := c.Param("id")
 	if userID == "" {
 		setUserAuditEvent(c, "users.read", "", buildAuditDetails(map[string]any{
@@ -99,7 +99,7 @@ func (h *UserHandler) Get(c *gin.Context) {
 }
 
 func (h *UserHandler) Create(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := authenticatedTenantID(c)
 
 	var req model.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -139,7 +139,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 }
 
 func (h *UserHandler) Update(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := authenticatedTenantID(c)
 	userID := c.Param("id")
 	if userID == "" {
 		setUserAuditEvent(c, "users.update", "", buildAuditDetails(map[string]any{
@@ -199,7 +199,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 }
 
 func (h *UserHandler) Delete(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := authenticatedTenantID(c)
 	userID := c.Param("id")
 	if userID == "" {
 		setUserAuditEvent(c, "users.delete", "", buildAuditDetails(map[string]any{
@@ -236,7 +236,7 @@ func (h *UserHandler) Delete(c *gin.Context) {
 }
 
 func (h *UserHandler) BatchUpdateStatus(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := authenticatedTenantID(c)
 
 	var req model.BatchUpdateUsersStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -278,7 +278,7 @@ func (h *UserHandler) BatchUpdateStatus(c *gin.Context) {
 }
 
 func (h *UserHandler) AssignRole(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := authenticatedTenantID(c)
 	userID := c.Param("id")
 	if userID == "" {
 		setUserAuditEvent(c, "users.assign_role", "", buildAuditDetails(map[string]any{
@@ -349,7 +349,7 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 }
 
 func (h *UserHandler) RemoveRole(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := authenticatedTenantID(c)
 	userID := c.Param("id")
 	roleID := c.Param("roleId")
 	if userID == "" || roleID == "" {
@@ -391,7 +391,7 @@ func (h *UserHandler) RemoveRole(c *gin.Context) {
 }
 
 func (h *UserHandler) ListRoles(c *gin.Context) {
-	tenantID := c.GetHeader("X-Tenant-ID")
+	tenantID := authenticatedTenantID(c)
 
 	resp, apiErr := h.userService.ListRoles(c.Request.Context(), tenantID)
 	if apiErr != nil {
@@ -420,9 +420,9 @@ func (h *UserHandler) ListRoles(c *gin.Context) {
 }
 
 // GetMe returns the current user's info, roles, and permissions.
-// Requires authenticated user_id context set by auth middleware and X-Tenant-ID header.
+// Requires authenticated user and tenant context set by auth middleware.
 func (h *UserHandler) GetMe(c *gin.Context) {
-	userID := strings.TrimSpace(c.GetString(contextKeyUserID))
+	userID := authenticatedUserID(c)
 	if userID == "" {
 		httpx.Error(c, &model.APIError{
 			HTTPStatus: http.StatusUnauthorized,
@@ -433,13 +433,13 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		return
 	}
 
-	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	tenantID := authenticatedTenantID(c)
 	if tenantID == "" {
 		httpx.Error(c, &model.APIError{
-			HTTPStatus: http.StatusBadRequest,
+			HTTPStatus: http.StatusUnauthorized,
 			Code:       "USER_ME_TENANT_REQUIRED",
-			Message:    "X-Tenant-ID header is required",
-			Details:    map[string]any{"field": "X-Tenant-ID"},
+			Message:    "authenticated tenant context required",
+			Details:    map[string]any{"field": "tenant_id"},
 		})
 		return
 	}

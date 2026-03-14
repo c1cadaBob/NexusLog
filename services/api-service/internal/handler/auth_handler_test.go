@@ -371,6 +371,15 @@ func TestRefreshSuccessEnvelope(t *testing.T) {
 func TestLogoutInvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		if tenantID := c.GetHeader("X-Tenant-ID"); tenantID != "" {
+			c.Set(contextKeyTenantID, tenantID)
+		}
+		if userID := c.GetHeader("X-User-ID"); userID != "" {
+			c.Set(contextKeyUserID, userID)
+		}
+		c.Next()
+	})
 	h := NewAuthHandler(service.NewAuthService(&handlerRepoMock{tenantExists: true}, "test-secret"))
 	router.POST("/api/v1/auth/logout", h.Logout)
 
@@ -396,6 +405,15 @@ func TestLogoutInvalidBody(t *testing.T) {
 func TestLogoutSuccessEnvelope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		if tenantID := c.GetHeader("X-Tenant-ID"); tenantID != "" {
+			c.Set(contextKeyTenantID, tenantID)
+		}
+		if userID := c.GetHeader("X-User-ID"); userID != "" {
+			c.Set(contextKeyUserID, userID)
+		}
+		c.Next()
+	})
 	mock := &handlerRepoMock{tenantExists: true}
 	h := NewAuthHandler(service.NewAuthService(mock, "test-secret"))
 	router.POST("/api/v1/auth/logout", h.Logout)

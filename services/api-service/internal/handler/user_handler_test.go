@@ -111,6 +111,12 @@ func (m *userRepoMock) IsLoginLocked(_ context.Context, _, _ string) (bool, time
 func setupUserRouter(h *UserHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		if tenantID := c.GetHeader("X-Tenant-ID"); tenantID != "" {
+			c.Set(contextKeyTenantID, tenantID)
+		}
+		c.Next()
+	})
 	apiV1 := router.Group("/api/v1")
 	userV1 := apiV1.Group("/users")
 	userV1.GET("", h.List)
@@ -613,6 +619,7 @@ func TestGetMeUsesAuthenticatedContext(t *testing.T) {
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(contextKeyUserID, uid.String())
+		c.Set(contextKeyTenantID, tenantID.String())
 		c.Next()
 	})
 	router.GET("/api/v1/users/me", h.GetMe)

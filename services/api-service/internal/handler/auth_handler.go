@@ -180,10 +180,10 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	actorID := strings.TrimSpace(c.GetString(contextKeyUserID))
+	actorID := authenticatedUserID(c)
 	resp, apiErr := h.authService.Logout(
 		c.Request.Context(),
-		c.GetHeader("X-Tenant-ID"),
+		authenticatedTenantID(c),
 		actorID,
 		req,
 	)

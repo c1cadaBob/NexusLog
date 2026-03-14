@@ -13,13 +13,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/nexuslog/data-services/export-api/internal/repository"
 	"github.com/nexuslog/data-services/export-api/internal/service"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 const (
-	CodeOK                    = "OK"
-	CodeExportInvalidParams   = "EXPORT_INVALID_PARAMS"
-	CodeExportInternalError   = "EXPORT_INTERNAL_ERROR"
-	CodeExportNotFound        = "EXPORT_NOT_FOUND"
+	CodeOK                       = "OK"
+	CodeExportInvalidParams      = "EXPORT_INVALID_PARAMS"
+	CodeExportInternalError      = "EXPORT_INTERNAL_ERROR"
+	CodeExportNotFound           = "EXPORT_NOT_FOUND"
 	CodeExportServiceUnavailable = "EXPORT_SERVICE_UNAVAILABLE"
 )
 
@@ -169,27 +170,10 @@ type requestActor struct {
 }
 
 func resolveActor(c *gin.Context) requestActor {
-	tenantID := firstNonEmpty(
-		c.GetHeader("X-Tenant-ID"),
-		c.GetHeader("X-Tenant-Id"),
-	)
-	if tenantID == "" {
-		return requestActor{TenantID: "", UserID: firstNonEmpty(c.GetHeader("X-User-ID"), c.GetHeader("X-User-Id"))}
+	return requestActor{
+		TenantID: sharedauth.AuthenticatedTenantID(c),
+		UserID:   sharedauth.AuthenticatedUserID(c),
 	}
-	userID := firstNonEmpty(
-		c.GetHeader("X-User-ID"),
-		c.GetHeader("X-User-Id"),
-	)
-	return requestActor{TenantID: tenantID, UserID: userID}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if s := strings.TrimSpace(v); s != "" {
-			return s
-		}
-	}
-	return ""
 }
 
 func parsePositiveInt(raw string, fallback int) int {

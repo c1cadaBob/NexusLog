@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/nexuslog/data-services/query-api/internal/repository"
 	"github.com/nexuslog/data-services/query-api/internal/service"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 const (
@@ -32,8 +32,6 @@ const (
 	// CodeQueryServiceUnavailable 表示依赖不可用。
 	CodeQueryServiceUnavailable = "QUERY_SERVICE_UNAVAILABLE"
 )
-
-var uuidPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
 
 // QueryHandler 封装 query-api 的 HTTP 处理逻辑。
 type QueryHandler struct {
@@ -269,23 +267,9 @@ func writeServiceError(c *gin.Context, err error) {
 
 func resolveActor(c *gin.Context) service.RequestActor {
 	return service.RequestActor{
-		TenantID: firstNonEmptyUUID(c.GetHeader("X-Tenant-ID"), c.GetHeader("X-Tenant-Id")),
-		UserID:   firstNonEmptyUUID(c.GetHeader("X-User-ID"), c.GetHeader("X-User-Id")),
+		TenantID: sharedauth.AuthenticatedTenantID(c),
+		UserID:   sharedauth.AuthenticatedUserID(c),
 	}
-}
-
-func firstNonEmptyUUID(values ...string) string {
-	for _, raw := range values {
-		value := strings.TrimSpace(raw)
-		if value == "" {
-			continue
-		}
-		if !uuidPattern.MatchString(value) {
-			continue
-		}
-		return strings.ToLower(value)
-	}
-	return ""
 }
 
 func parsePositiveInt(raw string, fallback int) int {

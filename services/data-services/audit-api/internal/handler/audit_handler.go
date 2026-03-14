@@ -11,13 +11,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/nexuslog/data-services/audit-api/internal/service"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 const (
-	CodeOK                  = "OK"
-	CodeAuditInvalidParams  = "AUDIT_INVALID_PARAMS"
-	CodeAuditInternalError  = "AUDIT_INTERNAL_ERROR"
-	CodeAuditUnauthorized   = "AUDIT_UNAUTHORIZED"
+	CodeOK                      = "OK"
+	CodeAuditInvalidParams      = "AUDIT_INVALID_PARAMS"
+	CodeAuditInternalError      = "AUDIT_INTERNAL_ERROR"
+	CodeAuditUnauthorized       = "AUDIT_UNAUTHORIZED"
 	CodeAuditServiceUnavailable = "AUDIT_SERVICE_UNAVAILABLE"
 )
 
@@ -101,23 +102,7 @@ type requestActor struct {
 }
 
 func resolveActor(c *gin.Context) requestActor {
-	tenantID := firstNonEmpty(
-		c.GetHeader("X-Tenant-ID"),
-		c.GetHeader("X-Tenant-Id"),
-	)
-	if tenantID == "" {
-		return requestActor{}
-	}
-	return requestActor{TenantID: tenantID}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if s := strings.TrimSpace(v); s != "" {
-			return s
-		}
-	}
-	return ""
+	return requestActor{TenantID: sharedauth.AuthenticatedTenantID(c)}
 }
 
 func parsePositiveInt(raw string, fallback int) int {
