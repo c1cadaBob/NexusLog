@@ -62,9 +62,9 @@ func NewAgentClient(timeout time.Duration) *AgentClient {
 
 // Pull 调用 /agent/v1/logs/pull 拉取日志批次。
 func (c *AgentClient) Pull(ctx context.Context, source PullSource, task PullTask, credential AgentAuthCredential, cursor string) (AgentPullResponse, error) {
-	baseURL := strings.TrimRight(strings.TrimSpace(source.AgentBaseURL), "/")
-	if baseURL == "" {
-		return AgentPullResponse{}, fmt.Errorf("agent_base_url is required")
+	baseURL, err := resolveValidatedAgentBaseURL(source.AgentBaseURL)
+	if err != nil {
+		return AgentPullResponse{}, err
 	}
 
 	body := AgentPullRequest{
@@ -92,7 +92,7 @@ func (c *AgentClient) Pull(ctx context.Context, source PullSource, task PullTask
 	}
 
 	var response AgentPullResponse
-	if err := c.doJSON(
+	if err = c.doJSON(
 		ctx,
 		http.MethodPost,
 		baseURL+"/agent/v1/logs/pull",
@@ -108,9 +108,9 @@ func (c *AgentClient) Pull(ctx context.Context, source PullSource, task PullTask
 
 // Ack 调用 /agent/v1/logs/ack 回写结果。
 func (c *AgentClient) Ack(ctx context.Context, source PullSource, credential AgentAuthCredential, payload AgentAckRequestPayload, requestID string) error {
-	baseURL := strings.TrimRight(strings.TrimSpace(source.AgentBaseURL), "/")
-	if baseURL == "" {
-		return fmt.Errorf("agent_base_url is required")
+	baseURL, err := resolveValidatedAgentBaseURL(source.AgentBaseURL)
+	if err != nil {
+		return err
 	}
 	payload.BatchID = strings.TrimSpace(payload.BatchID)
 	payload.Status = strings.ToLower(strings.TrimSpace(payload.Status))
@@ -124,7 +124,7 @@ func (c *AgentClient) Ack(ctx context.Context, source PullSource, credential Age
 	}
 
 	var response agentAckResponse
-	if err := c.doJSON(
+	if err = c.doJSON(
 		ctx,
 		http.MethodPost,
 		baseURL+"/agent/v1/logs/ack",
@@ -190,6 +190,14 @@ func (c *AgentClient) doJSON(ctx context.Context, method, endpoint string, crede
 		}
 	}
 	return nil
+}
+
+func resolveValidatedAgentBaseURL(raw string) (string, error) {
+	normalized, err := normalizeAndValidateAgentBaseURL(raw)
+	if err != nil {
+		return "", err
+	}
+	return normalized, nil
 }
 
 func requestTimeoutMS(c *AgentClient) int {

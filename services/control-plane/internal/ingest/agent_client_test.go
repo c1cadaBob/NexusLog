@@ -21,9 +21,9 @@ func TestAgentClientPullSendsSourcePathAndClipsTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewAgentClient(2 * time.Second)
+	client := mustNewAliasedAgentClient(t, server.URL, 2*time.Second)
 	_, err := client.Pull(context.Background(), PullSource{
-		AgentBaseURL:   server.URL,
+		AgentBaseURL:   newAliasedAgentBaseURL(t, server.URL),
 		Path:           "/var/log/*.log",
 		PullTimeoutSec: 5,
 	}, PullTask{}, AgentAuthCredential{KeyID: "active", Key: "secret"}, "123")

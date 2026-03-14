@@ -39,7 +39,15 @@ func (c *Checker) Check(ctx context.Context, target string) Result {
 		CheckedAt: start,
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	normalizedTarget, err := normalizeCheckTarget(target)
+	if err != nil {
+		result.Error = fmt.Sprintf("非法目标: %v", err)
+		result.Latency = time.Since(start)
+		return result
+	}
+	result.Target = normalizedTarget
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalizedTarget, nil)
 	if err != nil {
 		result.Error = fmt.Sprintf("创建请求失败: %v", err)
 		result.Latency = time.Since(start)
