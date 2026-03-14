@@ -85,11 +85,11 @@ func (m *userRepoMock) BatchUpdateUsersStatus(_ context.Context, _ string, _ []u
 	return m.batchUpdateCount, nil
 }
 
-func (m *userRepoMock) AssignRole(_ context.Context, _, _ string) error {
+func (m *userRepoMock) AssignRole(_ context.Context, _, _, _ string) error {
 	return m.assignRoleErr
 }
 
-func (m *userRepoMock) RemoveRole(_ context.Context, _, _ string) error {
+func (m *userRepoMock) RemoveRole(_ context.Context, _, _, _ string) error {
 	return m.removeRoleErr
 }
 
@@ -100,7 +100,7 @@ func (m *userRepoMock) ListRoles(_ context.Context, _ string) ([]repository.Role
 	return m.listRoles, nil
 }
 
-func (m *userRepoMock) GetUserRoles(_ context.Context, _ string) ([]repository.RoleRecord, error) {
+func (m *userRepoMock) GetUserRoles(_ context.Context, _, _ string) ([]repository.RoleRecord, error) {
 	return m.getUserRoles, nil
 }
 

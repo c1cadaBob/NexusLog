@@ -77,10 +77,10 @@ type UserRepositoryInterface interface {
 	UpdateUser(ctx context.Context, tenantID, userID string, input UpdateUserInput) error
 	DisableUser(ctx context.Context, tenantID, userID string) error
 	BatchUpdateUsersStatus(ctx context.Context, tenantID string, userIDs []uuid.UUID, status string) (int, error)
-	AssignRole(ctx context.Context, userID, roleID string) error
-	RemoveRole(ctx context.Context, userID, roleID string) error
+	AssignRole(ctx context.Context, tenantID, userID, roleID string) error
+	RemoveRole(ctx context.Context, tenantID, userID, roleID string) error
 	ListRoles(ctx context.Context, tenantID string) ([]RoleRecord, error)
-	GetUserRoles(ctx context.Context, userID string) ([]RoleRecord, error)
+	GetUserRoles(ctx context.Context, tenantID, userID string) ([]RoleRecord, error)
 	IsLoginLocked(ctx context.Context, tenantID, username string) (bool, time.Time, error)
 }
 
@@ -131,7 +131,7 @@ func (r *UserRepository) ListUsers(ctx context.Context, tenantID string, page, p
 		argIdx++
 	}
 	if filter.RoleID != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role_id = $%d)", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND ur.role_id = $%d AND r.tenant_id = u.tenant_id)", argIdx))
 		args = append(args, *filter.RoleID)
 		argIdx++
 	}
@@ -359,7 +359,11 @@ func (r *UserRepository) BatchUpdateUsersStatus(ctx context.Context, tenantID st
 	return int(updated), nil
 }
 
-func (r *UserRepository) AssignRole(ctx context.Context, userID, roleID string) error {
+func (r *UserRepository) AssignRole(ctx context.Context, tenantID, userID, roleID string) error {
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		return fmt.Errorf("invalid tenant id: %w", err)
+	}
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -371,25 +375,38 @@ func (r *UserRepository) AssignRole(ctx context.Context, userID, roleID string) 
 
 	const q = `
 		INSERT INTO user_roles (user_id, role_id)
-		VALUES ($1, $2)
+		SELECT u.id, r.id
+		FROM users u
+		JOIN roles r ON r.id = $3
+		WHERE u.id = $2
+		  AND u.tenant_id = $1
+		  AND r.tenant_id = $1
 	`
-	_, err = r.db.ExecContext(ctx, q, userUUID, roleUUID)
+	result, err := r.db.ExecContext(ctx, q, tenantUUID, userUUID, roleUUID)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) {
 			if pqErr.Code == "23505" {
 				return ErrRoleConflict
 			}
-			if pqErr.Code == "23503" {
-				return ErrRoleNotFound
-			}
 		}
 		return fmt.Errorf("assign role: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("assign role rows affected: %w", err)
+	}
+	if affected == 0 {
+		return ErrRoleNotFound
 	}
 	return nil
 }
 
-func (r *UserRepository) RemoveRole(ctx context.Context, userID, roleID string) error {
+func (r *UserRepository) RemoveRole(ctx context.Context, tenantID, userID, roleID string) error {
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		return fmt.Errorf("invalid tenant id: %w", err)
+	}
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -399,8 +416,17 @@ func (r *UserRepository) RemoveRole(ctx context.Context, userID, roleID string) 
 		return fmt.Errorf("invalid role id: %w", err)
 	}
 
-	const q = `DELETE FROM user_roles WHERE user_id = $1 AND role_id = $2`
-	result, err := r.db.ExecContext(ctx, q, userUUID, roleUUID)
+	const q = `
+		DELETE FROM user_roles ur
+		USING users u, roles r
+		WHERE ur.user_id = u.id
+		  AND ur.role_id = r.id
+		  AND u.id = $2
+		  AND r.id = $3
+		  AND u.tenant_id = $1
+		  AND r.tenant_id = $1
+	`
+	result, err := r.db.ExecContext(ctx, q, tenantUUID, userUUID, roleUUID)
 	if err != nil {
 		return fmt.Errorf("remove role: %w", err)
 	}
@@ -443,7 +469,11 @@ func (r *UserRepository) ListRoles(ctx context.Context, tenantID string) ([]Role
 	return roles, nil
 }
 
-func (r *UserRepository) GetUserRoles(ctx context.Context, userID string) ([]RoleRecord, error) {
+func (r *UserRepository) GetUserRoles(ctx context.Context, tenantID, userID string) ([]RoleRecord, error) {
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tenant id: %w", err)
+	}
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user id: %w", err)
@@ -451,12 +481,15 @@ func (r *UserRepository) GetUserRoles(ctx context.Context, userID string) ([]Rol
 
 	const q = `
 		SELECT r.id, r.tenant_id, r.name, r.description, r.permissions
-		FROM roles r
-		JOIN user_roles ur ON ur.role_id = r.id
-		WHERE ur.user_id = $1
+		FROM users u
+		JOIN user_roles ur ON ur.user_id = u.id
+		JOIN roles r ON r.id = ur.role_id
+		WHERE u.tenant_id = $1
+		  AND u.id = $2
+		  AND r.tenant_id = u.tenant_id
 		ORDER BY r.name
 	`
-	rows, err := r.db.QueryContext(ctx, q, userUUID)
+	rows, err := r.db.QueryContext(ctx, q, tenantUUID, userUUID)
 	if err != nil {
 		return nil, fmt.Errorf("get user roles: %w", err)
 	}

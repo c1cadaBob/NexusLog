@@ -149,7 +149,7 @@ func TestAuthRequired_ValidToken_AdminRole(t *testing.T) {
 	adminPerms, _ := json.Marshal([]string{"*"})
 	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(uuid.New(), tenantID, "admin", nil, adminPerms)
-	mock.ExpectQuery("SELECT .+ FROM roles").WithArgs(userID).WillReturnRows(roleRows)
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))
@@ -191,7 +191,7 @@ func TestAuthRequired_ValidToken_ViewerRole_ReadAllowed(t *testing.T) {
 	viewerPerms, _ := json.Marshal([]string{"users:read", "logs:read", "dashboards:read"})
 	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(uuid.New(), tenantID, "viewer", nil, viewerPerms)
-	mock.ExpectQuery("SELECT .+ FROM roles").WithArgs(userID).WillReturnRows(roleRows)
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))
@@ -230,7 +230,7 @@ func TestAuthRequired_ValidToken_ViewerRole_WriteBlocked(t *testing.T) {
 	viewerPerms, _ := json.Marshal([]string{"users:read", "logs:read"})
 	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(uuid.New(), tenantID, "viewer", nil, viewerPerms)
-	mock.ExpectQuery("SELECT .+ FROM roles").WithArgs(userID).WillReturnRows(roleRows)
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))
@@ -288,7 +288,7 @@ func TestAuthRequired_ThreeRoleIsolation(t *testing.T) {
 			perms, _ := json.Marshal(r.permissions)
 			roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 				AddRow(uuid.New(), tenantID, r.name, nil, perms)
-			mock.ExpectQuery("SELECT .+ FROM roles").WithArgs(userID).WillReturnRows(roleRows)
+			mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
 
 			router := gin.New()
 			router.Use(AuthRequired(db, testJWTSecret))
@@ -313,7 +313,7 @@ func TestAuthRequired_ThreeRoleIsolation(t *testing.T) {
 			mock.ExpectQuery("SELECT .+ FROM users").WithArgs(tenantID, userID).WillReturnRows(
 				sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
 					AddRow(userID, tenantID, r.name, r.name+"@test.com", nil, "active", nil, time.Now(), time.Now()))
-			mock.ExpectQuery("SELECT .+ FROM roles").WithArgs(userID).WillReturnRows(
+			mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(
 				sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 					AddRow(uuid.New(), tenantID, r.name, nil, perms))
 
@@ -380,7 +380,7 @@ func TestAuthRequired_MiddlewarePerformance(t *testing.T) {
 		AddRow(uuid.New(), tenantID, "admin", nil, []byte(`["*"]`))
 
 	mock.ExpectQuery("SELECT .+ FROM users").WithArgs(tenantID, userID).WillReturnRows(userRows)
-	mock.ExpectQuery("SELECT .+ FROM roles").WithArgs(userID).WillReturnRows(roleRows)
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))

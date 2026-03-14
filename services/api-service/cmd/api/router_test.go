@@ -39,8 +39,8 @@ func TestRegisterRoutes_UserMeDoesNotRequireUsersRead(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM users").
 		WithArgs(tenantID, userID).
 		WillReturnRows(newUserRows(userID, tenantID, "viewer", "viewer@nexuslog.local"))
-	mock.ExpectQuery("SELECT .+ FROM roles").
-		WithArgs(userID).
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").
+		WithArgs(tenantID, userID).
 		WillReturnRows(newRoleRows(userID, tenantID, []string{"logs:read"}))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM obs\.tenant WHERE id = \$1 AND status = 'active'\)`).
 		WithArgs(tenantID).
@@ -48,8 +48,8 @@ func TestRegisterRoutes_UserMeDoesNotRequireUsersRead(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM users").
 		WithArgs(tenantID, userID).
 		WillReturnRows(newUserRows(userID, tenantID, "viewer", "viewer@nexuslog.local"))
-	mock.ExpectQuery("SELECT .+ FROM roles").
-		WithArgs(userID).
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").
+		WithArgs(tenantID, userID).
 		WillReturnRows(newRoleRows(userID, tenantID, []string{"logs:read"}))
 
 	router := gin.New()

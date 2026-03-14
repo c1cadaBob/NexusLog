@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	contextKeyUserID         = "user_id"
-	contextKeyTenantID       = "tenant_id"
-	contextKeyUserRoles      = "user_roles"
+	contextKeyUserID          = "user_id"
+	contextKeyTenantID        = "tenant_id"
+	contextKeyUserRoles       = "user_roles"
 	contextKeyUserPermissions = "user_permissions"
 )
 
@@ -119,7 +119,7 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		roles, err := userRepo.GetUserRoles(c.Request.Context(), claims.UserID)
+		roles, err := userRepo.GetUserRoles(c.Request.Context(), claims.TenantID, claims.UserID)
 		if err != nil {
 			httpx.Error(c, &model.APIError{
 				HTTPStatus: http.StatusInternalServerError,

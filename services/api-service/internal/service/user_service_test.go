@@ -13,23 +13,26 @@ import (
 )
 
 type mockUserRepository struct {
-	tenantExists     bool
-	listUsers        []repository.UserRecord
-	listTotal        int
-	listErr          error
-	lastListFilter   repository.ListUsersFilter
-	getUser          *repository.UserRecord
-	getUserErr       error
-	createUserID     string
-	createUserErr    error
-	updateUserErr    error
-	batchUpdateCount int
-	batchUpdateErr   error
-	assignRoleErr    error
-	removeRoleErr    error
-	listRoles        []repository.RoleRecord
-	listRolesErr     error
-	getUserRoles     []repository.RoleRecord
+	tenantExists           bool
+	listUsers              []repository.UserRecord
+	listTotal              int
+	listErr                error
+	lastListFilter         repository.ListUsersFilter
+	getUser                *repository.UserRecord
+	getUserErr             error
+	createUserID           string
+	createUserErr          error
+	updateUserErr          error
+	batchUpdateCount       int
+	batchUpdateErr         error
+	assignRoleErr          error
+	lastAssignTenant       string
+	removeRoleErr          error
+	lastRemoveTenant       string
+	listRoles              []repository.RoleRecord
+	listRolesErr           error
+	getUserRoles           []repository.RoleRecord
+	lastGetUserRolesTenant string
 }
 
 func (m *mockUserRepository) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -79,11 +82,13 @@ func (m *mockUserRepository) BatchUpdateUsersStatus(_ context.Context, _ string,
 	return m.batchUpdateCount, nil
 }
 
-func (m *mockUserRepository) AssignRole(_ context.Context, _, _ string) error {
+func (m *mockUserRepository) AssignRole(_ context.Context, tenantID, _, _ string) error {
+	m.lastAssignTenant = tenantID
 	return m.assignRoleErr
 }
 
-func (m *mockUserRepository) RemoveRole(_ context.Context, _, _ string) error {
+func (m *mockUserRepository) RemoveRole(_ context.Context, tenantID, _, _ string) error {
+	m.lastRemoveTenant = tenantID
 	return m.removeRoleErr
 }
 
@@ -94,7 +99,8 @@ func (m *mockUserRepository) ListRoles(_ context.Context, _ string) ([]repositor
 	return m.listRoles, nil
 }
 
-func (m *mockUserRepository) GetUserRoles(_ context.Context, _ string) ([]repository.RoleRecord, error) {
+func (m *mockUserRepository) GetUserRoles(_ context.Context, tenantID, _ string) ([]repository.RoleRecord, error) {
+	m.lastGetUserRolesTenant = tenantID
 	return m.getUserRoles, nil
 }
 
@@ -172,10 +178,34 @@ func TestUserServiceCreateUserDuplicateUsername(t *testing.T) {
 	}
 }
 
+func TestUserServiceCreateUserAssignRoleUsesTenant(t *testing.T) {
+	newID := uuid.NewString()
+	tenantID := uuid.NewString()
+	roleID := uuid.NewString()
+	repo := &mockUserRepository{
+		tenantExists: true,
+		createUserID: newID,
+	}
+	svc := NewUserService(repo)
+	_, apiErr := svc.CreateUser(context.Background(), tenantID, model.CreateUserRequest{
+		Username: "bob",
+		Password: "SecureP@ss1",
+		Email:    "bob@example.com",
+		RoleID:   &roleID,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected error: %v", apiErr)
+	}
+	if repo.lastAssignTenant != tenantID {
+		t.Fatalf("expected assign role tenant %s, got %s", tenantID, repo.lastAssignTenant)
+	}
+}
+
 func TestUserServiceGetUser(t *testing.T) {
 	uid := uuid.New()
 	now := time.Now()
-	svc := NewUserService(&mockUserRepository{
+	tenantID := uuid.NewString()
+	repo := &mockUserRepository{
 		tenantExists: true,
 		getUser: &repository.UserRecord{
 			ID:          uid,
@@ -189,8 +219,9 @@ func TestUserServiceGetUser(t *testing.T) {
 		getUserRoles: []repository.RoleRecord{
 			{ID: uuid.New(), Name: "admin", Description: sql.NullString{Valid: true}},
 		},
-	})
-	resp, apiErr := svc.GetUser(context.Background(), uuid.NewString(), uid.String())
+	}
+	svc := NewUserService(repo)
+	resp, apiErr := svc.GetUser(context.Background(), tenantID, uid.String())
 	if apiErr != nil {
 		t.Fatalf("unexpected error: %v", apiErr)
 	}
@@ -200,37 +231,50 @@ func TestUserServiceGetUser(t *testing.T) {
 	if len(resp.Roles) != 1 || resp.Roles[0].Name != "admin" {
 		t.Fatalf("unexpected roles: %+v", resp.Roles)
 	}
+	if repo.lastGetUserRolesTenant != tenantID {
+		t.Fatalf("expected get user roles tenant %s, got %s", tenantID, repo.lastGetUserRolesTenant)
+	}
 }
 
 func TestUserServiceAssignRoleConflict(t *testing.T) {
 	uid := uuid.New()
-	svc := NewUserService(&mockUserRepository{
+	tenantID := uuid.NewString()
+	repo := &mockUserRepository{
 		tenantExists:  true,
 		getUser:       &repository.UserRecord{ID: uid, Username: "alice", Email: "a@b.com", Status: "active"},
 		assignRoleErr: repository.ErrRoleConflict,
-	})
-	apiErr := svc.AssignRole(context.Background(), uuid.NewString(), uid.String(), uuid.NewString())
+	}
+	svc := NewUserService(repo)
+	apiErr := svc.AssignRole(context.Background(), tenantID, uid.String(), uuid.NewString())
 	if apiErr == nil {
 		t.Fatal("expected error for role conflict")
 	}
 	if apiErr.HTTPStatus != 409 {
 		t.Fatalf("expected 409, got %d", apiErr.HTTPStatus)
 	}
+	if repo.lastAssignTenant != tenantID {
+		t.Fatalf("expected assign role tenant %s, got %s", tenantID, repo.lastAssignTenant)
+	}
 }
 
 func TestUserServiceRemoveRoleNotFound(t *testing.T) {
 	uid := uuid.New()
-	svc := NewUserService(&mockUserRepository{
+	tenantID := uuid.NewString()
+	repo := &mockUserRepository{
 		tenantExists:  true,
 		getUser:       &repository.UserRecord{ID: uid, Username: "alice", Email: "a@b.com", Status: "active"},
 		removeRoleErr: repository.ErrRoleNotFound,
-	})
-	apiErr := svc.RemoveRole(context.Background(), uuid.NewString(), uid.String(), uuid.NewString())
+	}
+	svc := NewUserService(repo)
+	apiErr := svc.RemoveRole(context.Background(), tenantID, uid.String(), uuid.NewString())
 	if apiErr == nil {
 		t.Fatal("expected error for role not found")
 	}
 	if apiErr.HTTPStatus != 404 {
 		t.Fatalf("expected 404, got %d", apiErr.HTTPStatus)
+	}
+	if repo.lastRemoveTenant != tenantID {
+		t.Fatalf("expected remove role tenant %s, got %s", tenantID, repo.lastRemoveTenant)
 	}
 }
 

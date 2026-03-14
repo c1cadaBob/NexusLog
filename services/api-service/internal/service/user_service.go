@@ -30,10 +30,10 @@ type userRepository interface {
 	UpdateUser(ctx context.Context, tenantID, userID string, input repository.UpdateUserInput) error
 	DisableUser(ctx context.Context, tenantID, userID string) error
 	BatchUpdateUsersStatus(ctx context.Context, tenantID string, userIDs []uuid.UUID, status string) (int, error)
-	AssignRole(ctx context.Context, userID, roleID string) error
-	RemoveRole(ctx context.Context, userID, roleID string) error
+	AssignRole(ctx context.Context, tenantID, userID, roleID string) error
+	RemoveRole(ctx context.Context, tenantID, userID, roleID string) error
 	ListRoles(ctx context.Context, tenantID string) ([]repository.RoleRecord, error)
-	GetUserRoles(ctx context.Context, userID string) ([]repository.RoleRecord, error)
+	GetUserRoles(ctx context.Context, tenantID, userID string) ([]repository.RoleRecord, error)
 	IsLoginLocked(ctx context.Context, tenantID, username string) (bool, time.Time, error)
 }
 
@@ -125,7 +125,7 @@ func (s *UserService) GetUser(ctx context.Context, tenantHeader, userID string) 
 		}
 	}
 
-	roles, _ := s.repo.GetUserRoles(ctx, userID)
+	roles, _ := s.repo.GetUserRoles(ctx, tenantID.String(), userID)
 	roleData := make([]model.RoleData, 0, len(roles))
 	for _, r := range roles {
 		roleData = append(roleData, roleRecordToData(r))
@@ -191,7 +191,7 @@ func (s *UserService) CreateUser(ctx context.Context, tenantHeader string, req m
 	}
 
 	if normalized.RoleID != nil && *normalized.RoleID != "" {
-		_ = s.repo.AssignRole(ctx, id, *normalized.RoleID)
+		_ = s.repo.AssignRole(ctx, tenantID.String(), id, *normalized.RoleID)
 	}
 
 	return model.CreateUserResponseData{
@@ -317,7 +317,7 @@ func (s *UserService) AssignRole(ctx context.Context, tenantHeader, userID strin
 		}
 	}
 
-	err = s.repo.AssignRole(ctx, userID, roleID)
+	err = s.repo.AssignRole(ctx, tenantID.String(), userID, roleID)
 	if err != nil {
 		if errors.Is(err, repository.ErrRoleConflict) {
 			return &model.APIError{
@@ -345,12 +345,12 @@ func (s *UserService) AssignRole(ctx context.Context, tenantHeader, userID strin
 }
 
 func (s *UserService) RemoveRole(ctx context.Context, tenantHeader, userID, roleID string) *model.APIError {
-	_, apiErr := parseAndCheckTenantUser(ctx, s.repo, tenantHeader, "USER")
+	tenantID, apiErr := parseAndCheckTenantUser(ctx, s.repo, tenantHeader, "USER")
 	if apiErr != nil {
 		return apiErr
 	}
 
-	err := s.repo.RemoveRole(ctx, userID, roleID)
+	err := s.repo.RemoveRole(ctx, tenantID.String(), userID, roleID)
 	if err != nil {
 		if errors.Is(err, repository.ErrRoleNotFound) {
 			return &model.APIError{
