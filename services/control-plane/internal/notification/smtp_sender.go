@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/smtp"
 	"strconv"
 	"strings"
@@ -56,6 +57,13 @@ func ParseEmailConfig(config json.RawMessage) (EmailConfig, error) {
 	return cfg, nil
 }
 
+var (
+	smtpSendMail = smtp.SendMail
+	tlsDial      = func(network, addr string, config *tls.Config) (net.Conn, error) {
+		return tls.Dial(network, addr, config)
+	}
+)
+
 // SMTPSender sends emails via SMTP.
 type SMTPSender struct{}
 
@@ -66,11 +74,15 @@ func NewSMTPSender() *SMTPSender {
 
 // SendTestEmail sends a test email to the given address.
 func (s *SMTPSender) SendTestEmail(config EmailConfig, to string) error {
-	return s.Send(config, "NexusLog Notification Channel Test", "This is a test email from NexusLog notification channel.", to)
+	return s.send(config, "NexusLog Notification Channel Test", "This is a test email from NexusLog notification channel.", to, allowPlaintextSMTPTests())
 }
 
 // Send sends an email with the given subject and body.
 func (s *SMTPSender) Send(config EmailConfig, subject, body, to string) error {
+	return s.send(config, subject, body, to, allowPlaintextSMTPDelivery())
+}
+
+func (s *SMTPSender) send(config EmailConfig, subject, body, to string, allowPlaintext bool) error {
 	to = strings.TrimSpace(to)
 	if to == "" {
 		return fmt.Errorf("recipient email is required")
@@ -83,6 +95,9 @@ func (s *SMTPSender) Send(config EmailConfig, subject, body, to string) error {
 	}
 	if err := validateSMTPHost(config.SMTPHost); err != nil {
 		return fmt.Errorf("smtp target is not allowed")
+	}
+	if !config.UseTLS && !allowPlaintext {
+		return fmt.Errorf("plaintext SMTP send is disabled")
 	}
 
 	from := config.FromEmail
@@ -113,7 +128,7 @@ func (s *SMTPSender) sendPlain(config EmailConfig, addr, from, to, msg string) e
 	if config.SMTPUsername != "" || config.SMTPPassword != "" {
 		auth = smtp.PlainAuth("", config.SMTPUsername, config.SMTPPassword, config.SMTPHost)
 	}
-	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+	return smtpSendMail(addr, auth, from, []string{to}, []byte(msg))
 }
 
 func (s *SMTPSender) sendTLS(config EmailConfig, addr, from, to, msg string) error {
@@ -121,7 +136,7 @@ func (s *SMTPSender) sendTLS(config EmailConfig, addr, from, to, msg string) err
 		ServerName: config.SMTPHost,
 		MinVersion: tls.VersionTLS12,
 	}
-	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	conn, err := tlsDial("tcp", addr, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("tls dial: %w", err)
 	}

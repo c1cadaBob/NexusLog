@@ -76,6 +76,10 @@ func validateEmailConfig(m map[string]interface{}) error {
 	if err := validateSMTPHost(host); err != nil {
 		return fmt.Errorf("smtp_host is not allowed")
 	}
+	useTLS, _ := m["use_tls"].(bool)
+	if !useTLS && !allowPlaintextSMTPDelivery() {
+		return fmt.Errorf("plaintext SMTP delivery is disabled")
+	}
 	from, _ := m["from_email"].(string)
 	if strings.TrimSpace(from) == "" {
 		username, _ := m["smtp_username"].(string)

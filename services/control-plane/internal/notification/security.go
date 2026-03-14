@@ -100,7 +100,7 @@ func validateEmailTestTarget(cfg EmailConfig, to string) error {
 	if err := validateSMTPHost(cfg.SMTPHost); err != nil {
 		return fmt.Errorf("smtp target is not allowed")
 	}
-	if !cfg.UseTLS && !envBool("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_TESTS", false) {
+	if !cfg.UseTLS && !allowPlaintextSMTPTests() {
 		return fmt.Errorf("plaintext SMTP test is disabled")
 	}
 	return nil
@@ -327,6 +327,14 @@ func ipWithinAllowedCIDRs(ip net.IP, networks []*net.IPNet) bool {
 		}
 	}
 	return false
+}
+
+func allowPlaintextSMTPDelivery() bool {
+	return envBool("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_SENDS", false)
+}
+
+func allowPlaintextSMTPTests() bool {
+	return allowPlaintextSMTPDelivery() || envBool("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_TESTS", false)
 }
 
 func envBool(key string, fallback bool) bool {

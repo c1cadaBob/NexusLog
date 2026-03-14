@@ -86,12 +86,24 @@ func TestValidateDingTalkTargetRejectsLookupFailure(t *testing.T) {
 
 func TestValidateEmailTestTargetRejectsPlaintextSMTPByDefault(t *testing.T) {
 	os.Unsetenv("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_TESTS")
+	os.Unsetenv("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_SENDS")
 	stubNotificationHostLookup(t, func(ctx context.Context, host string) ([]net.IP, error) {
 		return []net.IP{net.ParseIP("203.0.113.20")}, nil
 	})
 	cfg := EmailConfig{SMTPHost: "smtp.example.com", SMTPPort: 25, UseTLS: false}
 	if err := validateEmailTestTarget(cfg, "ops@example.com"); err == nil {
 		t.Fatalf("validateEmailTestTarget() expected error")
+	}
+}
+
+func TestValidateEmailTestTargetAllowsPlaintextSMTPWhenTestOverrideEnabled(t *testing.T) {
+	t.Setenv("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_TESTS", "true")
+	stubNotificationHostLookup(t, func(ctx context.Context, host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("203.0.113.20")}, nil
+	})
+	cfg := EmailConfig{SMTPHost: "smtp.example.com", SMTPPort: 25, UseTLS: false}
+	if err := validateEmailTestTarget(cfg, "ops@example.com"); err != nil {
+		t.Fatalf("validateEmailTestTarget() error = %v", err)
 	}
 }
 
@@ -103,6 +115,7 @@ func TestValidateEmailConfigRejectsPrivateSMTPHostByDefault(t *testing.T) {
 		"smtp_host":  "10.0.0.5",
 		"smtp_port":  465,
 		"from_email": "ops@example.com",
+		"use_tls":    true,
 	}
 	if err := validateEmailConfig(cfg); err == nil {
 		t.Fatalf("validateEmailConfig() expected error")
@@ -115,6 +128,39 @@ func TestValidateEmailConfigAllowsPrivateSMTPHostWhenCIDRAllowlisted(t *testing.
 		"smtp_host":  "10.0.0.5",
 		"smtp_port":  465,
 		"from_email": "ops@example.com",
+		"use_tls":    true,
+	}
+	if err := validateEmailConfig(cfg); err != nil {
+		t.Fatalf("validateEmailConfig() error = %v", err)
+	}
+}
+
+func TestValidateEmailConfigRejectsPlaintextSMTPDeliveryByDefault(t *testing.T) {
+	os.Unsetenv("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_SENDS")
+	stubNotificationHostLookup(t, func(ctx context.Context, host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("203.0.113.20")}, nil
+	})
+	cfg := map[string]interface{}{
+		"smtp_host":  "smtp.example.com",
+		"smtp_port":  25,
+		"from_email": "ops@example.com",
+		"use_tls":    false,
+	}
+	if err := validateEmailConfig(cfg); err == nil {
+		t.Fatalf("validateEmailConfig() expected error")
+	}
+}
+
+func TestValidateEmailConfigAllowsPlaintextSMTPDeliveryWhenOverrideEnabled(t *testing.T) {
+	t.Setenv("NOTIFICATION_ALLOW_PLAINTEXT_SMTP_SENDS", "true")
+	stubNotificationHostLookup(t, func(ctx context.Context, host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("203.0.113.20")}, nil
+	})
+	cfg := map[string]interface{}{
+		"smtp_host":  "smtp.example.com",
+		"smtp_port":  25,
+		"from_email": "ops@example.com",
+		"use_tls":    false,
 	}
 	if err := validateEmailConfig(cfg); err != nil {
 		t.Fatalf("validateEmailConfig() error = %v", err)

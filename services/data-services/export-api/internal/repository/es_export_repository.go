@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	sharedhttpguard "github.com/nexuslog/data-services/shared/httpguard"
 )
 
 const (
@@ -104,7 +105,7 @@ func (r *ESExportRepository) ScrollSearch(ctx context.Context, params ExportQuer
 	if err != nil {
 		return fmt.Errorf("execute es search: %w", err)
 	}
-	bodyRaw, err := io.ReadAll(resp.Body)
+	bodyRaw, err := sharedhttpguard.ReadLimitedBody(resp.Body, 0)
 	resp.Body.Close()
 	if err != nil {
 		return fmt.Errorf("read es response: %w", err)
@@ -155,7 +156,7 @@ func (r *ESExportRepository) ScrollSearch(ctx context.Context, params ExportQuer
 		if err != nil {
 			return fmt.Errorf("execute scroll: %w", err)
 		}
-		bodyRaw, err = io.ReadAll(scrollResp.Body)
+		bodyRaw, err = sharedhttpguard.ReadLimitedBody(scrollResp.Body, 0)
 		scrollResp.Body.Close()
 		if err != nil {
 			return fmt.Errorf("read scroll response: %w", err)

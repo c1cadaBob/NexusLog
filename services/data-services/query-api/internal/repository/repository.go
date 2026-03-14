@@ -7,12 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	sharedhttpguard "github.com/nexuslog/data-services/shared/httpguard"
 )
 
 const (
@@ -195,7 +196,7 @@ func (r *ElasticsearchRepository) SearchWithBody(ctx context.Context, body map[s
 		return SearchLogsResult{}, fmt.Errorf("execute es request: %w", err)
 	}
 	defer resp.Body.Close()
-	bodyRaw, err := io.ReadAll(resp.Body)
+	bodyRaw, err := sharedhttpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
 		return SearchLogsResult{}, fmt.Errorf("read es response: %w", err)
 	}
@@ -275,7 +276,7 @@ func (r *ElasticsearchRepository) executeSearch(ctx context.Context, endpoint st
 	}
 	defer resp.Body.Close()
 
-	bodyRaw, err := io.ReadAll(resp.Body)
+	bodyRaw, err := sharedhttpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
 		return esSearchResponse{}, fmt.Errorf("read es response: %w", err)
 	}
@@ -334,7 +335,7 @@ func (r *ElasticsearchRepository) openPointInTime(ctx context.Context, keepAlive
 	}
 	defer resp.Body.Close()
 
-	bodyRaw, err := io.ReadAll(resp.Body)
+	bodyRaw, err := sharedhttpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
 		return "", fmt.Errorf("read es pit response: %w", err)
 	}
