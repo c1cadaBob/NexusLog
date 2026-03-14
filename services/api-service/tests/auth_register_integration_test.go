@@ -250,16 +250,118 @@ func TestRefreshIntegration(t *testing.T) {
 		t.Fatalf("expected rotated refresh token")
 	}
 
+	if !hasSessionStatus(t, ctx, db, tenantID, "active") {
+		t.Fatalf("expected active session immediately after refresh")
+	}
+
 	oldStatus, oldBody := callRefresh(t, router, tenantID, model.RefreshRequest{RefreshToken: oldRefresh})
 	if oldStatus != http.StatusUnauthorized || oldBody["code"] != "AUTH_REFRESH_INVALID_TOKEN" {
 		t.Fatalf("expected old refresh invalid, status=%d body=%#v", oldStatus, oldBody)
 	}
 
-	if !hasSessionStatus(t, ctx, db, tenantID, "active") {
-		t.Fatalf("expected active session after refresh")
+	if hasSessionStatus(t, ctx, db, tenantID, "active") {
+		t.Fatalf("expected active sessions revoked after replaying old refresh token")
 	}
 	if !hasSessionStatus(t, ctx, db, tenantID, "revoked") {
-		t.Fatalf("expected revoked session after rotation")
+		t.Fatalf("expected revoked sessions after rotation replay defense")
+	}
+}
+
+func TestRefreshIntegrationLinksRotatedSessions(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN is not set")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	tenantID := mustCreateTenant(t, ctx, db, "tenant-refresh-chain")
+	router := buildRouter(db)
+
+	username := "refresh_chain_" + uuid.NewString()[:8]
+	email := fmt.Sprintf("%s@example.com", username)
+
+	regStatus, regBody := callRegister(t, router, tenantID, model.RegisterRequest{
+		Username:    username,
+		Password:    "Password123",
+		Email:       email,
+		DisplayName: "Refresh Chain User",
+	})
+	if regStatus != http.StatusCreated || regBody["code"] != "OK" {
+		t.Fatalf("register setup failed, status=%d body=%#v", regStatus, regBody)
+	}
+
+	loginStatus, loginBody := callLogin(t, router, tenantID, model.LoginRequest{
+		Username: username,
+		Password: "Password123",
+	})
+	if loginStatus != http.StatusOK || loginBody["code"] != "OK" {
+		t.Fatalf("login setup failed, status=%d body=%#v", loginStatus, loginBody)
+	}
+
+	loginData, ok := loginBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing login data: %#v", loginBody)
+	}
+	oldRefresh, ok := loginData["refresh_token"].(string)
+	if !ok || oldRefresh == "" {
+		t.Fatalf("missing old refresh token: %#v", loginData)
+	}
+
+	refreshStatus, refreshBody := callRefresh(t, router, tenantID, model.RefreshRequest{RefreshToken: oldRefresh})
+	if refreshStatus != http.StatusOK || refreshBody["code"] != "OK" {
+		t.Fatalf("refresh failed, status=%d body=%#v", refreshStatus, refreshBody)
+	}
+	refreshData, ok := refreshBody["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing refresh data: %#v", refreshBody)
+	}
+	newRefresh, ok := refreshData["refresh_token"].(string)
+	if !ok || newRefresh == "" {
+		t.Fatalf("missing new refresh token: %#v", refreshData)
+	}
+
+	sessions := listSessionsForUser(t, ctx, db, tenantID, username)
+	if len(sessions) != 2 {
+		t.Fatalf("expected exactly 2 sessions after refresh rotation, got %d: %#v", len(sessions), sessions)
+	}
+
+	oldRefreshHash := hashSessionToken(oldRefresh)
+	newRefreshHash := hashSessionToken(newRefresh)
+
+	var revokedSession userSessionRecord
+	var activeSession userSessionRecord
+	for _, session := range sessions {
+		switch session.RefreshTokenHash {
+		case oldRefreshHash:
+			revokedSession = session
+		case newRefreshHash:
+			activeSession = session
+		}
+	}
+
+	if revokedSession.ID == "" {
+		t.Fatalf("expected revoked session for old refresh token, sessions=%#v", sessions)
+	}
+	if activeSession.ID == "" {
+		t.Fatalf("expected active session for new refresh token, sessions=%#v", sessions)
+	}
+	if revokedSession.Status != "revoked" {
+		t.Fatalf("expected old refresh session revoked, got %#v", revokedSession)
+	}
+	if activeSession.Status != "active" {
+		t.Fatalf("expected new refresh session active, got %#v", activeSession)
+	}
+	if revokedSession.ReplacedBySessionID != activeSession.ID {
+		t.Fatalf("expected revoked session to point to active session, revoked=%#v active=%#v", revokedSession, activeSession)
+	}
+	if revokedSession.SessionFamilyID != activeSession.SessionFamilyID {
+		t.Fatalf("expected rotated sessions to share family id, revoked=%#v active=%#v", revokedSession, activeSession)
 	}
 }
 
@@ -919,6 +1021,55 @@ func hasSessionStatus(t *testing.T, ctx context.Context, db *sql.DB, tenantID, s
 	return exists
 }
 
+type userSessionRecord struct {
+	ID                  string
+	RefreshTokenHash    string
+	Status              string
+	SessionFamilyID     string
+	ReplacedBySessionID string
+}
+
+func listSessionsForUser(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) []userSessionRecord {
+	t.Helper()
+	const q = `
+		SELECT
+			s.id::text,
+			s.refresh_token_hash,
+			s.session_status,
+			s.session_family_id::text,
+			COALESCE(s.replaced_by_session_id::text, '')
+		FROM user_sessions s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.tenant_id = $1::uuid
+		  AND u.username = $2
+		ORDER BY s.created_at ASC
+	`
+	rows, err := db.QueryContext(ctx, q, tenantID, username)
+	if err != nil {
+		t.Fatalf("query sessions for user: %v", err)
+	}
+	defer rows.Close()
+
+	var sessions []userSessionRecord
+	for rows.Next() {
+		var session userSessionRecord
+		if err := rows.Scan(
+			&session.ID,
+			&session.RefreshTokenHash,
+			&session.Status,
+			&session.SessionFamilyID,
+			&session.ReplacedBySessionID,
+		); err != nil {
+			t.Fatalf("scan session record: %v", err)
+		}
+		sessions = append(sessions, session)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate session records: %v", err)
+	}
+	return sessions
+}
+
 func activeSessionTTLForUser(t *testing.T, ctx context.Context, db *sql.DB, tenantID, username string) time.Duration {
 	t.Helper()
 	const q = `
@@ -1109,6 +1260,11 @@ func latestLoginAttemptResult(t *testing.T, ctx context.Context, db *sql.DB, ten
 		t.Fatalf("query latest login_attempt result: %v", err)
 	}
 	return result
+}
+
+func hashSessionToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func hashResetToken(raw string) string {
