@@ -16,6 +16,7 @@ const (
 	ErrorCodeAuthRegisterTenantNotFound   = "AUTH_REGISTER_TENANT_NOT_FOUND"
 	ErrorCodeAuthRegisterUsernameConflict = "AUTH_REGISTER_USERNAME_CONFLICT"
 	ErrorCodeAuthRegisterEmailConflict    = "AUTH_REGISTER_EMAIL_CONFLICT"
+	ErrorCodeAuthRegisterRateLimited      = "AUTH_REGISTER_RATE_LIMITED"
 	ErrorCodeAuthRegisterInternalError    = "AUTH_REGISTER_INTERNAL_ERROR"
 
 	// Login.
@@ -24,6 +25,7 @@ const (
 	ErrorCodeAuthLoginTenantInvalid      = "AUTH_LOGIN_TENANT_INVALID"
 	ErrorCodeAuthLoginTenantNotFound     = "AUTH_LOGIN_TENANT_NOT_FOUND"
 	ErrorCodeAuthLoginInvalidCredentials = "AUTH_LOGIN_INVALID_CREDENTIALS"
+	ErrorCodeAuthLoginRateLimited        = "AUTH_LOGIN_RATE_LIMITED"
 	ErrorCodeAuthLoginInternalError      = "AUTH_LOGIN_INTERNAL_ERROR"
 
 	// Refresh.
@@ -67,6 +69,7 @@ var authErrorStatusCatalog = map[string]int{
 	ErrorCodeAuthRegisterTenantNotFound:   http.StatusNotFound,
 	ErrorCodeAuthRegisterUsernameConflict: http.StatusConflict,
 	ErrorCodeAuthRegisterEmailConflict:    http.StatusConflict,
+	ErrorCodeAuthRegisterRateLimited:      http.StatusTooManyRequests,
 	ErrorCodeAuthRegisterInternalError:    http.StatusInternalServerError,
 
 	ErrorCodeAuthLoginInvalidArgument:    http.StatusBadRequest,
@@ -74,6 +77,7 @@ var authErrorStatusCatalog = map[string]int{
 	ErrorCodeAuthLoginTenantInvalid:      http.StatusBadRequest,
 	ErrorCodeAuthLoginTenantNotFound:     http.StatusNotFound,
 	ErrorCodeAuthLoginInvalidCredentials: http.StatusUnauthorized,
+	ErrorCodeAuthLoginRateLimited:        http.StatusTooManyRequests,
 	ErrorCodeAuthLoginInternalError:      http.StatusInternalServerError,
 
 	ErrorCodeAuthRefreshInvalidArgument: http.StatusBadRequest,
@@ -113,6 +117,7 @@ var authErrorMessageCatalog = map[string]string{
 	ErrorCodeAuthRegisterTenantNotFound:   "tenant not found",
 	ErrorCodeAuthRegisterUsernameConflict: "username already exists",
 	ErrorCodeAuthRegisterEmailConflict:    "email already exists",
+	ErrorCodeAuthRegisterRateLimited:      "too many register attempts, retry later",
 	ErrorCodeAuthRegisterInternalError:    "internal error",
 
 	ErrorCodeAuthLoginInvalidArgument:    "invalid request",
@@ -120,6 +125,7 @@ var authErrorMessageCatalog = map[string]string{
 	ErrorCodeAuthLoginTenantInvalid:      "invalid tenant id",
 	ErrorCodeAuthLoginTenantNotFound:     "tenant not found",
 	ErrorCodeAuthLoginInvalidCredentials: "username or password is incorrect",
+	ErrorCodeAuthLoginRateLimited:        "too many login attempts, retry later",
 	ErrorCodeAuthLoginInternalError:      "internal error",
 
 	ErrorCodeAuthRefreshInvalidArgument: "invalid request",

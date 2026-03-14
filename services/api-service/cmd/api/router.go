@@ -16,6 +16,7 @@ func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
 	authRepo := repository.NewAuthRepository(db)
 	authService := service.NewAuthService(authRepo, jwtSecret)
 	authHandler := handler.NewAuthHandler(authService)
+	authRateLimiter := handler.NewDefaultAuthRateLimitMiddleware()
 
 	userRepo := repository.NewUserRepository(db)
 	userService := service.NewUserService(userRepo)
@@ -50,8 +51,8 @@ func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
 	apiV1 := router.Group("/api/v1")
 
 	authV1 := apiV1.Group("/auth")
-	authV1.POST("/register", authHandler.Register)
-	authV1.POST("/login", authHandler.Login)
+	authV1.POST("/register", authRateLimiter.Register(), authHandler.Register)
+	authV1.POST("/login", authRateLimiter.Login(), authHandler.Login)
 	authV1.POST("/refresh", authHandler.Refresh)
 	authV1.POST("/password/reset-request", authHandler.PasswordResetRequest)
 	authV1.POST("/password/reset-confirm", authHandler.PasswordResetConfirm)
