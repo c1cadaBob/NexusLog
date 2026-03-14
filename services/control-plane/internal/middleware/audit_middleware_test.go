@@ -121,6 +121,55 @@ func TestAuditMiddleware_ResolvesUserIDAfterHandlerMutation(t *testing.T) {
 	waitForAuditExpectations(t, mock)
 }
 
+func TestAuditMiddleware_DoesNotTrustSpoofedHeadersForExplicitAuditEvents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec("INSERT INTO audit_logs").
+		WithArgs(
+			nil,
+			nil,
+			"pull_sources.list",
+			"pull_sources",
+			"",
+			`{"http_status":200,"result":"success"}`,
+			"192.0.2.13",
+			"cp-explicit-spoofed-headers",
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	router := gin.New()
+	router.Use(AuditMiddleware(db))
+	router.GET("/api/v1/ingest/pull-sources", func(c *gin.Context) {
+		SetAuditEvent(c, AuditEvent{
+			Action:       "pull_sources.list",
+			ResourceType: "pull_sources",
+			Details: BuildAuditDetails(map[string]any{
+				"result":      "success",
+				"http_status": http.StatusOK,
+			}),
+		})
+		c.JSON(http.StatusOK, gin.H{"items": []any{}})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ingest/pull-sources", nil)
+	req.RemoteAddr = "192.0.2.13:45678"
+	req.Header.Set("User-Agent", "cp-explicit-spoofed-headers")
+	req.Header.Set("X-Tenant-ID", "00000000-0000-0000-0000-000000000099")
+	req.Header.Set("X-User-ID", "99999999-9999-9999-9999-999999999999")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	waitForAuditExpectations(t, mock)
+}
+
 func TestAuditMiddleware_DoesNotTrustSpoofedHeadersWithoutAuthContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()

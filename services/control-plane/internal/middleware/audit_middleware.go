@@ -42,7 +42,7 @@ func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
 		c.Next()
 
 		auditEntry, hasOverride := GetAuditEvent(c)
-		tenantID := resolveTenantID(c, hasOverride)
+		tenantID := resolveTenantID(c)
 		userID := resolveUserID(c)
 		if hasOverride {
 			if auditEntry.Skip {
@@ -107,20 +107,8 @@ func GetAuditEvent(c *gin.Context) (AuditEvent, bool) {
 	return event, true
 }
 
-func resolveTenantID(c *gin.Context, allowHeaderFallback bool) string {
-	if tenantID := strings.TrimSpace(c.GetString(authContextKeyTenantID)); tenantID != "" {
-		return tenantID
-	}
-	if !allowHeaderFallback {
-		return ""
-	}
-	if tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID")); tenantID != "" {
-		return tenantID
-	}
-	if tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-Id")); tenantID != "" {
-		return tenantID
-	}
-	return ""
+func resolveTenantID(c *gin.Context) string {
+	return strings.TrimSpace(c.GetString(authContextKeyTenantID))
 }
 
 func resolveUserID(c *gin.Context) string {
