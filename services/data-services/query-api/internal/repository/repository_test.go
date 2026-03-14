@@ -59,6 +59,37 @@ func TestBuildESQuery_UsesStructuredV2FieldsAndFilterAliases(t *testing.T) {
 	})
 }
 
+func TestBuildESQuery_TreatsKeywordsAsLiteralTextAndDropsUnknownFilters(t *testing.T) {
+	query := BuildESQuery(SearchLogsInput{
+		Keywords: `error OR *`,
+		Filters: map[string]any{
+			"unknown.field": "boom",
+			"service":       `key*cloak?`,
+		},
+	})
+
+	raw, err := json.Marshal(query)
+	if err != nil {
+		t.Fatalf("marshal query failed: %v", err)
+	}
+	encoded := string(raw)
+	if !strings.Contains(encoded, `"multi_match"`) {
+		t.Fatalf("expected multi_match query, got %s", encoded)
+	}
+	if strings.Contains(encoded, `"simple_query_string"`) {
+		t.Fatalf("unexpected simple_query_string in %s", encoded)
+	}
+	if strings.Contains(encoded, `unknown.field`) {
+		t.Fatalf("unexpected unknown filter field in %s", encoded)
+	}
+	if !strings.Contains(encoded, `"value":"*/keycloak"`) {
+		t.Fatalf("expected sanitized wildcard value, got %s", encoded)
+	}
+	if strings.Contains(encoded, `"value":"*/key*cloak?"`) {
+		t.Fatalf("unexpected wildcard metacharacters in wildcard clause: %s", encoded)
+	}
+}
+
 func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
 	query := BuildESQuery(SearchLogsInput{
 		Filters: map[string]any{
@@ -167,6 +198,19 @@ func TestBuildESSort_AppendsStableTieBreakers(t *testing.T) {
 	}
 	if got := sortOptions(t, sorts[5], "event.id")["unmapped_type"]; got != "keyword" {
 		t.Fatalf("event.id unmapped_type=%v, want keyword", got)
+	}
+}
+
+func TestBuildESSort_DropsUnknownFields(t *testing.T) {
+	sorts := buildESSort([]SortField{{Field: `script[0]`, Order: "asc"}})
+	wantFields := []string{"@timestamp", "nexuslog.ingest.received_at", "event.sequence", "log.offset", "source.path", "event.id"}
+	if len(sorts) != len(wantFields) {
+		t.Fatalf("buildESSort returned %d clauses, want %d", len(sorts), len(wantFields))
+	}
+	for index, field := range wantFields {
+		if _, ok := sorts[index][field]; !ok {
+			t.Fatalf("sort[%d] missing field %s: %#v", index, field, sorts[index])
+		}
 	}
 }
 

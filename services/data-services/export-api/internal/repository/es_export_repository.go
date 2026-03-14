@@ -223,10 +223,11 @@ func buildExportESQuery(params ExportQueryParams) map[string]any {
 	keywords := strings.TrimSpace(params.Keywords)
 	if keywords != "" {
 		mustClauses = append(mustClauses, map[string]any{
-			"simple_query_string": map[string]any{
-				"query":            keywords,
-				"default_operator": "and",
-				"fields":           []string{"message^2", "raw_log", "source_ref", "source_path", "agent_id", "record_id", "batch_id", "service"},
+			"multi_match": map[string]any{
+				"query":    keywords,
+				"operator": "and",
+				"type":     "best_fields",
+				"fields":   []string{"message^2", "raw_log", "source_ref", "source_path", "agent_id", "record_id", "batch_id", "service"},
 			},
 		})
 	}
@@ -241,7 +242,7 @@ func buildExportESQuery(params ExportQueryParams) map[string]any {
 		})
 	}
 	for key, value := range params.Filters {
-		field := strings.TrimSpace(key)
+		field := normalizeExportFilterField(key)
 		if field == "" || value == nil {
 			continue
 		}
@@ -271,7 +272,7 @@ func buildExportESSort(sort []struct {
 }) []map[string]any {
 	sorts := make([]map[string]any, 0, len(sort)+1)
 	for _, s := range sort {
-		field := strings.TrimSpace(s.Field)
+		field := normalizeExportSortField(s.Field)
 		if field == "" {
 			continue
 		}
@@ -285,6 +286,58 @@ func buildExportESSort(sort []struct {
 		sorts = append(sorts, map[string]any{"@timestamp": map[string]any{"order": "desc"}})
 	}
 	return sorts
+}
+
+func normalizeExportFilterField(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "@timestamp", "timestamp":
+		return "@timestamp"
+	case "message":
+		return "message"
+	case "level":
+		return "level"
+	case "service":
+		return "service"
+	case "source", "source_path":
+		return "source_path"
+	case "source_ref":
+		return "source_ref"
+	case "agent_id":
+		return "agent_id"
+	case "record_id":
+		return "record_id"
+	case "batch_id":
+		return "batch_id"
+	default:
+		return ""
+	}
+}
+
+func normalizeExportSortField(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "@timestamp", "timestamp":
+		return "@timestamp"
+	case "message":
+		return "message"
+	case "level":
+		return "level"
+	case "service":
+		return "service"
+	case "raw_log":
+		return "raw_log"
+	case "source_ref":
+		return "source_ref"
+	case "source", "source_path":
+		return "source_path"
+	case "agent_id":
+		return "agent_id"
+	case "record_id":
+		return "record_id"
+	case "batch_id":
+		return "batch_id"
+	default:
+		return ""
+	}
 }
 
 func normalizeTerms(value any) []any {

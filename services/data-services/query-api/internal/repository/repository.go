@@ -488,9 +488,10 @@ func BuildESQuery(in SearchLogsInput) map[string]any {
 	keywords := strings.TrimSpace(in.Keywords)
 	if keywords != "" {
 		mustClauses = append(mustClauses, map[string]any{
-			"simple_query_string": map[string]any{
-				"query":            keywords,
-				"default_operator": "and",
+			"multi_match": map[string]any{
+				"query":    keywords,
+				"operator": "and",
+				"type":     "best_fields",
 				"fields": []string{
 					"message^3",
 					"event.original",
@@ -819,7 +820,7 @@ func buildESSort(sortFields []SortField) []map[string]any {
 	}
 
 	for _, sortField := range sortFields {
-		field := strings.TrimSpace(sortField.Field)
+		field := normalizeSortField(sortField.Field)
 		if field == "" {
 			continue
 		}
@@ -923,13 +924,11 @@ func buildServiceCompatibilityFilterClause(value any) map[string]any {
 			})
 		}
 		for _, term := range terms {
-			pattern := strings.TrimSpace(fmt.Sprintf("%v", term))
+			pattern := sanitizeWildcardLiteral(strings.TrimSpace(fmt.Sprintf("%v", term)))
 			if pattern == "" {
 				continue
 			}
-			if !strings.ContainsAny(pattern, "*?") {
-				pattern = "*/" + pattern
-			}
+			pattern = "*/" + pattern
 			for _, field := range pathFields {
 				should = append(should, map[string]any{
 					"wildcard": map[string]any{
@@ -949,11 +948,9 @@ func buildServiceCompatibilityFilterClause(value any) map[string]any {
 				},
 			})
 		}
-		pattern := strings.TrimSpace(fmt.Sprintf("%v", value))
+		pattern := sanitizeWildcardLiteral(strings.TrimSpace(fmt.Sprintf("%v", value)))
 		if pattern != "" {
-			if !strings.ContainsAny(pattern, "*?") {
-				pattern = "*/" + pattern
-			}
+			pattern = "*/" + pattern
 			for _, field := range pathFields {
 				should = append(should, map[string]any{
 					"wildcard": map[string]any{
@@ -988,23 +985,88 @@ func compatibilityFilterFields(rawKey, normalizedField string) []string {
 
 func normalizeFilterField(raw string) string {
 	switch strings.TrimSpace(raw) {
-	case "level":
+	case "level", "log.level":
 		return "log.level"
-	case "service":
+	case "service", "service.name":
 		return "service.name"
-	case "source":
+	case "service.instance.id":
+		return "service.instance.id"
+	case "container.name":
+		return "container.name"
+	case "source", "source.path":
 		return "source.path"
-	case "agent_id":
+	case "log.file.path":
+		return "log.file.path"
+	case "agent_id", "agent.id":
 		return "agent.id"
-	case "batch_id":
+	case "batch_id", "nexuslog.transport.batch_id":
 		return "nexuslog.transport.batch_id"
-	case "traceId":
+	case "traceId", "trace.id":
 		return "trace.id"
-	case "spanId":
+	case "spanId", "span.id":
 		return "span.id"
-	case "statusCode":
+	case "statusCode", "http.response.status_code":
+		return "http.response.status_code"
+	case "request.id":
+		return "request.id"
+	case "event.record_id":
+		return "event.record_id"
+	default:
+		return ""
+	}
+}
+
+func normalizeSortField(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "@timestamp":
+		return "@timestamp"
+	case "nexuslog.ingest.received_at":
+		return "nexuslog.ingest.received_at"
+	case "event.sequence":
+		return "event.sequence"
+	case "log.offset":
+		return "log.offset"
+	case "source", "source.path":
+		return "source.path"
+	case "event.id":
+		return "event.id"
+	case "level", "log.level":
+		return "log.level"
+	case "service", "service.name":
+		return "service.name"
+	case "service.instance.id":
+		return "service.instance.id"
+	case "container.name":
+		return "container.name"
+	case "agent_id", "agent.id":
+		return "agent.id"
+	case "batch_id", "nexuslog.transport.batch_id":
+		return "nexuslog.transport.batch_id"
+	case "traceId", "trace.id":
+		return "trace.id"
+	case "spanId", "span.id":
+		return "span.id"
+	case "request.id":
+		return "request.id"
+	case "statusCode", "http.response.status_code":
 		return "http.response.status_code"
 	default:
-		return strings.TrimSpace(raw)
+		return ""
 	}
+}
+
+func sanitizeWildcardLiteral(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	cleaned := strings.Map(func(r rune) rune {
+		switch r {
+		case '*', '?':
+			return -1
+		default:
+			return r
+		}
+	}, raw)
+	return strings.TrimSpace(cleaned)
 }

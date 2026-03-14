@@ -93,7 +93,7 @@ func TestStatsServiceAggregate_UsesMinuteHistogramAndStructuredQuery(t *testing.
 	}
 	body := string(raw)
 	for _, fragment := range []string{
-		`"simple_query_string"`,
+		`"multi_match"`,
 		`"query":"level:error AND service:query-api"`,
 		`"service.name":"query-api"`,
 		`"value":"*/query-api"`,
