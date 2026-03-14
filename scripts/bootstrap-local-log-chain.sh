@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT_DIR"
 
+LOCAL_TENANT_CONFIG_SCRIPT="${LOCAL_TENANT_CONFIG_SCRIPT:-$ROOT_DIR/scripts/local/ensure-local-tenant-config.sh}"
 CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-http://localhost:8080}"
 API_SERVICE_URL="${API_SERVICE_URL:-http://localhost:8085}"
 QUERY_API_URL="${QUERY_API_URL:-http://localhost:8082}"
@@ -12,7 +13,7 @@ SCHEMA_REGISTRY_URL="${SCHEMA_REGISTRY_URL:-http://localhost:18081}"
 FLINK_REST_URL="${FLINK_REST_URL:-http://localhost:8088}"
 ALERTMANAGER_URL="${ALERTMANAGER_URL:-http://localhost:19093}"
 GRAFANA_URL="${GRAFANA_URL:-http://localhost:3002}"
-TENANT_ID="${TENANT_ID:-00000000-0000-0000-0000-000000000001}"
+TENANT_ID="${TENANT_ID:-}"
 ACCESS_TOKEN="${ACCESS_TOKEN:-}"
 LOCAL_BOOTSTRAP_USERNAME="${LOCAL_BOOTSTRAP_USERNAME:-sys-superadmin}"
 LOCAL_BOOTSTRAP_PASSWORD="${LOCAL_BOOTSTRAP_PASSWORD:-Demo@2026}"
@@ -58,6 +59,25 @@ require_cmd() {
     error "required command not found: $1"
     exit 1
   fi
+}
+
+resolve_local_tenant_id() {
+  if [[ ! -f "$LOCAL_TENANT_CONFIG_SCRIPT" ]]; then
+    error "local tenant helper script not found: $LOCAL_TENANT_CONFIG_SCRIPT"
+    exit 1
+  fi
+
+  if [[ -n "$TENANT_ID" ]]; then
+    TENANT_ID="$TENANT_ID" bash "$LOCAL_TENANT_CONFIG_SCRIPT"
+    return 0
+  fi
+
+  bash "$LOCAL_TENANT_CONFIG_SCRIPT"
+}
+
+ensure_bootstrap_tenant_seed() {
+  info "ensuring bootstrap identities for tenant: $TENANT_ID"
+  TENANT_ID="$TENANT_ID" bash "$ROOT_DIR/scripts/seed-demo.sh"
 }
 
 wait_for_url() {
@@ -240,6 +260,9 @@ if [[ "$LOCAL_BOOTSTRAP_CANCEL_STALE_TASKS" == "true" || "$LOCAL_BOOTSTRAP_TRIGG
   require_cmd docker
 fi
 
+TENANT_ID="$(resolve_local_tenant_id)"
+info "using bootstrap tenant: $TENANT_ID"
+
 wait_for_url "$CONTROL_PLANE_URL/healthz" "control-plane"
 wait_for_url "$API_SERVICE_URL/healthz" "api-service"
 wait_for_url "$QUERY_API_URL/healthz" "query-api"
@@ -258,6 +281,7 @@ SCHEMA_REGISTRY_URL="$SCHEMA_REGISTRY_URL" \
 ES_HOST="${ES_HOST:-http://localhost:9200}" bash "$ROOT_DIR/scripts/install-es-v2-template.sh"
 ES_HOST="${ES_HOST:-http://localhost:9200}" bash "$ROOT_DIR/scripts/install-es-log-aliases.sh"
 
+ensure_bootstrap_tenant_seed
 ensure_access_token
 
 HOST_SOURCE_ID="$(ensure_pull_source "$LOCAL_PULL_SOURCE_HOST_NAME" "$LOCAL_PULL_SOURCE_HOST_PATH" "$LOCAL_PULL_SOURCE_HOST_PULL_INTERVAL_SEC" "$LOCAL_PULL_SOURCE_HOST_PULL_TIMEOUT_SEC")"

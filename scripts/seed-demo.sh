@@ -8,12 +8,15 @@
 #   ./scripts/seed-demo.sh --local      # force local psql
 #
 # Environment variables:
-#   DB_HOST     (default: localhost)    — ignored in docker mode
-#   DB_PORT     (default: 5432)        — ignored in docker mode
-#   DB_NAME     (default: nexuslog)
-#   DB_USER     (default: nexuslog)
-#   DB_PASSWORD (default: nexuslog_dev)
-#   PG_CONTAINER (default: nexuslog-postgres-1)
+#   DB_HOST              (default: localhost)    — ignored in docker mode
+#   DB_PORT              (default: 5432)         — ignored in docker mode
+#   DB_NAME              (default: nexuslog)
+#   DB_USER              (default: nexuslog)
+#   DB_PASSWORD          (default: nexuslog_dev)
+#   PG_CONTAINER         (default: nexuslog-postgres-1)
+#   TENANT_ID            (default: 00000000-0000-0000-0000-000000000001)
+#   TENANT_NAME          (default: default or local-<tenant_id>)
+#   TENANT_DISPLAY_NAME  (default: Default Tenant or Local Bootstrap Tenant)
 
 set -euo pipefail
 
@@ -23,63 +26,123 @@ DB_NAME="${DB_NAME:-nexuslog}"
 DB_USER="${DB_USER:-nexuslog}"
 DB_PASSWORD="${DB_PASSWORD:-nexuslog_dev}"
 PG_CONTAINER="${PG_CONTAINER:-nexuslog-postgres-1}"
+DEFAULT_TENANT_ID="00000000-0000-0000-0000-000000000001"
+TENANT_ID="${TENANT_ID:-$DEFAULT_TENANT_ID}"
+
+if [[ "$TENANT_ID" == "$DEFAULT_TENANT_ID" ]]; then
+  TENANT_NAME="${TENANT_NAME:-default}"
+  TENANT_DISPLAY_NAME="${TENANT_DISPLAY_NAME:-Default Tenant}"
+else
+  TENANT_NAME="${TENANT_NAME:-local-${TENANT_ID}}"
+  TENANT_DISPLAY_NAME="${TENANT_DISPLAY_NAME:-Local Bootstrap Tenant}"
+fi
 
 MODE="${1:-auto}"
 
+is_uuid() {
+  local value="${1:-}"
+  [[ "$value" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+}
+
 run_sql() {
   if [[ "$MODE" == "--docker" ]] || { [[ "$MODE" == "auto" ]] && ! command -v psql &>/dev/null; }; then
-    docker exec -i "$PG_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1
+    docker exec -i "$PG_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
   else
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1
+    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
   fi
 }
 
-echo "=== NexusLog Bootstrap Seed ==="
+if ! is_uuid "$TENANT_ID"; then
+  echo "ERROR: TENANT_ID is not a valid UUID: $TENANT_ID" >&2
+  exit 1
+fi
 
-run_sql <<'EOSQL'
+echo "=== NexusLog Bootstrap Seed ==="
+echo "Tenant ID: $TENANT_ID"
+echo "Tenant Name: $TENANT_NAME"
+
+run_sql \
+  -v tenant_id="$TENANT_ID" \
+  -v tenant_name="$TENANT_NAME" \
+  -v tenant_display_name="$TENANT_DISPLAY_NAME" <<'EOSQL'
 BEGIN;
 
--- Ensure default tenant exists
 INSERT INTO obs.tenant (id, name, display_name, status)
-VALUES ('00000000-0000-0000-0000-000000000001', 'default', 'Default Tenant', 'active')
-ON CONFLICT (name) DO NOTHING;
+VALUES (CAST(:'tenant_id' AS uuid), :'tenant_name', :'tenant_display_name', 'active')
+ON CONFLICT (id) DO UPDATE
+SET name = EXCLUDED.name,
+    display_name = EXCLUDED.display_name,
+    status = 'active',
+    updated_at = NOW();
 
--- Ensure built-in roles exist
-INSERT INTO roles (id, tenant_id, name, description, permissions)
+INSERT INTO roles (tenant_id, name, description, permissions)
 VALUES
-  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
-   'system_admin', 'System administrator with user, audit, alert, incident, and monitoring management permissions',
-   '["users:read","users:write","logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'),
-  ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
-   'operator', 'Operational access: log search, alert management, incident handling, monitoring',
-   '["logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'),
-  ('10000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001',
-   'viewer', 'Read-only access: view logs, dashboards, and monitoring data',
-   '["logs:read","dashboards:read","metrics:read"]'),
-  ('10000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
-   'super_admin', 'Reserved super administrator role. Only one bootstrap user may hold this role.', '["*"]'),
-  ('10000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001',
-   'system_automation', 'Reserved system account role for automated operation and audit attribution.', '["audit:write"]')
-ON CONFLICT (tenant_id, name) DO NOTHING;
+  (
+    CAST(:'tenant_id' AS uuid),
+    'system_admin',
+    'System administrator with user, audit, alert, incident, and monitoring management permissions',
+    '["users:read","users:write","logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'::jsonb
+  ),
+  (
+    CAST(:'tenant_id' AS uuid),
+    'operator',
+    'Operational access: log search, alert management, incident handling, monitoring',
+    '["logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'::jsonb
+  ),
+  (
+    CAST(:'tenant_id' AS uuid),
+    'viewer',
+    'Read-only access: view logs, dashboards, and monitoring data',
+    '["logs:read","dashboards:read","metrics:read"]'::jsonb
+  ),
+  (
+    CAST(:'tenant_id' AS uuid),
+    'super_admin',
+    'Reserved super administrator role. Only one bootstrap user may hold this role.',
+    '["*"]'::jsonb
+  ),
+  (
+    CAST(:'tenant_id' AS uuid),
+    'system_automation',
+    'Reserved system account role for automated operation and audit attribution.',
+    '["audit:write"]'::jsonb
+  )
+ON CONFLICT (tenant_id, name) DO UPDATE
+SET description = EXCLUDED.description,
+    permissions = EXCLUDED.permissions;
 
--- Create reserved bootstrap users (password: Demo@2026 only for sys-superadmin)
-INSERT INTO users (id, tenant_id, username, email, display_name, status)
+INSERT INTO users (tenant_id, username, email, display_name, status)
 VALUES
-  ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
-   'sys-superadmin', 'superadmin@nexuslog.dev', 'System Super Admin', 'active'),
-  ('20000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001',
-   'system-automation', 'system-automation@nexuslog.dev', 'System Automation', 'active')
+  (
+    CAST(:'tenant_id' AS uuid),
+    'sys-superadmin',
+    'superadmin@nexuslog.dev',
+    'System Super Admin',
+    'active'
+  ),
+  (
+    CAST(:'tenant_id' AS uuid),
+    'system-automation',
+    'system-automation@nexuslog.dev',
+    'System Automation',
+    'active'
+  )
 ON CONFLICT (tenant_id, username) DO UPDATE
 SET email = EXCLUDED.email,
     display_name = EXCLUDED.display_name,
     status = 'active',
     updated_at = NOW();
 
--- Credentials (bcrypt hash of "Demo@2026", cost=12)
 INSERT INTO user_credentials (tenant_id, user_id, password_hash, password_algo, password_cost)
-VALUES
-  ('00000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
-   '$2a$12$Grb472rXmEStVJprIfaFwONirfpwc7iouq/IS1SPYX9kVUVCe188i', 'bcrypt', 12)
+SELECT
+  CAST(:'tenant_id' AS uuid),
+  u.id,
+  '$2a$12$Grb472rXmEStVJprIfaFwONirfpwc7iouq/IS1SPYX9kVUVCe188i',
+  'bcrypt',
+  12
+FROM users u
+WHERE u.tenant_id = CAST(:'tenant_id' AS uuid)
+  AND u.username = 'sys-superadmin'
 ON CONFLICT (user_id) DO UPDATE
 SET password_hash = EXCLUDED.password_hash,
     password_algo = EXCLUDED.password_algo,
@@ -88,60 +151,74 @@ SET password_hash = EXCLUDED.password_hash,
     updated_at = NOW();
 
 DELETE FROM user_credentials
-WHERE user_id = '20000000-0000-0000-0000-000000000005';
+WHERE user_id IN (
+  SELECT id
+  FROM users
+  WHERE tenant_id = CAST(:'tenant_id' AS uuid)
+    AND username = 'system-automation'
+);
 
 DELETE FROM user_roles
-WHERE user_id IN ('20000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000005');
+WHERE user_id IN (
+  SELECT id
+  FROM users
+  WHERE tenant_id = CAST(:'tenant_id' AS uuid)
+    AND username IN ('sys-superadmin', 'system-automation')
+);
 
--- Assign roles to users
 INSERT INTO user_roles (user_id, role_id)
-VALUES
-  ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004'),
-  ('20000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000005')
+SELECT u.id, r.id
+FROM users u
+JOIN roles r ON r.tenant_id = u.tenant_id
+WHERE u.tenant_id = CAST(:'tenant_id' AS uuid)
+  AND (
+    (u.username = 'sys-superadmin' AND lower(r.name) = 'super_admin')
+    OR (u.username = 'system-automation' AND lower(r.name) = 'system_automation')
+  )
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 UPDATE alert_rules
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id = CAST(:'tenant_id' AS uuid)
   AND created_by IN (
       SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+      WHERE tenant_id = CAST(:'tenant_id' AS uuid)
         AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE audit_logs
 SET user_id = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id = CAST(:'tenant_id' AS uuid)
   AND user_id IN (
       SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+      WHERE tenant_id = CAST(:'tenant_id' AS uuid)
         AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE notification_channels
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id = CAST(:'tenant_id' AS uuid)
   AND created_by IN (
       SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+      WHERE tenant_id = CAST(:'tenant_id' AS uuid)
         AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE incidents
 SET assigned_to = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id = CAST(:'tenant_id' AS uuid)
   AND assigned_to IN (
       SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+      WHERE tenant_id = CAST(:'tenant_id' AS uuid)
         AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE incidents
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id = CAST(:'tenant_id' AS uuid)
   AND created_by IN (
       SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+      WHERE tenant_id = CAST(:'tenant_id' AS uuid)
         AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
@@ -149,53 +226,54 @@ UPDATE incident_timeline
 SET actor_id = NULL
 WHERE actor_id IN (
     SELECT id FROM users
-    WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+    WHERE tenant_id = CAST(:'tenant_id' AS uuid)
       AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
 );
 
 UPDATE resource_thresholds
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id = CAST(:'tenant_id' AS uuid)
   AND created_by IN (
       SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+      WHERE tenant_id = CAST(:'tenant_id' AS uuid)
         AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE export_jobs
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id = CAST(:'tenant_id' AS uuid)
   AND created_by IN (
       SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+      WHERE tenant_id = CAST(:'tenant_id' AS uuid)
         AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE alert_silences
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id = CAST(:'tenant_id' AS uuid)
   AND created_by IN (
       SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+      WHERE tenant_id = CAST(:'tenant_id' AS uuid)
         AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 DELETE FROM users
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id = CAST(:'tenant_id' AS uuid)
   AND username IN ('demo-admin', 'demo-operator', 'demo-viewer');
 
 COMMIT;
 
--- Show results
 SELECT u.username, r.name AS role, u.email
 FROM users u
 JOIN user_roles ur ON ur.user_id = u.id
 JOIN roles r ON r.id = ur.role_id
-WHERE u.username IN ('sys-superadmin', 'system-automation')
+WHERE u.tenant_id = CAST(:'tenant_id' AS uuid)
+  AND u.username IN ('sys-superadmin', 'system-automation')
 ORDER BY u.username;
 EOSQL
 
 echo ""
+echo "Bootstrap tenant: $TENANT_ID"
 echo "Bootstrap username: sys-superadmin"
 echo "Bootstrap password: Demo@2026"
 echo "=== Done ==="

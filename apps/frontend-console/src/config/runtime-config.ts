@@ -7,6 +7,10 @@
  * 需求: 7
  */
 
+const TENANT_ID_KEY = 'nexuslog-tenant-id';
+const BASE_CONFIG_PATH = '/config/app-config.json';
+const LOCAL_OVERRIDE_CONFIG_PATH = '/config/app-config.local.json';
+
 /** 功能开关配置 */
 export interface FeatureFlags {
   /** 是否启用 WebSocket 实时推送 */
@@ -37,6 +41,10 @@ export interface SessionConfig {
 export interface RuntimeConfig {
   /** API 基础路径 */
   apiBaseUrl: string;
+  /** 默认租户 ID */
+  tenantId?: string;
+  /** 兼容旧字段名 */
+  tenantID?: string;
   /** WebSocket 基础路径 */
   wsBaseUrl: string;
   /** 应用名称 */
@@ -50,6 +58,8 @@ export interface RuntimeConfig {
   /** 会话配置 */
   session: SessionConfig;
 }
+
+type RuntimeConfigPatch = Partial<RuntimeConfig>;
 
 /** 默认配置（当远程配置加载失败时使用） */
 const DEFAULT_CONFIG: RuntimeConfig = {
@@ -75,6 +85,58 @@ const DEFAULT_CONFIG: RuntimeConfig = {
 /** 配置单例缓存 */
 let cachedConfig: RuntimeConfig | null = null;
 
+function mergeRuntimeConfig(...configs: RuntimeConfigPatch[]): RuntimeConfig {
+  return configs.reduce<RuntimeConfig>(
+    (merged, current) => ({
+      ...merged,
+      ...current,
+      features: { ...merged.features, ...(current.features ?? {}) },
+      theme: { ...merged.theme, ...(current.theme ?? {}) },
+      session: { ...merged.session, ...(current.session ?? {}) },
+    }),
+    { ...DEFAULT_CONFIG },
+  );
+}
+
+function resolveConfigTenantId(config: RuntimeConfigPatch): string {
+  return (config.tenantId ?? config.tenantID ?? '').trim();
+}
+
+async function fetchConfigPatch(
+  path: string,
+  timestamp: number,
+  options: { optional?: boolean } = {},
+): Promise<RuntimeConfigPatch> {
+  const response = await fetch(`${path}?t=${timestamp}`);
+
+  if (!response.ok) {
+    if (options.optional && response.status === 404) {
+      return {};
+    }
+
+    throw new Error(`配置加载失败 (${path}, HTTP ${response.status})`);
+  }
+
+  return (await response.json()) as RuntimeConfigPatch;
+}
+
+function syncTenantIdToStorage(config: RuntimeConfig): void {
+  const tenantId = resolveConfigTenantId(config);
+  if (!tenantId) {
+    return;
+  }
+
+  try {
+    const storedTenantId = window.localStorage.getItem(TENANT_ID_KEY)?.trim();
+    if (storedTenantId !== tenantId) {
+      window.localStorage.setItem(TENANT_ID_KEY, tenantId);
+      console.info(`[RuntimeConfig] 已同步 tenantId 到本地缓存: ${tenantId}`);
+    }
+  } catch (error) {
+    console.warn('[RuntimeConfig] 同步 tenantId 到本地缓存失败:', error);
+  }
+}
+
 /**
  * 从远程加载运行时配置
  *
@@ -83,28 +145,17 @@ let cachedConfig: RuntimeConfig | null = null;
  */
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
   try {
-    // 添加时间戳参数避免浏览器缓存，确保每次刷新都获取最新配置
     const timestamp = Date.now();
-    const response = await fetch(`/config/app-config.json?t=${timestamp}`);
+    const baseConfig = await fetchConfigPatch(BASE_CONFIG_PATH, timestamp);
+    const localOverrideConfig = await fetchConfigPatch(LOCAL_OVERRIDE_CONFIG_PATH, timestamp, {
+      optional: true,
+    });
 
-    if (!response.ok) {
-      console.warn(`[RuntimeConfig] 配置加载失败 (HTTP ${response.status})，使用默认配置`);
-      cachedConfig = { ...DEFAULT_CONFIG };
-      return cachedConfig;
-    }
+    cachedConfig = mergeRuntimeConfig(baseConfig, localOverrideConfig);
+    syncTenantIdToStorage(cachedConfig);
 
-    const remoteConfig = await response.json();
-    // 合并远程配置与默认配置，确保缺失字段有兜底值
-    cachedConfig = {
-      ...DEFAULT_CONFIG,
-      ...remoteConfig,
-      features: { ...DEFAULT_CONFIG.features, ...remoteConfig.features },
-      theme: { ...DEFAULT_CONFIG.theme, ...remoteConfig.theme },
-      session: { ...DEFAULT_CONFIG.session, ...remoteConfig.session },
-    };
-
-    console.info(`[RuntimeConfig] 配置加载成功: ${cachedConfig!.appName} v${cachedConfig!.version}`);
-    return cachedConfig!;
+    console.info(`[RuntimeConfig] 配置加载成功: ${cachedConfig.appName} v${cachedConfig.version}`);
+    return cachedConfig;
   } catch (error) {
     console.warn('[RuntimeConfig] 配置加载异常，使用默认配置:', error);
     cachedConfig = { ...DEFAULT_CONFIG };

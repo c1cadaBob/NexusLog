@@ -74,6 +74,9 @@ make local-deploy
 1. 启动本地开发热更新环境
 2. 等待 PostgreSQL ready 后执行运行时数据库迁移
 3. 自动执行链路自举，包括：
+   - 首次生成并持久化一个本地租户 ID（后续复用同一值）
+   - 将该租户 ID 写入前端本地覆盖配置，确保页面请求头 `X-Tenant-ID` 与后端一致
+   - 为该租户幂等创建本地 bootstrap 账号与角色
    - 注册 Schema Registry subjects
    - 安装 Elasticsearch v2 template
    - 安装 Elasticsearch 读写别名
@@ -81,6 +84,11 @@ make local-deploy
    - 创建 / 更新本地 Pull Source
    - 创建 / 复用本地测试告警规则
    - 触发一次手工 Pull，缩短首批日志入链路时间
+
+默认生成的本地租户信息会落盘到：
+
+- `./.runtime/tenant/local-tenant-id`
+- `apps/frontend-console/public/config/app-config.local.json`（本地覆盖文件，默认已被 Git 忽略）
 
 如本地默认演示账号已被修改，可在执行前覆盖：
 
@@ -94,6 +102,12 @@ make local-deploy
 
 ```bash
 ACCESS_TOKEN=<your_access_token> make local-deploy
+```
+
+如果你希望固定使用自己指定的租户 UUID，也可以在部署前覆盖：
+
+```bash
+TENANT_ID=<your_tenant_uuid> make local-deploy
 ```
 
 ### Step 3：执行冒烟检查
@@ -358,6 +372,16 @@ make local-deploy
 bash ./scripts/local/write-host-identity.sh
 make local-deploy
 make dev-test-smoke
+```
+
+### 10.5 为什么页面请求头里的 `X-Tenant-ID` 不是固定的演示值了
+
+这是正常行为。当前本地部署会在首次自举时自动生成一个本地租户 UUID，并把它同步到前端本地覆盖配置中；后续登录、刷新 token、查询接口都会复用同一个租户值，而不是每次请求随机生成。
+
+如需查看当前本地租户，可执行：
+
+```bash
+cat ./.runtime/tenant/local-tenant-id
 ```
 
 ## 11. 进一步阅读
