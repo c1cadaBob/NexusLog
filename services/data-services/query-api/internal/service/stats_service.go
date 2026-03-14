@@ -56,7 +56,7 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, tenantID string) (*
 
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" {
-		tenantID = DefaultTenantID
+		return nil, ErrTenantContextRequired
 	}
 
 	stats := &OverviewStats{
@@ -240,7 +240,7 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" {
-		tenantID = DefaultTenantID
+		return nil, ErrTenantContextRequired
 	}
 
 	// Parse time range
@@ -266,15 +266,13 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 	to := now.Format(time.RFC3339)
 
 	query := repository.BuildESQuery(repository.SearchLogsInput{
+		TenantID:      tenantID,
 		Keywords:      req.Keywords,
 		TimeRangeFrom: from,
 		TimeRangeTo:   to,
 		Filters:       req.Filters,
 	})
 	if boolQuery, ok := query["bool"].(map[string]any); ok {
-		filters, _ := boolQuery["filter"].([]map[string]any)
-		filters = appendTenantFilter(filters, tenantID)
-		boolQuery["filter"] = filters
 		query["bool"] = boolQuery
 	}
 
@@ -372,7 +370,7 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 
 func appendTenantFilter(filters []map[string]any, tenantID string) []map[string]any {
 	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" || tenantID == DefaultTenantID {
+	if tenantID == "" {
 		return filters
 	}
 	return append(filters, map[string]any{

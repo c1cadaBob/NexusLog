@@ -19,6 +19,22 @@ import (
 
 const testJWTSecret = "auth-middleware-test-secret"
 
+func mustIssueAccessToken(t *testing.T, userID, tenantID uuid.UUID) (string, string) {
+	t.Helper()
+	authSvc := service.NewAuthService(nil, testJWTSecret)
+	accessToken, accessTokenJTI, err := authSvc.GenerateAccessTokenWithJTI(userID, tenantID, "")
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+	return accessToken, accessTokenJTI
+}
+
+func expectActiveSessionQuery(mock sqlmock.Sqlmock, tenantID, userID uuid.UUID, accessTokenJTI string) {
+	mock.ExpectQuery(`FROM user_sessions`).
+		WithArgs(tenantID.String(), userID.String(), accessTokenJTI, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+}
+
 func TestAuthRequired_NoToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, _, _ := sqlmock.New()
@@ -121,11 +137,8 @@ func TestAuthRequired_ValidToken_AdminRole(t *testing.T) {
 
 	userID := uuid.New()
 	tenantID := uuid.New()
-	authSvc := service.NewAuthService(nil, testJWTSecret)
-	accessToken, err := authSvc.GenerateAccessToken(userID, tenantID)
-	if err != nil {
-		t.Fatalf("generate token: %v", err)
-	}
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+	expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
 
 	// Mock GetUser
 	userRows := sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
@@ -168,11 +181,8 @@ func TestAuthRequired_ValidToken_ViewerRole_ReadAllowed(t *testing.T) {
 
 	userID := uuid.New()
 	tenantID := uuid.New()
-	authSvc := service.NewAuthService(nil, testJWTSecret)
-	accessToken, err := authSvc.GenerateAccessToken(userID, tenantID)
-	if err != nil {
-		t.Fatalf("generate token: %v", err)
-	}
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+	expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
 
 	userRows := sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
 		AddRow(userID, tenantID, "viewer", "v@test.com", nil, "active", nil, time.Now(), time.Now())
@@ -210,11 +220,8 @@ func TestAuthRequired_ValidToken_ViewerRole_WriteBlocked(t *testing.T) {
 
 	userID := uuid.New()
 	tenantID := uuid.New()
-	authSvc := service.NewAuthService(nil, testJWTSecret)
-	accessToken, err := authSvc.GenerateAccessToken(userID, tenantID)
-	if err != nil {
-		t.Fatalf("generate token: %v", err)
-	}
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+	expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
 
 	userRows := sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
 		AddRow(userID, tenantID, "viewer", "v@test.com", nil, "active", nil, time.Now(), time.Now())
@@ -271,11 +278,8 @@ func TestAuthRequired_ThreeRoleIsolation(t *testing.T) {
 
 			userID := uuid.New()
 			tenantID := uuid.New()
-			authSvc := service.NewAuthService(nil, testJWTSecret)
-			accessToken, err := authSvc.GenerateAccessToken(userID, tenantID)
-			if err != nil {
-				t.Fatalf("generate token: %v", err)
-			}
+			accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+			expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
 
 			userRows := sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
 				AddRow(userID, tenantID, r.name, r.name+"@test.com", nil, "active", nil, time.Now(), time.Now())
@@ -304,7 +308,8 @@ func TestAuthRequired_ThreeRoleIsolation(t *testing.T) {
 				t.Errorf("expected 403 for users:read, got %d", respRead.Code)
 			}
 
-			// Re-setup mock for second request (GetUser + GetUserRoles again)
+			// Re-setup mock for second request (session + GetUser + GetUserRoles again)
+			expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
 			mock.ExpectQuery("SELECT .+ FROM users").WithArgs(tenantID, userID).WillReturnRows(
 				sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
 					AddRow(userID, tenantID, r.name, r.name+"@test.com", nil, "active", nil, time.Now(), time.Now()))
@@ -337,11 +342,8 @@ func TestAuthRequired_UserNotFound(t *testing.T) {
 
 	userID := uuid.New()
 	tenantID := uuid.New()
-	authSvc := service.NewAuthService(nil, testJWTSecret)
-	accessToken, err := authSvc.GenerateAccessToken(userID, tenantID)
-	if err != nil {
-		t.Fatalf("generate token: %v", err)
-	}
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+	expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
 
 	mock.ExpectQuery("SELECT .+ FROM users").WithArgs(tenantID, userID).WillReturnError(sql.ErrNoRows)
 
@@ -369,11 +371,8 @@ func TestAuthRequired_MiddlewarePerformance(t *testing.T) {
 
 	userID := uuid.New()
 	tenantID := uuid.New()
-	authSvc := service.NewAuthService(nil, testJWTSecret)
-	accessToken, err := authSvc.GenerateAccessToken(userID, tenantID)
-	if err != nil {
-		t.Fatalf("generate token: %v", err)
-	}
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+	expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
 
 	userRows := sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
 		AddRow(userID, tenantID, "perf", "p@test.com", nil, "active", nil, time.Now(), time.Now())

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -71,6 +72,36 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 				HTTPStatus: http.StatusUnauthorized,
 				Code:       "UNAUTHORIZED",
 				Message:    msg,
+			})
+			c.Abort()
+			return
+		}
+
+		if strings.TrimSpace(claims.ID) == "" {
+			httpx.Error(c, &model.APIError{
+				HTTPStatus: http.StatusUnauthorized,
+				Code:       "UNAUTHORIZED",
+				Message:    "token jti is required",
+			})
+			c.Abort()
+			return
+		}
+
+		active, sessionErr := isAccessTokenSessionActive(c.Request.Context(), db, claims.TenantID, claims.UserID, claims.ID)
+		if sessionErr != nil {
+			httpx.Error(c, &model.APIError{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       "INTERNAL_ERROR",
+				Message:    "failed to validate session",
+			})
+			c.Abort()
+			return
+		}
+		if !active {
+			httpx.Error(c, &model.APIError{
+				HTTPStatus: http.StatusUnauthorized,
+				Code:       "UNAUTHORIZED",
+				Message:    "session is revoked or expired",
 			})
 			c.Abort()
 			return
@@ -190,4 +221,23 @@ func parsePermissions(raw []byte) []string {
 		return nil
 	}
 	return arr
+}
+
+func isAccessTokenSessionActive(ctx context.Context, db *sql.DB, tenantID, userID, accessTokenJTI string) (bool, error) {
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_sessions
+			WHERE tenant_id = $1::uuid
+			  AND user_id = $2::uuid
+			  AND access_token_jti = $3
+			  AND session_status = 'active'
+			  AND expires_at > $4
+		)
+	`
+	var active bool
+	if err := db.QueryRowContext(ctx, q, tenantID, userID, accessTokenJTI, time.Now().UTC()).Scan(&active); err != nil {
+		return false, err
+	}
+	return active, nil
 }

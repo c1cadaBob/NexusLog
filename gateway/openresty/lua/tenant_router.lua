@@ -208,6 +208,11 @@ if auth_check then
     end
 end
 
+local verified_tenant = ngx.req.get_headers()["X-Tenant-ID"]
+if verified_tenant and verified_tenant ~= "" and verified_tenant ~= tenant_id then
+    return reject(403, "路径租户与令牌租户不一致", "AUTH_FORBIDDEN")
+end
+
 -- 8. 设置租户上下文头，传递给上游服务
 ngx.req.set_header("X-Tenant-ID", tenant_id)
 ngx.req.set_header("X-Tenant-Source", source)

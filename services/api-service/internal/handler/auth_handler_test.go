@@ -103,6 +103,10 @@ func (m *handlerRepoMock) RecordLoginAttempt(_ context.Context, _ repository.Log
 	return nil
 }
 
+func (m *handlerRepoMock) IsLoginLocked(_ context.Context, _ uuid.UUID, _ string) (bool, time.Time, error) {
+	return false, time.Time{}, nil
+}
+
 func TestRegisterInvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

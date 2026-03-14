@@ -30,6 +30,7 @@ type SortField struct {
 
 // SearchLogsInput 定义检索日志请求参数。
 type SearchLogsInput struct {
+	TenantID      string
 	Keywords      string
 	TimeRangeFrom string
 	TimeRangeTo   string
@@ -438,8 +439,21 @@ func parseHitsTotal(raw json.RawMessage) int64 {
 }
 
 func BuildESQuery(in SearchLogsInput) map[string]any {
-	filterClauses := make([]map[string]any, 0, 8)
+	filterClauses := make([]map[string]any, 0, 10)
 	mustClauses := make([]map[string]any, 0, 2)
+
+	tenantID := strings.TrimSpace(in.TenantID)
+	if tenantID != "" {
+		filterClauses = append(filterClauses, map[string]any{
+			"bool": map[string]any{
+				"should": []any{
+					map[string]any{"term": map[string]any{"tenant_id": tenantID}},
+					map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
+				},
+				"minimum_should_match": 1,
+			},
+		})
+	}
 	mustNotClauses := make([]map[string]any, 0, 2)
 
 	keywords := strings.TrimSpace(in.Keywords)

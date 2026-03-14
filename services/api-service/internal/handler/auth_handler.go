@@ -112,7 +112,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 // Refresh handles POST /api/v1/auth/refresh.
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	actorID := strings.TrimSpace(c.GetHeader("X-User-ID"))
+	actorID := strings.TrimSpace(c.GetString(contextKeyUserID))
 	var req model.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		setAuthAuditEvent(c, "auth.refresh", actorID, actorID, buildAuditDetails(map[string]any{
@@ -163,7 +163,8 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req model.LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
-		setAuthAuditEvent(c, "auth.logout", c.GetHeader("X-User-ID"), c.GetHeader("X-User-ID"), buildAuditDetails(map[string]any{
+		actorID := strings.TrimSpace(c.GetString(contextKeyUserID))
+		setAuthAuditEvent(c, "auth.logout", actorID, actorID, buildAuditDetails(map[string]any{
 			"result":      "failed",
 			"error_code":  "AUTH_LOGOUT_INVALID_ARGUMENT",
 			"http_status": http.StatusBadRequest,
@@ -179,14 +180,15 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
+	actorID := strings.TrimSpace(c.GetString(contextKeyUserID))
 	resp, apiErr := h.authService.Logout(
 		c.Request.Context(),
 		c.GetHeader("X-Tenant-ID"),
-		c.GetHeader("X-User-ID"),
+		actorID,
 		req,
 	)
 	if apiErr != nil {
-		setAuthAuditEvent(c, "auth.logout", c.GetHeader("X-User-ID"), c.GetHeader("X-User-ID"), buildAuditDetails(map[string]any{
+		setAuthAuditEvent(c, "auth.logout", actorID, actorID, buildAuditDetails(map[string]any{
 			"result":      "failed",
 			"error_code":  apiErr.Code,
 			"http_status": apiErr.HTTPStatus,
@@ -195,7 +197,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	setAuthAuditEvent(c, "auth.logout", c.GetHeader("X-User-ID"), c.GetHeader("X-User-ID"), buildAuditDetails(map[string]any{
+	setAuthAuditEvent(c, "auth.logout", actorID, actorID, buildAuditDetails(map[string]any{
 		"result":      "success",
 		"http_status": http.StatusOK,
 	}))

@@ -28,11 +28,14 @@ func TestRegisterRoutes_UserMeDoesNotRequireUsersRead(t *testing.T) {
 	userID := uuid.New()
 	tenantID := uuid.New()
 	authSvc := service.NewAuthService(nil, routeTestJWTSecret)
-	accessToken, err := authSvc.GenerateAccessToken(userID, tenantID)
+	accessToken, accessTokenJTI, err := authSvc.GenerateAccessTokenWithJTI(userID, tenantID, "")
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
 
+	mock.ExpectQuery(`FROM user_sessions`).
+		WithArgs(tenantID.String(), userID.String(), accessTokenJTI, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery("SELECT .+ FROM users").
 		WithArgs(tenantID, userID).
 		WillReturnRows(newUserRows(userID, tenantID, "viewer", "viewer@nexuslog.local"))

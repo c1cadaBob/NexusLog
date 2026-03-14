@@ -54,6 +54,7 @@ type authRepository interface {
 	RevokeSessionByRefreshToken(ctx context.Context, tenantID uuid.UUID, refreshToken string) error
 	RevokeActiveSessionsByUserID(ctx context.Context, tenantID, userID uuid.UUID) error
 	RecordLoginAttempt(ctx context.Context, input repository.LoginAttemptInput) error
+	IsLoginLocked(ctx context.Context, tenantID uuid.UUID, username string) (bool, time.Time, error)
 }
 
 // AuthService handles auth business logic.
@@ -68,8 +69,18 @@ func NewAuthService(repo authRepository, jwtSecret string) *AuthService {
 
 // GenerateAccessToken creates a JWT access token for the given user and tenant.
 func (s *AuthService) GenerateAccessToken(userID, tenantID uuid.UUID) (string, error) {
+	token, _, err := s.GenerateAccessTokenWithJTI(userID, tenantID, "")
+	return token, err
+}
+
+// GenerateAccessTokenWithJTI creates a JWT access token and returns the token and effective JTI.
+func (s *AuthService) GenerateAccessTokenWithJTI(userID, tenantID uuid.UUID, jti string) (string, string, error) {
 	if s.jwtSecret == "" {
-		return "", errors.New("jwt secret not configured")
+		return "", "", errors.New("jwt secret not configured")
+	}
+	jti = strings.TrimSpace(jti)
+	if jti == "" {
+		jti = uuid.NewString()
 	}
 	now := time.Now().UTC()
 	claims := &model.JWTClaims{
@@ -78,11 +89,15 @@ func (s *AuthService) GenerateAccessToken(userID, tenantID uuid.UUID) (string, e
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(defaultAccessTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
-			ID:        uuid.NewString(),
+			ID:        jti,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.jwtSecret))
+	signed, err := token.SignedString([]byte(s.jwtSecret))
+	if err != nil {
+		return "", "", err
+	}
+	return signed, jti, nil
 }
 
 // ValidateAccessToken parses and validates a JWT access token, returning claims or error.
@@ -179,6 +194,33 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 		return model.LoginResponseData{}, apiErr
 	}
 
+	locked, lockUntil, err := s.repo.IsLoginLocked(ctx, tenantID, normalizedReq.Username)
+	if err != nil {
+		return model.LoginResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_LOGIN_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+	if locked {
+		_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
+			TenantID:  tenantID,
+			Username:  normalizedReq.Username,
+			IPAddress: clientIP,
+			UserAgent: userAgent,
+			Result:    "failed",
+			Reason:    "account_locked",
+		})
+		return model.LoginResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusLocked,
+			Code:       "AUTH_LOGIN_LOCKED",
+			Message:    "account is temporarily locked",
+			Details: map[string]any{
+				"lock_until": lockUntil.UTC().Format(time.RFC3339),
+			},
+		}
+	}
+
 	userRec, err := s.repo.GetLoginUserByUsername(ctx, tenantID, normalizedReq.Username)
 	if err != nil {
 		_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
@@ -272,7 +314,8 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 		}
 	}
 
-	userID, rotateErr := s.rotateSession(ctx, tenantID, normalizedReq.RefreshToken, refreshToken, clientIP, userAgent)
+	accessTokenJTI := uuid.NewString()
+	userID, rotateErr := s.rotateSession(ctx, tenantID, normalizedReq.RefreshToken, refreshToken, accessTokenJTI, clientIP, userAgent)
 	if rotateErr != nil {
 		if errors.Is(rotateErr, repository.ErrInvalidRefreshToken) {
 			return model.RefreshResponseData{}, &model.APIError{
@@ -288,7 +331,7 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 		}
 	}
 
-	accessToken, err := s.GenerateAccessToken(userID, tenantID)
+	accessToken, _, err := s.GenerateAccessTokenWithJTI(userID, tenantID, accessTokenJTI)
 	if err != nil {
 		return model.RefreshResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,
@@ -331,7 +374,7 @@ func (s *AuthService) Logout(ctx context.Context, tenantHeader, userIDHeader str
 
 	userIDRaw := strings.TrimSpace(userIDHeader)
 	if userIDRaw == "" {
-		return model.LogoutResponseData{}, invalidField("refresh_token", "AUTH_LOGOUT_INVALID_ARGUMENT", "refresh_token or X-User-ID required")
+		return model.LogoutResponseData{}, invalidField("user_id", "AUTH_LOGOUT_INVALID_ARGUMENT", "authenticated user context is required")
 	}
 	userID, err := uuid.Parse(userIDRaw)
 	if err != nil {
@@ -476,13 +519,12 @@ func (s *AuthService) PasswordResetConfirm(
 	return model.PasswordResetConfirmResponseData{Reset: true}, nil
 }
 
-func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, currentRefreshToken, newRefreshToken, clientIP, userAgent string) (uuid.UUID, error) {
-	jti := uuid.NewString()
+func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, currentRefreshToken, newRefreshToken, accessTokenJTI, clientIP, userAgent string) (uuid.UUID, error) {
 	userID, err := s.repo.RotateSessionByRefreshToken(ctx, repository.RotateSessionInput{
 		TenantID:       tenantID,
 		CurrentRefresh: currentRefreshToken,
 		NewRefresh:     newRefreshToken,
-		AccessTokenJTI: jti,
+		AccessTokenJTI: accessTokenJTI,
 		ClientIP:       clientIP,
 		UserAgent:      userAgent,
 		ExpiresAt:      time.Now().UTC().Add(defaultRefreshTTL),
@@ -500,7 +542,7 @@ func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, cur
 			TenantID:       tenantID,
 			CurrentRefresh: currentRefreshToken,
 			NewRefresh:     retryRefresh,
-			AccessTokenJTI: uuid.NewString(),
+			AccessTokenJTI: accessTokenJTI,
 			ClientIP:       clientIP,
 			UserAgent:      userAgent,
 			ExpiresAt:      time.Now().UTC().Add(defaultRefreshTTL),
@@ -512,7 +554,8 @@ func (s *AuthService) rotateSession(ctx context.Context, tenantID uuid.UUID, cur
 }
 
 func (s *AuthService) issueSessionTokens(ctx context.Context, tenantID, userID uuid.UUID, refreshTTL time.Duration, clientIP, userAgent string) (string, string, *model.APIError) {
-	accessToken, err := s.GenerateAccessToken(userID, tenantID)
+	accessTokenJTI := uuid.NewString()
+	accessToken, _, err := s.GenerateAccessTokenWithJTI(userID, tenantID, accessTokenJTI)
 	if err != nil {
 		return "", "", &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,
@@ -530,13 +573,11 @@ func (s *AuthService) issueSessionTokens(ctx context.Context, tenantID, userID u
 		}
 	}
 
-	// Extract JTI from JWT for session tracking (optional; access token is self-contained)
-	jti := uuid.NewString()
 	if err := s.repo.CreateUserSession(ctx, repository.CreateSessionInput{
 		TenantID:       tenantID,
 		UserID:         userID,
 		RefreshToken:   refreshToken,
-		AccessTokenJTI: jti,
+		AccessTokenJTI: accessTokenJTI,
 		ClientIP:       clientIP,
 		UserAgent:      userAgent,
 		ExpiresAt:      time.Now().UTC().Add(refreshTTL),
@@ -548,7 +589,7 @@ func (s *AuthService) issueSessionTokens(ctx context.Context, tenantID, userID u
 					TenantID:       tenantID,
 					UserID:         userID,
 					RefreshToken:   refreshToken,
-					AccessTokenJTI: jti,
+					AccessTokenJTI: accessTokenJTI,
 					ClientIP:       clientIP,
 					UserAgent:      userAgent,
 					ExpiresAt:      time.Now().UTC().Add(refreshTTL),

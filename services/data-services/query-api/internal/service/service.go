@@ -32,6 +32,8 @@ var (
 	ErrMetadataNotConfigured = errors.New("query metadata store is not configured")
 	// ErrUserContextRequired 表示接口调用缺少用户上下文。
 	ErrUserContextRequired = errors.New("user context is required")
+	// ErrTenantContextRequired 表示接口调用缺少租户上下文。
+	ErrTenantContextRequired = errors.New("tenant context is required")
 	// ErrInvalidSavedQuery 表示收藏查询参数非法。
 	ErrInvalidSavedQuery = errors.New("invalid saved query payload")
 	// ErrPageBeyondResultWindow 表示请求页码超出 ES 结果窗口上限。
@@ -196,6 +198,9 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 	}
 
 	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
+		return SearchLogsResult{}, ErrTenantContextRequired
+	}
 	page := req.Page
 	if page <= 0 {
 		page = 1
@@ -218,6 +223,7 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 	}
 
 	repoResult, err := s.logRepo.SearchLogs(ctx, repository.SearchLogsInput{
+		TenantID:      actor.TenantID,
 		Keywords:      strings.TrimSpace(req.Keywords),
 		TimeRangeFrom: strings.TrimSpace(req.TimeRange.From),
 		TimeRangeTo:   strings.TrimSpace(req.TimeRange.To),
@@ -267,6 +273,9 @@ func (s *QueryService) ListQueryHistories(
 		return ListQueryHistoriesResult{}, ErrMetadataNotConfigured
 	}
 	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
+		return ListQueryHistoriesResult{}, ErrTenantContextRequired
+	}
 	if actor.UserID == "" {
 		return ListQueryHistoriesResult{}, ErrUserContextRequired
 	}
@@ -323,6 +332,9 @@ func (s *QueryService) DeleteQueryHistory(ctx context.Context, actor RequestActo
 		return false, ErrMetadataNotConfigured
 	}
 	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
+		return false, ErrTenantContextRequired
+	}
 	if actor.UserID == "" {
 		return false, ErrUserContextRequired
 	}
@@ -343,6 +355,9 @@ func (s *QueryService) ListSavedQueries(
 		return ListSavedQueriesResult{}, ErrMetadataNotConfigured
 	}
 	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
+		return ListSavedQueriesResult{}, ErrTenantContextRequired
+	}
 	if actor.UserID == "" {
 		return ListSavedQueriesResult{}, ErrUserContextRequired
 	}
@@ -400,6 +415,9 @@ func (s *QueryService) CreateSavedQuery(
 		return SavedQueryItem{}, ErrMetadataNotConfigured
 	}
 	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
+		return SavedQueryItem{}, ErrTenantContextRequired
+	}
 	if actor.UserID == "" {
 		return SavedQueryItem{}, ErrUserContextRequired
 	}
@@ -444,6 +462,9 @@ func (s *QueryService) UpdateSavedQuery(
 		return SavedQueryItem{}, ErrMetadataNotConfigured
 	}
 	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
+		return SavedQueryItem{}, ErrTenantContextRequired
+	}
 	if actor.UserID == "" {
 		return SavedQueryItem{}, ErrUserContextRequired
 	}
@@ -493,6 +514,9 @@ func (s *QueryService) DeleteSavedQuery(ctx context.Context, actor RequestActor,
 		return false, ErrMetadataNotConfigured
 	}
 	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
+		return false, ErrTenantContextRequired
+	}
 	if actor.UserID == "" {
 		return false, ErrUserContextRequired
 	}
@@ -607,12 +631,8 @@ func hashQueryPayload(req SearchLogsRequest) string {
 }
 
 func normalizeActor(actor RequestActor) RequestActor {
-	tenantID := strings.TrimSpace(actor.TenantID)
-	if tenantID == "" {
-		tenantID = DefaultTenantID
-	}
 	return RequestActor{
-		TenantID: tenantID,
+		TenantID: strings.TrimSpace(actor.TenantID),
 		UserID:   strings.TrimSpace(actor.UserID),
 	}
 }

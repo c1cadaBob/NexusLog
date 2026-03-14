@@ -512,6 +512,53 @@ func (r *AuthRepository) RevokeActiveSessionsByUserID(ctx context.Context, tenan
 	return nil
 }
 
+func (r *AuthRepository) IsLoginLocked(ctx context.Context, tenantID uuid.UUID, username string) (bool, time.Time, error) {
+	const q = `
+		SELECT result, created_at
+		FROM login_attempts
+		WHERE tenant_id = $1 AND username = $2
+		ORDER BY created_at DESC
+		LIMIT 5
+	`
+	rows, err := r.db.QueryContext(ctx, q, tenantID, username)
+	if err != nil {
+		return false, time.Time{}, fmt.Errorf("query login attempts: %w", err)
+	}
+	defer rows.Close()
+
+	var results []struct {
+		result string
+		at     time.Time
+	}
+	for rows.Next() {
+		var result string
+		var at time.Time
+		if err := rows.Scan(&result, &at); err != nil {
+			return false, time.Time{}, fmt.Errorf("scan login attempt: %w", err)
+		}
+		results = append(results, struct {
+			result string
+			at     time.Time
+		}{result: result, at: at})
+	}
+	if err := rows.Err(); err != nil {
+		return false, time.Time{}, fmt.Errorf("iterate login attempts: %w", err)
+	}
+	if len(results) < 5 {
+		return false, time.Time{}, nil
+	}
+	for i := 0; i < 5; i++ {
+		if results[i].result != "failed" {
+			return false, time.Time{}, nil
+		}
+	}
+	lockUntil := results[4].at.Add(15 * time.Minute)
+	if time.Now().UTC().Before(lockUntil) {
+		return true, lockUntil, nil
+	}
+	return false, time.Time{}, nil
+}
+
 func (r *AuthRepository) RecordLoginAttempt(ctx context.Context, input LoginAttemptInput) error {
 	// ip_address 列类型为 INET，NULLIF 返回 text，需显式转换为 inet。
 	const q = `

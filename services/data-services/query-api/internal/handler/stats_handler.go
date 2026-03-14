@@ -22,7 +22,8 @@ func NewStatsHandler(svc *service.StatsService) *StatsHandler {
 func (h *StatsHandler) GetOverviewStats(c *gin.Context) {
 	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
 	if tenantID == "" {
-		tenantID = service.DefaultTenantID
+		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "tenant context is required")
+		return
 	}
 
 	stats, err := h.svc.GetOverviewStats(c.Request.Context(), tenantID)
@@ -38,7 +39,8 @@ func (h *StatsHandler) GetOverviewStats(c *gin.Context) {
 func (h *StatsHandler) Aggregate(c *gin.Context) {
 	tenantID := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
 	if tenantID == "" {
-		tenantID = service.DefaultTenantID
+		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "tenant context is required")
+		return
 	}
 
 	var req service.AggregateRequest

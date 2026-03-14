@@ -41,6 +41,10 @@ func (h *ExportHandler) CreateExportJob(c *gin.Context) {
 		return
 	}
 	actor := resolveActor(c)
+	if actor.TenantID == "" {
+		writeError(c, http.StatusUnauthorized, CodeExportInvalidParams, "tenant context is required")
+		return
+	}
 	jobID, err := h.svc.CreateExportJob(c.Request.Context(), actor.TenantID, actor.UserID, req)
 	if err != nil {
 		writeServiceError(c, err)
@@ -57,6 +61,10 @@ func (h *ExportHandler) ListExportJobs(c *gin.Context) {
 	page := parsePositiveInt(c.Query("page"), 1)
 	pageSize := parsePositiveInt(c.Query("page_size"), 20)
 	actor := resolveActor(c)
+	if actor.TenantID == "" {
+		writeError(c, http.StatusUnauthorized, CodeExportInvalidParams, "tenant context is required")
+		return
+	}
 	result, err := h.svc.ListJobs(c.Request.Context(), actor.TenantID, page, pageSize)
 	if err != nil {
 		writeServiceError(c, err)
@@ -80,6 +88,10 @@ func (h *ExportHandler) GetExportJob(c *gin.Context) {
 		return
 	}
 	actor := resolveActor(c)
+	if actor.TenantID == "" {
+		writeError(c, http.StatusUnauthorized, CodeExportInvalidParams, "tenant context is required")
+		return
+	}
 	item, err := h.svc.GetJob(c.Request.Context(), actor.TenantID, jobID)
 	if err != nil {
 		writeServiceError(c, err)
@@ -98,6 +110,10 @@ func (h *ExportHandler) DownloadExport(c *gin.Context) {
 		return
 	}
 	actor := resolveActor(c)
+	if actor.TenantID == "" {
+		writeError(c, http.StatusUnauthorized, CodeExportInvalidParams, "tenant context is required")
+		return
+	}
 	filePath, contentType, err := h.svc.GetDownloadPath(c.Request.Context(), actor.TenantID, jobID)
 	if err != nil {
 		writeServiceError(c, err)
@@ -152,15 +168,13 @@ type requestActor struct {
 	UserID   string
 }
 
-const defaultTenantID = "00000000-0000-0000-0000-000000000001"
-
 func resolveActor(c *gin.Context) requestActor {
 	tenantID := firstNonEmpty(
 		c.GetHeader("X-Tenant-ID"),
 		c.GetHeader("X-Tenant-Id"),
 	)
 	if tenantID == "" {
-		tenantID = defaultTenantID
+		return requestActor{TenantID: "", UserID: firstNonEmpty(c.GetHeader("X-User-ID"), c.GetHeader("X-User-Id"))}
 	}
 	userID := firstNonEmpty(
 		c.GetHeader("X-User-ID"),

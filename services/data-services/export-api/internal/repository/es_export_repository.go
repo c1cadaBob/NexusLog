@@ -31,6 +31,7 @@ type LogHit struct {
 
 // ExportQueryParams 导出查询参数，与 query-api SearchLogsInput 兼容
 type ExportQueryParams struct {
+	TenantID      string         `json:"tenant_id"`
 	Keywords      string         `json:"keywords"`
 	TimeRangeFrom string         `json:"time_range_from"`
 	TimeRangeTo   string         `json:"time_range_to"`
@@ -180,8 +181,21 @@ type esScrollSearchResponse struct {
 }
 
 func buildExportESQuery(params ExportQueryParams) map[string]any {
-	filterClauses := make([]map[string]any, 0, 8)
+	filterClauses := make([]map[string]any, 0, 10)
 	mustClauses := make([]map[string]any, 0, 2)
+
+	tenantID := strings.TrimSpace(params.TenantID)
+	if tenantID != "" {
+		filterClauses = append(filterClauses, map[string]any{
+			"bool": map[string]any{
+				"should": []any{
+					map[string]any{"term": map[string]any{"tenant_id": tenantID}},
+					map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
+				},
+				"minimum_should_match": 1,
+			},
+		})
+	}
 
 	keywords := strings.TrimSpace(params.Keywords)
 	if keywords != "" {

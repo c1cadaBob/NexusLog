@@ -77,6 +77,9 @@ func (s *ExportService) CreateExportJob(ctx context.Context, tenantID, userID st
 	if format != "csv" && format != "json" {
 		return "", fmt.Errorf("invalid format: must be csv or json")
 	}
+	if strings.TrimSpace(tenantID) == "" {
+		return "", fmt.Errorf("tenant context is required")
+	}
 	queryParams := req.QueryParams
 	if queryParams == nil {
 		queryParams = map[string]any{}
@@ -110,7 +113,7 @@ func (s *ExportService) runExportJob(ctx context.Context, jobID, tenantID string
 	fileName := fmt.Sprintf("export-%s-%d.%s", jobID, time.Now().Unix(), format)
 	filePath := filepath.Join(exportDir, fileName)
 
-	exportParams := parseQueryParams(queryParams)
+	exportParams := parseQueryParams(tenantID, queryParams)
 	totalRecords := 0
 	var writeErr error
 
@@ -139,8 +142,8 @@ func (s *ExportService) runExportJob(ctx context.Context, jobID, tenantID string
 	log.Printf("[export-api] job %s completed: %d records, %d bytes", jobID, totalRecords, fileSize)
 }
 
-func parseQueryParams(m map[string]any) repository.ExportQueryParams {
-	var p repository.ExportQueryParams
+func parseQueryParams(tenantID string, m map[string]any) repository.ExportQueryParams {
+	p := repository.ExportQueryParams{TenantID: strings.TrimSpace(tenantID)}
 	if m == nil {
 		return p
 	}

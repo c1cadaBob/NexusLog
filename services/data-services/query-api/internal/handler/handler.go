@@ -3,11 +3,8 @@ package handler
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -249,6 +246,8 @@ func writeError(c *gin.Context, status int, code, message string) {
 
 func writeServiceError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, service.ErrTenantContextRequired):
+		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "tenant context is required")
 	case errors.Is(err, service.ErrUserContextRequired):
 		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "user context is required")
 	case errors.Is(err, service.ErrInvalidSavedQuery):
@@ -269,69 +268,10 @@ func writeServiceError(c *gin.Context, err error) {
 }
 
 func resolveActor(c *gin.Context) service.RequestActor {
-	claims := resolveJWTClaims(c.GetHeader("Authorization"))
-	tenantID := firstNonEmptyUUID(
-		c.GetHeader("X-Tenant-ID"),
-		claimString(claims, "tenant_id"),
-		claimString(claims, "tid"),
-	)
-	userID := firstNonEmptyUUID(
-		c.GetHeader("X-User-ID"),
-		claimString(claims, "user_id"),
-		claimString(claims, "sub"),
-		claimString(claims, "uid"),
-	)
 	return service.RequestActor{
-		TenantID: tenantID,
-		UserID:   userID,
+		TenantID: firstNonEmptyUUID(c.GetHeader("X-Tenant-ID"), c.GetHeader("X-Tenant-Id")),
+		UserID:   firstNonEmptyUUID(c.GetHeader("X-User-ID"), c.GetHeader("X-User-Id")),
 	}
-}
-
-func resolveJWTClaims(authorization string) map[string]any {
-	token := extractBearerToken(authorization)
-	if token == "" {
-		return map[string]any{}
-	}
-	parts := strings.Split(token, ".")
-	if len(parts) < 2 {
-		return map[string]any{}
-	}
-	payloadRaw, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return map[string]any{}
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(payloadRaw, &claims); err != nil {
-		return map[string]any{}
-	}
-	return claims
-}
-
-func extractBearerToken(authorization string) string {
-	raw := strings.TrimSpace(authorization)
-	if raw == "" {
-		return ""
-	}
-	const prefix = "bearer "
-	if len(raw) < len(prefix) || strings.ToLower(raw[:len(prefix)]) != prefix {
-		return ""
-	}
-	return strings.TrimSpace(raw[len(prefix):])
-}
-
-func claimString(claims map[string]any, key string) string {
-	if len(claims) == 0 {
-		return ""
-	}
-	value, ok := claims[key]
-	if !ok || value == nil {
-		return ""
-	}
-	text := strings.TrimSpace(fmt.Sprintf("%v", value))
-	if text == "" || text == "<nil>" {
-		return ""
-	}
-	return text
 }
 
 func firstNonEmptyUUID(values ...string) string {

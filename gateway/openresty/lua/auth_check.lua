@@ -21,10 +21,12 @@ local KEYCLOAK_JWKS_URI = string.format(
     "http://%s:%s/realms/%s/protocol/openid-connect/certs",
     KEYCLOAK_HOST, KEYCLOAK_PORT, KEYCLOAK_REALM
 )
-local EXPECTED_ISSUER = string.format(
+local EXPECTED_ISSUER = os.getenv("KEYCLOAK_EXPECTED_ISSUER") or string.format(
     "http://%s:%s/realms/%s",
     KEYCLOAK_HOST, KEYCLOAK_PORT, KEYCLOAK_REALM
 )
+local EXPECTED_AUDIENCE = os.getenv("KEYCLOAK_EXPECTED_AUDIENCE") or ""
+local ALLOW_UNSIGNED_FALLBACK = string.lower(os.getenv("AUTH_ALLOW_UNSIGNED_FALLBACK") or "false") == "true"
 
 -- 白名单路径（无需认证）
 local WHITELIST = {
@@ -151,8 +153,10 @@ local function verify_jwt_signature(token)
     -- 获取 JWKS 公钥
     local jwks, err = fetch_jwks()
     if not jwks then
-        ngx.log(ngx.WARN, "JWKS 获取失败，降级为格式校验: ", err)
-        -- 降级：仅做格式和过期时间校验
+        if not ALLOW_UNSIGNED_FALLBACK then
+            return false, nil, err
+        end
+        ngx.log(ngx.WARN, "AUTH_ALLOW_UNSIGNED_FALLBACK=true，降级为格式校验: ", err)
         local jwt_obj = jwt_lib:load_jwt(token)
         if not jwt_obj or not jwt_obj.valid then
             return false, nil, "Token 加载失败"
@@ -198,6 +202,22 @@ local function validate_claims(payload)
     if payload.iat and payload.iat > (now + 300) then
         return false, "Token 签发时间异常"
     end
+    if EXPECTED_ISSUER ~= "" and payload.iss and payload.iss ~= EXPECTED_ISSUER then
+        return false, "Token issuer 不匹配"
+    end
+    if EXPECTED_AUDIENCE ~= "" then
+        if payload.aud == EXPECTED_AUDIENCE then
+            return true, nil
+        end
+        if type(payload.aud) == "table" then
+            for _, aud in ipairs(payload.aud) do
+                if aud == EXPECTED_AUDIENCE then
+                    return true, nil
+                end
+            end
+        end
+        return false, "Token audience 不匹配"
+    end
 
     return true, nil
 end
@@ -229,11 +249,9 @@ local function validate_token(token)
     local verified, verified_payload, verify_err = verify_jwt_signature(token)
     if not verified then
         ngx.log(ngx.WARN, "JWT 签名验证失败: ", verify_err)
-        -- 如果 JWKS 不可用，降级为 Claims 校验通过即可
-        -- 生产环境应严格要求签名验证
+        return false, nil, verify_err
     end
 
-    -- 使用验证后的 payload，或降级使用解析的 payload
     local final_payload = verified_payload or payload
 
     -- 构建用户信息

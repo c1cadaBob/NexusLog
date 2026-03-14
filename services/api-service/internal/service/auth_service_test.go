@@ -31,6 +31,9 @@ type mockAuthRepository struct {
 	rotateErr         error
 	revokeRefreshErr  error
 	revokeByUserErr   error
+	lockActive        bool
+	lockUntil         time.Time
+	lockErr           error
 	lastLoginAttempt  *repository.LoginAttemptInput
 	sessionCreateCall int
 	rotateCall        int
@@ -123,6 +126,13 @@ func (m *mockAuthRepository) RecordLoginAttempt(_ context.Context, input reposit
 	cp := input
 	m.lastLoginAttempt = &cp
 	return nil
+}
+
+func (m *mockAuthRepository) IsLoginLocked(_ context.Context, _ uuid.UUID, _ string) (bool, time.Time, error) {
+	if m.lockErr != nil {
+		return false, time.Time{}, m.lockErr
+	}
+	return m.lockActive, m.lockUntil, nil
 }
 
 func TestRegisterValidationAndTenantErrors(t *testing.T) {

@@ -262,8 +262,12 @@ func TestLogoutIntegration(t *testing.T) {
 	if !ok || refreshToken == "" {
 		t.Fatalf("missing refresh token: %#v", loginData)
 	}
+	accessToken, ok := loginData["access_token"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("missing access token: %#v", loginData)
+	}
 
-	logoutStatus, logoutBody := callLogout(t, router, tenantID, model.LogoutRequest{RefreshToken: refreshToken}, "")
+	logoutStatus, logoutBody := callLogout(t, router, tenantID, model.LogoutRequest{RefreshToken: refreshToken}, accessToken)
 	if logoutStatus != http.StatusOK || logoutBody["code"] != "OK" {
 		t.Fatalf("logout failed, status=%d body=%#v", logoutStatus, logoutBody)
 	}
@@ -512,9 +516,11 @@ func buildRouter(db *sql.DB) *gin.Engine {
 	r.POST("/api/v1/auth/register", authH.Register)
 	r.POST("/api/v1/auth/login", authH.Login)
 	r.POST("/api/v1/auth/refresh", authH.Refresh)
-	r.POST("/api/v1/auth/logout", authH.Logout)
 	r.POST("/api/v1/auth/password/reset-request", authH.PasswordResetRequest)
 	r.POST("/api/v1/auth/password/reset-confirm", authH.PasswordResetConfirm)
+	protected := r.Group("")
+	protected.Use(handler.AuthRequired(db, "integration-test-secret"))
+	protected.POST("/api/v1/auth/logout", authH.Logout)
 	return r
 }
 
@@ -566,14 +572,14 @@ func callRefresh(t *testing.T, r *gin.Engine, tenantID string, payload model.Ref
 	return resp.Code, body
 }
 
-func callLogout(t *testing.T, r *gin.Engine, tenantID string, payload model.LogoutRequest, userID string) (int, map[string]any) {
+func callLogout(t *testing.T, r *gin.Engine, tenantID string, payload model.LogoutRequest, accessToken string) (int, map[string]any) {
 	t.Helper()
 	raw, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", bytes.NewBuffer(raw))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-ID", tenantID)
-	if userID != "" {
-		req.Header.Set("X-User-ID", userID)
+	if accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
 	}
 	resp := httptest.NewRecorder()
 	r.ServeHTTP(resp, req)

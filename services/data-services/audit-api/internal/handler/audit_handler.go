@@ -21,8 +21,6 @@ const (
 	CodeAuditServiceUnavailable = "AUDIT_SERVICE_UNAVAILABLE"
 )
 
-const defaultTenantID = "00000000-0000-0000-0000-000000000001"
-
 // AuditHandler 封装 audit-api 的 HTTP 处理逻辑
 type AuditHandler struct {
 	svc *service.AuditService
@@ -36,6 +34,10 @@ func NewAuditHandler(svc *service.AuditService) *AuditHandler {
 // ListAuditLogs 处理 GET /api/v1/audit/logs
 func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 	actor := resolveActor(c)
+	if actor.TenantID == "" {
+		writeError(c, http.StatusUnauthorized, CodeAuditUnauthorized, "tenant context is required")
+		return
+	}
 	req := service.ListAuditLogsRequest{
 		UserID:       c.Query("user_id"),
 		Action:       c.Query("action"),
@@ -104,7 +106,7 @@ func resolveActor(c *gin.Context) requestActor {
 		c.GetHeader("X-Tenant-Id"),
 	)
 	if tenantID == "" {
-		tenantID = defaultTenantID
+		return requestActor{}
 	}
 	return requestActor{TenantID: tenantID}
 }

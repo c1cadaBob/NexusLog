@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -655,6 +657,11 @@ func normalizeCreatePullSourceRequest(req CreatePullSourceRequest) (CreatePullSo
 		}
 		normalized.AgentBaseURL = fmt.Sprintf("%s://%s:%d", scheme, normalized.Host, normalized.Port)
 	}
+	validatedURL, err := normalizeAndValidateAgentBaseURL(normalized.AgentBaseURL)
+	if err != nil {
+		return CreatePullSourceRequest{}, err
+	}
+	normalized.AgentBaseURL = validatedURL
 	return normalized, nil
 }
 
@@ -712,6 +719,13 @@ func normalizeUpdatePullSourceRequest(req UpdatePullSourceRequest) (UpdatePullSo
 	}
 	if req.AgentBaseURL != nil {
 		trimmed := strings.TrimSpace(*req.AgentBaseURL)
+		if trimmed != "" {
+			validatedURL, err := normalizeAndValidateAgentBaseURL(trimmed)
+			if err != nil {
+				return UpdatePullSourceRequest{}, err
+			}
+			trimmed = validatedURL
+		}
 		normalized.AgentBaseURL = &trimmed
 	}
 	if req.PullIntervalSec != nil {
@@ -738,6 +752,42 @@ func normalizeUpdatePullSourceRequest(req UpdatePullSourceRequest) (UpdatePullSo
 		normalized.Status = &trimmed
 	}
 	return normalized, nil
+}
+
+func normalizeAndValidateAgentBaseURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("agent_base_url is required")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("agent_base_url is invalid")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("agent_base_url scheme must be http or https")
+	}
+	if parsed.Host == "" || parsed.Hostname() == "" {
+		return "", fmt.Errorf("agent_base_url host is required")
+	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("agent_base_url must not contain credentials")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("agent_base_url must not contain query or fragment")
+	}
+	hostname := strings.TrimSpace(parsed.Hostname())
+	if strings.EqualFold(hostname, "localhost") {
+		return "", fmt.Errorf("agent_base_url localhost is not allowed")
+	}
+	if ip := net.ParseIP(hostname); ip != nil {
+		if ip.IsUnspecified() {
+			return "", fmt.Errorf("agent_base_url unspecified address is not allowed")
+		}
+		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return "", fmt.Errorf("agent_base_url link-local address is not allowed")
+		}
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
 func applyPullSourceUpdate(current PullSource, req UpdatePullSourceRequest) PullSource {

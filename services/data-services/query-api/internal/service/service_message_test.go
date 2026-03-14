@@ -384,7 +384,7 @@ func TestSearchLogs_RejectsCursorWithoutPITID(t *testing.T) {
 
 	repo := repository.NewElasticsearchRepositoryFromEnv()
 	svc = NewQueryService(repo, nil)
-	_, err = svc.SearchLogs(context.Background(), RequestActor{}, SearchLogsRequest{
+	_, err = svc.SearchLogs(context.Background(), RequestActor{TenantID: "tenant-a"}, SearchLogsRequest{
 		Page:        501,
 		PageSize:    20,
 		SearchAfter: []any{"2026-03-13T08:00:00Z", 99},
@@ -432,7 +432,7 @@ func TestSearchLogs_AllowsDeepPageWhenCursorProvided(t *testing.T) {
 	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
 	repo := repository.NewElasticsearchRepositoryFromEnv()
 	svc := NewQueryService(repo, nil)
-	result, err := svc.SearchLogs(context.Background(), RequestActor{}, SearchLogsRequest{
+	result, err := svc.SearchLogs(context.Background(), RequestActor{TenantID: "tenant-a"}, SearchLogsRequest{
 		Page:        501,
 		PageSize:    20,
 		PITID:       "pit-deep-page",

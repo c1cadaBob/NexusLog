@@ -53,12 +53,12 @@ func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
 	authV1.POST("/register", authHandler.Register)
 	authV1.POST("/login", authHandler.Login)
 	authV1.POST("/refresh", authHandler.Refresh)
-	authV1.POST("/logout", authHandler.Logout)
 	authV1.POST("/password/reset-request", authHandler.PasswordResetRequest)
 	authV1.POST("/password/reset-confirm", authHandler.PasswordResetConfirm)
 
 	protected := apiV1.Group("")
 	protected.Use(handler.AuthRequired(db, jwtSecret))
+	protected.POST("/auth/logout", authHandler.Logout)
 
 	userV1 := protected.Group("/users")
 	userV1.GET("/me", userHandler.GetMe)

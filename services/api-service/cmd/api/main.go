@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
@@ -30,7 +31,7 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(handler.AuditMiddleware(db))
 
-	jwtSecret := getEnv("JWT_SECRET", "nexuslog-dev-secret-change-in-production")
+	jwtSecret := requireJWTSecret()
 	registerRoutes(router, db, jwtSecret)
 
 	server := newHTTPServer(port, router)
@@ -96,4 +97,19 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func requireJWTSecret() string {
+	secret := getEnv("JWT_SECRET", "")
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
+	if secret == "nexuslog-dev-secret-change-in-production" {
+		log.Fatal("JWT_SECRET uses a known weak default and must be replaced")
+	}
+	if len(secret) < 32 {
+		log.Fatal("JWT_SECRET must be at least 32 characters")
+	}
+	return secret
 }
