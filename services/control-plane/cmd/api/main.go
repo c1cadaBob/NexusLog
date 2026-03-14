@@ -97,8 +97,8 @@ func main() {
 
 	// ES Snapshot Backup/Restore (W4-B3)
 	backupSvc := backup.NewService()
-	backupAdminRoutes := router.Group("", middleware.RequireAdminRole(pgDB))
-	backup.RegisterRoutes(backupAdminRoutes, backup.NewHandler(backupSvc))
+	adminRoutes := router.Group("", middleware.RequireAdminRole(pgDB))
+	backup.RegisterRoutes(adminRoutes, backup.NewHandler(backupSvc))
 
 	// Metrics report + query API (W3-B6, W3-B8)
 	if pgDB != nil {
@@ -185,11 +185,11 @@ func main() {
 		}
 	}
 
-	// Notification channels (requires pgDB)
+	// Notification channels (requires pgDB, admin only)
 	if pgDB != nil {
 		channelRepo := notification.NewChannelRepository(pgDB)
 		smtpSender := notification.NewSMTPSender()
-		notification.RegisterChannelRoutes(router, channelRepo, smtpSender)
+		notification.RegisterChannelRoutes(adminRoutes, channelRepo, smtpSender)
 	}
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {
