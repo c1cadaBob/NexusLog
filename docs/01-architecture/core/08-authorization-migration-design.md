@@ -667,6 +667,9 @@
    - approval_request
    - temporary_grant
    - role_conflict_policy
+
+当前 V1 草案已落地到：`docs/01-architecture/core/09-authorization-ddl-draft.md`
+
 2. **旧权限映射表初版**
    - 将当前 `users:read` / `logs:read` / `alerts:write` 等全部映射完成
 3. **前后端改造任务拆解单**
