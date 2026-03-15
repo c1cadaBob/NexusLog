@@ -1,10 +1,12 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Alert, App, Button, Card, Drawer, Empty, Input, Result, Space, Table, Tag } from 'antd';
+import { Alert, App, Button, Card, Drawer, Empty, Input, Result, Space, Table, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
 import { fetchRoles, type RoleData } from '../../api/user';
 import { isProtectedRole, protectedGovernanceTagLabel } from './securityGovernance';
+import { resolveRolePermissionsActionAccess } from './rolePermissionsAuthorization';
 
 interface LoadErrorState {
   message: string;
@@ -35,6 +37,7 @@ function toLoadError(error: unknown, fallbackMessage: string): LoadErrorState {
 const RolePermissions: React.FC = () => {
   const { message: messageApi } = App.useApp();
   const isDark = useThemeStore((state) => state.isDark);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
 
   const [roles, setRoles] = useState<RoleData[]>([]);
@@ -42,6 +45,10 @@ const RolePermissions: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loadError, setLoadError] = useState<LoadErrorState | null>(null);
   const [selectedRole, setSelectedRole] = useState<RoleData | null>(null);
+  const actionAccess = useMemo(
+    () => resolveRolePermissionsActionAccess({ capabilities }),
+    [capabilities],
+  );
 
   const loadRoles = useCallback(async () => {
     setLoading(true);
@@ -93,13 +100,17 @@ const RolePermissions: React.FC = () => {
 
   const copyPermissions = useCallback(async () => {
     if (!selectedRole) return;
+    if (!actionAccess.canCopyPermissions) {
+      messageApi.warning('当前会话缺少角色权限复制能力');
+      return;
+    }
     try {
       await navigator.clipboard.writeText((selectedRole.permissions || []).join('\n'));
       messageApi.success('权限列表已复制');
     } catch {
       messageApi.error('复制权限列表失败');
     }
-  }, [messageApi, selectedRole]);
+  }, [actionAccess.canCopyPermissions, messageApi, selectedRole]);
 
   const columns: ColumnsType<RoleData> = [
     {
@@ -280,13 +291,21 @@ const RolePermissions: React.FC = () => {
       </div>
 
       {!loadError ? (
-        <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
+        <div style={{ padding: '12px 24px 0', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Alert
             showIcon
             type="info"
             message="角色治理说明"
             description="系统保留角色仍会在当前页面展示，便于审计与查看；但它们不会出现在“用户管理”的可分配角色下拉中。"
           />
+          {actionAccess.isViewOnly ? (
+            <Alert
+              showIcon
+              type="info"
+              message="当前会话为查看模式"
+              description="你可以查看角色和权限详情，但复制完整权限列表需要额外的角色权限复制能力。"
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -335,13 +354,33 @@ const RolePermissions: React.FC = () => {
         width={560}
         onClose={closeRoleDrawer}
         extra={
-          <Button size="small" onClick={() => void copyPermissions()} disabled={!selectedRole}>
-            复制权限
-          </Button>
+          <Tooltip title={actionAccess.canCopyPermissions ? undefined : '当前会话缺少 iam.role.copy_permission / iam.role.export 能力'}>
+            <span>
+              <Button size="small" onClick={() => void copyPermissions()} disabled={!selectedRole || !actionAccess.canCopyPermissions}>
+                复制权限
+              </Button>
+            </span>
+          </Tooltip>
         }
       >
         {selectedRole ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {isProtectedRole(selectedRole) ? (
+              <Alert
+                showIcon
+                type="info"
+                message="系统保留角色"
+                description="该角色由系统治理规则保护，当前页面仅提供查看与审计用途，不支持通过此页直接变更。"
+              />
+            ) : null}
+            {!actionAccess.canCopyPermissions ? (
+              <Alert
+                showIcon
+                type="info"
+                message="权限复制受限"
+                description="当前会话可以查看完整权限列表，但复制操作需要额外的角色权限复制能力。"
+              />
+            ) : null}
             <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
               <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', rowGap: 12, columnGap: 12 }}>
                 <span style={{ color: palette.textSecondary }}>角色 ID</span>
