@@ -20,6 +20,7 @@ import {
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
 import {
@@ -27,7 +28,6 @@ import {
   batchUpdateUsersStatus,
   createUser,
   disableUser,
-  fetchCurrentUser,
   fetchRoles,
   fetchUser,
   fetchUsers,
@@ -42,6 +42,14 @@ import {
   isProtectedUser,
   protectedGovernanceTagLabel,
 } from './securityGovernance';
+import {
+  canApplyPrimaryRoleChange,
+  canAssignRoleOnCreate,
+  canEditRoleForUser,
+  canOpenUserEditModal,
+  getPrimaryRoleChangeDeniedReason,
+  resolveUserManagementActionAccess,
+} from './userManagementAuthorization';
 
 interface LoadErrorState {
   message: string;
@@ -108,6 +116,9 @@ function renderRoleTags(roles: RoleData[] | undefined, limit = 2) {
 const UserManagement: React.FC = () => {
   const { message: messageApi } = App.useApp();
   const isDark = useThemeStore((state) => state.isDark);
+  const permissions = useAuthStore((state) => state.permissions);
+  const capabilities = useAuthStore((state) => state.capabilities);
+  const authUser = useAuthStore((state) => state.user);
   const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
 
   const [users, setUsers] = useState<UserData[]>([]);
@@ -121,7 +132,6 @@ const UserManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
-  const [currentSessionUserId, setCurrentSessionUserId] = useState<string | null>(null);
   const [userLoadError, setUserLoadError] = useState<LoadErrorState | null>(null);
   const [roleLoadError, setRoleLoadError] = useState<LoadErrorState | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -137,6 +147,16 @@ const UserManagement: React.FC = () => {
   const [form] = Form.useForm();
   const [createForm] = Form.useForm();
   const userTableContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const currentSessionUserId = authUser?.id ?? null;
+  const authorization = useMemo(
+    () => ({ permissions, capabilities }),
+    [capabilities, permissions],
+  );
+  const actionAccess = useMemo(
+    () => resolveUserManagementActionAccess(authorization),
+    [authorization],
+  );
 
   const clearSelection = useCallback(() => {
     setSelectedRowKeys([]);
@@ -194,23 +214,13 @@ const UserManagement: React.FC = () => {
     }
   }, []);
 
-  const loadCurrentUser = useCallback(async () => {
-    try {
-      const response = await fetchCurrentUser();
-      setCurrentSessionUserId(response.user.id);
-    } catch {
-      setCurrentSessionUserId(null);
-    }
-  }, []);
-
   useEffect(() => {
     void loadUsers(page, pageSize);
   }, [loadUsers, page, pageSize]);
 
   useEffect(() => {
     void loadRoles();
-    void loadCurrentUser();
-  }, [loadCurrentUser, loadRoles]);
+  }, [loadRoles]);
 
   useEffect(() => {
     const tableContainer = userTableContainerRef.current;
@@ -255,26 +265,38 @@ const UserManagement: React.FC = () => {
   const identifiedRoleUsersCount = users.filter((user) => (user.roles?.length ?? 0) > 0).length;
   const selectedActiveCount = selectedUsers.filter((user) => user.status === 'active').length;
   const selectedDisabledCount = selectedUsers.filter((user) => user.status === 'disabled').length;
-  const canBatchDisable = selectedUsers.some((user) => user.status === 'active');
-  const canBatchEnable = selectedUsers.some((user) => user.status === 'disabled');
+  const canOpenCreateUserModal = actionAccess.canCreateUser;
+  const canEditUsers = canOpenUserEditModal(actionAccess);
+  const canAssignRoleDuringCreate = canAssignRoleOnCreate(actionAccess);
+  const isUserManagementReadOnly = actionAccess.isReadOnly;
+  const canBatchDisable = actionAccess.canUpdateUserStatus && selectedUsers.some((user) => user.status === 'active');
+  const canBatchEnable = actionAccess.canUpdateUserStatus && selectedUsers.some((user) => user.status === 'disabled');
   const currentPageSummary = filtersActive
     ? `当前筛选页返回 ${users.length} 条；后端命中 ${total} 条`
     : `当前页已加载 ${users.length} 条；后端总数 ${total} 条`;
 
   const refreshPageData = useCallback(async () => {
     clearSelection();
-    await Promise.all([loadUsers(page, pageSize), loadRoles(), loadCurrentUser()]);
-  }, [clearSelection, loadCurrentUser, loadRoles, loadUsers, page, pageSize]);
+    await Promise.all([loadUsers(page, pageSize), loadRoles()]);
+  }, [clearSelection, loadRoles, loadUsers, page, pageSize]);
 
   const openCreateModal = useCallback(() => {
+    if (!canOpenCreateUserModal) {
+      messageApi.warning('当前会话缺少新增用户权限');
+      return;
+    }
     createForm.resetFields();
     setIsCreateModalOpen(true);
-  }, [createForm]);
+  }, [canOpenCreateUserModal, createForm, messageApi]);
 
   const openEditModal = useCallback(
     (user: UserData) => {
       if (isProtectedUser(user)) {
         messageApi.warning('系统保留账号仅支持查看，不支持在此页编辑或重新授权');
+        return;
+      }
+      if (!canEditUsers) {
+        messageApi.warning('当前会话缺少编辑用户资料或调整角色的权限');
         return;
       }
       setEditingUser(user);
@@ -285,7 +307,7 @@ const UserManagement: React.FC = () => {
       });
       setIsEditModalOpen(true);
     },
-    [form, messageApi],
+    [canEditUsers, form, messageApi],
   );
 
   const openDetailDrawer = useCallback(
@@ -313,6 +335,10 @@ const UserManagement: React.FC = () => {
   }, []);
 
   const handleCreateUser = useCallback(async () => {
+    if (!actionAccess.canCreateUser) {
+      messageApi.warning('当前会话缺少新增用户权限');
+      return;
+    }
     try {
       const values = await createForm.validateFields();
       setActionLoading(true);
@@ -321,7 +347,7 @@ const UserManagement: React.FC = () => {
         password: values.password,
         email: values.email,
         display_name: values.display_name || values.username,
-        role_id: values.role_id,
+        role_id: canAssignRoleDuringCreate ? values.role_id : undefined,
       });
       setIsCreateModalOpen(false);
       createForm.resetFields();
@@ -335,7 +361,7 @@ const UserManagement: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
-  }, [clearSelection, createForm, loadRoles, loadUsers, messageApi, pageSize]);
+  }, [actionAccess.canCreateUser, canAssignRoleDuringCreate, clearSelection, createForm, loadRoles, loadUsers, messageApi, pageSize]);
 
   const handleEditUser = useCallback(async () => {
     if (!editingUser) return;
@@ -343,18 +369,41 @@ const UserManagement: React.FC = () => {
       messageApi.warning('系统保留账号不支持在此页编辑');
       return;
     }
+    if (!canEditUsers) {
+      messageApi.warning('当前会话缺少编辑用户资料或调整角色的权限');
+      return;
+    }
     try {
       const values = await form.validateFields();
-      setActionLoading(true);
-      await updateUser(editingUser.id, {
-        display_name: values.display_name,
-        email: values.email,
-      });
-
       const targetRoleId = values.role_id as string | undefined;
-      const currentRoleIds = editingUser.roles?.map((role) => role.id) ?? [];
-      const currentPrimaryRoleId = currentRoleIds[0];
-      if (targetRoleId !== currentPrimaryRoleId) {
+      const currentPrimaryRoleId = editingUser.roles?.[0]?.id;
+      const roleChangeDeniedReason = getPrimaryRoleChangeDeniedReason(actionAccess, currentPrimaryRoleId, targetRoleId);
+      if (roleChangeDeniedReason) {
+        messageApi.warning(roleChangeDeniedReason);
+        return;
+      }
+
+      const nextDisplayName = values.display_name || editingUser.username;
+      const profileChanged = actionAccess.canUpdateUserProfile && (
+        nextDisplayName !== (editingUser.display_name || editingUser.username) ||
+        values.email !== editingUser.email
+      );
+      const roleChanged = canApplyPrimaryRoleChange(actionAccess, currentPrimaryRoleId, targetRoleId) && targetRoleId !== currentPrimaryRoleId;
+
+      if (!profileChanged && !roleChanged) {
+        messageApi.info('没有需要保存的变更');
+        return;
+      }
+
+      setActionLoading(true);
+      if (profileChanged) {
+        await updateUser(editingUser.id, {
+          display_name: nextDisplayName,
+          email: values.email,
+        });
+      }
+
+      if (roleChanged) {
         if (currentPrimaryRoleId) {
           await removeRole(editingUser.id, currentPrimaryRoleId);
         }
@@ -374,12 +423,16 @@ const UserManagement: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
-  }, [editingUser, form, loadUsers, messageApi, page, pageSize]);
+  }, [actionAccess, canEditUsers, editingUser, form, loadUsers, messageApi, page, pageSize]);
 
   const updateSingleUserStatus = useCallback(
     async (user: UserData, nextStatus: UserStatus) => {
       if (isProtectedUser(user)) {
         messageApi.warning('系统保留账号不支持启用、禁用或删除');
+        return;
+      }
+      if (!actionAccess.canUpdateUserStatus) {
+        messageApi.warning('当前会话缺少变更用户状态的权限');
         return;
       }
       setActionLoading(true);
@@ -400,11 +453,16 @@ const UserManagement: React.FC = () => {
         setActionLoading(false);
       }
     },
-    [detailUser?.id, loadUsers, messageApi, page, pageSize],
+    [actionAccess.canUpdateUserStatus, detailUser?.id, loadUsers, messageApi, page, pageSize],
   );
 
   const handleBatchStatusChange = useCallback(
     async (nextStatus: UserStatus) => {
+      if (!actionAccess.canUpdateUserStatus) {
+        messageApi.warning('当前会话缺少批量变更用户状态的权限');
+        return;
+      }
+
       const skippedProtectedUsers = selectedUsers.filter((user) => isProtectedUser(user));
       const candidates = selectedUsers.filter((user) => !isProtectedUser(user) && user.status !== nextStatus);
       if (candidates.length === 0) {
@@ -434,7 +492,7 @@ const UserManagement: React.FC = () => {
         setBatchActionLoading(false);
       }
     },
-    [clearSelection, loadUsers, messageApi, page, pageSize, selectedUsers],
+    [actionAccess.canUpdateUserStatus, clearSelection, loadUsers, messageApi, page, pageSize, selectedUsers],
   );
 
   const handleResetFilters = useCallback(() => {
@@ -462,9 +520,10 @@ const UserManagement: React.FC = () => {
     },
     getTitleCheckboxProps: () => ({
       name: 'user-select-all',
+      disabled: !actionAccess.canUpdateUserStatus,
     }),
     getCheckboxProps: (record: UserData) => ({
-      disabled: record.id === currentSessionUserId || isProtectedUser(record),
+      disabled: !actionAccess.canUpdateUserStatus || record.id === currentSessionUserId || isProtectedUser(record),
       name: `user-select-${record.id}`,
     }),
   };
@@ -560,17 +619,22 @@ const UserManagement: React.FC = () => {
         const isProtected = isProtectedUser(record);
         const nextStatus: UserStatus = record.status === 'active' ? 'disabled' : 'active';
         const toggleLabel = nextStatus === 'active' ? '启用用户' : '禁用用户';
+        const roleFieldEnabled = canEditRoleForUser(actionAccess, record.roles?.[0]?.id);
+        const editDisabled = isProtected || !canEditUsers || actionLoading;
+        const toggleDisabled = isSelf || isProtected || !actionAccess.canUpdateUserStatus || actionLoading;
         const toggleButton = (
           <Button
             type="text"
             size="small"
-            disabled={isSelf || isProtected || actionLoading}
+            disabled={toggleDisabled}
             title={
               isProtected
                 ? '系统保留账号不可修改状态'
                 : isSelf
                   ? '当前登录用户不可在此页修改状态'
-                  : toggleLabel
+                  : !actionAccess.canUpdateUserStatus
+                    ? '当前会话缺少变更用户状态权限'
+                    : toggleLabel
             }
             icon={
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
@@ -584,9 +648,17 @@ const UserManagement: React.FC = () => {
           <Button
             type="text"
             size="small"
-            title={isProtected ? '系统保留账号不可编辑' : '编辑用户'}
+            title={
+              isProtected
+                ? '系统保留账号不可编辑'
+                : !canEditUsers
+                  ? '当前会话缺少编辑资料或角色授权权限'
+                  : !actionAccess.canUpdateUserProfile && roleFieldEnabled
+                    ? '当前会话仅可调整角色'
+                    : '编辑用户'
+            }
             onClick={() => openEditModal(record)}
-            disabled={isProtected}
+            disabled={editDisabled}
             icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>}
           />
         );
@@ -600,11 +672,17 @@ const UserManagement: React.FC = () => {
               onClick={() => void openDetailDrawer(record)}
               icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>visibility</span>}
             />
-            {isProtected ? <Tooltip title="系统保留账号不可在此页编辑、启用或禁用">{editButton}</Tooltip> : editButton}
+            {isProtected ? (
+              <Tooltip title="系统保留账号不可在此页编辑、启用或禁用">{editButton}</Tooltip>
+            ) : !canEditUsers ? (
+              <Tooltip title="当前会话缺少编辑用户资料或调整角色的权限">{editButton}</Tooltip>
+            ) : editButton}
             {isProtected ? (
               <Tooltip title="系统保留账号不可在此页编辑、启用或禁用">{toggleButton}</Tooltip>
             ) : isSelf ? (
               <Tooltip title="当前登录用户不可在此页禁用自己">{toggleButton}</Tooltip>
+            ) : !actionAccess.canUpdateUserStatus ? (
+              <Tooltip title="当前会话缺少变更用户状态权限">{toggleButton}</Tooltip>
             ) : (
               <Popconfirm
                 title={`${nextStatus === 'active' ? '启用' : '禁用'}用户？`}
@@ -673,25 +751,40 @@ const UserManagement: React.FC = () => {
           <Button onClick={() => void refreshPageData()} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>}>
             刷新
           </Button>
-          <Tooltip title="普通账号邀请入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过邀请创建">
+          <Tooltip title={actionAccess.canInviteUser ? '普通账号邀请入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过邀请创建' : '当前会话缺少用户邀请权限；后续该入口会按 iam.user.invite 单独开放'}>
             <span>
               <Button disabled icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>person_add</span>}>
                 邀请用户
               </Button>
             </span>
           </Tooltip>
-          <Tooltip title="普通账号导入入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过导入创建">
+          <Tooltip title={actionAccess.canImportUser ? '普通账号导入入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过导入创建' : '当前会话缺少用户导入权限；后续该入口会按 iam.user.import 单独开放'}>
             <span>
               <Button disabled icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>upload_file</span>}>
                 导入用户
               </Button>
             </span>
           </Tooltip>
-          <Button type="primary" disabled={Boolean(userLoadError)} onClick={openCreateModal} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>}>
-            新增用户
-          </Button>
+          <Tooltip title={canOpenCreateUserModal ? undefined : '当前会话缺少新增用户权限'}>
+            <span>
+              <Button type="primary" disabled={Boolean(userLoadError) || !canOpenCreateUserModal} onClick={openCreateModal} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>}>
+                新增用户
+              </Button>
+            </span>
+          </Tooltip>
         </Space>
       </div>
+
+      {isUserManagementReadOnly ? (
+        <div style={{ padding: '16px 24px 0', flexShrink: 0 }}>
+          <Alert
+            showIcon
+            type="info"
+            message="当前会话为只读访问"
+            description="你可以查看用户、角色与详情信息，但不能新增用户、编辑资料、调整角色或变更账号状态。"
+          />
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -971,12 +1064,22 @@ const UserManagement: React.FC = () => {
           >
             <Input name="create_email" placeholder="输入邮箱地址" />
           </Form.Item>
-          <Form.Item name="role_id" label="初始角色">
+          <Form.Item
+            name="role_id"
+            label="初始角色"
+            extra={canAssignRoleDuringCreate ? undefined : '当前会话缺少角色授予权限，新建用户后也不会自动附带角色'}
+          >
             <Select
-              placeholder={roleLoadError ? '角色加载失败，暂不可选' : '选择角色（可选）'}
+              placeholder={
+                roleLoadError
+                  ? '角色加载失败，暂不可选'
+                  : canAssignRoleDuringCreate
+                    ? '选择角色（可选）'
+                    : '当前会话无角色授予权限'
+              }
               allowClear
               options={assignableRoleOptions}
-              disabled={Boolean(roleLoadError)}
+              disabled={Boolean(roleLoadError) || !canAssignRoleDuringCreate}
             />
           </Form.Item>
         </Form>
@@ -998,7 +1101,7 @@ const UserManagement: React.FC = () => {
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}>
-            <Input name="edit_display_name" />
+            <Input name="edit_display_name" disabled={!actionAccess.canUpdateUserProfile} />
           </Form.Item>
           <Form.Item
             name="email"
@@ -1008,14 +1111,28 @@ const UserManagement: React.FC = () => {
               { type: 'email', message: '请输入有效的邮箱地址' },
             ]}
           >
-            <Input name="edit_email" />
+            <Input name="edit_email" disabled={!actionAccess.canUpdateUserProfile} />
           </Form.Item>
-          <Form.Item name="role_id" label="角色">
+          <Form.Item
+            name="role_id"
+            label="角色"
+            extra={
+              editingUser && !canEditRoleForUser(actionAccess, editingUser.roles?.[0]?.id)
+                ? '当前会话缺少本次角色调整所需的授予或移除权限'
+                : undefined
+            }
+          >
             <Select
-              placeholder={roleLoadError ? '角色加载失败，暂不可选' : '选择角色'}
+              placeholder={
+                roleLoadError
+                  ? '角色加载失败，暂不可选'
+                  : editingUser && canEditRoleForUser(actionAccess, editingUser.roles?.[0]?.id)
+                    ? '选择角色'
+                    : '当前会话无角色调整权限'
+              }
               allowClear
               options={assignableRoleOptions}
-              disabled={Boolean(roleLoadError)}
+              disabled={Boolean(roleLoadError) || (editingUser ? !canEditRoleForUser(actionAccess, editingUser.roles?.[0]?.id) : true)}
             />
           </Form.Item>
         </Form>
@@ -1078,7 +1195,17 @@ const UserManagement: React.FC = () => {
             </Card>
             <Card size="small" title="快捷操作" style={{ background: palette.bgContainer, borderColor: palette.border }}>
               <Space wrap>
-                <Button disabled={isProtectedUser(detailUser)} onClick={() => { closeDetailDrawer(); openEditModal(detailUser); }}>编辑资料</Button>
+                {isProtectedUser(detailUser) ? (
+                  <Tooltip title="系统保留账号不可在此页编辑或重新授权">
+                    <Button disabled>编辑资料</Button>
+                  </Tooltip>
+                ) : !canEditUsers ? (
+                  <Tooltip title="当前会话缺少编辑用户资料或调整角色的权限">
+                    <Button disabled>编辑资料</Button>
+                  </Tooltip>
+                ) : (
+                  <Button onClick={() => { closeDetailDrawer(); openEditModal(detailUser); }}>编辑资料</Button>
+                )}
                 {isProtectedUser(detailUser) ? (
                   <Tooltip title="系统保留账号不可在此页修改状态">
                     <Button disabled>
@@ -1087,6 +1214,12 @@ const UserManagement: React.FC = () => {
                   </Tooltip>
                 ) : detailUser.id === currentSessionUserId ? (
                   <Tooltip title="当前登录用户不可在此页禁用自己">
+                    <Button disabled>
+                      {detailUser.status === 'active' ? '禁用用户' : '启用用户'}
+                    </Button>
+                  </Tooltip>
+                ) : !actionAccess.canUpdateUserStatus ? (
+                  <Tooltip title="当前会话缺少变更用户状态权限">
                     <Button disabled>
                       {detailUser.status === 'active' ? '禁用用户' : '启用用户'}
                     </Button>
