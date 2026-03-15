@@ -673,7 +673,7 @@ SET reserved = EXCLUDED.reserved,
 - `audit:read`
 - `audit:write`
 
-具体 bundle 内容应与 `docs/01-architecture/core/08-authorization-migration-design.md` 保持一致。
+具体 bundle 内容应与 `docs/01-architecture/core/10-authorization-legacy-permission-mapping-draft.md` 保持一致。
 
 ## 10. 代码改造联动点
 
@@ -733,6 +733,9 @@ V1 不单独建设 `scope_definition` 表，而是先采用 JSON 数组表达范
 
 1. **旧权限映射表初版**
    - 把现有 `roles.permissions` 全量展开成 capability bundle
+
+当前 V1 草案已落地到：`docs/01-architecture/core/10-authorization-legacy-permission-mapping-draft.md`
+
 2. **前后端改造任务拆解单**
    - 精确到接口、中间件、页面、状态管理、菜单注册
 

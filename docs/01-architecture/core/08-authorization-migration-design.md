@@ -411,6 +411,8 @@
 | `audit:read` | `audit.log.read` |
 | `audit:write` | `audit.log.write_system` |
 
+详细实施映射、范围建议、前端过渡别名与 `*` / `audit:write` 特殊处理，以 `docs/01-architecture/core/10-authorization-legacy-permission-mapping-draft.md` 为准。
+
 ### 6.4 映射期中间件策略
 
 迁移期 capability 判定建议采用：
@@ -672,5 +674,8 @@
 
 2. **旧权限映射表初版**
    - 将当前 `users:read` / `logs:read` / `alerts:write` 等全部映射完成
+
+当前 V1 草案已落地到：`docs/01-architecture/core/10-authorization-legacy-permission-mapping-draft.md`
+
 3. **前后端改造任务拆解单**
    - 精确到文件/模块/接口级别
