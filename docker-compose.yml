@@ -386,11 +386,11 @@ services:
       zookeeper:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:9092"]
       interval: 15s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 15m
     networks:
       - nexuslog-net
     restart: unless-stopped
