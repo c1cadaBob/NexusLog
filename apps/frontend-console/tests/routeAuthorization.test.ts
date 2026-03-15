@@ -27,6 +27,22 @@ describe('route authorization registry', () => {
     ).toBe(true);
   });
 
+  it('does not let dashboards:read borrow access to download records', () => {
+    expect(
+      canAccessRoute('/reports/downloads', {
+        permissions: ['dashboards:read'],
+        capabilities: [],
+      }),
+    ).toBe(false);
+
+    expect(
+      canAccessRoute('/reports/downloads', {
+        permissions: ['logs:export'],
+        capabilities: [],
+      }),
+    ).toBe(true);
+  });
+
   it('returns first accessible fallback for denied route', () => {
     const decision = evaluateRouteAccess('/security/users', {
       permissions: ['logs:read'],

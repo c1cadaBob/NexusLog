@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { message, Spin, Empty, Modal, Form, Input, Select, Button, Pagination } from 'antd';
+import { Alert, message, Spin, Empty, Modal, Form, Input, Select, Button, Pagination, Tooltip } from 'antd';
+import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
 import {
   createExportJob,
@@ -8,6 +9,7 @@ import {
   type ExportJobItem,
   type CreateExportJobParams,
 } from '../../api/export';
+import { resolveDownloadRecordsActionAccess } from './downloadRecordsAuthorization';
 
 const FORMAT_OPTIONS = [
   { value: 'csv', label: 'CSV' },
@@ -48,6 +50,8 @@ function formatDateTime(iso?: string): { date: string; time: string } {
 
 const DownloadRecords: React.FC = () => {
   const { isDark } = useThemeStore();
+  const permissions = useAuthStore((state) => state.permissions);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const [jobs, setJobs] = useState<ExportJobItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -60,6 +64,25 @@ const DownloadRecords: React.FC = () => {
   const [createLoading, setCreateLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState<string | null>(null);
   const [form] = Form.useForm();
+
+  const authorization = useMemo(
+    () => ({ permissions, capabilities }),
+    [capabilities, permissions],
+  );
+  const actionAccess = useMemo(
+    () => resolveDownloadRecordsActionAccess(authorization),
+    [authorization],
+  );
+  const missingExportActions = useMemo(() => {
+    const restrictions: string[] = [];
+    if (!actionAccess.canCreateExportJob) {
+      restrictions.push('新建导出任务');
+    }
+    if (!actionAccess.canDownloadExportJob) {
+      restrictions.push('下载导出文件');
+    }
+    return restrictions;
+  }, [actionAccess.canCreateExportJob, actionAccess.canDownloadExportJob]);
 
   const pageBg = isDark ? 'bg-background-dark' : 'bg-slate-50';
   const headerBg = isDark ? 'bg-[#111722]' : 'bg-white';
@@ -113,7 +136,19 @@ const DownloadRecords: React.FC = () => {
     return r;
   }, [jobs, searchQuery, formatFilter]);
 
+  const openCreateExportModal = useCallback(() => {
+    if (!actionAccess.canCreateExportJob) {
+      message.warning('当前会话缺少新建导出任务权限');
+      return;
+    }
+    setShowCreateModal(true);
+  }, [actionAccess.canCreateExportJob]);
+
   const handleCreateExport = async () => {
+    if (!actionAccess.canCreateExportJob) {
+      message.warning('当前会话缺少新建导出任务权限');
+      return;
+    }
     try {
       const values = await form.validateFields();
       setCreateLoading(true);
@@ -145,6 +180,10 @@ const DownloadRecords: React.FC = () => {
 
   const handleDownload = async (job: ExportJobItem) => {
     if (job.status !== 'completed') return;
+    if (!actionAccess.canDownloadExportJob) {
+      message.warning('当前会话缺少导出文件下载权限');
+      return;
+    }
     setDownloadLoading(job.id);
     try {
       const blob = await downloadExportFile(job.id);
@@ -177,12 +216,17 @@ const DownloadRecords: React.FC = () => {
           <div className="flex items-center justify-between">
             <h1 className={`text-2xl md:text-3xl font-bold ${textColor} tracking-tight`}>下载记录</h1>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-lg"
-              >
-                <span className="material-symbols-outlined text-[20px]">add</span>新建导出
-              </button>
+              <Tooltip title={actionAccess.canCreateExportJob ? undefined : '当前会话缺少 export.job.create / logs:export 能力'}>
+                <span>
+                  <button
+                    onClick={openCreateExportModal}
+                    disabled={!actionAccess.canCreateExportJob}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">add</span>新建导出
+                  </button>
+                </span>
+              </Tooltip>
               <button
                 onClick={handleRefresh}
                 disabled={loading}
@@ -196,6 +240,24 @@ const DownloadRecords: React.FC = () => {
           <div className={`flex items-center gap-2 text-sm ${textSecondary}`}>
             <span className="material-symbols-outlined text-[18px]">info</span>
             <p>系统将自动清理生成超过 7 天的文件</p>
+          </div>
+          <div className="mt-4 space-y-3">
+            {actionAccess.isViewOnly ? (
+              <Alert
+                showIcon
+                type="info"
+                message="当前会话为查看模式"
+                description="你可以查看导出记录，但新建导出任务和下载文件需要额外的导出能力。"
+              />
+            ) : null}
+            {!actionAccess.isViewOnly && missingExportActions.length > 0 ? (
+              <Alert
+                showIcon
+                type="info"
+                message="当前会话存在导出动作限制"
+                description={`当前会话仍可查看下载记录；${missingExportActions.join('、')}需要额外能力。`}
+              />
+            ) : null}
           </div>
         </div>
         <div className={`flex flex-wrap items-center gap-4 ${filterBg} p-1.5 rounded-xl`}>
@@ -266,7 +328,13 @@ const DownloadRecords: React.FC = () => {
                     const format = formatConfig[job.format] ?? formatConfig.csv;
                     const status = getStatusStyle(job.status);
                     const dt = formatDateTime(job.completed_at || job.created_at);
-                    const canDownload = job.status === 'completed';
+                    const jobReadyForDownload = job.status === 'completed';
+                    const canDownload = jobReadyForDownload && actionAccess.canDownloadExportJob;
+                    const downloadDisabledReason = !jobReadyForDownload
+                      ? '任务尚未完成，暂不可下载'
+                      : !actionAccess.canDownloadExportJob
+                        ? '当前会话缺少 export.job.download / logs:export 能力'
+                        : undefined;
                     return (
                       <tr key={job.id} className={`group ${hoverBg} transition-colors`}>
                         <td className="py-4 px-6">
@@ -310,28 +378,22 @@ const DownloadRecords: React.FC = () => {
                           )}
                         </td>
                         <td className="py-4 px-6 text-right">
-                          {canDownload ? (
-                            <button
-                              onClick={() => handleDownload(job)}
-                              disabled={downloadLoading === job.id}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-primary/10 hover:bg-primary text-primary hover:text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50"
-                            >
-                              {downloadLoading === job.id ? (
-                                <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
-                              ) : (
-                                <span className="material-symbols-outlined text-[18px]">download</span>
-                              )}
-                              下载
-                            </button>
-                          ) : (
-                            <button
-                              className={`inline-flex items-center gap-1 px-3 py-1.5 ${isDark ? 'bg-gray-800 text-gray-400' : 'bg-slate-200 text-slate-400'} text-sm font-medium rounded-lg cursor-not-allowed`}
-                              disabled
-                            >
-                              <span className="material-symbols-outlined text-[18px]">block</span>
-                              不可用
-                            </button>
-                          )}
+                          <Tooltip title={downloadDisabledReason}>
+                            <span>
+                              <button
+                                onClick={() => handleDownload(job)}
+                                disabled={!canDownload || downloadLoading === job.id}
+                                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${canDownload ? 'bg-primary/10 hover:bg-primary text-primary hover:text-white' : isDark ? 'bg-gray-800 text-gray-400' : 'bg-slate-200 text-slate-400'}`}
+                              >
+                                {canDownload && downloadLoading === job.id ? (
+                                  <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                                ) : (
+                                  <span className="material-symbols-outlined text-[18px]">{canDownload ? 'download' : 'block'}</span>
+                                )}
+                                {canDownload ? '下载' : '不可用'}
+                              </button>
+                            </span>
+                          </Tooltip>
                         </td>
                       </tr>
                     );
