@@ -1590,7 +1590,79 @@
 
 否则后续企业版、高级分析、多租户增强、边缘节点等模块接入时，会把“权限控制”和“产品售卖/开关控制”再次混在一起。
 
-### 16.19 建议按优先级纳入后续设计
+### 16.19 敏感配置与外部凭据的可见性/可编辑性尚未拆分
+
+当前能力字典已经覆盖：
+
+- `notification.channel.read/create/update/delete/test`
+- `integration.webhook.read/create/update/delete`
+- `settings.global.read/update`
+- `settings.version.read/rollback`
+
+但这些能力仍默认把“查看配置元数据”“查看敏感值”“修改敏感值”“测试触发外部请求”混在一起。
+
+对照代码与安全基线，这一块仍有明显缺口：
+
+1. 安全审计基线已明确指出：通知渠道 `config` 曾直接返回 SMTP/Webhook 等敏感字段，测试发送接口还会触发真实对外请求，形成凭据泄露与 SSRF 的复合风险。
+2. 配置中心表结构已经区分 `is_sensitive` 与 `value_ref`，说明系统本身也在为“敏感配置不应与普通配置同权”预留能力。
+3. 前端集成页仍出现 `API Key / Secret Key`、Webhook Secret 等概念，后续插件、Webhook、通知渠道、全局配置都会遇到同类问题。
+
+建议补充分层模型：
+
+1. **元数据读取**：可查看渠道/配置项是否存在、类型、状态、更新时间。
+2. **敏感值读取**：可查看明文 secret / password / token。
+3. **敏感值更新**：可轮换或重置 secret，但不必拥有明文读取权。
+4. **外部触发测试**：可执行 test/send/ping 等真实出网动作。
+
+建议能力至少拆分为：
+
+- `notification.channel.read_metadata`
+- `notification.channel.read_secret`
+- `notification.channel.update_secret`
+- `notification.channel.test`
+- `integration.webhook.read_metadata`
+- `integration.webhook.read_secret`
+- `integration.webhook.rotate_secret`
+- `settings.sensitive.read`
+- `settings.sensitive.update`
+
+### 16.20 字段级/分类级数据可见性尚未纳入查询与页面授权
+
+当前方案已经开始处理：
+
+- 脱敏规则管理
+- 导出时的 `masked/unmasked` 区分
+- 日志数据里的 `pii_masked`
+- 字段字典与字段映射
+
+但对照数据模型与规划后，仍缺少“谁可以在页面/API 中看到哪些字段明文”的正式授权设计。
+
+证据包括：
+
+1. 日志索引模板中已经存在 `classification` 与 `pii_masked` 字段。
+2. 配置/字段模型中已经出现 `is_sensitive` 这类结构。
+3. 总体规划明确要求原始 IP/邮箱/手机号在 ES 中不可检索或需被脱敏。
+4. 当前文档只明确了 `log.export.masked/unmasked`，却还没有把相同逻辑推广到实时检索、聚合分析、事件详情、报表、Trace、API 响应等在线读取场景。
+
+如果缺少这一层，后续仍会出现：
+
+- 页面可查到记录，但敏感字段是否显示明文没有统一规则
+- 聚合分析和报表可能绕过导出授权模型拿到敏感值
+- 字段字典能标记敏感字段，但查询结果并不会自动按角色降级展示
+
+建议把“字段可见性”作为独立维度纳入决策：
+
+- `field_visibility = hidden | masked | raw`
+- `data_classification = public | internal | sensitive | restricted`
+
+并预留能力：
+
+- `log.field.masked.read`
+- `log.field.raw.read`
+- `field.dictionary.sensitive.read`
+- `query.result.unmasked.read`
+
+### 16.21 建议按优先级纳入后续设计
 
 #### P0（必须先补）
 
@@ -1598,8 +1670,9 @@
 2. 非人类主体矩阵（Agent / 内部服务）
 3. 身份生命周期 + 身份联邦 / 服务凭证模型
 4. 前端真实路由与导航入口的 capability 映射收口
-5. 导出权限的归属范围与敏感级别
-6. 资源生命周期动作语义（`enable/disable/cancel/download/restore`）
+5. 敏感配置与外部凭据的可见性/可编辑性拆分
+6. 导出权限的归属范围与敏感级别
+7. 资源生命周期动作语义（`enable/disable/cancel/download/restore`）
 
 #### P1（应尽快补）
 
@@ -1607,10 +1680,11 @@
 2. 审计不可篡改与合规报告能力
 3. 高危操作确认与审批链路
 4. 异步/定时任务的授权快照与代理执行语义
-5. 用户退场后的资源归属与交接机制
-6. 数据生命周期（保留/归档/恢复）治理
-7. 作用域扩展位（`tenant_group/project/env/resource`）
-8. 治理级技术约束（幂等、`request_id`、旧角色兼容）
+5. 字段级/分类级数据可见性模型
+6. 用户退场后的资源归属与交接机制
+7. 数据生命周期（保留/归档/恢复）治理
+8. 作用域扩展位（`tenant_group/project/env/resource`）
+9. 治理级技术约束（幂等、`request_id`、旧角色兼容）
 
 #### P2（中期补齐）
 
