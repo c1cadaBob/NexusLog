@@ -1101,6 +1101,8 @@
 - 是否保留能力
 - 是否高风险操作
 
+当前 V1 草案已落地到：`docs/01-architecture/core/07-authorization-matrix-draft.md`
+
 ### 方案 B：迁移设计
 
 形成一份可执行的迁移清单：
