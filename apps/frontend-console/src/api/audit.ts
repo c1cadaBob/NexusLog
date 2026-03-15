@@ -21,6 +21,7 @@ const AUDIT_ADDR_PATTERN = /\baddr=([^\s'"]+)/;
 const AUDIT_HOSTNAME_PATTERN = /\bhostname=([^\s'"]+)/;
 const AUDIT_COMM_PATTERN = /\bcomm="([^"]+)"/;
 const AUDIT_EXE_PATTERN = /\bexe="([^"]+)"/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface RuntimeConfigWithTenant {
   apiBaseUrl: string;
@@ -50,7 +51,7 @@ export interface AuditLogItem {
 }
 
 export interface FetchAuditLogsParams {
-  user_id?: string;
+  user_query?: string;
   action?: string;
   resource_type?: string;
   from?: string;
@@ -283,10 +284,42 @@ function resolveAuditFetchWindow(params: FetchAuditLogsParams): { page: number; 
   };
 }
 
+function normalizeAuditUserQuery(value?: string): string {
+  return (value ?? '').trim();
+}
+
+function resolveAuditApiUserIdFilter(userQuery?: string): string | undefined {
+  const normalized = normalizeAuditUserQuery(userQuery);
+  return UUID_PATTERN.test(normalized) ? normalized : undefined;
+}
+
+function readAuditDetailString(detail: Record<string, unknown> | undefined, key: string): string {
+  const value = detail?.[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function matchesAuditUserQuery(item: AuditLogItem, userQuery?: string): boolean {
+  const normalizedQuery = normalizeAuditUserQuery(userQuery).toLowerCase();
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const detail = item.detail && typeof item.detail === 'object' ? item.detail : undefined;
+  const candidates = [
+    item.user_id,
+    item.resource_id,
+    readAuditDetailString(detail, 'username'),
+    readAuditDetailString(detail, 'target_user_id'),
+    readAuditDetailString(detail, 'raw_message'),
+  ];
+
+  return candidates.some((candidate) => candidate.toLowerCase().includes(normalizedQuery));
+}
+
 function buildAuditKeywords(params: FetchAuditLogsParams): string {
   const tokens: string[] = [];
-  if (params.user_id?.trim()) {
-    tokens.push(params.user_id.trim());
+  if (params.user_query?.trim()) {
+    tokens.push(params.user_query.trim());
   }
   if (params.action?.trim()) {
     tokens.push(`type=${params.action.trim()}`);
@@ -323,19 +356,22 @@ async function fetchAuditLogsFromQueryPipeline(params: FetchAuditLogsParams = {}
   };
 }
 
-async function fetchAuditLogsFromAuditApi(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
-  const { page, pageSize } = resolveAuditFetchWindow(params);
-
+async function requestAuditLogPage(
+  params: FetchAuditLogsParams,
+  requestPage: number,
+  requestPageSize: number,
+  userIDFilter?: string,
+): Promise<FetchAuditLogsResult> {
   const envelope = await requestAuditApi<{ items: AuditLogItem[] }>('/logs', {
     method: 'GET',
     query: {
-      user_id: params.user_id,
+      user_id: userIDFilter,
       action: params.action,
       resource_type: params.resource_type,
       from: params.from,
       to: params.to,
-      page: 1,
-      page_size: pageSize,
+      page: requestPage,
+      page_size: requestPageSize,
       sort_by: params.sort_by,
       sort_order: params.sort_order,
     },
@@ -344,13 +380,48 @@ async function fetchAuditLogsFromAuditApi(params: FetchAuditLogsParams = {}): Pr
   const items = (envelope.data?.items ?? []).map(normalizeAuditApiItem);
   const metaTotal = envelope.meta?.total;
   const total = typeof metaTotal === 'number' ? metaTotal : (typeof metaTotal === 'string' ? parseInt(metaTotal, 10) : items.length);
+  const metaHasNext = envelope.meta?.has_next;
+  const hasNext = typeof metaHasNext === 'boolean' ? metaHasNext : requestPage * requestPageSize < total;
 
   return {
     items,
     total: Number.isFinite(total) ? total : items.length,
+    page: requestPage,
+    pageSize: requestPageSize,
+    hasNext,
+  };
+}
+
+async function fetchAuditLogsFromAuditApi(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
+  const { page, pageSize } = resolveAuditFetchWindow(params);
+  const userQuery = normalizeAuditUserQuery(params.user_query);
+  const auditApiUserIDFilter = resolveAuditApiUserIdFilter(userQuery);
+
+  if (!userQuery || auditApiUserIDFilter) {
+    return requestAuditLogPage(params, 1, pageSize, auditApiUserIDFilter);
+  }
+
+  const batchSize = 200;
+  let requestPageNumber = 1;
+  let hasNext = true;
+  let total = 0;
+  const matchedItems: AuditLogItem[] = [];
+
+  while (hasNext) {
+    const batch = await requestAuditLogPage(params, requestPageNumber, batchSize);
+    const matchingItems = batch.items.filter((item) => matchesAuditUserQuery(item, userQuery));
+    matchedItems.push(...matchingItems);
+    total += matchingItems.length;
+    hasNext = batch.hasNext;
+    requestPageNumber += 1;
+  }
+
+  return {
+    items: matchedItems,
+    total,
     page,
     pageSize,
-    hasNext: pageSize < total,
+    hasNext: total > pageSize,
   };
 }
 

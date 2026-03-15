@@ -669,10 +669,24 @@ const UserManagement: React.FC = () => {
           </div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>用户管理</h2>
         </div>
-        <Space>
+        <Space wrap>
           <Button onClick={() => void refreshPageData()} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>}>
             刷新
           </Button>
+          <Tooltip title="普通账号邀请入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过邀请创建">
+            <span>
+              <Button disabled icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>person_add</span>}>
+                邀请用户
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title="普通账号导入入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过导入创建">
+            <span>
+              <Button disabled icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>upload_file</span>}>
+                导入用户
+              </Button>
+            </span>
+          </Tooltip>
           <Button type="primary" disabled={Boolean(userLoadError)} onClick={openCreateModal} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>}>
             新增用户
           </Button>
@@ -818,7 +832,7 @@ const UserManagement: React.FC = () => {
           showIcon
           type="info"
           message="账号治理说明"
-          description="系统保留账号用于平台治理与自动化审计归因，会在列表与详情中展示，但不会参与批量操作，也不支持在此页编辑、改权或修改状态。"
+          description="系统保留账号用于平台治理与自动化审计归因，会在列表与详情中展示，但不会参与批量操作，也不支持在此页编辑、改权或修改状态；新增、邀请、导入入口也仅面向普通账号。"
         />
       </div>
 

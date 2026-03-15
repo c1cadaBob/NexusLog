@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Input, Select, Table, Tag, Button, Card, DatePicker, message, Tooltip } from 'antd';
+import { Alert, Input, Select, Table, Tag, Button, Card, DatePicker, message, Space, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
 import { fetchAuditLogs, type AuditLogItem, type FetchAuditLogsParams } from '../../api/audit';
 import dayjs from 'dayjs';
 import { buildAuditDetailSummary } from './auditDetailSummary';
+import { protectedGovernanceUsernames, protectedGovernanceTagLabel } from './securityGovernance';
 
 const AUDIT_ACTION_OPTIONS = [
   { value: 'auth.login', label: 'auth.login' },
@@ -108,6 +109,11 @@ function renderDetail(detail: Record<string, unknown> | undefined, textColor: st
   );
 }
 
+const governanceAuditQuickFilters = [
+  { label: '系统超级管理员', username: protectedGovernanceUsernames[0] },
+  { label: '系统自动化账号', username: protectedGovernanceUsernames[1] },
+] as const;
+
 const AuditLogs: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
@@ -133,7 +139,7 @@ const AuditLogs: React.FC = () => {
       const params: FetchAuditLogsParams = {
         page: currentPage,
         page_size: currentPageSize,
-        user_id: userFilter.trim() || undefined,
+        user_query: userFilter.trim() || undefined,
         action: actionFilter,
         resource_type: resourceTypeFilter,
         from: dateRange[0]?.toISOString(),
@@ -242,12 +248,40 @@ const AuditLogs: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ padding: '16px 24px', flexShrink: 0 }}>
+      <div style={{ padding: '16px 24px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Alert
+          showIcon
+          type="info"
+          message="审计治理说明"
+          description={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span>
+                系统保留账号会持续出现在审计记录中，用于平台治理和自动化归因；筛选时可直接输入
+                {' '}
+                <code>{protectedGovernanceUsernames[0]}</code>
+                {' '}
+                或
+                {' '}
+                <code>{protectedGovernanceUsernames[1]}</code>
+                。
+              </span>
+              <Space wrap>
+                {governanceAuditQuickFilters.map((filter) => (
+                  <Button key={filter.username} size="small" onClick={() => { setPage(1); setUserFilter(filter.username); }}>
+                    筛选 {filter.label}
+                  </Button>
+                ))}
+                <Tag color="magenta">{protectedGovernanceTagLabel}账号</Tag>
+              </Space>
+            </div>
+          }
+        />
         <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16, alignItems: 'end' }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>用户</div>
               <Input
+                name="audit_user_query"
                 prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: palette.textSecondary }}>person</span>}
                 placeholder="输入用户 / UID / AUID..."
                 value={userFilter}
@@ -284,6 +318,7 @@ const AuditLogs: React.FC = () => {
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>时间范围</div>
               <DatePicker.RangePicker
+                id={{ start: 'audit_start_time', end: 'audit_end_time' }}
                 value={dateRange}
                 onChange={(dates) => setDateRange(dates as [dayjs.Dayjs | null, dayjs.Dayjs | null])}
                 showTime

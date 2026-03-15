@@ -1,7 +1,9 @@
 import type { RoleData, UserData } from '../../api/user';
 
+export const protectedGovernanceUsernames = ['sys-superadmin', 'system-automation'] as const;
+
 const protectedRoleNames = new Set(['super_admin', 'system_automation']);
-const protectedUsernames = new Set(['sys-superadmin', 'system-automation']);
+const protectedUsernames = new Set<string>(protectedGovernanceUsernames);
 
 export const protectedGovernanceTagLabel = '系统保留';
 
