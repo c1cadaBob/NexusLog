@@ -828,15 +828,6 @@ const UserManagement: React.FC = () => {
       </div>
 
       <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
-        <Alert
-          showIcon
-          type="info"
-          message="账号治理说明"
-          description="系统保留账号用于平台治理与自动化审计归因，会在列表与详情中展示，但不会参与批量操作，也不支持在此页编辑、改权或修改状态；新增、邀请、导入入口也仅面向普通账号。"
-        />
-      </div>
-
-      <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
         <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
