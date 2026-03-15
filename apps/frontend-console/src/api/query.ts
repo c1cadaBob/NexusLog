@@ -721,11 +721,404 @@ function removeLocalQueryHistory(historyID: string): boolean {
   return true;
 }
 
+interface LocalDemoLogSeed {
+  host: string;
+  hostIp: string;
+  service: string;
+  source: string;
+  env: string;
+  region: string;
+  count: number;
+  intervalMinutes: number;
+  messagePrefix: string;
+}
+
+const LOCAL_DEMO_LOG_SEEDS: LocalDemoLogSeed[] = [
+  {
+    host: 'prod-node-sh01',
+    hostIp: '10.20.1.21',
+    service: 'nginx-gateway',
+    source: '/var/log/nginx/access.log',
+    env: 'prod',
+    region: 'cn-east-1',
+    count: 18,
+    intervalMinutes: 6,
+    messagePrefix: 'gateway access',
+  },
+  {
+    host: 'billing-node-a-02',
+    hostIp: '10.20.2.34',
+    service: 'payments-processor-api',
+    source: '/var/log/app/payment/processor.log',
+    env: 'prod',
+    region: 'cn-east-1',
+    count: 14,
+    intervalMinutes: 9,
+    messagePrefix: 'payment workflow',
+  },
+  {
+    host: 'order-node-b-11',
+    hostIp: '10.20.3.18',
+    service: 'order-event-consumer',
+    source: '/var/log/app/order/consumer.log',
+    env: 'prod',
+    region: 'cn-east-1',
+    count: 11,
+    intervalMinutes: 11,
+    messagePrefix: 'order event',
+  },
+  {
+    host: 'k8s-worker-cn-east-1a',
+    hostIp: '10.20.4.45',
+    service: 'inventory-sync-worker',
+    source: '/var/lib/docker/containers/abcdef123456/abcdef123456-json.log',
+    env: 'prod',
+    region: 'cn-east-1',
+    count: 8,
+    intervalMinutes: 15,
+    messagePrefix: 'inventory sync',
+  },
+  {
+    host: 'audit-gateway-01',
+    hostIp: '10.20.5.16',
+    service: 'auditd',
+    source: '/var/log/audit/audit.log',
+    env: 'prod',
+    region: 'cn-east-1',
+    count: 6,
+    intervalMinutes: 19,
+    messagePrefix: 'audit event',
+  },
+];
+
 function isOfflineModeEnabled(): boolean {
   return Boolean(getRuntimeConfig().features.enableOfflineMode);
 }
 
+function shouldUseEmergencyQueryFallback(): boolean {
+  const accessToken = resolveAccessToken();
+  return Boolean(accessToken) && accessToken.startsWith(EMERGENCY_ACCESS_TOKEN_PREFIX);
+}
+
+function resolveDemoLogLevel(seedIndex: number, itemIndex: number): LogEntry['level'] {
+  if ((seedIndex + itemIndex) % 11 === 0) {
+    return 'error';
+  }
+  if ((seedIndex + itemIndex) % 5 === 0) {
+    return 'warn';
+  }
+  return itemIndex % 2 === 0 ? 'info' : 'debug';
+}
+
+function buildLocalDemoLogEntries(): LogEntry[] {
+  const nowMs = Date.now();
+  const tenantId = resolveTenantId(getRuntimeConfig() as RuntimeConfigWithTenant) || '00000000-0000-0000-0000-000000000001';
+  const logs: LogEntry[] = [];
+
+  LOCAL_DEMO_LOG_SEEDS.forEach((seed, seedIndex) => {
+    for (let itemIndex = 0; itemIndex < seed.count; itemIndex += 1) {
+      const level = resolveDemoLogLevel(seedIndex, itemIndex);
+      const timestamp = new Date(
+        nowMs - ((seedIndex * 17) + itemIndex * seed.intervalMinutes) * 60_000,
+      ).toISOString();
+      const statusCode = level === 'error' ? 500 : level === 'warn' ? 429 : 200;
+      const message = `${seed.messagePrefix} ${itemIndex + 1} on ${seed.service} returned ${statusCode}`;
+      const rawLog = `[${level.toUpperCase()}] ${timestamp} ${seed.host} ${seed.service}: ${message}`;
+      const sourcePath = seed.source;
+      const fields: RealtimeLogFields & Record<string, unknown> = {
+        timestamp,
+        level,
+        message,
+        raw_log: rawLog,
+        raw_message: rawLog,
+        source: sourcePath,
+        source_path: sourcePath,
+        source_internal: sourcePath,
+        host: seed.host,
+        host_ip: seed.hostIp,
+        env: seed.env,
+        region: seed.region,
+        service_name: seed.service,
+        service_instance_id: `${seed.service}-${seed.host}`,
+        container_name: seed.service,
+        tenant_id: tenantId,
+        statusCode,
+      };
+
+      logs.push({
+        id: createLocalID(`demo-log-${seed.service}-${itemIndex}`),
+        timestamp,
+        level,
+        service: seed.service,
+        host: seed.host,
+        hostIp: seed.hostIp,
+        message,
+        fields,
+        rawLog,
+      });
+    }
+  });
+
+  return logs.sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
+}
+
+function stripQuotedTerm(raw: string): string {
+  return raw.replace(/^"(.+)"$/, '$1').replace(/^'(.+)'$/, '$1').trim();
+}
+
+function matchesLocalDemoKeyword(log: LogEntry, token: string): boolean {
+  const normalized = stripQuotedTerm(token).toLowerCase();
+  if (!normalized || normalized === 'and' || normalized === 'or') {
+    return true;
+  }
+
+  const source = String(log.fields?.source_path ?? log.fields?.source ?? '').toLowerCase();
+  const service = log.service.toLowerCase();
+  const host = log.host.toLowerCase();
+  const message = `${log.message} ${log.rawLog ?? ''}`.toLowerCase();
+
+  if (normalized.includes(':')) {
+    const [rawField, ...rest] = normalized.split(':');
+    const expected = rest.join(':').trim();
+    if (!expected) {
+      return true;
+    }
+    switch (rawField) {
+      case 'level':
+        return log.level.includes(expected);
+      case 'service':
+      case 'service.name':
+        return service.includes(expected);
+      case 'source':
+      case 'source.path':
+        return source.includes(expected);
+      case 'host':
+      case 'host.name':
+        return host.includes(expected);
+      default:
+        return message.includes(expected) || service.includes(expected) || source.includes(expected) || host.includes(expected);
+    }
+  }
+
+  return message.includes(normalized) || service.includes(normalized) || source.includes(normalized) || host.includes(normalized);
+}
+
+function matchesLocalDemoKeywords(log: LogEntry, keywords: string): boolean {
+  const trimmed = keywords.trim();
+  if (!trimmed) {
+    return true;
+  }
+  return trimmed.split(/\s+/).every((token) => matchesLocalDemoKeyword(log, token));
+}
+
+function matchesLocalDemoFilters(log: LogEntry, filters?: Record<string, unknown>): boolean {
+  if (!filters) {
+    return true;
+  }
+
+  const level = String(filters.level ?? '').trim().toLowerCase();
+  if (level && log.level !== level) {
+    return false;
+  }
+
+  const service = String(filters.service ?? '').trim().toLowerCase();
+  if (service && !log.service.toLowerCase().includes(service)) {
+    return false;
+  }
+
+  return true;
+}
+
+function matchesLocalDemoTimeRange(log: LogEntry, timeRange?: { from?: string; to?: string }): boolean {
+  const timestampMs = Date.parse(log.timestamp);
+  if (!Number.isFinite(timestampMs)) {
+    return false;
+  }
+
+  const fromMs = timeRange?.from ? Date.parse(timeRange.from) : Number.NaN;
+  if (Number.isFinite(fromMs) && timestampMs < fromMs) {
+    return false;
+  }
+
+  const toMs = timeRange?.to ? Date.parse(timeRange.to) : Number.NaN;
+  if (Number.isFinite(toMs) && timestampMs > toMs) {
+    return false;
+  }
+
+  return true;
+}
+
+function filterLocalDemoLogs(params: {
+  keywords?: string;
+  filters?: Record<string, unknown>;
+  timeRange?: { from?: string; to?: string };
+}): LogEntry[] {
+  return buildLocalDemoLogEntries().filter((log) => (
+    matchesLocalDemoTimeRange(log, params.timeRange)
+    && matchesLocalDemoFilters(log, params.filters)
+    && matchesLocalDemoKeywords(log, params.keywords ?? '')
+  ));
+}
+
+function toOverviewTopSources(logs: LogEntry[]): DashboardTopSource[] {
+  const buckets = new Map<string, DashboardTopSource>();
+  logs.forEach((log) => {
+    const source = String(log.fields?.source_path ?? log.fields?.source ?? '').trim();
+    if (!source) {
+      return;
+    }
+    const current = buckets.get(source) ?? {
+      source,
+      host: log.host,
+      service: log.service,
+      count: 0,
+    };
+    current.count += 1;
+    buckets.set(source, current);
+  });
+
+  return Array.from(buckets.values())
+    .sort((left, right) => right.count - left.count || left.source.localeCompare(right.source))
+    .slice(0, 5)
+    .map((item) => normalizeDashboardTopSource(item));
+}
+
+function truncateDateToHour(date: Date): Date {
+  const next = new Date(date.getTime());
+  next.setMinutes(0, 0, 0);
+  return next;
+}
+
+function truncateDateToMinute(date: Date): Date {
+  const next = new Date(date.getTime());
+  next.setSeconds(0, 0);
+  return next;
+}
+
+function buildLocalDashboardOverview(): DashboardOverviewStats {
+  const now = new Date();
+  const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const logs = filterLocalDemoLogs({
+    timeRange: {
+      from: from.toISOString(),
+      to: now.toISOString(),
+    },
+  });
+  const levelDistribution: Record<string, number> = {
+    debug: 0,
+    info: 0,
+    warn: 0,
+    error: 0,
+    fatal: 0,
+  };
+  logs.forEach((log) => {
+    if (levelDistribution[log.level] !== undefined) {
+      levelDistribution[log.level] += 1;
+    }
+  });
+
+  const trendBuckets = new Map<string, number>();
+  for (let index = 23; index >= 0; index -= 1) {
+    const key = truncateDateToHour(new Date(now.getTime() - index * 60 * 60 * 1000)).toISOString();
+    trendBuckets.set(key, 0);
+  }
+  logs.forEach((log) => {
+    const key = truncateDateToHour(new Date(log.timestamp)).toISOString();
+    trendBuckets.set(key, (trendBuckets.get(key) ?? 0) + 1);
+  });
+
+  const firing = logs.filter((log) => log.level === 'error').length;
+  const resolved = logs.filter((log) => log.level === 'warn').length;
+
+  return {
+    total_logs: logs.length,
+    level_distribution: levelDistribution,
+    top_sources: toOverviewTopSources(logs),
+    alert_summary: {
+      total: firing + resolved,
+      firing,
+      resolved,
+    },
+    log_trend: Array.from(trendBuckets.entries()).map(([time, count]) => ({ time, count })),
+  };
+}
+
+function buildLocalRealtimeLogsResult(payload: QueryLogsPayload): QueryLogsResult {
+  const filtered = filterLocalDemoLogs({
+    keywords: payload.keywords,
+    filters: payload.filters,
+    timeRange: payload.timeRange,
+  });
+  const paged = toPagedResult(filtered, payload.page, payload.pageSize);
+  return {
+    hits: paged.items,
+    total: paged.total,
+    page: paged.page,
+    pageSize: paged.pageSize,
+    hasNext: paged.hasNext,
+    queryTimeMS: 12,
+    timedOut: false,
+    aggregations: {},
+  };
+}
+
+function resolveAggregateTimeRange(timeRange: FetchAggregateStatsParams['timeRange']): { from: string; to: string } {
+  const now = new Date();
+  const durationMap: Record<FetchAggregateStatsParams['timeRange'], number> = {
+    '30m': 30 * 60 * 1000,
+    '1h': 60 * 60 * 1000,
+    '6h': 6 * 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+  };
+  return {
+    from: new Date(now.getTime() - durationMap[timeRange]).toISOString(),
+    to: now.toISOString(),
+  };
+}
+
+function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggregateStatsResult {
+  const logs = filterLocalDemoLogs({
+    keywords: params.keywords,
+    filters: params.filters,
+    timeRange: resolveAggregateTimeRange(params.timeRange),
+  });
+  const buckets = new Map<string, number>();
+
+  logs.forEach((log) => {
+    let key = '';
+    switch (params.groupBy) {
+      case 'level':
+        key = log.level;
+        break;
+      case 'source':
+        key = String(log.fields?.source_path ?? log.fields?.source ?? '').trim() || '-';
+        break;
+      case 'hour':
+        key = truncateDateToHour(new Date(log.timestamp)).toISOString();
+        break;
+      case 'minute':
+        key = truncateDateToMinute(new Date(log.timestamp)).toISOString();
+        break;
+      default:
+        key = '-';
+    }
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  });
+
+  const items = Array.from(buckets.entries()).map(([key, count]) => ({ key, count }));
+  if (params.groupBy === 'hour' || params.groupBy === 'minute') {
+    items.sort((left, right) => left.key.localeCompare(right.key));
+  } else {
+    items.sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
+  }
+  return { buckets: items };
+}
+
 function shouldFallbackToLocalStore(error: unknown): boolean {
+  if (shouldUseEmergencyQueryFallback() && error instanceof QueryApiAuthError) {
+    return true;
+  }
   if (!isOfflineModeEnabled()) {
     return false;
   }
@@ -830,14 +1223,14 @@ async function requestQueryApi<TData>(
 }
 
 function shouldUseQueryCollectionFallback(): boolean {
+  if (shouldUseEmergencyQueryFallback()) {
+    return true;
+  }
   if (!isOfflineModeEnabled()) {
     return false;
   }
   const accessToken = resolveAccessToken();
-  if (!accessToken) {
-    return true;
-  }
-  return accessToken.startsWith(EMERGENCY_ACCESS_TOKEN_PREFIX);
+  return !accessToken;
 }
 
 function deriveDashboardTopSourceService(source: string): string {
@@ -868,65 +1261,95 @@ function normalizeDashboardTopSource(source: Partial<DashboardTopSource> | null 
 
 /** Fetch dashboard overview stats */
 export async function fetchDashboardOverview(): Promise<DashboardOverviewStats> {
-  const envelope = await requestQueryApi<DashboardOverviewStats>('/stats/overview', { method: 'GET' });
-  const data = envelope.data;
-  if (!data) {
-    throw new QueryApiRequestError(500, 'QUERY_STATS_EMPTY', 'Overview stats empty');
+  if (shouldUseQueryCollectionFallback()) {
+    return buildLocalDashboardOverview();
   }
-  return {
-    total_logs: Number(data.total_logs) || 0,
-    level_distribution: data.level_distribution ?? {},
-    top_sources: Array.isArray(data.top_sources) ? data.top_sources.map((item) => normalizeDashboardTopSource(item)) : [],
-    alert_summary: data.alert_summary ?? { total: 0, firing: 0, resolved: 0 },
-    log_trend: data.log_trend ?? [],
-  };
+
+  try {
+    const envelope = await requestQueryApi<DashboardOverviewStats>('/stats/overview', { method: 'GET' });
+    const data = envelope.data;
+    if (!data) {
+      throw new QueryApiRequestError(500, 'QUERY_STATS_EMPTY', 'Overview stats empty');
+    }
+    return {
+      total_logs: Number(data.total_logs) || 0,
+      level_distribution: data.level_distribution ?? {},
+      top_sources: Array.isArray(data.top_sources) ? data.top_sources.map((item) => normalizeDashboardTopSource(item)) : [],
+      alert_summary: data.alert_summary ?? { total: 0, firing: 0, resolved: 0 },
+      log_trend: data.log_trend ?? [],
+    };
+  } catch (error) {
+    if (shouldFallbackToLocalStore(error)) {
+      return buildLocalDashboardOverview();
+    }
+    throw error;
+  }
 }
 
 export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<QueryLogsResult> {
-  const envelope = await requestQueryApi<QueryLogsApiData>('/logs', {
-    method: 'POST',
-    body: {
-      keywords: payload.keywords.trim(),
-      page: payload.page,
-      page_size: payload.pageSize,
-      filters: payload.filters ?? {},
-      time_range: {
-        from: payload.timeRange?.from ?? '',
-        to: payload.timeRange?.to ?? '',
-      },
-      sort: [{ field: '@timestamp', order: 'desc' }],
-      pit_id: payload.pitId?.trim() || undefined,
-      search_after: Array.isArray(payload.searchAfter) && payload.searchAfter.length > 0 ? payload.searchAfter : undefined,
-      record_history: payload.recordHistory === true,
-    },
-  });
-
-  const hits = (envelope.data?.hits ?? []).map(normalizeHit);
-  const total = Number(envelope.meta?.total ?? hits.length);
-  const page = Number(envelope.meta?.page ?? payload.page);
-  const pageSize = Number(envelope.meta?.page_size ?? payload.pageSize);
-  const hasNext = Boolean(envelope.meta?.has_next ?? page * pageSize < total);
-  const queryTimeMS = Number(envelope.meta?.query_time_ms ?? 0);
-  const timedOut = Boolean(envelope.meta?.timed_out ?? false);
-
-  const result: QueryLogsResult = {
-    hits,
-    total: Number.isFinite(total) ? total : hits.length,
-    page: Number.isFinite(page) ? page : payload.page,
-    pageSize: Number.isFinite(pageSize) ? pageSize : payload.pageSize,
-    hasNext,
-    queryTimeMS: Number.isFinite(queryTimeMS) ? queryTimeMS : 0,
-    timedOut,
-    aggregations: envelope.data?.aggregations ?? {},
-    pitId: typeof envelope.meta?.pit_id === 'string' ? envelope.meta.pit_id.trim() : undefined,
-    nextSearchAfter: Array.isArray(envelope.meta?.next_search_after)
-      ? [...(envelope.meta.next_search_after as unknown[])]
-      : undefined,
+  const buildLocalResult = () => {
+    const result = buildLocalRealtimeLogsResult(payload);
+    if (payload.recordHistory) {
+      appendLocalQueryHistory(payload.keywords, result.queryTimeMS, result.total);
+    }
+    return result;
   };
-  if (payload.recordHistory) {
-    appendLocalQueryHistory(payload.keywords, result.queryTimeMS, result.total);
+
+  if (shouldUseQueryCollectionFallback()) {
+    return buildLocalResult();
   }
-  return result;
+
+  try {
+    const envelope = await requestQueryApi<QueryLogsApiData>('/logs', {
+      method: 'POST',
+      body: {
+        keywords: payload.keywords.trim(),
+        page: payload.page,
+        page_size: payload.pageSize,
+        filters: payload.filters ?? {},
+        time_range: {
+          from: payload.timeRange?.from ?? '',
+          to: payload.timeRange?.to ?? '',
+        },
+        sort: [{ field: '@timestamp', order: 'desc' }],
+        pit_id: payload.pitId?.trim() || undefined,
+        search_after: Array.isArray(payload.searchAfter) && payload.searchAfter.length > 0 ? payload.searchAfter : undefined,
+        record_history: payload.recordHistory === true,
+      },
+    });
+
+    const hits = (envelope.data?.hits ?? []).map(normalizeHit);
+    const total = Number(envelope.meta?.total ?? hits.length);
+    const page = Number(envelope.meta?.page ?? payload.page);
+    const pageSize = Number(envelope.meta?.page_size ?? payload.pageSize);
+    const hasNext = Boolean(envelope.meta?.has_next ?? page * pageSize < total);
+    const queryTimeMS = Number(envelope.meta?.query_time_ms ?? 0);
+    const timedOut = Boolean(envelope.meta?.timed_out ?? false);
+
+    const result: QueryLogsResult = {
+      hits,
+      total: Number.isFinite(total) ? total : hits.length,
+      page: Number.isFinite(page) ? page : payload.page,
+      pageSize: Number.isFinite(pageSize) ? pageSize : payload.pageSize,
+      hasNext,
+      queryTimeMS: Number.isFinite(queryTimeMS) ? queryTimeMS : 0,
+      timedOut,
+      aggregations: envelope.data?.aggregations ?? {},
+      pitId: typeof envelope.meta?.pit_id === 'string' ? envelope.meta.pit_id.trim() : undefined,
+      nextSearchAfter: Array.isArray(envelope.meta?.next_search_after)
+        ? [...(envelope.meta.next_search_after as unknown[])]
+        : undefined,
+    };
+    if (payload.recordHistory) {
+      appendLocalQueryHistory(payload.keywords, result.queryTimeMS, result.total);
+    }
+    return result;
+  } catch (error) {
+    if (shouldFallbackToLocalStore(error)) {
+      return buildLocalResult();
+    }
+    throw error;
+  }
 }
 
 export async function fetchQueryHistory(params: QueryHistoryListParams): Promise<QueryHistoryListResult> {
@@ -1123,18 +1546,29 @@ export interface FetchAggregateStatsResult {
 
 /** Fetch aggregate stats from query API */
 export async function fetchAggregateStats(params: FetchAggregateStatsParams): Promise<FetchAggregateStatsResult> {
-  const envelope = await requestQueryApi<{ buckets?: AggregateBucket[] }>('/stats/aggregate', {
-    method: 'POST',
-    body: {
-      group_by: params.groupBy,
-      time_range: params.timeRange,
-      keywords: params.keywords?.trim() ?? '',
-      filters: params.filters ?? {},
-    },
-  });
+  if (shouldUseQueryCollectionFallback()) {
+    return buildLocalAggregateStats(params);
+  }
 
-  const buckets = envelope.data?.buckets ?? [];
-  return { buckets };
+  try {
+    const envelope = await requestQueryApi<{ buckets?: AggregateBucket[] }>('/stats/aggregate', {
+      method: 'POST',
+      body: {
+        group_by: params.groupBy,
+        time_range: params.timeRange,
+        keywords: params.keywords?.trim() ?? '',
+        filters: params.filters ?? {},
+      },
+    });
+
+    const buckets = envelope.data?.buckets ?? [];
+    return { buckets };
+  } catch (error) {
+    if (shouldFallbackToLocalStore(error)) {
+      return buildLocalAggregateStats(params);
+    }
+    throw error;
+  }
 }
 
 export async function deleteSavedQuery(savedQueryID: string): Promise<boolean> {
