@@ -86,4 +86,30 @@ describe('runtime config loader', () => {
       '22222222-2222-2222-2222-222222222222',
     );
   });
+
+  it('does not backfill localStorage when runtime config has no tenant id', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue({
+            apiBaseUrl: '/api/v1',
+            appName: 'NexusLog',
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+          json: vi.fn(),
+        }),
+    );
+
+    const config = await loadRuntimeConfig();
+
+    expect(config.tenantId).toBeUndefined();
+    expect(window.localStorage.getItem('nexuslog-tenant-id')).toBeNull();
+  });
 });

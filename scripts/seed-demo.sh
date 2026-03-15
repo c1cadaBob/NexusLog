@@ -14,28 +14,28 @@
 #   DB_USER              (default: nexuslog)
 #   DB_PASSWORD          (default: nexuslog_dev)
 #   PG_CONTAINER         (default: nexuslog-postgres-1)
-#   TENANT_ID            (default: 00000000-0000-0000-0000-000000000001)
-#   TENANT_NAME          (default: default or local-<tenant_id>)
-#   TENANT_DISPLAY_NAME  (default: Default Tenant or Local Bootstrap Tenant)
+#   TENANT_ID            (default: read from .runtime/tenant/local-tenant-id)
+#   TENANT_NAME          (default: local-<tenant_id>)
+#   TENANT_DISPLAY_NAME  (default: Local Bootstrap Tenant)
 
 set -euo pipefail
 
+ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+LOCAL_TENANT_ID_FILE="${LOCAL_TENANT_ID_FILE:-${ROOT_DIR}/.runtime/tenant/local-tenant-id}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-nexuslog}"
 DB_USER="${DB_USER:-nexuslog}"
 DB_PASSWORD="${DB_PASSWORD:-nexuslog_dev}"
 PG_CONTAINER="${PG_CONTAINER:-nexuslog-postgres-1}"
-DEFAULT_TENANT_ID="00000000-0000-0000-0000-000000000001"
-TENANT_ID="${TENANT_ID:-$DEFAULT_TENANT_ID}"
+TENANT_ID="${TENANT_ID:-}"
 
-if [[ "$TENANT_ID" == "$DEFAULT_TENANT_ID" ]]; then
-  TENANT_NAME="${TENANT_NAME:-default}"
-  TENANT_DISPLAY_NAME="${TENANT_DISPLAY_NAME:-Default Tenant}"
-else
-  TENANT_NAME="${TENANT_NAME:-local-${TENANT_ID}}"
-  TENANT_DISPLAY_NAME="${TENANT_DISPLAY_NAME:-Local Bootstrap Tenant}"
+if [[ -z "$TENANT_ID" && -f "$LOCAL_TENANT_ID_FILE" ]]; then
+  TENANT_ID="$(tr -d '[:space:]' < "$LOCAL_TENANT_ID_FILE" | tr '[:upper:]' '[:lower:]')"
 fi
+
+TENANT_NAME="${TENANT_NAME:-local-${TENANT_ID}}"
+TENANT_DISPLAY_NAME="${TENANT_DISPLAY_NAME:-Local Bootstrap Tenant}"
 
 MODE="${1:-auto}"
 
@@ -51,6 +51,11 @@ run_sql() {
     PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
   fi
 }
+
+if [[ -z "$TENANT_ID" ]]; then
+  echo "ERROR: TENANT_ID is required. Run ./scripts/local/ensure-local-tenant-config.sh first, or set TENANT_ID explicitly." >&2
+  exit 1
+fi
 
 if ! is_uuid "$TENANT_ID"; then
   echo "ERROR: TENANT_ID is not a valid UUID: $TENANT_ID" >&2

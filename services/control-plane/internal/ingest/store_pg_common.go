@@ -12,10 +12,7 @@ import (
 	"github.com/lib/pq"
 )
 
-const (
-	// DefaultTenantID 用于开发环境兜底租户。
-	DefaultTenantID = "00000000-0000-0000-0000-000000000001"
-)
+const ingestDefaultTenantEnvKey = "INGEST_DEFAULT_TENANT_ID"
 
 // PGOptions 定义 PG 后端选项。
 type PGOptions struct {
@@ -29,18 +26,18 @@ type PGBackend struct {
 }
 
 // NewPGBackend 创建 ingest PG 后端。
-func NewPGBackend(db *sql.DB, opts PGOptions) *PGBackend {
+func NewPGBackend(db *sql.DB, opts PGOptions) (*PGBackend, error) {
 	tenantID := strings.TrimSpace(opts.DefaultTenantID)
 	if tenantID == "" {
-		tenantID = strings.TrimSpace(os.Getenv("INGEST_DEFAULT_TENANT_ID"))
+		tenantID = strings.TrimSpace(os.Getenv(ingestDefaultTenantEnvKey))
 	}
 	if tenantID == "" {
-		tenantID = DefaultTenantID
+		return nil, fmt.Errorf("%s is required for postgres ingest backend", ingestDefaultTenantEnvKey)
 	}
 	return &PGBackend{
 		db:              db,
 		defaultTenantID: tenantID,
-	}
+	}, nil
 }
 
 // DB 返回底层数据库句柄。
@@ -56,13 +53,9 @@ func (b *PGBackend) Now() time.Time {
 // ResolveTenantID 解析写入所需租户 ID。
 func (b *PGBackend) ResolveTenantID(ctx context.Context) string {
 	if b == nil {
-		return DefaultTenantID
+		return ""
 	}
-	tenantID := strings.TrimSpace(b.defaultTenantID)
-	if tenantID == "" {
-		return DefaultTenantID
-	}
-	return tenantID
+	return strings.TrimSpace(b.defaultTenantID)
 }
 
 // IsUniqueViolation 判断是否为唯一键冲突。

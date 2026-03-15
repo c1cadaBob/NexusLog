@@ -14,6 +14,7 @@ LOCAL_DB_DSN ?= postgres://nexuslog:nexuslog_dev@localhost:5432/nexuslog?sslmode
 LOCAL_PG_CONTAINER ?= nexuslog-postgres-1
 LOCAL_PG_USER ?= nexuslog
 LOCAL_PG_DB ?= nexuslog
+LOCAL_TENANT_CONFIG_SCRIPT ?= ./scripts/local/ensure-local-tenant-config.sh
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.override.yml
 DEV_SERVICES := \
 	postgres redis elasticsearch elasticsearch-init zookeeper kafka kafka-init schema-registry schema-registry-init \
@@ -143,15 +144,21 @@ docker-push:
 ## 启动开发热更新环境（任务2起默认）
 dev-up:
 	@echo "🔥 启动 dev 热更新环境..."
-	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES)
-	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES)
+	@tenant_id="$$($(LOCAL_TENANT_CONFIG_SCRIPT))"; \
+	echo "🔐 使用本地租户 $$tenant_id"; \
+	set -a; . $(MIRROR_ENV_FILE); export INGEST_DEFAULT_TENANT_ID="$$tenant_id"; set +a; \
+	docker compose $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES); \
+	docker compose $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES)
 	@echo "✅ dev 环境已启动"
 
 ## 启动轻量开发热更新环境（低资源，占用更小）
 dev-up-lite:
 	@echo "🔥 启动 dev 轻量热更新环境..."
-	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES_LITE)
-	@set -a; . $(MIRROR_ENV_FILE); set +a; docker compose $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES_LITE)
+	@tenant_id="$$($(LOCAL_TENANT_CONFIG_SCRIPT))"; \
+	echo "🔐 使用本地租户 $$tenant_id"; \
+	set -a; . $(MIRROR_ENV_FILE); export INGEST_DEFAULT_TENANT_ID="$$tenant_id"; set +a; \
+	docker compose $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES_LITE); \
+	docker compose $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES_LITE)
 	@echo "✅ dev 轻量环境已启动"
 
 ## 关闭开发热更新环境

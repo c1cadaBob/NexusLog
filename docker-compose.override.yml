@@ -96,6 +96,7 @@ services:
       - ALERT_EVALUATOR_INTERVAL=15s
       - ALERT_EVALUATOR_ES_INDEX=nexuslog-logs-read
       - INGEST_ES_INDEX=nexuslog-logs-write-pull
+      - INGEST_DEFAULT_TENANT_ID=${INGEST_DEFAULT_TENANT_ID:-}
       - INGEST_DEFAULT_AGENT_KEY=nexuslog-local-dev-agent-key-20260314-change-before-production
       # ingest 执行链路在容器内需要直连 ES 服务名，不能使用 localhost
       - INGEST_ES_ENDPOINT=http://elasticsearch:9200

@@ -1,6 +1,5 @@
 {
   "apiBaseUrl": "/api/v1",
-  "tenantId": "00000000-0000-0000-0000-000000000001",
   "wsBaseUrl": "/ws",
   "appName": "NexusLog",
   "version": "0.1.0",

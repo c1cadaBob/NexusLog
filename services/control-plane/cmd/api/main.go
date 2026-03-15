@@ -59,10 +59,19 @@ func main() {
 		} else {
 			pgDB = db
 			defer pgDB.Close()
-			pgBackend = ingest.NewPGBackend(pgDB, ingest.PGOptions{
+			backend, backendErr := ingest.NewPGBackend(pgDB, ingest.PGOptions{
 				DefaultTenantID: getEnv("INGEST_DEFAULT_TENANT_ID", ""),
 			})
-			log.Printf("ingest store backend: postgres")
+			if backendErr != nil {
+				if allowMemoryFallback {
+					log.Printf("ingest postgres backend requires explicit tenant id, fallback to memory: %v", backendErr)
+				} else {
+					log.Fatalf("ingest postgres backend init failed: %v", backendErr)
+				}
+			} else {
+				pgBackend = backend
+				log.Printf("ingest store backend: postgres")
+			}
 		}
 	} else {
 		log.Printf("ingest store backend: memory")
