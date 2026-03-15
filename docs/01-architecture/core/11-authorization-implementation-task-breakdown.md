@@ -420,8 +420,8 @@
 
 如果下一步继续编码，建议优先开这 6 个任务：
 
-1. **清理运行时固定租户 UUID 残留**
-   - 改 `000018_roles_seed_data.up.sql`、`app-config.json`、`runtime-config.ts`、`store_pg_common.go`、`ensure-local-tenant-config.sh`
+1. **收尾固定租户兼容项与测试夹具**
+   - 改 `scripts/local/ensure-local-tenant-config.sh` 的兼容模式说明，以及 `tests/e2e/tests/*.spec.js` 的默认租户注入方式
 2. **把安全页从“页面可见”升级到“动作可控”**
    - 改 `UserManagement.tsx`、`RolePermissions.tsx`、`AuditLogs.tsx`、`Dashboard.tsx`
 3. **把保留主体硬编码迁向事实源**
