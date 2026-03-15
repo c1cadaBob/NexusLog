@@ -295,7 +295,7 @@
 
 1. `ProtectedRoute` 已能做页面访问控制，但页面内按钮、弹窗、抽屉和二级入口尚未统一 capability 化
 2. `authStore` 已缓存完整授权上下文，但部分页面仍会直接请求 `/users/me` 或继续只看 `permissions`
-3. `apps/frontend-console/src/auth/routeAuthorization.ts` 已成为页面访问事实源，但 `menu.ts` 仍保留过渡字段与若干 `users:write` 借用
+3. `apps/frontend-console/src/auth/routeAuthorization.ts` 已成为页面访问事实源，但 `menu.ts` 仍保留过渡字段，且路由注册表中还存在 `dashboards:read`、`metrics:read` 等 legacy alias 过渡项
 4. `scope/feature_flags/authz_epoch` 已返回，但大多数页面尚未真正消费这些字段
 
 目标状态是：
@@ -304,6 +304,17 @@
 - `authStore` 持有完整授权上下文
 - 菜单、移动端导航、Dashboard 快捷入口与页面内动作共享同一套授权事实源
 - 旧权限只作为过渡别名，不再充当真实授权事实源
+
+### 6.1.1 当前前端过渡别名收敛状态（2026-03-15）
+
+| 批次 | 当前状态 | 说明 |
+|---|---|---|
+| Dashboard / 报表中心隐式借权 | 已完成 | `dashboards:read` 不再隐式放行 `reports/management`、`reports/scheduled`、`reports/downloads`，Dashboard 快捷入口与导航已统一走 `routeAuthorization` |
+| 登录策略 / 系统设置 `users:write` 借权 | 已完成 | `/security/login-policy`、`/settings/parameters`、`/settings/global`、`/settings/versions` 已切到显式 capability 访问 |
+| 采集 / 解析 / 存储 / 扩缩容 / 灾备 / Webhook / 插件市场 `users:write` 借权 | 已完成 | 相关页面已移除 `users:write` 页面访问别名；`metrics:read` 仍只保留在监控相关过渡路由 |
+| `metrics:read` 监控类过渡别名 | 部分完成 | `/ingestion/status`、`/storage/capacity`、`/performance/scaling`、`/performance/dr` 仍保留兼容；后续要在 capability 种子与后端接口就绪后收口 |
+| 剩余 `dashboards:read` 页面过渡别名 | 未完成 | `integration/api`、`integration/sdk`、`cost/*`、`help/*` 等页面仍有旧权限过渡入口，需要继续逐批收敛 |
+| 页面内动作级授权 | 未完成 | 路由访问已统一，但按钮、弹窗、抽屉、批量操作和高风险动作还需逐页 capability 化 |
 
 ## 6.2 文件级任务拆解
 
@@ -328,7 +339,7 @@
 
 | 文件 | 当前职责 | 需要改动 |
 |---|---|---|
-| `apps/frontend-console/src/constants/menu.ts` | 侧边栏菜单元数据，仍使用 `requiredPermission` | 逐步从 `requiredPermission` 切到 `requiredCapability` / `routeKey`；兼容期可保留 `compatPermissions` 字段，但要删除 `users:write` 对登录策略和系统设置的借用 |
+| `apps/frontend-console/src/constants/menu.ts` | 侧边栏菜单元数据，仍使用 `requiredPermission` | 逐步从 `requiredPermission` 切到 `requiredCapability` / `routeKey`；兼容期可保留 `compatPermissions` 字段；`users:write` 的页面借权已基本移除，下一步重点收敛剩余 `dashboards:read` / `metrics:read` 过渡别名 |
 | `apps/frontend-console/src/types/navigation.ts` | 菜单类型定义 | 扩展字段：`requiredCapability`、`requiredScope`、`compatPermissions`、`routeKey`；`requiredPermission` 标记为过渡字段 |
 | `apps/frontend-console/src/components/layout/AppSidebar.tsx` | 根据 `permissions` 过滤菜单 | 改成根据 `capabilities + route registry + compat alias` 过滤；不再把“权限为空时显示全部菜单”作为长期行为，而要基于 `authzReady` 明确控制渲染 |
 | `apps/frontend-console/src/components/layout/MobileBottomNav.tsx` | 移动端底部导航 | 目前属于侧边栏外的独立入口，需要改成与 sidebar 共用 route registry 和授权判定，避免移动端绕过页面权限过滤 |
@@ -397,6 +408,7 @@
    - `apps/frontend-console/src/components/auth/ProtectedRoute.tsx`
    - `apps/frontend-console/src/components/layout/AppSidebar.tsx`
    - `apps/frontend-console/src/components/layout/MobileBottomNav.tsx`
+   - 继续清理剩余 `dashboards:read` / `metrics:read` 过渡别名，并补齐 route-level 与 action-level 的一致性约束
 
 ### Sprint P1：替换后端 capability 判定主路径
 
@@ -454,7 +466,8 @@
 | 主题 | 当前状态 | 说明 |
 |---|---|---|
 | `/users/me` 返回授权上下文 | 已完成第一阶段 | 后端与前端已对齐 `capabilities/scopes/entitlements/feature_flags/authz_epoch/actor_flags`，但能力事实源仍是内存兼容映射 |
-| 页面级路由访问控制 | 已完成第一阶段 | `ProtectedRoute`、`routeAuthorization.ts`、`AppSidebar`、`MobileBottomNav` 已共享同一套页面授权事实源 |
+| 页面级路由访问控制 | 已完成第一阶段 | `ProtectedRoute`、`routeAuthorization.ts`、`AppSidebar`、`MobileBottomNav` 已共享同一套页面授权事实源；`reports/*`、登录策略/系统设置、采集/解析/存储/平台若干页的 `users:write` 借权已完成收敛 |
+| 前端过渡别名清理 | 部分完成 | 已移除主要 `users:write` 借权，并收敛一批 `dashboards:read` 隐式访问；剩余 `dashboards:read` / `metrics:read` 过渡项和页内动作 capability 化仍待继续 |
 | 页面内动作级授权 | 未完成 | 多数页面按钮、弹窗、批量操作仍主要依赖“能进页面”这一层，不足以覆盖完整治理闭环 |
 | 运行时固定租户 UUID | 已基本完成 | 运行时代码与部署链路已去掉固定默认租户；仅保留 `ensure-local-tenant-config.sh` 的显式兼容模式常量，以及少量测试夹具默认值 |
 | 保留主体事实源 DB 化 | 未完成 | `securityGovernance.ts`、`user_governance.go`、`auth_service.go`、跨租户访问中间件仍保留用户名/角色名硬编码 |
