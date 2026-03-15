@@ -1112,7 +1112,275 @@
 - 保留主体治理改造清单
 - 测试与回归清单
 
-## 16. 结论
+## 16. 对照代码与总体规划后，仍需补齐的设计缺口
+
+在当前版本方案基础上，继续对照以下内容复核后，发现仍有若干尚未完全覆盖的设计点：
+
+- 总体规划与路线图：`docs/NexusLog/10-process/23-project-master-plan-and-task-registry.md`
+- 当前 API 蓝图：`docs/NexusLog/10-process/13-current-project-full-api-blueprint.md`
+- 多租户 RLS 规划：`docs/NexusLog/20-database/03-v7-rls-multitenancy.md`
+- 安全审计基线：`docs/NexusLog/30-delivery-security/08-code-security-audit-baseline.md`
+- 现有安全架构文档：`docs/01-architecture/core/05-security-architecture.md`
+- 关键运行时代码：`services/api-service/*`、`services/control-plane/*`、`services/data-services/*`
+
+这些缺口不会推翻当前方案，但如果不提前纳入设计，后续在租户治理、Agent、异步任务、导出、合规、Phase 2/3 扩展模块落地时，很容易再次出现权限语义分叉。
+
+### 16.1 入口分层与信任边界
+
+当前方案已定义主体、能力、范围与策略，但尚未把“入口分层”单独建模。
+
+结合蓝图与安全基线，建议增加 `Entry Tier` 概念，至少区分：
+
+- `public`
+- `authenticated_session`
+- `delegated_admin`
+- `platform_admin`
+- `internal_service`
+- `agent`
+
+原因：
+
+1. 当前蓝图明确要求鉴权模型存在 `public/session/admin` 三层。
+2. 安全基线强调内部服务直连、弱验签、头部信任会破坏权限体系的根基。
+3. 如果不先明确“哪些入口允许哪类主体访问”，后续再细化角色权限也无法真正闭环。
+
+### 16.2 非人类主体矩阵尚未成型
+
+虽然本文主体模型已包含：
+
+- `service_account`
+- `agent`
+- `system_reserved`
+
+但当前角色矩阵仍主要面向人类用户与保留系统主体，尚未形成完整的非人类主体授权基线。
+
+建议补充至少两类默认主体：
+
+1. `agent_runtime`
+   - 仅允许 Agent 注册、上报、拉取任务、回执、心跳等运行时动作
+2. `internal_service`
+   - 仅允许内部服务调用、异步任务编排、系统流程协同
+
+说明：
+
+- 代码中 Agent 已经拥有独立鉴权链路，例如 `X-Agent-Key`。
+- 指标上报、采集下发、回执、批次处理等都不是普通用户权限能合理表达的。
+- 后续若进入 gRPC、事件驱动和后台任务编排，这部分必须单独建模。
+
+### 16.3 范围模型还应预留更细粒度层级
+
+当前范围模型为：
+
+- `self`
+- `owned`
+- `assigned`
+- `tenant`
+- `all_tenants`
+- `system`
+
+这已经覆盖了当前大部分需求，但对照多租户 RLS 规划后，建议继续预留：
+
+- `tenant_group`
+- `project`
+- `env`
+- `resource`
+
+原因：
+
+1. RLS 规划里已出现 `tenant_id + project_id` 的分层方向。
+2. 本文已引入“系统管理员负责若干租户组”的委派概念。
+3. 后续成本管理、企业版、多环境、项目级隔离都可能依赖更细作用域。
+
+建议做法：
+
+- 当前先不全部落地，但在数据模型和能力结构上预留扩展位。
+- 避免未来从 `tenant` 直接跳到 `project/env` 时再次推翻授权设计。
+
+### 16.4 共享资源与可见性模型未独立定义
+
+当前文档已定义 `query.saved.share`，但还未把“共享资源可见性”抽象成统一规则。
+
+结合现有代码与表结构，建议增加资源可见性模型：
+
+- `private`
+- `tenant_shared`
+- `system_template`
+
+优先应用到以下资源：
+
+- 收藏查询
+- 查询模板
+- 报表模板
+- 解析模板
+- 通知模板
+- 规则模板
+
+原因：
+
+1. `saved_queries` 表已存在 `is_public` 字段。
+2. 当前实现仍主要按“本人拥有”读取，未来一旦启用共享功能，必须有统一的可见性规则。
+3. 如果不提前统一，后续各模块容易各自定义一套 `public/shared/template` 语义。
+
+### 16.5 导出权限还缺“归属范围 + 敏感级别”双维控制
+
+当前文档已有：
+
+- `export.job.create`
+- `export.job.read`
+- `export.job.download`
+- `export.job.cancel`
+
+但还未明确：
+
+1. 导出任务是“仅本人可见”还是“租户内可见”。
+2. 导出内容是“脱敏数据”还是“原始数据”。
+
+建议补充两层控制：
+
+1. 资源范围：
+   - `export.job.read@owned`
+   - `export.job.read@tenant`
+2. 数据敏感级别：
+   - `log.export.masked`
+   - `log.export.unmasked`
+
+这对日志安全、审计与合规非常关键，尤其在后续引入敏感数据导出审批时会直接复用。
+
+### 16.6 身份生命周期与会话治理仍需单独建模
+
+当前方案已覆盖：
+
+- `auth.session.read`
+- `auth.session.revoke`
+- `auth.login_policy.read`
+- `auth.login_policy.update`
+- `auth.break_glass.use`
+
+但对照当前代码和周计划，仍建议单独形成“身份生命周期治理”子模型，覆盖：
+
+- 注册
+- 邀请
+- 导入
+- 密码重置
+- 登录失败锁定
+- 会话轮换
+- refresh replay 防护
+- break-glass 使用与审计
+
+原因：
+
+1. 这些内容在认证链路里是安全高风险点。
+2. 规划文档已明确存在登录锁定、登录策略、会话治理要求。
+3. 安全基线也把 logout、session、lockout 列为优先整改项。
+
+### 16.7 审计域还缺“不可篡改”和“合规报告”建模
+
+当前方案已考虑：
+
+- `audit.log.read`
+- `audit.log.export`
+- `audit.log.write_system`
+
+但对照总体规划，仍建议补充两类能力：
+
+1. 审计完整性能力
+   - `audit.log.integrity.verify`
+   - `audit.log.append_only`
+   - `audit.retention.manage`
+2. 合规报告能力
+   - `compliance.report.read`
+   - `compliance.report.generate`
+   - `compliance.report.export`
+
+原因：
+
+1. 规划里明确存在“不可变审计日志”路线。
+2. 合规报告是后续阶段的重要输出物。
+3. 如果现在只把审计当成“能看、能导出”，后面接不可篡改和合规功能时还会再分叉一次。
+
+### 16.8 租户生命周期、配额与成本治理尚未纳入主模型
+
+当前方案重点在“租户内授权”，但对照总体规划后，后续还需要覆盖：
+
+- 租户创建/禁用/删除
+- 租户配额管理
+- 成本查看与预算管理
+
+建议新增平台运营类能力：
+
+- `tenant.read`
+- `tenant.create`
+- `tenant.update`
+- `tenant.suspend`
+- `tenant.quota.read`
+- `tenant.quota.update`
+- `cost.read`
+- `cost.budget.update`
+
+这部分对于平台经营、企业版和多租户正式商用都是必要项。
+
+### 16.9 异步链路、内部协同与 WebSocket 权限尚未纳入
+
+当前文档主要覆盖：
+
+- 页面访问
+- REST API
+- 后端同步调用
+
+但对照蓝图，还应补充以下对象的授权策略：
+
+- Kafka / 事件流生产消费主体
+- 内部 HTTP / gRPC 服务协同主体
+- WebSocket 订阅权限
+- 异步任务与后台作业的审计归因
+
+建议后续增加以下设计项：
+
+- `topic.produce.*`
+- `topic.consume.*`
+- `ws.logs.subscribe`
+- `ws.alerts.subscribe`
+- `internal.rpc.invoke.*`
+
+这样才能确保实时告警、日志流、异步分析、ML/NLP 作业不会游离于统一授权体系之外。
+
+### 16.10 治理级技术约束尚未写入权限设计
+
+当前权限设计已经比较完整，但仍建议补充以下治理约束：
+
+1. 高风险写接口需支持 `X-Idempotency-Key`
+2. 所有权限变更、委派变更、租户变更、导出任务都应能通过 `request_id` 串联审计与服务日志
+3. 需提供“旧三角色 → 新角色体系”的兼容映射
+
+原因：
+
+- API 蓝图已明确要求幂等和 `request_id` 关联。
+- 当前总体规划仍大量沿用 `admin/operator/viewer` 三角色表述。
+- 如果缺少兼容映射，测试、文档、UI 文案与实现会长期不一致。
+
+### 16.11 建议按优先级纳入后续设计
+
+#### P0（必须先补）
+
+1. 入口分层与信任边界
+2. 非人类主体矩阵（Agent / 内部服务）
+3. 导出权限的归属范围与敏感级别
+4. 身份生命周期与会话治理
+
+#### P1（应尽快补）
+
+1. 共享资源可见性模型
+2. 审计不可篡改与合规报告能力
+3. 作用域扩展位（`tenant_group/project/env/resource`）
+4. 治理级技术约束（幂等、`request_id`、旧角色兼容）
+
+#### P2（中期补齐）
+
+1. 租户生命周期、配额、成本治理
+2. 异步链路、内部协同与 WebSocket 权限
+3. 与 Phase 2/3 模块扩展的能力前缀统一
+
+## 17. 结论
 
 当前 NexusLog 的问题并不是“少几个权限字符串”，而是：
 
