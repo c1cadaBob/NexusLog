@@ -511,6 +511,9 @@ SET capability_bundle = EXCLUDED.capability_bundle,
    - 哪些接口先接 capability 中间件
    - 哪些页面先切 route registry
    - 哪些前端旧权限判断需要删掉或降级为过渡别名
+
+当前 V1 草案已落地到：`docs/01-architecture/core/11-authorization-implementation-task-breakdown.md`
+
 2. **正式迁移脚本草案**
    - `000027_authz_registry_phase_a.up.sql`
    - `000028_authz_registry_routing_phase_a.up.sql`

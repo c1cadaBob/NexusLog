@@ -679,3 +679,5 @@
 
 3. **前后端改造任务拆解单**
    - 精确到文件/模块/接口级别
+
+当前 V1 草案已落地到：`docs/01-architecture/core/11-authorization-implementation-task-breakdown.md`

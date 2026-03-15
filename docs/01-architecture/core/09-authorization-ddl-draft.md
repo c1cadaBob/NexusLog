@@ -609,9 +609,16 @@ ALTER TABLE roles DROP COLUMN permissions;
 
 ### 9.1 保留主体策略种子
 
-建议在正式迁移中同时插入两条保留主体策略：
+建议在正式迁移中同时插入两条保留主体策略。
+
+这里**不要再写死固定租户 UUID**，而应使用数据库里已存在的随机租户 ID；推荐通过租户业务键（如 `name='default'`）查询目标租户，再写入策略表：
 
 ```sql
+WITH target_tenant AS (
+    SELECT id
+    FROM obs.tenant
+    WHERE name = 'default'
+)
 INSERT INTO subject_reserved_policy (
     tenant_id,
     subject_type,
@@ -623,29 +630,49 @@ INSERT INTO subject_reserved_policy (
     managed_by,
     reserved_reason
 )
-VALUES
-    (
-        '00000000-0000-0000-0000-000000000001',
-        'user',
-        'sys-superadmin',
-        TRUE,
-        TRUE,
-        FALSE,
-        FALSE,
-        'platform_governance',
-        '平台唯一超级管理员'
-    ),
-    (
-        '00000000-0000-0000-0000-000000000001',
-        'user',
-        'system-automation',
-        TRUE,
-        FALSE,
-        FALSE,
-        FALSE,
-        'platform_governance',
-        '系统自动化归因主体，不允许交互式登录'
-    )
+SELECT
+    tenant.id,
+    payload.subject_type,
+    payload.subject_ref,
+    payload.reserved,
+    payload.interactive_login_allowed,
+    payload.break_glass_allowed,
+    payload.ordinary_mutation_allowed,
+    payload.managed_by,
+    payload.reserved_reason
+FROM target_tenant tenant
+CROSS JOIN (
+    VALUES
+        (
+            'user',
+            'sys-superadmin',
+            TRUE,
+            TRUE,
+            FALSE,
+            FALSE,
+            'platform_governance',
+            '平台唯一超级管理员'
+        ),
+        (
+            'user',
+            'system-automation',
+            TRUE,
+            FALSE,
+            FALSE,
+            FALSE,
+            'platform_governance',
+            '系统自动化归因主体，不允许交互式登录'
+        )
+) AS payload(
+    subject_type,
+    subject_ref,
+    reserved,
+    interactive_login_allowed,
+    break_glass_allowed,
+    ordinary_mutation_allowed,
+    managed_by,
+    reserved_reason
+)
 ON CONFLICT (tenant_id, subject_type, subject_ref) DO UPDATE
 SET reserved = EXCLUDED.reserved,
     interactive_login_allowed = EXCLUDED.interactive_login_allowed,
@@ -655,6 +682,12 @@ SET reserved = EXCLUDED.reserved,
     reserved_reason = EXCLUDED.reserved_reason,
     updated_at = NOW();
 ```
+
+如果后续存在多个 bootstrap 租户，也应沿用同样原则：
+
+- 租户主键使用随机 UUID
+- 迁移脚本通过租户业务键或配置输入解析目标租户
+- 不再依赖公开、可预测、固定的默认租户 UUID
 
 ### 9.2 兼容映射种子
 
@@ -738,6 +771,8 @@ V1 不单独建设 `scope_definition` 表，而是先采用 JSON 数组表达范
 
 2. **前后端改造任务拆解单**
    - 精确到接口、中间件、页面、状态管理、菜单注册
+
+当前 V1 草案已落地到：`docs/01-architecture/core/11-authorization-implementation-task-breakdown.md`
 
 如果直接进入开发实施，则建议顺序为：
 
