@@ -27,6 +27,22 @@ describe('route authorization registry', () => {
     ).toBe(true);
   });
 
+  it('does not let dashboards:read borrow access to report management', () => {
+    expect(
+      canAccessRoute('/reports/management', {
+        permissions: ['dashboards:read'],
+        capabilities: [],
+      }),
+    ).toBe(false);
+
+    expect(
+      canAccessRoute('/reports/management', {
+        permissions: [],
+        capabilities: ['report.read'],
+      }),
+    ).toBe(true);
+  });
+
   it('does not let dashboards:read borrow access to scheduled tasks', () => {
     expect(
       canAccessRoute('/reports/scheduled', {

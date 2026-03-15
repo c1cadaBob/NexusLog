@@ -243,6 +243,7 @@ const ReportManagement: React.FC = () => {
               <span className="material-symbols-outlined text-[20px]">search</span>
             </div>
             <input
+              name="report_management_search"
               className={`w-full rounded-lg border ${borderColor} ${inputBg} py-2.5 pl-10 pr-4 text-sm ${textColor} placeholder-text-secondary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary`}
               placeholder="搜索报表名称、ID或创建人..."
               value={searchQuery}
@@ -252,6 +253,7 @@ const ReportManagement: React.FC = () => {
           <div className="flex items-center gap-2">
             <div className="relative">
               <select
+                name="report_management_type_filter"
                 className={`h-10 appearance-none rounded-lg border ${borderColor} ${inputBg} pl-4 pr-10 text-sm font-medium ${textColor} focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer`}
                 value={typeFilter}
                 onChange={(event) => setTypeFilter(event.target.value)}
@@ -268,6 +270,7 @@ const ReportManagement: React.FC = () => {
             </div>
             <div className="relative">
               <select
+                name="report_management_sort"
                 className={`h-10 appearance-none rounded-lg border ${borderColor} ${inputBg} pl-4 pr-10 text-sm font-medium ${textColor} focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer`}
                 value={sortBy}
                 onChange={(event) => setSortBy(event.target.value)}

@@ -1,12 +1,14 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Statistic, Select, Button, Row, Col, Table, Tag, Progress, message } from 'antd';
+import { Card, Statistic, Select, Button, Row, Col, Table, Tag, Progress, Tooltip, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../stores/themeStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
+import { useAuthStore } from '../stores/authStore';
 import { COLORS } from '../theme/tokens';
 import { AUDIT_LOG_DATA } from '../constants';
+import { canAccessRoute } from '../auth/routeAuthorization';
 import type { KpiData, ServiceStatus } from '../types/dashboard';
 import ChartWrapper from '../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
@@ -441,9 +443,14 @@ InfrastructureMonitor.displayName = 'InfrastructureMonitor';
 // ============================================================================
 // Dashboard 主组件
 // ============================================================================
+const REPORT_MANAGEMENT_ENTRY_DENIED_TOOLTIP = '当前会话缺少 report.read 能力';
+
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
+  const permissions = useAuthStore((s) => s.permissions);
+  const capabilities = useAuthStore((s) => s.capabilities);
+  const authzReady = useAuthStore((s) => s.authzReady);
 
   const [overview, setOverview] = useState<DashboardOverviewStats | null>(null);
   const [lastUpdated, setLastUpdated] = useState(Date.now());
@@ -541,8 +548,23 @@ const Dashboard: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [refreshInterval, doRefresh]);
 
+  const canAccessReportManagement = useMemo(() => {
+    if (!authzReady) {
+      return false;
+    }
+    return canAccessRoute('/reports/management', { permissions, capabilities });
+  }, [authzReady, capabilities, permissions]);
+
   // 导航
   const handleNavigate = useCallback((path: string) => navigate(path), [navigate]);
+
+  const handleReportManagementNavigate = useCallback(() => {
+    if (!canAccessReportManagement) {
+      message.warning('当前会话缺少报表访问权限');
+      return;
+    }
+    navigate('/reports/management');
+  }, [canAccessReportManagement, navigate]);
 
   const serviceColumns: ColumnsType<ServiceStatus> = useMemo(() => [
     { title: '来源', dataIndex: 'name', key: 'name', render: (value: string) => <span className="font-medium">{value}</span> },
@@ -744,14 +766,20 @@ const Dashboard: React.FC = () => {
                 </Card>
               </Col>
               <Col span={12}>
-                <Card
-                  hoverable
-                  styles={{ body: { padding: '12px', textAlign: 'center' } }}
-                  onClick={() => handleNavigate('/reports/management')}
-                >
-                  <span className="material-symbols-outlined opacity-50 mb-1">description</span>
-                  <div className="text-xs font-medium">生成报表</div>
-                </Card>
+                <Tooltip title={canAccessReportManagement ? '进入报表管理' : REPORT_MANAGEMENT_ENTRY_DENIED_TOOLTIP}>
+                  <Card
+                    hoverable={canAccessReportManagement}
+                    styles={{ body: { padding: '12px', textAlign: 'center' } }}
+                    onClick={handleReportManagementNavigate}
+                    style={{
+                      opacity: canAccessReportManagement ? 1 : 0.5,
+                      cursor: canAccessReportManagement ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    <span className="material-symbols-outlined opacity-50 mb-1">description</span>
+                    <div className="text-xs font-medium">生成报表</div>
+                  </Card>
+                </Tooltip>
               </Col>
             </Row>
           </div>
