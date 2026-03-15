@@ -57,8 +57,9 @@ var (
 
 // RequestActor 描述一次查询请求的调用身份。
 type RequestActor struct {
-	TenantID string
-	UserID   string
+	TenantID       string
+	UserID         string
+	CanReadAllLogs bool
 }
 
 // TimeRange 定义时间范围查询参数。
@@ -221,16 +222,17 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 	}
 
 	repoResult, err := s.logRepo.SearchLogs(ctx, repository.SearchLogsInput{
-		TenantID:      actor.TenantID,
-		Keywords:      strings.TrimSpace(req.Keywords),
-		TimeRangeFrom: strings.TrimSpace(req.TimeRange.From),
-		TimeRangeTo:   strings.TrimSpace(req.TimeRange.To),
-		Filters:       req.Filters,
-		Sort:          toRepositorySort(req.Sort),
-		Page:          page,
-		PageSize:      pageSize,
-		PITID:         pitID,
-		SearchAfter:   searchAfter,
+		TenantID:          actor.TenantID,
+		BypassTenantScope: actor.CanReadAllLogs,
+		Keywords:          strings.TrimSpace(req.Keywords),
+		TimeRangeFrom:     strings.TrimSpace(req.TimeRange.From),
+		TimeRangeTo:       strings.TrimSpace(req.TimeRange.To),
+		Filters:           req.Filters,
+		Sort:              toRepositorySort(req.Sort),
+		Page:              page,
+		PageSize:          pageSize,
+		PITID:             pitID,
+		SearchAfter:       searchAfter,
 	})
 	if err != nil {
 		s.tryRecordQueryHistory(ctx, actor, req, SearchLogsResult{
@@ -630,8 +632,9 @@ func hashQueryPayload(req SearchLogsRequest) string {
 
 func normalizeActor(actor RequestActor) RequestActor {
 	return RequestActor{
-		TenantID: strings.TrimSpace(actor.TenantID),
-		UserID:   strings.TrimSpace(actor.UserID),
+		TenantID:       strings.TrimSpace(actor.TenantID),
+		UserID:         strings.TrimSpace(actor.UserID),
+		CanReadAllLogs: actor.CanReadAllLogs,
 	}
 }
 

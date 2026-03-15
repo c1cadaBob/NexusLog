@@ -40,9 +40,9 @@ func TestStatsServiceAggregate_UsesMinuteHistogramAndStructuredQuery(t *testing.
 	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
 	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
 
-	tenantID := "11111111-1111-1111-1111-111111111111"
+	actor := RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}
 	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
-	result, err := svc.Aggregate(context.Background(), tenantID, AggregateRequest{
+	result, err := svc.Aggregate(context.Background(), actor, AggregateRequest{
 		GroupBy:   "minute",
 		TimeRange: "30m",
 		Keywords:  "level:error AND service:query-api",
@@ -107,11 +107,69 @@ func TestStatsServiceAggregate_UsesMinuteHistogramAndStructuredQuery(t *testing.
 }
 
 func TestAppendTenantFilter_UsesMatchNoneWhenTenantMissing(t *testing.T) {
-	filters := appendTenantFilter(nil, "")
+	filters := appendTenantFilter(nil, "", false)
 	if len(filters) != 1 {
 		t.Fatalf("appendTenantFilter() len = %d, want 1", len(filters))
 	}
 	if _, ok := filters[0]["match_none"]; !ok {
 		t.Fatalf("appendTenantFilter() = %#v, want match_none guard", filters)
+	}
+}
+
+func TestAppendTenantFilter_SkipsTenantScopeForGlobalAccess(t *testing.T) {
+	filters := appendTenantFilter([]map[string]any{{"term": map[string]any{"log.level": "error"}}}, "tenant-a", true)
+	if len(filters) != 1 {
+		t.Fatalf("appendTenantFilter() len = %d, want 1", len(filters))
+	}
+	if _, ok := filters[0]["term"]; !ok {
+		t.Fatalf("appendTenantFilter() = %#v, want original filters only", filters)
+	}
+}
+
+func TestStatsServiceGetOverviewStats_SkipsTenantFilterForGlobalAccess(t *testing.T) {
+	t.Helper()
+
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request body failed: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 2,
+			"timed_out": false,
+			"hits": {"total": {"value": 12}, "hits": []},
+			"aggregations": {
+				"by_level": {"buckets": []},
+				"by_source": {"buckets": []},
+				"log_trend": {"buckets": []}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+
+	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
+	_, err := svc.GetOverviewStats(context.Background(), RequestActor{
+		TenantID:       "11111111-1111-1111-1111-111111111111",
+		CanReadAllLogs: true,
+	})
+	if err != nil {
+		t.Fatalf("GetOverviewStats() error = %v", err)
+	}
+
+	raw, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatalf("marshal captured request failed: %v", err)
+	}
+	body := string(raw)
+	if strings.Contains(body, `"tenant_id":"11111111-1111-1111-1111-111111111111"`) {
+		t.Fatalf("unexpected tenant filter in %s", body)
+	}
+	if strings.Contains(body, `"nexuslog.governance.tenant_id":"11111111-1111-1111-1111-111111111111"`) {
+		t.Fatalf("unexpected governance tenant filter in %s", body)
 	}
 }

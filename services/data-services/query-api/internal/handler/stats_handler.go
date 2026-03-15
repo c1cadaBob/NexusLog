@@ -5,7 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/nexuslog/data-services/query-api/internal/service"
-	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 // StatsHandler handles stats HTTP endpoints.
@@ -20,13 +19,13 @@ func NewStatsHandler(svc *service.StatsService) *StatsHandler {
 
 // GetOverviewStats GET /api/v1/query/stats/overview
 func (h *StatsHandler) GetOverviewStats(c *gin.Context) {
-	tenantID := sharedauth.AuthenticatedTenantID(c)
-	if tenantID == "" {
+	actor := resolveActor(c)
+	if actor.TenantID == "" {
 		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "tenant context is required")
 		return
 	}
 
-	stats, err := h.svc.GetOverviewStats(c.Request.Context(), tenantID)
+	stats, err := h.svc.GetOverviewStats(c.Request.Context(), actor)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, CodeQueryInternalError, "internal error")
 		return
@@ -37,8 +36,8 @@ func (h *StatsHandler) GetOverviewStats(c *gin.Context) {
 
 // Aggregate POST /api/v1/query/stats/aggregate
 func (h *StatsHandler) Aggregate(c *gin.Context) {
-	tenantID := sharedauth.AuthenticatedTenantID(c)
-	if tenantID == "" {
+	actor := resolveActor(c)
+	if actor.TenantID == "" {
 		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "tenant context is required")
 		return
 	}
@@ -49,7 +48,7 @@ func (h *StatsHandler) Aggregate(c *gin.Context) {
 		return
 	}
 
-	result, err := h.svc.Aggregate(c.Request.Context(), tenantID, req)
+	result, err := h.svc.Aggregate(c.Request.Context(), actor, req)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, CodeQueryInternalError, "internal error")
 		return

@@ -55,6 +55,7 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 		}
 
 		authorizationReady := false
+		globalLogAccess := false
 		if db != nil {
 			active, err := isAccessTokenSessionActive(c.Request.Context(), db, tenantID, userID, claims.ID)
 			if err != nil {
@@ -70,6 +71,11 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 				writeAuthError(c, http.StatusInternalServerError, "failed to load permissions")
 				return
 			}
+			globalLogAccess, err = loadGlobalLogAccess(c.Request.Context(), db, tenantID, userID)
+			if err != nil {
+				writeAuthError(c, http.StatusInternalServerError, "failed to load authorization scope")
+				return
+			}
 			c.Set(string(contextKeyUserPermissions), permissions)
 			authorizationReady = true
 		}
@@ -77,6 +83,7 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 		c.Set(string(contextKeyUserID), userID)
 		c.Set(string(contextKeyTenantID), tenantID)
 		c.Set(string(contextKeyAuthorizationReady), authorizationReady)
+		c.Set(string(contextKeyGlobalLogAccess), globalLogAccess)
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyUserID, userID))
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyTenantID, tenantID))
 		c.Request.Header.Set("X-User-ID", userID)

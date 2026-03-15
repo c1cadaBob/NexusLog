@@ -50,12 +50,12 @@ func NewStatsService(esRepo *repository.ElasticsearchRepository, db *sql.DB) *St
 }
 
 // GetOverviewStats returns overview stats for a tenant. Must complete in < 3s.
-func (s *StatsService) GetOverviewStats(ctx context.Context, tenantID string) (*OverviewStats, error) {
+func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor) (*OverviewStats, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
+	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
 		return nil, ErrTenantContextRequired
 	}
 
@@ -77,7 +77,7 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, tenantID string) (*
 	filters := []map[string]any{
 		{"range": map[string]any{"@timestamp": map[string]any{"gte": from24h, "lte": to}}},
 	}
-	filters = appendTenantFilter(filters, tenantID)
+	filters = appendTenantFilter(filters, actor.TenantID, actor.CanReadAllLogs)
 	query := map[string]any{
 		"bool": map[string]any{"filter": filters},
 	}
@@ -184,7 +184,7 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, tenantID string) (*
 
 	// Alert summary from PostgreSQL
 	if s.db != nil {
-		alertSummary, err := s.getAlertSummary(ctx, tenantID)
+		alertSummary, err := s.getAlertSummary(ctx, actor.TenantID)
 		if err == nil {
 			stats.AlertSummary = *alertSummary
 		}
@@ -234,12 +234,12 @@ type AggregateBucket struct {
 }
 
 // Aggregate returns aggregated data based on group_by dimension.
-func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req AggregateRequest) (*AggregateResult, error) {
+func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req AggregateRequest) (*AggregateResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
+	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
 		return nil, ErrTenantContextRequired
 	}
 
@@ -266,11 +266,12 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 	to := now.Format(time.RFC3339)
 
 	query := repository.BuildESQuery(repository.SearchLogsInput{
-		TenantID:      tenantID,
-		Keywords:      req.Keywords,
-		TimeRangeFrom: from,
-		TimeRangeTo:   to,
-		Filters:       req.Filters,
+		TenantID:          actor.TenantID,
+		BypassTenantScope: actor.CanReadAllLogs,
+		Keywords:          req.Keywords,
+		TimeRangeFrom:     from,
+		TimeRangeTo:       to,
+		Filters:           req.Filters,
 	})
 	if boolQuery, ok := query["bool"].(map[string]any); ok {
 		query["bool"] = boolQuery
@@ -368,7 +369,10 @@ func (s *StatsService) Aggregate(ctx context.Context, tenantID string, req Aggre
 	return &AggregateResult{Buckets: buckets}, nil
 }
 
-func appendTenantFilter(filters []map[string]any, tenantID string) []map[string]any {
+func appendTenantFilter(filters []map[string]any, tenantID string, bypassTenantScope bool) []map[string]any {
+	if bypassTenantScope {
+		return filters
+	}
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" {
 		return append(filters, map[string]any{"match_none": map[string]any{}})

@@ -13,6 +13,7 @@ import (
 const (
 	contextKeyUserPermissions    contextKey = "user_permissions"
 	contextKeyAuthorizationReady contextKey = "authorization_ready"
+	contextKeyGlobalLogAccess    contextKey = "global_log_access"
 )
 
 const userPermissionsQuery = `
@@ -24,6 +25,21 @@ const userPermissionsQuery = `
 	  AND u.tenant_id = $2::uuid
 	  AND u.status = 'active'
 	  AND r.tenant_id = $2::uuid
+`
+
+const globalLogAccessQuery = `
+	SELECT EXISTS(
+		SELECT 1
+		FROM users u
+		JOIN user_roles ur ON ur.user_id = u.id
+		JOIN roles r ON r.id = ur.role_id
+		WHERE u.id = $1::uuid
+		  AND u.tenant_id = $2::uuid
+		  AND u.status = 'active'
+		  AND LOWER(u.username) = 'sys-superadmin'
+		  AND r.tenant_id = $2::uuid
+		  AND LOWER(r.name) = 'super_admin'
+	)
 `
 
 func loadUserPermissions(ctx context.Context, db *sql.DB, tenantID, userID string) ([]string, error) {
@@ -74,6 +90,17 @@ func parsePermissions(raw []byte) ([]string, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+func loadGlobalLogAccess(ctx context.Context, db *sql.DB, tenantID, userID string) (bool, error) {
+	if db == nil {
+		return false, nil
+	}
+	var allowed bool
+	if err := db.QueryRowContext(ctx, globalLogAccessQuery, userID, tenantID).Scan(&allowed); err != nil {
+		return false, err
+	}
+	return allowed, nil
 }
 
 func RequirePermission(permission string) gin.HandlerFunc {

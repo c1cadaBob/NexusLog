@@ -44,12 +44,16 @@ func TestRequireAuthenticatedIdentity_LoadsPermissionsFromDatabase(t *testing.T)
 				AddRow([]byte(`["logs:read"]`)).
 				AddRow([]byte(`["logs:export","audit:read"]`)),
 		)
+	mock.ExpectQuery(regexp.QuoteMeta(globalLogAccessQuery)).
+		WithArgs(userID, tenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	router := gin.New()
 	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
 	router.GET("/api/v1/query/logs", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"permissions": AuthenticatedPermissions(c),
+			"permissions":       AuthenticatedPermissions(c),
+			"global_log_access": AuthenticatedGlobalLogAccess(c),
 		})
 	})
 
@@ -63,13 +67,17 @@ func TestRequireAuthenticatedIdentity_LoadsPermissionsFromDatabase(t *testing.T)
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
 	var body struct {
-		Permissions []string `json:"permissions"`
+		Permissions     []string `json:"permissions"`
+		GlobalLogAccess bool     `json:"global_log_access"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if !hasPermission(body.Permissions, "logs:read") || !hasPermission(body.Permissions, "logs:export") || !hasPermission(body.Permissions, "audit:read") {
 		t.Fatalf("unexpected permissions: %#v", body.Permissions)
+	}
+	if !body.GlobalLogAccess {
+		t.Fatal("expected global log access to be loaded")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("expectations: %v", err)

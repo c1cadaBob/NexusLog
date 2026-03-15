@@ -278,8 +278,9 @@ func sanitizeQueryValidationError(err error) string {
 
 func resolveActor(c *gin.Context) service.RequestActor {
 	return service.RequestActor{
-		TenantID: sharedauth.AuthenticatedTenantID(c),
-		UserID:   sharedauth.AuthenticatedUserID(c),
+		TenantID:       sharedauth.AuthenticatedTenantID(c),
+		UserID:         sharedauth.AuthenticatedUserID(c),
+		CanReadAllLogs: sharedauth.AuthenticatedGlobalLogAccess(c),
 	}
 }
 

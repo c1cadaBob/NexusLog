@@ -161,6 +161,32 @@ func TestBuildESQuery_UsesMatchNoneWhenTenantMissing(t *testing.T) {
 	}
 }
 
+func TestBuildESQuery_SkipsTenantFilterWhenBypassEnabled(t *testing.T) {
+	query := BuildESQuery(SearchLogsInput{
+		TenantID:          "tenant-a",
+		BypassTenantScope: true,
+		Keywords:          "error",
+	})
+
+	raw, err := json.Marshal(query)
+	if err != nil {
+		t.Fatalf("marshal query failed: %v", err)
+	}
+	encoded := string(raw)
+	if strings.Contains(encoded, `"tenant_id":"tenant-a"`) {
+		t.Fatalf("unexpected tenant filter in %s", encoded)
+	}
+	if strings.Contains(encoded, `"nexuslog.governance.tenant_id":"tenant-a"`) {
+		t.Fatalf("unexpected governance tenant filter in %s", encoded)
+	}
+	if strings.Contains(encoded, `"match_none"`) {
+		t.Fatalf("unexpected match_none query in %s", encoded)
+	}
+	if !strings.Contains(encoded, `"multi_match"`) {
+		t.Fatalf("expected keyword query to remain intact, got %s", encoded)
+	}
+}
+
 func TestNormalizeFilterField_MapsFrontendAliasesToV2Fields(t *testing.T) {
 	tests := map[string]string{
 		"level":      "log.level",

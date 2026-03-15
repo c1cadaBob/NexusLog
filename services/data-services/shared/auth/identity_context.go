@@ -45,3 +45,19 @@ func AuthenticatedPermissions(c *gin.Context) []string {
 	}
 	return result
 }
+
+// AuthenticatedGlobalLogAccess returns whether the authenticated actor may read logs across tenants.
+func AuthenticatedGlobalLogAccess(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	value, ok := c.Get(string(contextKeyGlobalLogAccess))
+	if !ok {
+		return false
+	}
+	allowed, ok := value.(bool)
+	if !ok {
+		return false
+	}
+	return allowed
+}

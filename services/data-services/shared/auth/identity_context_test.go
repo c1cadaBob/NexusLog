@@ -48,3 +48,15 @@ func TestAuthenticatedPermissionsUsesContextOnly(t *testing.T) {
 		t.Fatalf("AuthenticatedPermissions() = %#v, want 2 permissions", permissions)
 	}
 }
+
+func TestAuthenticatedGlobalLogAccessUsesContextOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set(string(contextKeyGlobalLogAccess), true)
+
+	if !AuthenticatedGlobalLogAccess(c) {
+		t.Fatal("AuthenticatedGlobalLogAccess() = false, want true")
+	}
+}
