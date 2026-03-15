@@ -1496,31 +1496,128 @@
 - `archive.restore`
 - `archive.delete`
 
-### 16.16 建议按优先级纳入后续设计
+### 16.16 异步/定时任务的授权快照与代理执行语义尚未定义
+
+当前文档已经把异步链路、内部服务和系统自动化主体纳入讨论，但对“用户发起、系统延后执行”的场景仍缺少一层关键定义：
+
+- 创建时按谁的权限校验
+- 执行时按谁的身份落审计
+- 发起人与执行人不一致时如何归因
+- 发起人后续被禁用、降权、移出租户时任务是否继续执行
+
+这在当前规划和代码里都已经不是纯未来问题，而是正在形成中的能力：
+
+1. 前端已经存在 `/reports/scheduled` 页面与对应路由。
+2. 页面工作流文档已定义“配置 cron -> 保存任务 -> 查看执行历史/失败重试”。
+3. 当前系统已存在 `export_jobs`、采集调度器、`health-worker`、后台 cleanup/job 等异步执行链路。
+4. `system-automation` 已被定义为系统自动化归因主体，但尚未与“代执行语义”正式绑定。
+
+建议补充统一规则：
+
+1. **创建校验**：由发起用户在提交任务时完成 capability/scope/approval 校验。
+2. **执行身份**：后台真正执行时使用 `system-automation` 或受控 `service_account`。
+3. **归因双写**：审计同时记录 `initiator_actor` 与 `executor_actor`。
+4. **授权快照**：保存 `authorized_capability_snapshot`、`authorized_scope_snapshot`、`approval_snapshot_id`。
+5. **失效策略**：明确“发起人被禁用/降权/退租户后，已有计划任务是否暂停、取消或继续”。
+
+### 16.17 前端真实路由与导航入口仍未完全纳入权限映射
+
+当前 8.2 节给出了路由访问权示例，但对照真实前端代码后，仍然属于“部分示例”，还没有覆盖当前实际存在的页面与导航入口。
+
+对照结果包括：
+
+1. `App.tsx` 中已存在大量实际路由，但 8.2 只映射了其中一部分。
+2. `constants/menu.ts` 中的侧边栏已经暴露更多页面，例如：
+   - `/analysis/anomaly`
+   - `/analysis/clustering`
+   - `/incidents/timeline`
+   - `/incidents/analysis`
+   - `/incidents/sla`
+   - `/incidents/archive`
+   - `/ingestion/wizard`
+   - `/ingestion/status`
+   - `/parsing/mapping`
+   - `/parsing/masking`
+   - `/storage/indices`
+   - `/storage/ilm`
+   - `/storage/capacity`
+   - `/performance/health`
+   - `/performance/scaling`
+   - `/performance/dr`
+   - `/tracing/analysis`
+   - `/tracing/topology`
+   - `/reports/scheduled`
+   - `/reports/downloads`
+   - `/cost/budgets`
+   - `/cost/optimization`
+3. 当前菜单配置里仍直接使用旧权限字符串，如 `users:write`、`users:read`、`audit:read`、`alerts:read`、`incidents:read`，说明“旧权限 → 新 capability”的前端收口还未完成。
+4. 除了路由本身，Dashboard 快捷入口、侧边栏、底部导航等多个导航面也需要共用同一套授权事实源。
+
+建议新增“页面注册表 / 路由注册表”治理模型，每个页面至少定义：
+
+- `path`
+- `view_capability`
+- `action_capabilities`
+- `required_feature_gate`
+- `navigation_visibility_rule`
+
+否则后续仍会出现“页面能进、菜单不隐藏、按钮却灰掉”或“菜单隐藏但 URL 直达还能打开”的不一致问题。
+
+### 16.18 产品版本能力与功能开关尚未与授权模型解耦
+
+当前文档已经把“有没有权限”讲得越来越完整，但对照蓝图与总体设计后，还缺少另一层独立判断：
+
+- 该租户/环境是否开通了该模块
+- 该功能当前是否被 feature flag 打开
+- 当前版本回滚时是否通过功能开关降级
+
+证据：
+
+1. API 蓝图已明确存在 `/api/v1/enterprise/*` 与 `/api/v1/advanced/*` 两大模块。
+2. 当前设计文档的发布与回滚策略里，已经出现“功能开关降级”。
+3. 这说明未来一定会出现“用户有权限，但产品版本未开通”或“版本已开通，但当前灰度未开启”的情况。
+
+因此建议把授权判断拆成三层：
+
+1. `authorization`：主体是否具备 capability + scope
+2. `entitlement`：租户或部署是否具备该产品能力
+3. `feature_flag`：当前发布窗口是否允许暴露该功能
+
+对于页面和 API，都应预留：
+
+- `required_entitlement`
+- `required_feature_flag`
+
+否则后续企业版、高级分析、多租户增强、边缘节点等模块接入时，会把“权限控制”和“产品售卖/开关控制”再次混在一起。
+
+### 16.19 建议按优先级纳入后续设计
 
 #### P0（必须先补）
 
 1. 入口分层与信任边界
 2. 非人类主体矩阵（Agent / 内部服务）
 3. 身份生命周期 + 身份联邦 / 服务凭证模型
-4. 导出权限的归属范围与敏感级别
-5. 资源生命周期动作语义（`enable/disable/cancel/download/restore`）
+4. 前端真实路由与导航入口的 capability 映射收口
+5. 导出权限的归属范围与敏感级别
+6. 资源生命周期动作语义（`enable/disable/cancel/download/restore`）
 
 #### P1（应尽快补）
 
 1. 共享资源可见性模型
 2. 审计不可篡改与合规报告能力
 3. 高危操作确认与审批链路
-4. 用户退场后的资源归属与交接机制
-5. 数据生命周期（保留/归档/恢复）治理
-6. 作用域扩展位（`tenant_group/project/env/resource`）
-7. 治理级技术约束（幂等、`request_id`、旧角色兼容）
+4. 异步/定时任务的授权快照与代理执行语义
+5. 用户退场后的资源归属与交接机制
+6. 数据生命周期（保留/归档/恢复）治理
+7. 作用域扩展位（`tenant_group/project/env/resource`）
+8. 治理级技术约束（幂等、`request_id`、旧角色兼容）
 
 #### P2（中期补齐）
 
 1. 租户生命周期、配额、成本治理
 2. 异步链路、内部协同与 WebSocket 权限
-3. 与 Phase 2/3 模块扩展的能力前缀统一
+3. 产品版本能力 / 功能开关与授权解耦
+4. 与 Phase 2/3 模块扩展的能力前缀统一
 
 ## 17. 结论
 
