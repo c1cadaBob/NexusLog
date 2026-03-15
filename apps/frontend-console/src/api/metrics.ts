@@ -42,6 +42,54 @@ export interface FetchServerMetricsResponse {
   range: string;
 }
 
+export interface MetricsOverviewSnapshot {
+  agent_id: string;
+  server_id: string;
+  cpu_usage_pct: number;
+  memory_usage_pct: number;
+  disk_usage_pct: number;
+  disk_io_read_bytes: number;
+  disk_io_write_bytes: number;
+  net_in_bytes: number;
+  net_out_bytes: number;
+  collected_at: string;
+}
+
+export interface MetricsOverviewTrendPoint {
+  timestamp: string;
+  active_agents: number;
+  avg_cpu_usage_pct: number;
+  avg_memory_usage_pct: number;
+  avg_disk_usage_pct: number;
+  total_net_in_bytes: number;
+  total_net_out_bytes: number;
+  net_in_delta_bytes: number;
+  net_out_delta_bytes: number;
+}
+
+export interface MetricsOverviewData {
+  active_agents: number;
+  latest_collected_at: string;
+  avg_cpu_usage_pct: number;
+  avg_memory_usage_pct: number;
+  avg_disk_usage_pct: number;
+  total_disk_io_read_bytes: number;
+  total_disk_io_write_bytes: number;
+  total_net_in_bytes: number;
+  total_net_out_bytes: number;
+  latest_net_in_delta_bytes: number;
+  latest_net_out_delta_bytes: number;
+  snapshots: MetricsOverviewSnapshot[];
+  trend: MetricsOverviewTrendPoint[];
+}
+
+export interface FetchMetricsOverviewResponse {
+  data: MetricsOverviewData;
+  from: string;
+  to: string;
+  range: string;
+}
+
 /** Report metrics payload for POST /api/v1/metrics/report */
 export interface ReportMetricsPayload {
   agent_id: string;
@@ -213,6 +261,17 @@ export async function fetchServerMetrics(
   return requestMetricsApi<FetchServerMetricsResponse>(`/servers/${encodeURIComponent(agentId)}`, {
     method: 'GET',
     query,
+  });
+}
+
+/** Fetch dashboard metrics overview */
+export async function fetchMetricsOverview(
+  range: '1h' | '6h' | '24h' | '7d' = '24h',
+  limit = 4,
+): Promise<FetchMetricsOverviewResponse> {
+  return requestMetricsApi<FetchMetricsOverviewResponse>('/overview', {
+    method: 'GET',
+    query: { range, limit },
   });
 }
 

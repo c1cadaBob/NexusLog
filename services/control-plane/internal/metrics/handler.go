@@ -3,6 +3,7 @@ package metrics
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +46,7 @@ func RegisterReportRoutes(router gin.IRouter, handler *Handler) {
 func RegisterQueryRoutes(router gin.IRouter, handler *Handler) {
 	g := router.Group("/api/v1/metrics")
 	{
+		g.GET("/overview", handler.QueryOverview)
 		g.GET("/servers/:agent_id", handler.QueryAgentMetrics)
 	}
 }
@@ -82,6 +84,49 @@ func (h *Handler) Report(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"accepted": true})
+}
+
+// QueryOverview handles GET /api/v1/metrics/overview.
+func (h *Handler) QueryOverview(c *gin.Context) {
+	tenantID := getTenantID(c)
+	if tenantID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": ErrorCodeInvalidParams, "message": "X-Tenant-ID header is required",
+		})
+		return
+	}
+
+	rangeParam := c.DefaultQuery("range", "24h")
+	from, to, err := parseRange(rangeParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": ErrorCodeInvalidParams, "message": "range must be one of 1h, 6h, 24h, 7d",
+		})
+		return
+	}
+
+	snapshotLimit, err := parseOverviewLimit(c.DefaultQuery("limit", "4"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": ErrorCodeInvalidParams, "message": "limit must be between 1 and 10",
+		})
+		return
+	}
+
+	overview, err := h.svc.QueryOverview(c.Request.Context(), tenantID, from, to, snapshotLimit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": ErrorCodeInternal, "message": "failed to query metrics overview",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":  overview,
+		"from":  from.Format(time.RFC3339),
+		"to":    to.Format(time.RFC3339),
+		"range": rangeParam,
+	})
 }
 
 // QueryAgentMetrics handles GET /api/v1/metrics/servers/:agent_id.
@@ -146,6 +191,14 @@ func parseRange(r string) (from, to time.Time, err error) {
 	}
 	from = to.Add(-d)
 	return from, to, nil
+}
+
+func parseOverviewLimit(raw string) (int, error) {
+	parsed, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || parsed < 1 || parsed > 10 {
+		return 0, fmt.Errorf("invalid limit")
+	}
+	return parsed, nil
 }
 
 func getTenantID(c *gin.Context) string {

@@ -7,16 +7,25 @@ import { useThemeStore } from '../stores/themeStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { useAuthStore } from '../stores/authStore';
 import { COLORS } from '../theme/tokens';
-import { AUDIT_LOG_DATA } from '../constants';
 import type { KpiData, ServiceStatus } from '../types/dashboard';
 import { resolveDashboardQuickActionAccess } from './dashboardAuthorization';
 import ChartWrapper from '../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
 import { fetchDashboardOverview, type DashboardOverviewStats } from '../api/query';
+import { fetchAuditLogs, type AuditLogItem } from '../api/audit';
+import { fetchMetricsOverview, type MetricsOverviewData } from '../api/metrics';
 
 interface DashboardTrendPoint {
   time: string;
   count: number;
+}
+
+interface DashboardAuditRecord {
+  time: string;
+  user: string;
+  action: string;
+  target: string;
+  type: 'update' | 'create' | 'delete';
 }
 
 function formatCompactCount(value: number): string {
@@ -47,6 +56,115 @@ function buildTrendData(overview: DashboardOverviewStats | null): DashboardTrend
   }));
 }
 
+function clampMetricPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, value));
+}
+
+function formatMetricPercent(value: number): string {
+  return `${clampMetricPercent(value).toFixed(1)}%`;
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0 B';
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let nextValue = value;
+  let unitIndex = 0;
+  while (nextValue >= 1024 && unitIndex < units.length - 1) {
+    nextValue /= 1024;
+    unitIndex += 1;
+  }
+  const digits = nextValue >= 100 || unitIndex === 0 ? 0 : nextValue >= 10 ? 1 : 2;
+  return `${nextValue.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function formatTimeAgo(value: string): string {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return value;
+  }
+
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return `${seconds}秒前`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  return `${days}天前`;
+}
+
+function formatMonitorTimestamp(value: string | undefined): string {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (!trimmed) {
+    return '暂无数据';
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return trimmed;
+  }
+
+  return parsed.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
+function inferAuditType(value: string): DashboardAuditRecord['type'] {
+  const normalized = value.trim().toLowerCase();
+  if (/(create|add|insert|invite|grant|assign|enable|bind)/.test(normalized)) {
+    return 'create';
+  }
+  if (/(delete|remove|drop|revoke|disable|unbind)/.test(normalized)) {
+    return 'delete';
+  }
+  return 'update';
+}
+
+function formatAuditActionText(item: AuditLogItem): string {
+  const detailOperation = typeof item.detail?.operation === 'string' ? item.detail.operation : '';
+  const normalized = `${item.action || ''} ${detailOperation}`.trim().toLowerCase();
+
+  if (/(create|add|insert|invite)/.test(normalized)) return '创建了';
+  if (/(delete|remove|drop)/.test(normalized)) return '删除了';
+  if (/(grant|assign|bind)/.test(normalized)) return '授权了';
+  if (/(revoke|unbind)/.test(normalized)) return '回收了';
+  if (/(login|signin)/.test(normalized)) return '登录了';
+  if (/(logout|signout)/.test(normalized)) return '退出了';
+  if (/(reset.*password|password.*reset)/.test(normalized)) return '重置了密码';
+  return '更新了';
+}
+
+function formatAuditTarget(item: AuditLogItem): string {
+  const parts = [item.resource_type, item.resource_id]
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : '系统对象';
+}
+
+function mapAuditLogsForDashboard(items: AuditLogItem[]): DashboardAuditRecord[] {
+  return items.slice(0, 5).map((item) => {
+    const detailOperation = typeof item.detail?.operation === 'string' ? item.detail.operation : '';
+    const normalizedAction = `${item.action || ''} ${detailOperation}`.trim();
+    return {
+      time: formatTimeAgo(item.created_at),
+      user: item.user_id?.trim() || '系统',
+      action: formatAuditActionText(item),
+      target: formatAuditTarget(item),
+      type: inferAuditType(normalizedAction),
+    };
+  });
+}
 function normalizeIdentityValue(value: string | undefined, fallback: string): string {
   const trimmed = typeof value === 'string' ? value.trim() : '';
   if (!trimmed || trimmed.toLowerCase() === 'unknown') {
@@ -185,17 +303,6 @@ const COLOR_MAP: Record<string, string> = {
   info: COLORS.info,
 };
 
-/** 模拟带宽数据 */
-const BANDWIDTH_DATA = [
-  { in: 0, out: 0 },
-  { in: 150, out: 250 },
-  { in: 120, out: 300 },
-  { in: 200, out: 220 },
-  { in: 180, out: 350 },
-  { in: 250, out: 400 },
-  { in: 900, out: 950 },
-];
-
 // ============================================================================
 // 刷新控制栏
 // ============================================================================
@@ -301,172 +408,208 @@ KpiCard.displayName = 'KpiCard';
 // ============================================================================
 // 基础设施监控
 // ============================================================================
-const InfrastructureMonitor: React.FC = React.memo(() => {
+const InfrastructureMonitor: React.FC<{ data: MetricsOverviewData | null; isLoading: boolean }> = React.memo(({ data, isLoading }) => {
   const isDark = useThemeStore((s) => s.isDark);
-  const innerBg = isDark ? '#0f172a' : '#f1f5f9';
-  const gaugeBg = isDark ? '#1e293b' : '#ffffff';
+  const panelBg = isDark ? '#0f172a' : '#f8fafc';
+  const borderColor = isDark ? '#334155' : '#e2e8f0';
+  const progressTrail = isDark ? '#1e293b' : '#e2e8f0';
+  const trendPoints = data?.trend ?? [];
+  const latestSnapshots = data?.snapshots ?? [];
 
-  // 带宽迷你折线图 ECharts 配置
+  const utilizationItems = [
+    {
+      key: 'cpu',
+      label: '平均 CPU 使用率',
+      value: data?.avg_cpu_usage_pct ?? 0,
+      color: COLORS.info,
+      hint: `${data?.active_agents ?? 0} 个节点最新快照`,
+    },
+    {
+      key: 'memory',
+      label: '平均内存使用率',
+      value: data?.avg_memory_usage_pct ?? 0,
+      color: COLORS.warning,
+      hint: `最近上报 ${formatMonitorTimestamp(data?.latest_collected_at)}`,
+    },
+    {
+      key: 'disk',
+      label: '平均磁盘使用率',
+      value: data?.avg_disk_usage_pct ?? 0,
+      color: COLORS.success,
+      hint: `累计读 ${formatBytes(data?.total_disk_io_read_bytes ?? 0)} · 写 ${formatBytes(data?.total_disk_io_write_bytes ?? 0)}`,
+    },
+  ];
+
   const bandwidthOption: EChartsCoreOption = useMemo(() => ({
-    grid: { top: 0, right: 0, bottom: 0, left: 0 },
-    xAxis: { type: 'category', show: false, data: BANDWIDTH_DATA.map((_, i) => i) },
-    yAxis: { type: 'value', show: false, min: 0, max: 1000 },
+    grid: { top: 8, right: 0, bottom: 0, left: 0 },
+    xAxis: { type: 'category', show: false, data: trendPoints.map((point) => toDisplayTrendTime(point.timestamp)) },
+    yAxis: { type: 'value', show: false },
     series: [
-      { type: 'line', data: BANDWIDTH_DATA.map((d) => d.in), smooth: true, showSymbol: false, lineStyle: { width: 2, color: COLORS.info } },
-      { type: 'line', data: BANDWIDTH_DATA.map((d) => d.out), smooth: true, showSymbol: false, lineStyle: { width: 2, color: COLORS.success } },
+      {
+        type: 'line',
+        data: trendPoints.map((point) => point.net_in_delta_bytes),
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { width: 2, color: COLORS.info },
+        itemStyle: { color: COLORS.info },
+        areaStyle: { color: `${COLORS.info}22` },
+      },
+      {
+        type: 'line',
+        data: trendPoints.map((point) => point.net_out_delta_bytes),
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { width: 2, color: COLORS.success },
+        itemStyle: { color: COLORS.success },
+        areaStyle: { color: `${COLORS.success}22` },
+      },
     ],
-    tooltip: { show: false },
-  }), []);
-
-  const dividerColor = isDark ? '#334155' : '#e2e8f0';
-
-  const gaugeAngle = 151.2; // 42% of 360
-  const gaugeStyle: React.CSSProperties = useMemo(() => ({
-    background: `conic-gradient(from 180deg at 50% 100%, ${COLORS.info} ${gaugeAngle}deg, ${isDark ? '#334155' : '#e2e8f0'} ${gaugeAngle}deg, ${isDark ? '#334155' : '#e2e8f0'} 180deg, transparent 180deg)`,
-  }), [isDark]);
+    tooltip: { trigger: 'axis' },
+  }), [trendPoints]);
 
   return (
-    <Card styles={{ body: { padding: '20px' } }}>
-      <div className="flex items-center justify-between mb-5">
+    <Card loading={isLoading && !data} styles={{ body: { padding: '20px' } }}>
+      <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: 'rgba(99,102,241,0.2)', color: '#818cf8' }}>
             <span className="material-symbols-outlined text-lg">dns</span>
           </div>
           <div>
             <div className="text-sm font-bold">系统基础设施监控</div>
-            <div className="text-[10px] opacity-50 uppercase">Infrastructure Real-time Status</div>
+            <div className="text-[10px] opacity-50 uppercase">Infrastructure Metrics Overview</div>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Tag color="success" style={{ fontSize: 10 }}>系统健康</Tag>
-          <Tag style={{ fontSize: 10 }}>Cluster Node-01</Tag>
+        <div className="flex gap-2 flex-wrap">
+          <Tag color={(data?.active_agents ?? 0) > 0 ? 'success' : undefined} style={{ fontSize: 10 }}>
+            {(data?.active_agents ?? 0) > 0 ? `${data?.active_agents ?? 0} 个节点在线` : '暂无节点数据'}
+          </Tag>
+          <Tag style={{ fontSize: 10 }}>最近上报 {formatMonitorTimestamp(data?.latest_collected_at)}</Tag>
         </div>
       </div>
 
-      <Row gutter={[24, 16]} align="stretch">
-        {/* CPU Load */}
-        <Col xs={24} md={12} lg={6}>
-          <div className="h-full flex flex-col">
-            <div className="flex justify-between items-end mb-2">
-              <span className="text-xs opacity-60 font-medium">负载 (CPU Load)</span>
-              <span className="text-lg font-bold">42%</span>
-            </div>
-            <div className="h-20 flex items-center justify-center relative overflow-hidden flex-1">
-              <div className="w-32 h-16 relative">
-                <div className="w-full h-full rounded-t-full relative" style={gaugeStyle} />
-                <div
-                  className="absolute bottom-0 left-1/2 -translate-x-1/2 w-24 h-12 rounded-t-full flex items-end justify-center pb-2"
-                  style={{ backgroundColor: gaugeBg }}
-                >
-                  <span className="text-[10px] opacity-50">8 vCPUs</span>
+      <Row gutter={[16, 16]} align="stretch">
+        {utilizationItems.map((item) => {
+          const riskColor = item.value >= 80 ? 'error' : item.value >= 60 ? 'warning' : 'success';
+          return (
+            <Col key={item.key} xs={24} md={12} lg={6}>
+              <div className="h-full rounded-xl border p-4" style={{ backgroundColor: panelBg, borderColor }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs opacity-60">{item.label}</div>
+                    <div className="text-2xl font-bold mt-1">{formatMetricPercent(item.value)}</div>
+                  </div>
+                  <Tag color={riskColor} style={{ margin: 0, fontSize: 10 }}>
+                    {item.value >= 80 ? '高' : item.value >= 60 ? '中' : '低'}
+                  </Tag>
                 </div>
+                <Progress
+                  percent={clampMetricPercent(item.value)}
+                  showInfo={false}
+                  strokeColor={item.color}
+                  trailColor={progressTrail}
+                  style={{ margin: '12px 0 8px' }}
+                />
+                <div className="text-[10px] opacity-50">{item.hint}</div>
               </div>
-            </div>
-            <Row gutter={8} className="mt-auto">
-              <Col span={12}>
-                <div className="p-1.5 rounded text-center" style={{ backgroundColor: innerBg }}>
-                  <div className="text-[9px] opacity-50">Load Avg</div>
-                  <div className="text-xs font-bold">3.2</div>
-                </div>
-              </Col>
-              <Col span={12}>
-                <div className="p-1.5 rounded text-center" style={{ backgroundColor: innerBg }}>
-                  <div className="text-[9px] opacity-50">进程数</div>
-                  <div className="text-xs font-bold">186</div>
-                </div>
-              </Col>
-            </Row>
-          </div>
-        </Col>
+            </Col>
+          );
+        })}
 
-        {/* Memory */}
         <Col xs={24} md={12} lg={6}>
-          <div className="lg:border-l lg:pl-6 h-full flex flex-col" style={{ borderColor: dividerColor }}>
-            <div className="flex justify-between items-end mb-3">
-              <span className="text-xs opacity-60 font-medium">内存 (Memory)</span>
-              <span className="text-sm font-bold">12.4 GB <span className="text-[10px] opacity-50 font-normal">/ 16 GB</span></span>
-            </div>
-            <Progress percent={78} showInfo={false} strokeColor={{ from: COLORS.success, to: '#2dd4bf' }} size="small" />
-            <div className="flex justify-between text-[10px] opacity-50 mb-4 mt-1">
-              <span>已使用: 78%</span>
-              <span>可用: 3.6 GB</span>
-            </div>
-            <div className="space-y-2 mt-auto">
-              <div className="flex justify-between items-center text-[10px]">
-                <span className="opacity-60">缓存 (Cache)</span>
-                <span>4.2 GB</span>
-              </div>
-              <Progress percent={26} showInfo={false} strokeColor={COLORS.info} size={['100%', 4]} />
-            </div>
-          </div>
-        </Col>
-
-        {/* Connections */}
-        <Col xs={24} md={12} lg={6}>
-          <div className="lg:border-l lg:pl-6 h-full flex flex-col" style={{ borderColor: dividerColor }}>
-            <div className="flex justify-between items-end mb-3">
-              <span className="text-xs opacity-60 font-medium">传输连接数</span>
-              <div className="flex items-center gap-1 text-[10px]" style={{ color: COLORS.success }}>
-                <span className="material-symbols-outlined text-[12px]">arrow_upward</span> 实时
-              </div>
-            </div>
-            <div className="flex items-end gap-2 mb-2">
-              <span className="text-3xl font-bold tracking-tight">8,492</span>
-              <span className="text-[10px] opacity-50 mb-1">活跃连接</span>
-            </div>
-            <Row gutter={8} className="mt-auto">
-              <Col span={6}>
-                <div className="p-1.5 rounded text-center" style={{ backgroundColor: innerBg }}>
-                  <div className="text-[9px] opacity-50 uppercase">TCP</div>
-                  <div className="text-xs font-bold">8.1k</div>
-                </div>
-              </Col>
-              <Col span={6}>
-                <div className="p-1.5 rounded text-center" style={{ backgroundColor: innerBg }}>
-                  <div className="text-[9px] opacity-50 uppercase">UDP</div>
-                  <div className="text-xs font-bold">372</div>
-                </div>
-              </Col>
-              <Col span={6}>
-                <div className="p-1.5 rounded text-center" style={{ backgroundColor: innerBg }}>
-                  <div className="text-[9px] opacity-50 uppercase">HTTP</div>
-                  <div className="text-xs font-bold">5.2k</div>
-                </div>
-              </Col>
-              <Col span={6}>
-                <div className="p-1.5 rounded text-center" style={{ backgroundColor: innerBg }}>
-                  <div className="text-[9px] opacity-50 uppercase">HTTPS</div>
-                  <div className="text-xs font-bold">2.9k</div>
-                </div>
-              </Col>
-            </Row>
-          </div>
-        </Col>
-
-        {/* Bandwidth */}
-        <Col xs={24} md={12} lg={6}>
-          <div className="lg:border-l lg:pl-6 h-full flex flex-col" style={{ borderColor: dividerColor }}>
+          <div className="h-full rounded-xl border p-4 flex flex-col" style={{ backgroundColor: panelBg, borderColor }}>
             <div className="flex justify-between items-center mb-3">
-              <span className="text-xs opacity-60 font-medium">带宽与流量统计</span>
+              <span className="text-xs opacity-60 font-medium">近窗口网络流量</span>
               <div className="flex gap-2 text-[10px]">
                 <span className="flex items-center gap-1" style={{ color: COLORS.info }}>
-                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS.info }} /> In
+                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS.info }} /> 入站
                 </span>
                 <span className="flex items-center gap-1" style={{ color: COLORS.success }}>
-                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS.success }} /> Out
+                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS.success }} /> 出站
                 </span>
               </div>
             </div>
-            <div className="flex justify-between mb-1">
-              <span className="text-[10px]">450 Mbps</span>
-              <span className="text-[10px]">1.2 Gbps</span>
+            <div className="grid grid-cols-2 gap-2 text-[11px] mb-3">
+              <div className="rounded-lg p-2" style={{ backgroundColor: isDark ? '#111827' : '#ffffff' }}>
+                <div className="opacity-50 mb-1">最近窗口入站</div>
+                <div className="font-bold">{formatBytes(data?.latest_net_in_delta_bytes ?? 0)}</div>
+              </div>
+              <div className="rounded-lg p-2" style={{ backgroundColor: isDark ? '#111827' : '#ffffff' }}>
+                <div className="opacity-50 mb-1">最近窗口出站</div>
+                <div className="font-bold">{formatBytes(data?.latest_net_out_delta_bytes ?? 0)}</div>
+              </div>
+              <div className="rounded-lg p-2" style={{ backgroundColor: isDark ? '#111827' : '#ffffff' }}>
+                <div className="opacity-50 mb-1">累计入站</div>
+                <div className="font-bold">{formatBytes(data?.total_net_in_bytes ?? 0)}</div>
+              </div>
+              <div className="rounded-lg p-2" style={{ backgroundColor: isDark ? '#111827' : '#ffffff' }}>
+                <div className="opacity-50 mb-1">累计出站</div>
+                <div className="font-bold">{formatBytes(data?.total_net_out_bytes ?? 0)}</div>
+              </div>
             </div>
-            <div className="flex-1 min-h-0">
-              <ChartWrapper option={bandwidthOption} height={80} />
+            <div className="flex-1 min-h-[96px]">
+              {trendPoints.length > 0 ? (
+                <ChartWrapper option={bandwidthOption} height={96} />
+              ) : (
+                <div className="h-24 flex items-center justify-center text-xs opacity-50">
+                  当前范围内暂无网络趋势数据
+                </div>
+              )}
             </div>
           </div>
         </Col>
       </Row>
+
+      <div className="mt-5">
+        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+          <div className="text-xs font-medium opacity-60">最近节点快照</div>
+          <div className="text-[10px] opacity-50">
+            {latestSnapshots.length > 0 ? `展示 ${latestSnapshots.length} 条最新上报` : '当前租户暂无可展示的主机指标数据'}
+          </div>
+        </div>
+
+        {latestSnapshots.length > 0 ? (
+          <Row gutter={[12, 12]}>
+            {latestSnapshots.map((snapshot) => (
+              <Col key={`${snapshot.agent_id}-${snapshot.server_id}`} xs={24} xl={12}>
+                <div className="rounded-xl border p-3" style={{ backgroundColor: panelBg, borderColor }}>
+                  <div className="grid min-w-0 grid-cols-2 gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] opacity-45">主机名</div>
+                      <div className="truncate font-medium">{snapshot.server_id || '未知主机'}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] opacity-45">Agent</div>
+                      <div className="truncate font-medium">{snapshot.agent_id || '未知 Agent'}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="rounded-lg px-2 py-1.5 text-center" style={{ backgroundColor: isDark ? '#111827' : '#ffffff' }}>
+                      <div className="text-[10px] opacity-50">CPU</div>
+                      <div className="text-xs font-bold">{formatMetricPercent(snapshot.cpu_usage_pct)}</div>
+                    </div>
+                    <div className="rounded-lg px-2 py-1.5 text-center" style={{ backgroundColor: isDark ? '#111827' : '#ffffff' }}>
+                      <div className="text-[10px] opacity-50">内存</div>
+                      <div className="text-xs font-bold">{formatMetricPercent(snapshot.memory_usage_pct)}</div>
+                    </div>
+                    <div className="rounded-lg px-2 py-1.5 text-center" style={{ backgroundColor: isDark ? '#111827' : '#ffffff' }}>
+                      <div className="text-[10px] opacity-50">磁盘</div>
+                      <div className="text-xs font-bold">{formatMetricPercent(snapshot.disk_usage_pct)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-[10px] opacity-50 gap-3">
+                    <span className="truncate">入站 {formatBytes(snapshot.net_in_bytes)} · 出站 {formatBytes(snapshot.net_out_bytes)}</span>
+                    <span className="shrink-0">{formatTimeAgo(snapshot.collected_at)}</span>
+                  </div>
+                </div>
+              </Col>
+            ))}
+          </Row>
+        ) : (
+          <div className="rounded-xl border border-dashed p-4 text-xs opacity-50" style={{ borderColor }}>
+            当前租户暂无可展示的主机指标数据
+          </div>
+        )}
+      </div>
     </Card>
   );
 });
@@ -492,6 +635,8 @@ const Dashboard: React.FC = () => {
   const authzReady = useAuthStore((s) => s.authzReady);
 
   const [overview, setOverview] = useState<DashboardOverviewStats | null>(null);
+  const [metricsOverview, setMetricsOverview] = useState<MetricsOverviewData | null>(null);
+  const [auditLogs, setAuditLogs] = useState<DashboardAuditRecord[]>([]);
   const [lastUpdated, setLastUpdated] = useState(Date.now());
   const storedRefreshInterval = usePreferencesStore((s) => s.refreshInterval);
   const setStoredRefreshInterval = usePreferencesStore((s) => s.setRefreshInterval);
@@ -509,15 +654,44 @@ const Dashboard: React.FC = () => {
   const doRefresh = useCallback(async (silent: boolean) => {
     setIsLoading(true);
     try {
-      const nextOverview = await fetchDashboardOverview();
-      setOverview(nextOverview);
-      setLoadError(null);
-      setLastUpdated(Date.now());
-    } catch (error) {
-      const readableError = error instanceof Error ? error.message : '加载仪表盘概览失败';
-      setLoadError(readableError);
-      if (!silent) {
-        message.error(readableError);
+      const [overviewResult, metricsOverviewResult, auditLogsResult] = await Promise.allSettled([
+        fetchDashboardOverview(),
+        fetchMetricsOverview('24h', 4),
+        fetchAuditLogs({ page: 1, page_size: 5 }),
+      ]);
+
+      const errors: string[] = [];
+      let hasSuccessfulUpdate = false;
+
+      if (overviewResult.status === 'fulfilled') {
+        setOverview(overviewResult.value);
+        hasSuccessfulUpdate = true;
+      } else {
+        errors.push(`日志概览：${overviewResult.reason instanceof Error ? overviewResult.reason.message : '加载失败'}`);
+      }
+
+      if (metricsOverviewResult.status === 'fulfilled') {
+        setMetricsOverview(metricsOverviewResult.value.data);
+        hasSuccessfulUpdate = true;
+      } else {
+        errors.push(`基础设施监控：${metricsOverviewResult.reason instanceof Error ? metricsOverviewResult.reason.message : '加载失败'}`);
+      }
+
+      if (auditLogsResult.status === 'fulfilled') {
+        setAuditLogs(mapAuditLogsForDashboard(auditLogsResult.value.items));
+        hasSuccessfulUpdate = true;
+      } else {
+        errors.push(`审计活动：${auditLogsResult.reason instanceof Error ? auditLogsResult.reason.message : '加载失败'}`);
+      }
+
+      if (hasSuccessfulUpdate) {
+        setLastUpdated(Date.now());
+      }
+
+      const nextLoadError = errors.length > 0 ? errors.join('；') : null;
+      setLoadError(nextLoadError);
+      if (nextLoadError && !silent) {
+        message.error(nextLoadError);
       }
     } finally {
       setIsLoading(false);
@@ -734,7 +908,7 @@ const Dashboard: React.FC = () => {
       </Row>
 
       {/* 基础设施监控 */}
-      <InfrastructureMonitor />
+      <InfrastructureMonitor data={metricsOverview} isLoading={isLoading} />
 
       {/* 图表 + 异常服务排行 */}
       <Row gutter={[24, 24]}>
@@ -921,11 +1095,11 @@ const Dashboard: React.FC = () => {
             }
           >
             <div className="space-y-4">
-              {AUDIT_LOG_DATA.map((audit, idx) => {
+              {auditLogs.length > 0 ? auditLogs.map((audit, idx) => {
                 const cfg = auditTypeConfig[audit.type] || auditTypeConfig.update;
                 return (
-                  <div key={idx} className="flex items-center gap-3 text-xs">
-                    <div className="w-[60px] shrink-0 text-right opacity-50">{audit.time}</div>
+                  <div key={`${audit.user}-${audit.target}-${idx}`} className="flex items-center gap-3 text-xs">
+                    <div className="w-[72px] shrink-0 text-right opacity-50">{audit.time}</div>
                     <div
                       className="h-6 w-6 rounded-full flex items-center justify-center shrink-0"
                       style={{ backgroundColor: `${cfg.color}33`, color: cfg.color }}
@@ -939,7 +1113,9 @@ const Dashboard: React.FC = () => {
                     </div>
                   </div>
                 );
-              })}
+              }) : (
+                <div className="text-xs opacity-50">当前范围内暂无审计活动记录</div>
+              )}
             </div>
           </Card>
         </Col>

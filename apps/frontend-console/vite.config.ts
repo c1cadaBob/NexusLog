@@ -82,6 +82,14 @@ export default defineConfig(({ mode }) => {
           target: controlPlaneProxyTarget,
           changeOrigin: true,
         },
+        '/api/v1/metrics': {
+          target: controlPlaneProxyTarget,
+          changeOrigin: true,
+        },
+        '/api/v1/resource': {
+          target: controlPlaneProxyTarget,
+          changeOrigin: true,
+        },
         '/api/v1/audit': {
           target: auditProxyTarget,
           changeOrigin: true,
