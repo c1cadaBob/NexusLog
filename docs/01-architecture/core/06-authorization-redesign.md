@@ -472,6 +472,50 @@
 4. 角色分配必须做“授权上限校验”。
 5. 角色只是能力集合，运行时鉴权不得再直接依赖角色名。
 
+### 6.4 角色 × 权限组 × 范围建议
+
+为便于后续落地，建议将内置角色的默认授权基线整理如下。
+
+| 角色 | 主体类型 | 默认范围 | IAM/角色治理 | 认证/登录治理 | 审计/导出 | 日志查询/分析 | 告警/通知/事件 | 采集/接入/字段 | 指标/备份/设置 | 集成开放 | 备注 |
+|------|----------|----------|--------------|----------------|-----------|----------------|----------------|----------------|----------------|----------|------|
+| `platform_super_admin` | `system_reserved` | `system` + `all_tenants` + `tenant` | 全部 | 全部 | 全部 | 全部 | 全部 | 全部 | 全部 | 全部 | 平台唯一超级管理员，仅绑定 `sys-superadmin` |
+| `system_automation` | `system_reserved` / `service_account` | `system`，必要时 `tenant` | 无人工治理权限 | 受限 | 受限 | 受限 | 受限 | 受限 | 受限 | 受限 | 仅执行系统流程，默认不允许交互式登录 |
+| `tenant_admin` | `human_user` | `tenant` | 全部@`tenant` | 大部分@`tenant` | 只读/导出@`tenant` | 全部@`tenant` | 全部@`tenant` | 全部@`tenant` | 大部分@`tenant` | 大部分@`tenant` | 不得授予 `system` / `all_tenants` 能力 |
+| `security_admin` | `human_user` | `tenant` | 全部@`tenant` | 全部@`tenant` | 全部@`tenant` | 只读@`tenant` | 只读@`tenant` | 只读@`tenant` | 只读@`tenant` | 只读@`tenant` | 重点负责账户、角色、登录策略、审计治理 |
+| `operator` | `human_user` | `tenant` + `assigned` + `owned` | 只读或无 | 无 | 只读/按需导出 | 全部@`tenant` | 全部@`tenant` | 运行态管理@`tenant` | 指标读写、备份只读、设置只读 | 按需只读 | 负责日常运维与处置，不管理身份体系 |
+| `auditor` | `human_user` | `tenant`，可选 `all_tenants`（仅平台审计） | 无 | 只读 | 全部@`tenant` | 只读@`tenant` | 只读@`tenant` | 只读@`tenant` | 只读@`tenant` | 只读@`tenant` | 默认不允许业务写操作 |
+| `viewer` | `human_user` | `self` + `tenant`（只读） | 无 | 无 | 无或只读 | 只读@`tenant` | 只读@`tenant` | 只读@`tenant` | 只读@`tenant` | 只读@`tenant` | 不允许任何写操作 |
+
+补充说明：
+
+1. “全部”指该权限组下的读、创建、更新、删除、分配、启停等动作均可授权，但仍受硬拒绝规则约束。
+2. “大部分”指租户内可配置、可治理的能力可授权，但平台级能力与保留主体治理不在此列。
+3. “受限”表示仅允许系统流程所需的白名单动作，例如 `audit.log.write_system`、部分后台任务读写、必要的运行态维护动作。
+4. `tenant_admin` 与 `security_admin` 的核心区别是：前者偏租户经营与业务配置，后者偏身份、角色、登录策略、审计治理。
+5. `operator` 与 `auditor` 的核心区别是：前者可执行业务运行动作，后者原则上只读。
+6. 除 `platform_super_admin` 外，其他角色默认均不得直接拥有 `system` 或 `all_tenants` 范围能力；如确需平台审计，可通过单独平台角色授予。
+
+### 6.5 默认角色与页面访问关系
+
+建议按“默认角色 -> 页面层级”建立初始映射：
+
+| 角色 | 默认可访问页面层级 |
+|------|------------------|
+| `platform_super_admin` | 全部页面 |
+| `system_automation` | 无人工页面，仅系统流程接口 |
+| `tenant_admin` | 租户内全部管理页与业务页 |
+| `security_admin` | 安全与审计、用户角色、登录策略、部分只读业务页 |
+| `operator` | 检索、告警、事件、采集、指标、部分导出页 |
+| `auditor` | 审计、检索、导出记录、只读业务页 |
+| `viewer` | 仪表盘、检索、只读业务页、帮助页 |
+
+后续如需实现页面矩阵，可继续细化为：
+
+- 页面路由
+- 页面所需 `view capability`
+- 页面内动作所需 `action capability`
+- 页面数据范围基线
+
 ## 7. 权限字典与能力分组建议
 
 ### 7.1 IAM / 身份治理

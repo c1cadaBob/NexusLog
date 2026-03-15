@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 type AlertEvent struct {
@@ -93,19 +95,63 @@ func (h *EventHandler) ListEvents(c *gin.Context) {
 		}
 	}
 
-	var total int
-	countQuery := `
+	tenantScope := tenantID
+	allowed, err := cpMiddleware.HasGlobalTenantReadAccess(c.Request.Context(), h.db, tenantID, getActorID(c))
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to authorize request", nil)
+		return
+	}
+	if allowed {
+		tenantScope = ""
+	}
+
+	var (
+		total int
+		rows  *sql.Rows
+	)
+	offset := (page - 1) * pageSize
+	if tenantScope == "" {
+		countQuery := `
+SELECT COUNT(1)
+FROM alert_events
+WHERE ($1 = '' OR status = $1)
+`
+		if err := h.db.QueryRowContext(c.Request.Context(), countQuery, status).Scan(&total); err != nil {
+			writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)
+			return
+		}
+
+		query := `
+SELECT
+    id::text,
+    COALESCE(rule_id::text, ''),
+    severity,
+    status,
+    title,
+    COALESCE(detail, ''),
+    COALESCE(source_id, ''),
+    fired_at,
+    resolved_at
+FROM alert_events
+WHERE ($1 = '' OR status = $1)
+ORDER BY fired_at DESC
+OFFSET $2
+LIMIT $3
+`
+		rows, err = h.db.QueryContext(c.Request.Context(), query, status, offset, pageSize)
+	} else {
+		countQuery := `
 SELECT COUNT(1)
 FROM alert_events
 WHERE tenant_id = $1::uuid
   AND ($2 = '' OR status = $2)
 `
-	if err := h.db.QueryRowContext(c.Request.Context(), countQuery, tenantID, status).Scan(&total); err != nil {
-		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)
-		return
-	}
+		if err := h.db.QueryRowContext(c.Request.Context(), countQuery, tenantScope, status).Scan(&total); err != nil {
+			writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)
+			return
+		}
 
-	query := `
+		query := `
 SELECT
     id::text,
     COALESCE(rule_id::text, ''),
@@ -123,8 +169,8 @@ ORDER BY fired_at DESC
 OFFSET $3
 LIMIT $4
 `
-	offset := (page - 1) * pageSize
-	rows, err := h.db.QueryContext(c.Request.Context(), query, tenantID, status, offset, pageSize)
+		rows, err = h.db.QueryContext(c.Request.Context(), query, tenantScope, status, offset, pageSize)
+	}
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)
 		return

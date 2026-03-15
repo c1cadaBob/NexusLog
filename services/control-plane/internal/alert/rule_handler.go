@@ -1,6 +1,7 @@
 package alert
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -76,7 +77,14 @@ func (h *RuleHandler) ListRules(c *gin.Context) {
 		pageSize = 200
 	}
 
-	items, total, err := h.svc.ListRules(c.Request.Context(), tenantID, page, pageSize)
+	tenantScope, err := h.resolveReadTenantScope(c, tenantID)
+	if err != nil {
+		setAlertRuleAuditEvent(c, "alert_rules.list", "", buildRuleListAuditDetails(page, pageSize, 0, 0, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
+		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to authorize request", nil)
+		return
+	}
+
+	items, total, err := h.svc.ListRules(c.Request.Context(), tenantScope, page, pageSize)
 	if err != nil {
 		setAlertRuleAuditEvent(c, "alert_rules.list", "", buildRuleListAuditDetails(page, pageSize, 0, 0, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list rules", nil)
@@ -102,7 +110,14 @@ func (h *RuleHandler) GetRule(c *gin.Context) {
 		return
 	}
 
-	rule, err := h.svc.GetRule(c.Request.Context(), tenantID, ruleID)
+	tenantScope, err := h.resolveReadTenantScope(c, tenantID)
+	if err != nil {
+		setAlertRuleAuditEvent(c, "alert_rules.read", ruleID, buildRuleReadAuditDetails(nil, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
+		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to authorize request", nil)
+		return
+	}
+
+	rule, err := h.svc.GetRule(c.Request.Context(), tenantScope, ruleID)
 	if err != nil {
 		if err == ErrRuleNotFound {
 			setAlertRuleAuditEvent(c, "alert_rules.read", ruleID, buildRuleReadAuditDetails(nil, http.StatusNotFound, "failed", ErrorCodeResourceNotFound))
@@ -388,6 +403,28 @@ func sanitizeRuleConditionError(err error) string {
 		return detail
 	}
 	return "invalid condition payload"
+}
+
+type globalTenantReadAuthorizer interface {
+	HasGlobalTenantReadAccess(ctx context.Context, tenantID, userID string) (bool, error)
+}
+
+func (h *RuleHandler) resolveReadTenantScope(c *gin.Context, tenantID string) (string, error) {
+	if h == nil || h.svc == nil || h.svc.repo == nil {
+		return tenantID, nil
+	}
+	repo, ok := h.svc.repo.(globalTenantReadAuthorizer)
+	if !ok {
+		return tenantID, nil
+	}
+	allowed, err := repo.HasGlobalTenantReadAccess(c.Request.Context(), tenantID, getActorID(c))
+	if err != nil {
+		return "", err
+	}
+	if allowed {
+		return "", nil
+	}
+	return tenantID, nil
 }
 
 func getTenantID(c *gin.Context) string {

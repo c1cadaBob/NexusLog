@@ -9,7 +9,8 @@ import (
 
 // mockRuleRepo is an in-memory RuleRepository for testing.
 type mockRuleRepo struct {
-	rules map[string]AlertRule
+	rules            map[string]AlertRule
+	globalTenantRead bool
 }
 
 func newMockRuleRepo() *mockRuleRepo {
@@ -21,7 +22,7 @@ func newMockRuleRepo() *mockRuleRepo {
 func (m *mockRuleRepo) ListRules(ctx context.Context, tenantID string, page, pageSize int) ([]AlertRule, int, error) {
 	var items []AlertRule
 	for _, r := range m.rules {
-		if r.TenantID == tenantID {
+		if tenantID == "" || r.TenantID == tenantID {
 			items = append(items, r)
 		}
 	}
@@ -49,10 +50,17 @@ func (m *mockRuleRepo) ListEnabledRules(ctx context.Context) ([]AlertRule, error
 
 func (m *mockRuleRepo) GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error) {
 	r, ok := m.rules[ruleID]
-	if !ok || r.TenantID != tenantID {
+	if !ok {
+		return nil, ErrRuleNotFound
+	}
+	if tenantID != "" && r.TenantID != tenantID {
 		return nil, ErrRuleNotFound
 	}
 	return &r, nil
+}
+
+func (m *mockRuleRepo) HasGlobalTenantReadAccess(ctx context.Context, tenantID, userID string) (bool, error) {
+	return m.globalTenantRead, nil
 }
 
 func (m *mockRuleRepo) CreateRule(ctx context.Context, rule *AlertRule) (string, error) {

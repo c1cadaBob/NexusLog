@@ -230,6 +230,65 @@ func TestRuleHandler_GetRule_NotFound(t *testing.T) {
 	}
 }
 
+func TestRuleHandler_ListRules_GlobalTenantRead(t *testing.T) {
+	repo := newMockRuleRepo()
+	repo.globalTenantRead = true
+	repo.rules["rule-a"] = AlertRule{ID: "rule-a", TenantID: "00000000-0000-0000-0000-000000000001", Name: "tenant-a"}
+	repo.rules["rule-b"] = AlertRule{ID: "rule-b", TenantID: "00000000-0000-0000-0000-000000000002", Name: "tenant-b"}
+	svc := NewRuleService(repo)
+	handler := NewRuleHandler(svc)
+	r := newAlertTestRouter()
+	RegisterAlertRuleRoutes(r, handler)
+
+	rec := performRequest(r, http.MethodGet, "/api/v1/alert/rules?page=1&page_size=10", nil, "00000000-0000-0000-0000-000000000099")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Items []AlertRule `json:"items"`
+		} `json:"data"`
+		Meta struct {
+			Total int `json:"total"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Meta.Total != 2 || len(resp.Data.Items) != 2 {
+		t.Fatalf("expected 2 cross-tenant rules, got total=%d items=%d", resp.Meta.Total, len(resp.Data.Items))
+	}
+}
+
+func TestRuleHandler_GetRule_GlobalTenantRead(t *testing.T) {
+	repo := newMockRuleRepo()
+	repo.globalTenantRead = true
+	repo.rules["rule-cross"] = AlertRule{
+		ID:        "rule-cross",
+		TenantID:  "00000000-0000-0000-0000-000000000002",
+		Name:      "cross-tenant-rule",
+		Condition: json.RawMessage(`{"type":"keyword","keyword":"err"}`),
+	}
+	svc := NewRuleService(repo)
+	handler := NewRuleHandler(svc)
+	r := newAlertTestRouter()
+	RegisterAlertRuleRoutes(r, handler)
+
+	rec := performRequest(r, http.MethodGet, "/api/v1/alert/rules/rule-cross", nil, "00000000-0000-0000-0000-000000000099")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data AlertRule `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Data.TenantID != "00000000-0000-0000-0000-000000000002" {
+		t.Fatalf("expected cross-tenant rule, got tenant_id=%s", resp.Data.TenantID)
+	}
+}
+
 func TestRuleHandler_UpdateRule(t *testing.T) {
 	repo := newMockRuleRepo()
 	repo.rules["rule-upd"] = AlertRule{

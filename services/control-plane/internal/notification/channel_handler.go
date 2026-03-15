@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -97,6 +98,10 @@ func (h *ChannelHandler) getActorID(c *gin.Context) *string {
 	return cpMiddleware.AuthenticatedUserIDPtr(c)
 }
 
+type globalTenantReadAccessResolver interface {
+	HasGlobalTenantReadAccess(ctx context.Context, tenantID, userID string) (bool, error)
+}
+
 func (h *ChannelHandler) getRequestID(c *gin.Context) string {
 	if rid := strings.TrimSpace(c.GetHeader("X-Request-ID")); rid != "" {
 		return rid
@@ -128,6 +133,25 @@ func (h *ChannelHandler) writeError(c *gin.Context, status int, code, message st
 	})
 }
 
+func (h *ChannelHandler) resolveReadTenantScope(c *gin.Context, tenantID string) (string, error) {
+	if h == nil || h.repo == nil {
+		return tenantID, nil
+	}
+	repo, ok := any(h.repo).(globalTenantReadAccessResolver)
+	if !ok {
+		return tenantID, nil
+	}
+	userID := cpMiddleware.AuthenticatedUserID(c)
+	allowed, err := repo.HasGlobalTenantReadAccess(c.Request.Context(), tenantID, userID)
+	if err != nil {
+		return "", err
+	}
+	if allowed {
+		return "", nil
+	}
+	return tenantID, nil
+}
+
 // ListChannels GET /api/v1/notification/channels
 func (h *ChannelHandler) ListChannels(c *gin.Context) {
 	tenantID := h.getTenantID(c)
@@ -145,7 +169,13 @@ func (h *ChannelHandler) ListChannels(c *gin.Context) {
 		pageSize = 20
 	}
 
-	items, total, err := h.repo.ListChannels(c.Request.Context(), tenantID, page, pageSize)
+	tenantScope, err := h.resolveReadTenantScope(c, tenantID)
+	if err != nil {
+		h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to authorize request", nil)
+		return
+	}
+
+	items, total, err := h.repo.ListChannels(c.Request.Context(), tenantScope, page, pageSize)
 	if err != nil {
 		h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to list channels", nil)
 		return
@@ -168,7 +198,13 @@ func (h *ChannelHandler) GetChannel(c *gin.Context) {
 		return
 	}
 
-	ch, err := h.repo.GetChannel(c.Request.Context(), tenantID, id)
+	tenantScope, err := h.resolveReadTenantScope(c, tenantID)
+	if err != nil {
+		h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to authorize request", nil)
+		return
+	}
+
+	ch, err := h.repo.GetChannel(c.Request.Context(), tenantScope, id)
 	if err != nil {
 		if err == ErrChannelNotFound {
 			h.writeError(c, http.StatusNotFound, ErrorCodeNotFound, "channel not found", nil)

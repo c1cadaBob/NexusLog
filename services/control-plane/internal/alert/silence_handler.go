@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 // SilenceHandler handles silence HTTP endpoints.
@@ -33,8 +35,21 @@ func RegisterSilenceRoutes(router gin.IRouter, h *SilenceHandler) {
 // ListSilences GET /api/v1/alert/silences
 func (h *SilenceHandler) ListSilences(c *gin.Context) {
 	tenantID := strings.TrimSpace(getTenantID(c))
+	tenantScope := tenantID
+	allowed, err := cpMiddleware.HasGlobalTenantReadAccess(c.Request.Context(), h.svc.db, tenantID, getActorID(c))
+	if err != nil {
+		setAlertSilenceAuditEvent(c, "alert_silences.list", "", buildSilenceListAuditDetails(0, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    ErrorCodeInternalError,
+			"message": "failed to authorize request",
+		})
+		return
+	}
+	if allowed {
+		tenantScope = ""
+	}
 
-	silences, err := h.svc.ListActive(c.Request.Context(), tenantID)
+	silences, err := h.svc.ListActive(c.Request.Context(), tenantScope)
 	if err != nil {
 		setAlertSilenceAuditEvent(c, "alert_silences.list", "", buildSilenceListAuditDetails(0, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{

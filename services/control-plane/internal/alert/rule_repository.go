@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 var (
@@ -64,18 +66,44 @@ func NewRuleRepositoryPG(db *sql.DB) *RuleRepositoryPG {
 // ListRules returns paginated alert rules for a tenant.
 func (r *RuleRepositoryPG) ListRules(ctx context.Context, tenantID string, page, pageSize int) ([]AlertRule, int, error) {
 	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
-		return nil, 0, fmt.Errorf("tenant_id is required")
-	}
 
-	var total int
-	countQuery := `SELECT COUNT(1) FROM alert_rules WHERE tenant_id = $1::uuid`
-	if err := r.db.QueryRowContext(ctx, countQuery, tenantID).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("count rules: %w", err)
-	}
+	var (
+		total int
+		rows  *sql.Rows
+		err   error
+	)
 
 	offset := (page - 1) * pageSize
-	query := `
+	if tenantID == "" {
+		countQuery := `SELECT COUNT(1) FROM alert_rules`
+		if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count rules: %w", err)
+		}
+		query := `
+SELECT
+    id::text,
+    tenant_id::text,
+    name,
+    COALESCE(description, ''),
+    condition,
+    COALESCE(severity, 'WARNING'),
+    COALESCE(enabled, true),
+    COALESCE(notification_channels, '[]'::jsonb),
+    created_by::text,
+    created_at,
+    updated_at
+FROM alert_rules
+ORDER BY updated_at DESC
+OFFSET $1
+LIMIT $2
+`
+		rows, err = r.db.QueryContext(ctx, query, offset, pageSize)
+	} else {
+		countQuery := `SELECT COUNT(1) FROM alert_rules WHERE tenant_id = $1::uuid`
+		if err := r.db.QueryRowContext(ctx, countQuery, tenantID).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count rules: %w", err)
+		}
+		query := `
 SELECT
     id::text,
     tenant_id::text,
@@ -94,7 +122,8 @@ ORDER BY updated_at DESC
 OFFSET $2
 LIMIT $3
 `
-	rows, err := r.db.QueryContext(ctx, query, tenantID, offset, pageSize)
+		rows, err = r.db.QueryContext(ctx, query, tenantID, offset, pageSize)
+	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("list rules: %w", err)
 	}
@@ -190,11 +219,34 @@ ORDER BY tenant_id, updated_at DESC
 func (r *RuleRepositoryPG) GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error) {
 	tenantID = strings.TrimSpace(tenantID)
 	ruleID = strings.TrimSpace(ruleID)
-	if tenantID == "" || ruleID == "" {
+	if ruleID == "" {
 		return nil, ErrRuleNotFound
 	}
 
-	query := `
+	var (
+		query string
+		args  []any
+	)
+	if tenantID == "" {
+		query = `
+SELECT
+    id::text,
+    tenant_id::text,
+    name,
+    COALESCE(description, ''),
+    condition,
+    COALESCE(severity, 'WARNING'),
+    COALESCE(enabled, true),
+    COALESCE(notification_channels, '[]'::jsonb),
+    created_by::text,
+    created_at,
+    updated_at
+FROM alert_rules
+WHERE id = $1::uuid
+`
+		args = []any{ruleID}
+	} else {
+		query = `
 SELECT
     id::text,
     tenant_id::text,
@@ -210,9 +262,11 @@ SELECT
 FROM alert_rules
 WHERE tenant_id = $1::uuid AND id = $2::uuid
 `
+		args = []any{tenantID, ruleID}
+	}
 	var rule AlertRule
 	var createdBy sql.NullString
-	err := r.db.QueryRowContext(ctx, query, tenantID, ruleID).Scan(
+	err := r.db.QueryRowContext(ctx, query, args...).Scan(
 		&rule.ID,
 		&rule.TenantID,
 		&rule.Name,
@@ -237,6 +291,10 @@ WHERE tenant_id = $1::uuid AND id = $2::uuid
 	rule.CreatedAt = rule.CreatedAt.UTC()
 	rule.UpdatedAt = rule.UpdatedAt.UTC()
 	return &rule, nil
+}
+
+func (r *RuleRepositoryPG) HasGlobalTenantReadAccess(ctx context.Context, tenantID, userID string) (bool, error) {
+	return cpMiddleware.HasGlobalTenantReadAccess(ctx, r.db, tenantID, userID)
 }
 
 // CreateRule inserts a new alert rule and returns its ID.

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 var (
@@ -43,9 +45,6 @@ func NewChannelRepository(db *sql.DB) *ChannelRepository {
 // ListChannels returns channels for a tenant with pagination.
 func (r *ChannelRepository) ListChannels(ctx context.Context, tenantID string, page, pageSize int) ([]Channel, int, error) {
 	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
-		return nil, 0, fmt.Errorf("tenant_id is required")
-	}
 	if page < 1 {
 		page = 1
 	}
@@ -53,14 +52,31 @@ func (r *ChannelRepository) ListChannels(ctx context.Context, tenantID string, p
 		pageSize = 20
 	}
 
-	var total int
-	countQuery := `SELECT COUNT(1) FROM notification_channels WHERE tenant_id = $1::uuid`
-	if err := r.db.QueryRowContext(ctx, countQuery, tenantID).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("count channels: %w", err)
-	}
-
+	var (
+		total int
+		rows  *sql.Rows
+		err   error
+	)
 	offset := (page - 1) * pageSize
-	query := `
+	if tenantID == "" {
+		countQuery := `SELECT COUNT(1) FROM notification_channels`
+		if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count channels: %w", err)
+		}
+		query := `
+SELECT id::text, tenant_id::text, name, type, config, enabled,
+       created_by::text, created_at, updated_at
+FROM notification_channels
+ORDER BY updated_at DESC
+OFFSET $1 LIMIT $2
+`
+		rows, err = r.db.QueryContext(ctx, query, offset, pageSize)
+	} else {
+		countQuery := `SELECT COUNT(1) FROM notification_channels WHERE tenant_id = $1::uuid`
+		if err := r.db.QueryRowContext(ctx, countQuery, tenantID).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count channels: %w", err)
+		}
+		query := `
 SELECT id::text, tenant_id::text, name, type, config, enabled,
        created_by::text, created_at, updated_at
 FROM notification_channels
@@ -68,7 +84,8 @@ WHERE tenant_id = $1::uuid
 ORDER BY updated_at DESC
 OFFSET $2 LIMIT $3
 `
-	rows, err := r.db.QueryContext(ctx, query, tenantID, offset, pageSize)
+		rows, err = r.db.QueryContext(ctx, query, tenantID, offset, pageSize)
+	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("list channels: %w", err)
 	}
@@ -103,19 +120,34 @@ OFFSET $2 LIMIT $3
 func (r *ChannelRepository) GetChannel(ctx context.Context, tenantID, id string) (Channel, error) {
 	tenantID = strings.TrimSpace(tenantID)
 	id = strings.TrimSpace(id)
-	if tenantID == "" || id == "" {
-		return Channel{}, fmt.Errorf("tenant_id and id are required")
+	if id == "" {
+		return Channel{}, fmt.Errorf("id is required")
 	}
 
-	query := `
+	var (
+		query string
+		args  []any
+	)
+	if tenantID == "" {
+		query = `
+SELECT id::text, tenant_id::text, name, type, config, enabled,
+       created_by::text, created_at, updated_at
+FROM notification_channels
+WHERE id = $1::uuid
+`
+		args = []any{id}
+	} else {
+		query = `
 SELECT id::text, tenant_id::text, name, type, config, enabled,
        created_by::text, created_at, updated_at
 FROM notification_channels
 WHERE id = $1::uuid AND tenant_id = $2::uuid
 `
+		args = []any{id, tenantID}
+	}
 	var ch Channel
 	var createdBy sql.NullString
-	err := r.db.QueryRowContext(ctx, query, id, tenantID).Scan(
+	err := r.db.QueryRowContext(ctx, query, args...).Scan(
 		&ch.ID,
 		&ch.TenantID,
 		&ch.Name,
@@ -136,6 +168,10 @@ WHERE id = $1::uuid AND tenant_id = $2::uuid
 	ch.CreatedAt = ch.CreatedAt.UTC()
 	ch.UpdatedAt = ch.UpdatedAt.UTC()
 	return ch, nil
+}
+
+func (r *ChannelRepository) HasGlobalTenantReadAccess(ctx context.Context, tenantID, userID string) (bool, error) {
+	return cpMiddleware.HasGlobalTenantReadAccess(ctx, r.db, tenantID, userID)
 }
 
 // CreateChannel creates a new notification channel.
