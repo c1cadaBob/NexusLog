@@ -5,6 +5,25 @@ import {
   findRouteAuthorizationRule,
 } from '../src/auth/routeAuthorization';
 
+const USER_WRITE_ROUTE_REMOVALS = [
+  '/ingestion/sources',
+  '/ingestion/agents',
+  '/ingestion/wizard',
+  '/ingestion/status',
+  '/parsing/mapping',
+  '/parsing/rules',
+  '/parsing/masking',
+  '/parsing/dictionary',
+  '/storage/indices',
+  '/storage/ilm',
+  '/storage/backup',
+  '/storage/capacity',
+  '/performance/scaling',
+  '/performance/dr',
+  '/integration/webhook',
+  '/integration/plugins',
+] as const;
+
 describe('route authorization registry', () => {
   it('matches dynamic incident detail route', () => {
     const rule = findRouteAuthorizationRule('/incidents/detail/123');
@@ -131,6 +150,98 @@ describe('route authorization registry', () => {
       canAccessRoute('/settings/versions', {
         permissions: [],
         capabilities: ['settings.version.read'],
+      }),
+    ).toBe(true);
+  });
+
+  it('does not let users:write borrow access to ingestion, parsing, storage, platform, and integration routes', () => {
+    for (const path of USER_WRITE_ROUTE_REMOVALS) {
+      expect(
+        canAccessRoute(path, {
+          permissions: ['users:write'],
+          capabilities: [],
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it('keeps those routes available through their explicit capabilities', () => {
+    expect(
+      canAccessRoute('/ingestion/sources', {
+        permissions: [],
+        capabilities: ['ingest.source.read'],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/ingestion/agents', {
+        permissions: [],
+        capabilities: ['agent.read'],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/ingestion/status', {
+        permissions: [],
+        capabilities: ['ingest.task.read'],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/parsing/mapping', {
+        permissions: [],
+        capabilities: ['field.mapping.read'],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/storage/indices', {
+        permissions: [],
+        capabilities: ['storage.index.read'],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/performance/scaling', {
+        permissions: [],
+        capabilities: ['ops.scaling.read'],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/integration/webhook', {
+        permissions: [],
+        capabilities: ['integration.webhook.read_metadata'],
+      }),
+    ).toBe(true);
+  });
+
+  it('keeps metrics:read compatibility for metrics-adjacent routes', () => {
+    expect(
+      canAccessRoute('/ingestion/status', {
+        permissions: ['metrics:read'],
+        capabilities: [],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/storage/capacity', {
+        permissions: ['metrics:read'],
+        capabilities: [],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/performance/scaling', {
+        permissions: ['metrics:read'],
+        capabilities: [],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/performance/dr', {
+        permissions: ['metrics:read'],
+        capabilities: [],
       }),
     ).toBe(true);
   });

@@ -3,6 +3,25 @@ import { MENU_SECTIONS } from '../src/constants/menu';
 import { filterSectionsByAuthorization } from '../src/components/layout/AppSidebar';
 import { resolveMobileBottomNavItems } from '../src/components/layout/MobileBottomNav';
 
+const USER_WRITE_ROUTE_REMOVALS = [
+  '/ingestion/sources',
+  '/ingestion/agents',
+  '/ingestion/wizard',
+  '/ingestion/status',
+  '/parsing/mapping',
+  '/parsing/rules',
+  '/parsing/masking',
+  '/parsing/dictionary',
+  '/storage/indices',
+  '/storage/ilm',
+  '/storage/backup',
+  '/storage/capacity',
+  '/performance/scaling',
+  '/performance/dr',
+  '/integration/webhook',
+  '/integration/plugins',
+] as const;
+
 function collectVisiblePaths(sections: typeof MENU_SECTIONS): string[] {
   return sections.flatMap((section) =>
     section.items.flatMap((item) => {
@@ -63,7 +82,7 @@ describe('navigation authorization', () => {
     expect(navItems.map((item) => item.path)).toEqual(['/']);
   });
 
-  it('does not expose settings navigation through users:write alone', () => {
+  it('does not expose settings, ingestion, parsing, storage, platform, and integration navigation through users:write alone', () => {
     const sections = filterSectionsByAuthorization(
       MENU_SECTIONS,
       {
@@ -79,6 +98,10 @@ describe('navigation authorization', () => {
     expect(visiblePaths).not.toContain('/settings/parameters');
     expect(visiblePaths).not.toContain('/settings/global');
     expect(visiblePaths).not.toContain('/settings/versions');
+
+    for (const path of USER_WRITE_ROUTE_REMOVALS) {
+      expect(visiblePaths).not.toContain(path);
+    }
 
     const navItems = resolveMobileBottomNavItems(
       {
