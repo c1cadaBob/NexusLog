@@ -3,22 +3,29 @@
 
 BEGIN;
 
--- 确保默认租户存在（幂等）
-INSERT INTO obs.tenant (id, name, display_name, status)
-VALUES (
-    '00000000-0000-0000-0000-000000000001',
-    'default',
-    'Default Tenant',
-    'active'
+CREATE TEMP TABLE tmp_target_tenant (
+    id UUID PRIMARY KEY
+) ON COMMIT DROP;
+
+WITH target_tenant AS (
+    INSERT INTO obs.tenant (name, display_name, status)
+    VALUES ('default', 'Default Tenant', 'active')
+    ON CONFLICT (name) DO UPDATE
+    SET display_name = EXCLUDED.display_name,
+        status = EXCLUDED.status,
+        updated_at = NOW()
+    RETURNING id
 )
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO tmp_target_tenant (id)
+SELECT id
+FROM target_tenant;
 
 -- 旧 admin 角色在 system_admin 不存在时原地迁移
 UPDATE roles
 SET name = 'system_admin',
     description = 'System administrator with user, audit, alert, incident, and monitoring management permissions',
     permissions = '["users:read","users:write","logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'::jsonb
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND lower(name) = 'admin'
   AND NOT EXISTS (
       SELECT 1
@@ -29,42 +36,41 @@ WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
 
 -- 标准内置角色（幂等）
 INSERT INTO roles (id, tenant_id, name, description, permissions)
-VALUES
-    (
-        '10000000-0000-0000-0000-000000000001',
-        '00000000-0000-0000-0000-000000000001',
-        'system_admin',
-        'System administrator with user, audit, alert, incident, and monitoring management permissions',
-        '["users:read","users:write","logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'::jsonb
-    ),
-    (
-        '10000000-0000-0000-0000-000000000002',
-        '00000000-0000-0000-0000-000000000001',
-        'operator',
-        'Operational access: log search, alert management, incident handling, monitoring',
-        '["logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'::jsonb
-    ),
-    (
-        '10000000-0000-0000-0000-000000000003',
-        '00000000-0000-0000-0000-000000000001',
-        'viewer',
-        'Read-only access: view logs, dashboards, and monitoring data',
-        '["logs:read","dashboards:read","metrics:read"]'::jsonb
-    ),
-    (
-        '10000000-0000-0000-0000-000000000004',
-        '00000000-0000-0000-0000-000000000001',
-        'super_admin',
-        'Reserved super administrator role. Only one bootstrap user may hold this role.',
-        '["*"]'::jsonb
-    ),
-    (
-        '10000000-0000-0000-0000-000000000005',
-        '00000000-0000-0000-0000-000000000001',
-        'system_automation',
-        'Reserved system account role for automated operation and audit attribution.',
-        '["audit:write"]'::jsonb
-    )
+SELECT role.id, target_tenant.id, role.name, role.description, role.permissions
+FROM tmp_target_tenant target_tenant
+CROSS JOIN (
+    VALUES
+        (
+            '10000000-0000-0000-0000-000000000001'::uuid,
+            'system_admin',
+            'System administrator with user, audit, alert, incident, and monitoring management permissions',
+            '["users:read","users:write","logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'::jsonb
+        ),
+        (
+            '10000000-0000-0000-0000-000000000002'::uuid,
+            'operator',
+            'Operational access: log search, alert management, incident handling, monitoring',
+            '["logs:read","logs:export","alerts:read","alerts:write","incidents:read","incidents:write","metrics:read","dashboards:read","audit:read"]'::jsonb
+        ),
+        (
+            '10000000-0000-0000-0000-000000000003'::uuid,
+            'viewer',
+            'Read-only access: view logs, dashboards, and monitoring data',
+            '["logs:read","dashboards:read","metrics:read"]'::jsonb
+        ),
+        (
+            '10000000-0000-0000-0000-000000000004'::uuid,
+            'super_admin',
+            'Reserved super administrator role. Only one bootstrap user may hold this role.',
+            '["*"]'::jsonb
+        ),
+        (
+            '10000000-0000-0000-0000-000000000005'::uuid,
+            'system_automation',
+            'Reserved system account role for automated operation and audit attribution.',
+            '["audit:write"]'::jsonb
+        )
+) AS role(id, name, description, permissions)
 ON CONFLICT (tenant_id, name) DO UPDATE
 SET description = EXCLUDED.description,
     permissions = EXCLUDED.permissions;
@@ -77,18 +83,18 @@ JOIN roles legacy_admin_role ON legacy_admin_role.id = ur.role_id
 JOIN roles system_admin_role
   ON system_admin_role.tenant_id = legacy_admin_role.tenant_id
  AND lower(system_admin_role.name) = 'system_admin'
-WHERE legacy_admin_role.tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE legacy_admin_role.tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND lower(legacy_admin_role.name) = 'admin'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 DELETE FROM user_roles ur
 USING roles legacy_admin_role
 WHERE ur.role_id = legacy_admin_role.id
-  AND legacy_admin_role.tenant_id = '00000000-0000-0000-0000-000000000001'
+  AND legacy_admin_role.tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND lower(legacy_admin_role.name) = 'admin';
 
 DELETE FROM roles
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND lower(name) = 'admin';
 
 -- 将原 demo-admin 账号升级为系统超级管理员；若不存在则补建
@@ -98,7 +104,7 @@ SET username = 'sys-superadmin',
     display_name = 'System Super Admin',
     status = 'active',
     updated_at = NOW()
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND username = 'demo-admin'
   AND NOT EXISTS (
       SELECT 1
@@ -108,14 +114,14 @@ WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
   );
 
 INSERT INTO users (id, tenant_id, username, email, display_name, status)
-VALUES (
-    '20000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-0000-000000000001',
+SELECT
+    '20000000-0000-0000-0000-000000000001'::uuid,
+    target_tenant.id,
     'sys-superadmin',
     'superadmin@nexuslog.dev',
     'System Super Admin',
     'active'
-)
+FROM tmp_target_tenant target_tenant
 ON CONFLICT (tenant_id, username) DO UPDATE
 SET email = EXCLUDED.email,
     display_name = EXCLUDED.display_name,
@@ -124,14 +130,15 @@ SET email = EXCLUDED.email,
 
 INSERT INTO user_credentials (tenant_id, user_id, password_hash, password_algo, password_cost)
 SELECT
-    '00000000-0000-0000-0000-000000000001',
+    target_tenant.id,
     user_super_admin.id,
     '$2a$12$Grb472rXmEStVJprIfaFwONirfpwc7iouq/IS1SPYX9kVUVCe188i',
     'bcrypt',
     12
-FROM users user_super_admin
-WHERE user_super_admin.tenant_id = '00000000-0000-0000-0000-000000000001'
-  AND user_super_admin.username = 'sys-superadmin'
+FROM tmp_target_tenant target_tenant
+JOIN users user_super_admin
+  ON user_super_admin.tenant_id = target_tenant.id
+ AND user_super_admin.username = 'sys-superadmin'
 ON CONFLICT (user_id) DO UPDATE
 SET password_hash = EXCLUDED.password_hash,
     password_algo = EXCLUDED.password_algo,
@@ -141,14 +148,14 @@ SET password_hash = EXCLUDED.password_hash,
 
 -- 为系统自动化写审计预留独立账号（默认无密码，不允许交互式登录）
 INSERT INTO users (id, tenant_id, username, email, display_name, status)
-VALUES (
-    '20000000-0000-0000-0000-000000000005',
-    '00000000-0000-0000-0000-000000000001',
+SELECT
+    '20000000-0000-0000-0000-000000000005'::uuid,
+    target_tenant.id,
     'system-automation',
     'system-automation@nexuslog.dev',
     'System Automation',
     'active'
-)
+FROM tmp_target_tenant target_tenant
 ON CONFLICT (tenant_id, username) DO UPDATE
 SET email = EXCLUDED.email,
     display_name = EXCLUDED.display_name,
@@ -157,27 +164,27 @@ SET email = EXCLUDED.email,
 
 DELETE FROM user_credentials
 WHERE user_id IN (
-    SELECT id
-    FROM users
-    WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-      AND username = 'system-automation'
+    SELECT u.id
+    FROM users u
+    JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+    WHERE u.username = 'system-automation'
 );
 
 -- 固化系统保留账号的角色关系
 DELETE FROM user_roles
 WHERE user_id IN (
-    SELECT id
-    FROM users
-    WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-      AND username IN ('sys-superadmin', 'system-automation')
+    SELECT u.id
+    FROM users u
+    JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+    WHERE u.username IN ('sys-superadmin', 'system-automation')
 );
 
 INSERT INTO user_roles (user_id, role_id)
 SELECT u.id, r.id
 FROM users u
 JOIN roles r ON r.tenant_id = u.tenant_id
-WHERE u.tenant_id = '00000000-0000-0000-0000-000000000001'
-  AND u.username = 'sys-superadmin'
+JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+WHERE u.username = 'sys-superadmin'
   AND lower(r.name) = 'super_admin'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
@@ -185,95 +192,104 @@ INSERT INTO user_roles (user_id, role_id)
 SELECT u.id, r.id
 FROM users u
 JOIN roles r ON r.tenant_id = u.tenant_id
-WHERE u.tenant_id = '00000000-0000-0000-0000-000000000001'
-  AND u.username = 'system-automation'
+JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+WHERE u.username = 'system-automation'
   AND lower(r.name) = 'system_automation'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 -- 删除遗留演示用户前，先清空无法级联的引用
 UPDATE alert_rules
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND created_by IN (
-      SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+      SELECT u.id
+      FROM users u
+      JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+      WHERE u.username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE audit_logs
 SET user_id = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND user_id IN (
-      SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+      SELECT u.id
+      FROM users u
+      JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+      WHERE u.username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE notification_channels
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND created_by IN (
-      SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+      SELECT u.id
+      FROM users u
+      JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+      WHERE u.username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE incidents
 SET assigned_to = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND assigned_to IN (
-      SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+      SELECT u.id
+      FROM users u
+      JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+      WHERE u.username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE incidents
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND created_by IN (
-      SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+      SELECT u.id
+      FROM users u
+      JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+      WHERE u.username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE incident_timeline
 SET actor_id = NULL
 WHERE actor_id IN (
-    SELECT id FROM users
-    WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-      AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+    SELECT u.id
+    FROM users u
+    JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+    WHERE u.username IN ('demo-admin', 'demo-operator', 'demo-viewer')
 );
 
 UPDATE resource_thresholds
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND created_by IN (
-      SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+      SELECT u.id
+      FROM users u
+      JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+      WHERE u.username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE export_jobs
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND created_by IN (
-      SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+      SELECT u.id
+      FROM users u
+      JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+      WHERE u.username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 UPDATE alert_silences
 SET created_by = NULL
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND created_by IN (
-      SELECT id FROM users
-      WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
-        AND username IN ('demo-admin', 'demo-operator', 'demo-viewer')
+      SELECT u.id
+      FROM users u
+      JOIN tmp_target_tenant target_tenant ON u.tenant_id = target_tenant.id
+      WHERE u.username IN ('demo-admin', 'demo-operator', 'demo-viewer')
   );
 
 -- 清理无用的演示用户，仅保留系统超级管理员与系统自动化账号
 DELETE FROM users
-WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+WHERE tenant_id IN (SELECT id FROM tmp_target_tenant)
   AND username IN ('demo-admin', 'demo-operator', 'demo-viewer');
 
 COMMIT;

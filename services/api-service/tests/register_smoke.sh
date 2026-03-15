@@ -9,7 +9,7 @@ TENANT_ID="${SMOKE_TENANT_ID:-}"
 if [[ -z "${TENANT_ID}" ]]; then
   echo "ERROR: SMOKE_TENANT_ID is required." >&2
   echo "Example:" >&2
-  echo "  SMOKE_TENANT_ID=00000000-0000-0000-0000-000000000001 $0" >&2
+  echo "  SMOKE_TENANT_ID=<tenant-uuid> $0" >&2
   exit 1
 fi
 
