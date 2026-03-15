@@ -1,12 +1,17 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Alert, Input, Select, Table, Tag, Button, Card, DatePicker, message, Space, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import dayjs from 'dayjs';
+import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
 import { DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
 import { fetchAuditLogs, type AuditLogItem, type FetchAuditLogsParams } from '../../api/audit';
-import dayjs from 'dayjs';
 import { buildAuditDetailSummary } from './auditDetailSummary';
 import { protectedGovernanceUsernames, protectedGovernanceTagLabel } from './securityGovernance';
+import {
+  isReservedAuditSubjectQuery,
+  resolveAuditLogsActionAccess,
+} from './auditLogsAuthorization';
 
 const AUDIT_ACTION_OPTIONS = [
   { value: 'auth.login', label: 'auth.login' },
@@ -114,9 +119,20 @@ const governanceAuditQuickFilters = [
   { label: '系统自动化账号', username: protectedGovernanceUsernames[1] },
 ] as const;
 
+const RESERVED_SUBJECT_DENIED_MESSAGE = '当前会话缺少保留主体审计读取权限';
+
+type AuditLogFiltersSnapshot = {
+  userFilter: string;
+  actionFilter?: string;
+  resourceTypeFilter?: string;
+  dateRange: [dayjs.Dayjs | null, dayjs.Dayjs | null];
+};
+
 const AuditLogs: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
+  const initialLoadCompletedRef = useRef(false);
 
   const [userFilter, setUserFilter] = useState('');
   const [actionFilter, setActionFilter] = useState<string | undefined>(undefined);
@@ -130,20 +146,60 @@ const AuditLogs: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const loadData = useCallback(async (pageOverride?: number, pageSizeOverride?: number) => {
-    setLoading(true);
-    setError(null);
+  const actionAccess = useMemo(
+    () => resolveAuditLogsActionAccess({ capabilities }),
+    [capabilities],
+  );
+  const missingAuditRestrictions = useMemo(() => {
+    const restrictions: string[] = [];
+    if (!actionAccess.canReadReservedSubjects) {
+      restrictions.push('系统保留账号快速筛选');
+    }
+    if (!actionAccess.canExportAuditLogs) {
+      restrictions.push('审计日志导出');
+    }
+    return restrictions;
+  }, [actionAccess.canExportAuditLogs, actionAccess.canReadReservedSubjects]);
+
+  const loadData = useCallback(async (
+    pageOverride?: number,
+    pageSizeOverride?: number,
+    filtersOverride?: Partial<AuditLogFiltersSnapshot>,
+  ) => {
     const currentPage = pageOverride ?? page;
     const currentPageSize = pageSizeOverride ?? pageSize;
+    const resolvedFilters: AuditLogFiltersSnapshot = {
+      userFilter: filtersOverride?.userFilter ?? userFilter,
+      actionFilter: filtersOverride?.actionFilter ?? actionFilter,
+      resourceTypeFilter: filtersOverride?.resourceTypeFilter ?? resourceTypeFilter,
+      dateRange: filtersOverride?.dateRange ?? dateRange,
+    };
+    const normalizedUserFilter = resolvedFilters.userFilter.trim();
+
+    if (
+      !actionAccess.canReadReservedSubjects &&
+      isReservedAuditSubjectQuery(normalizedUserFilter, protectedGovernanceUsernames)
+    ) {
+      message.warning(RESERVED_SUBJECT_DENIED_MESSAGE);
+      setError(RESERVED_SUBJECT_DENIED_MESSAGE);
+      setItems([]);
+      setTotal(0);
+      setPage(currentPage);
+      setPageSize(currentPageSize);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
     try {
       const params: FetchAuditLogsParams = {
         page: currentPage,
         page_size: currentPageSize,
-        user_query: userFilter.trim() || undefined,
-        action: actionFilter,
-        resource_type: resourceTypeFilter,
-        from: dateRange[0]?.toISOString(),
-        to: dateRange[1]?.toISOString(),
+        user_query: normalizedUserFilter || undefined,
+        action: resolvedFilters.actionFilter,
+        resource_type: resolvedFilters.resourceTypeFilter,
+        from: resolvedFilters.dateRange[0]?.toISOString(),
+        to: resolvedFilters.dateRange[1]?.toISOString(),
         sort_by: 'created_at',
         sort_order: 'desc',
       };
@@ -161,23 +217,52 @@ const AuditLogs: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, userFilter, actionFilter, resourceTypeFilter, dateRange]);
+  }, [actionAccess.canReadReservedSubjects, actionFilter, dateRange, page, pageSize, resourceTypeFilter, userFilter]);
 
   useEffect(() => {
-    loadData();
+    if (initialLoadCompletedRef.current) {
+      return;
+    }
+    initialLoadCompletedRef.current = true;
+    void loadData();
   }, [loadData]);
 
   const handleSearch = useCallback(() => {
-    loadData(1, pageSize);
+    void loadData(1, pageSize);
   }, [loadData, pageSize]);
 
   const handleReset = useCallback(() => {
+    const nextDateRange: [dayjs.Dayjs | null, dayjs.Dayjs | null] = [null, null];
     setUserFilter('');
     setActionFilter(undefined);
     setResourceTypeFilter(undefined);
-    setDateRange([null, null]);
-    void loadData(1, 10);
+    setDateRange(nextDateRange);
+    setError(null);
+    void loadData(1, 10, {
+      userFilter: '',
+      actionFilter: undefined,
+      resourceTypeFilter: undefined,
+      dateRange: nextDateRange,
+    });
   }, [loadData]);
+
+  const applyGovernanceQuickFilter = useCallback((username: string) => {
+    if (!actionAccess.canReadReservedSubjects) {
+      message.warning(RESERVED_SUBJECT_DENIED_MESSAGE);
+      return;
+    }
+    setUserFilter(username);
+    setPage(1);
+    void loadData(1, pageSize, { userFilter: username });
+  }, [actionAccess.canReadReservedSubjects, loadData, pageSize]);
+
+  const handleExportAuditLogs = useCallback(() => {
+    if (!actionAccess.canExportAuditLogs) {
+      message.warning('当前会话缺少审计导出权限');
+      return;
+    }
+    message.info('审计导出接口接入中，后续将按 audit.log.export 能力创建正式导出任务');
+  }, [actionAccess.canExportAuditLogs]);
 
   const columns: ColumnsType<AuditLogItem> = [
     {
@@ -246,6 +331,17 @@ const AuditLogs: React.FC = () => {
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>审计日志</h2>
           <Tag style={{ fontSize: 10 }}>Audit Logs</Tag>
         </div>
+        <Tooltip title={actionAccess.canExportAuditLogs ? '当前会话已具备审计导出能力；正式导出接口接入后将直接落到导出任务' : '当前会话缺少审计导出权限；正式导出将按 audit.log.export 单独开放'}>
+          <span>
+            <Button
+              disabled={!actionAccess.canExportAuditLogs}
+              onClick={handleExportAuditLogs}
+              icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>}
+            >
+              导出日志
+            </Button>
+          </span>
+        </Tooltip>
       </div>
 
       <div style={{ padding: '16px 24px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -256,26 +352,41 @@ const AuditLogs: React.FC = () => {
           description={
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <span>
-                系统保留账号会持续出现在审计记录中，用于平台治理和自动化归因；筛选时可直接输入
-                {' '}
-                <code>{protectedGovernanceUsernames[0]}</code>
-                {' '}
-                或
-                {' '}
-                <code>{protectedGovernanceUsernames[1]}</code>
-                。
+                系统保留账号会持续出现在审计记录中，用于平台治理和自动化归因；筛选时可直接输入{' '}
+                <code>{protectedGovernanceUsernames[0]}</code> 或 <code>{protectedGovernanceUsernames[1]}</code>。
               </span>
               <Space wrap>
-                {governanceAuditQuickFilters.map((filter) => (
-                  <Button key={filter.username} size="small" onClick={() => { setPage(1); setUserFilter(filter.username); }}>
-                    筛选 {filter.label}
-                  </Button>
-                ))}
+                {governanceAuditQuickFilters.map((filter) => {
+                  const button = (
+                    <Button
+                      key={filter.username}
+                      size="small"
+                      onClick={() => applyGovernanceQuickFilter(filter.username)}
+                      disabled={!actionAccess.canReadReservedSubjects}
+                    >
+                      筛选 {filter.label}
+                    </Button>
+                  );
+
+                  return actionAccess.canReadReservedSubjects ? button : (
+                    <Tooltip key={filter.username} title="当前会话缺少 audit.log.read_reserved_subject 能力">
+                      <span>{button}</span>
+                    </Tooltip>
+                  );
+                })}
                 <Tag color="magenta">{protectedGovernanceTagLabel}账号</Tag>
               </Space>
             </div>
           }
         />
+        {missingAuditRestrictions.length > 0 ? (
+          <Alert
+            showIcon
+            type="info"
+            message="当前会话存在审计动作限制"
+            description={`当前会话仍可查看普通审计记录；${missingAuditRestrictions.join('、')}需要额外能力。`}
+          />
+        ) : null}
         <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16, alignItems: 'end' }}>
             <div>
