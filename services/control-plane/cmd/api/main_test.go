@@ -218,6 +218,9 @@ func TestNotificationRoutes_AllowAdminUser(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`LOWER\(u\.username\) = 'sys-superadmin'`).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(1) FROM notification_channels WHERE tenant_id = $1::uuid`)).
 		WithArgs(testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))

@@ -50,7 +50,7 @@ func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 		SortBy:       c.Query("sort_by"),
 		SortOrder:    c.Query("sort_order"),
 	}
-	result, err := h.svc.ListAuditLogs(c.Request.Context(), actor.TenantID, req)
+	result, err := h.svc.ListAuditLogs(c.Request.Context(), actor, req)
 	if err != nil {
 		writeServiceError(c, err)
 		return
@@ -97,12 +97,11 @@ func writeServiceError(c *gin.Context, err error) {
 	}
 }
 
-type requestActor struct {
-	TenantID string
-}
-
-func resolveActor(c *gin.Context) requestActor {
-	return requestActor{TenantID: sharedauth.AuthenticatedTenantID(c)}
+func resolveActor(c *gin.Context) service.RequestActor {
+	return service.RequestActor{
+		TenantID:          sharedauth.AuthenticatedTenantID(c),
+		BypassTenantScope: sharedauth.AuthenticatedGlobalLogAccess(c),
+	}
 }
 
 func parsePositiveInt(raw string, fallback int) int {

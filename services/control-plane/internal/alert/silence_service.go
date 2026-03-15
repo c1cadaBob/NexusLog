@@ -39,7 +39,7 @@ func (s *SilenceService) ListActive(ctx context.Context, tenantID string) ([]Sil
 	}
 	now := time.Now().UTC()
 	query := `
-SELECT id, tenant_id, matchers, reason, starts_at, ends_at, created_by, created_at, updated_at
+SELECT id::text, tenant_id::text, matchers, COALESCE(reason, ''), starts_at, ends_at, created_by::text, created_at, updated_at
 FROM alert_silences
 WHERE starts_at <= $1 AND ends_at >= $1
 `
@@ -100,7 +100,7 @@ func (s *SilenceService) Create(ctx context.Context, tenantID, createdBy string,
 	query := `
 INSERT INTO alert_silences (tenant_id, matchers, reason, starts_at, ends_at, created_by, created_at, updated_at)
 VALUES ($1::uuid, $2::jsonb, NULLIF($3,''), $4, $5, NULLIF($6,'')::uuid, NOW(), NOW())
-RETURNING id, tenant_id, matchers, reason, starts_at, ends_at, created_by, created_at, updated_at
+RETURNING id::text, tenant_id::text, matchers, COALESCE(reason, ''), starts_at, ends_at, created_by::text, created_at, updated_at
 `
 	var sil Silence
 	var tenantIDNull, createdByNull sql.NullString
@@ -152,7 +152,7 @@ WHERE id = $1::uuid
 		query += ` AND (tenant_id IS NULL OR tenant_id = $6::uuid)`
 		args = append(args, tenantID)
 	}
-	query += ` RETURNING id, tenant_id, matchers, reason, starts_at, ends_at, created_by, created_at, updated_at`
+	query += ` RETURNING id::text, tenant_id::text, matchers, COALESCE(reason, ''), starts_at, ends_at, created_by::text, created_at, updated_at`
 
 	var sil Silence
 	var tenantIDNull, createdByNull sql.NullString
@@ -215,8 +215,8 @@ func (s *SilenceService) IsSilenced(ctx context.Context, tenantID, ruleID, sever
 		return false, err
 	}
 	alertAttrs := map[string]string{
-		"rule_id":  ruleID,
-		"severity": severity,
+		"rule_id":   ruleID,
+		"severity":  severity,
 		"source_id": sourceID,
 	}
 	for _, sil := range silences {

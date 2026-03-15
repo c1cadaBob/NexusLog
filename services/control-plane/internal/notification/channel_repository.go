@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	ErrChannelNotFound    = errors.New("notification channel not found")
+	ErrChannelNotFound     = errors.New("notification channel not found")
 	ErrChannelNameConflict = errors.New("notification channel name conflict")
 )
 

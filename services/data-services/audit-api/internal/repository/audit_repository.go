@@ -31,16 +31,17 @@ type AuditLog struct {
 
 // ListAuditLogsInput 审计日志列表过滤参数
 type ListAuditLogsInput struct {
-	TenantID     string
-	UserID       *string
-	Action       *string
-	ResourceType *string
-	FromTime     *time.Time
-	ToTime       *time.Time
-	Page         int
-	PageSize     int
-	SortBy       string
-	SortOrder    string
+	TenantID          string
+	BypassTenantScope bool
+	UserID            *string
+	Action            *string
+	ResourceType      *string
+	FromTime          *time.Time
+	ToTime            *time.Time
+	Page              int
+	PageSize          int
+	SortBy            string
+	SortOrder         string
 }
 
 // ListAuditLogsOutput 审计日志列表输出
@@ -78,7 +79,7 @@ func (r *AuditRepository) ListAuditLogs(ctx context.Context, in ListAuditLogsInp
 	countQuery := `
 SELECT COUNT(1)
 FROM audit_logs
-WHERE tenant_id = $1::uuid
+WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
   AND ($2::uuid IS NULL OR user_id = $2)
   AND ($3::text IS NULL OR action = $3)
   AND ($4::text IS NULL OR resource_type = $4)
@@ -86,12 +87,12 @@ WHERE tenant_id = $1::uuid
   AND ($6::timestamptz IS NULL OR created_at <= $6)
 `
 	var total int64
-	tenantID := strings.TrimSpace(in.TenantID)
-	if tenantID == "" {
+	tenantScope := auditTenantScopeArg(strings.TrimSpace(in.TenantID), in.BypassTenantScope)
+	if tenantScope == nil && !in.BypassTenantScope {
 		return ListAuditLogsOutput{}, fmt.Errorf("tenant_id is required")
 	}
 	err := r.db.QueryRowContext(ctx, countQuery,
-		tenantID,
+		tenantScope,
 		nullableStringPtr(in.UserID),
 		nullableStringPtr(in.Action),
 		nullableStringPtr(in.ResourceType),
@@ -115,7 +116,7 @@ SELECT
 	user_agent,
 	created_at
 FROM audit_logs
-WHERE tenant_id = $1::uuid
+WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
   AND ($2::uuid IS NULL OR user_id = $2)
   AND ($3::text IS NULL OR action = $3)
   AND ($4::text IS NULL OR resource_type = $4)
@@ -126,7 +127,7 @@ OFFSET $7 LIMIT $8
 `, sortBy, sortOrder)
 
 	rows, err := r.db.QueryContext(ctx, listQuery,
-		tenantID,
+		tenantScope,
 		nullableStringPtr(in.UserID),
 		nullableStringPtr(in.Action),
 		nullableStringPtr(in.ResourceType),
@@ -220,6 +221,16 @@ func normalizeSortOrder(order string) string {
 		return "ASC"
 	}
 	return "DESC"
+}
+
+func auditTenantScopeArg(tenantID string, bypassTenantScope bool) any {
+	if bypassTenantScope {
+		return nil
+	}
+	if tenantID == "" {
+		return nil
+	}
+	return tenantID
 }
 
 func nullableStringPtr(s *string) any {

@@ -55,13 +55,19 @@ func NewAuditService(repo *repository.AuditRepository) *AuditService {
 	return &AuditService{repo: repo}
 }
 
+// RequestActor 描述一次审计查询请求的调用身份。
+type RequestActor struct {
+	TenantID          string
+	BypassTenantScope bool
+}
+
 // ListAuditLogs 分页查询审计日志
-func (s *AuditService) ListAuditLogs(ctx context.Context, tenantID string, req ListAuditLogsRequest) (ListAuditLogsResult, error) {
+func (s *AuditService) ListAuditLogs(ctx context.Context, actor RequestActor, req ListAuditLogsRequest) (ListAuditLogsResult, error) {
 	if s == nil || s.repo == nil || !s.repo.IsConfigured() {
 		return ListAuditLogsResult{}, fmt.Errorf("audit service is not configured")
 	}
-	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
+	actor = normalizeActor(actor)
+	if actor.TenantID == "" {
 		return ListAuditLogsResult{}, fmt.Errorf("tenant_id is required")
 	}
 	page := req.Page
@@ -91,16 +97,17 @@ func (s *AuditService) ListAuditLogs(ctx context.Context, tenantID string, req L
 	}
 
 	output, err := s.repo.ListAuditLogs(ctx, repository.ListAuditLogsInput{
-		TenantID:     tenantID,
-		UserID:       userID,
-		Action:       action,
-		ResourceType: resourceType,
-		FromTime:     fromTime,
-		ToTime:       toTime,
-		Page:         page,
-		PageSize:     pageSize,
-		SortBy:       strings.TrimSpace(req.SortBy),
-		SortOrder:    strings.TrimSpace(req.SortOrder),
+		TenantID:          actor.TenantID,
+		BypassTenantScope: actor.BypassTenantScope,
+		UserID:            userID,
+		Action:            action,
+		ResourceType:      resourceType,
+		FromTime:          fromTime,
+		ToTime:            toTime,
+		Page:              page,
+		PageSize:          pageSize,
+		SortBy:            strings.TrimSpace(req.SortBy),
+		SortOrder:         strings.TrimSpace(req.SortOrder),
 	})
 	if err != nil {
 		return ListAuditLogsResult{}, err
@@ -127,6 +134,13 @@ func (s *AuditService) ListAuditLogs(ctx context.Context, tenantID string, req L
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
+}
+
+func normalizeActor(actor RequestActor) RequestActor {
+	return RequestActor{
+		TenantID:          strings.TrimSpace(actor.TenantID),
+		BypassTenantScope: actor.BypassTenantScope,
+	}
 }
 
 func parseOptionalTime(raw string) (*time.Time, error) {

@@ -30,27 +30,27 @@ type RuleRepository interface {
 
 // AlertRule represents an alert rule entity.
 type AlertRule struct {
-	ID                    string          `json:"id"`
-	TenantID              string          `json:"tenant_id"`
-	Name                  string          `json:"name"`
-	Description           string          `json:"description"`
-	Condition             json.RawMessage `json:"condition"`
-	Severity              string          `json:"severity"`
-	Enabled               bool            `json:"enabled"`
-	NotificationChannels  json.RawMessage  `json:"notification_channels"`
-	CreatedBy              *string         `json:"created_by,omitempty"`
-	CreatedAt             time.Time       `json:"created_at"`
-	UpdatedAt             time.Time       `json:"updated_at"`
+	ID                   string          `json:"id"`
+	TenantID             string          `json:"tenant_id"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	Condition            json.RawMessage `json:"condition"`
+	Severity             string          `json:"severity"`
+	Enabled              bool            `json:"enabled"`
+	NotificationChannels json.RawMessage `json:"notification_channels"`
+	CreatedBy            *string         `json:"created_by,omitempty"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
 }
 
 // AlertRuleUpdate represents partial update fields for an alert rule.
 type AlertRuleUpdate struct {
-	Name                  *string         `json:"name,omitempty"`
-	Description           *string         `json:"description,omitempty"`
-	Condition             json.RawMessage `json:"condition,omitempty"`
-	Severity              *string         `json:"severity,omitempty"`
-	Enabled               *bool           `json:"enabled,omitempty"`
-	NotificationChannels  json.RawMessage `json:"notification_channels,omitempty"`
+	Name                 *string         `json:"name,omitempty"`
+	Description          *string         `json:"description,omitempty"`
+	Condition            json.RawMessage `json:"condition,omitempty"`
+	Severity             *string         `json:"severity,omitempty"`
+	Enabled              *bool           `json:"enabled,omitempty"`
+	NotificationChannels json.RawMessage `json:"notification_channels,omitempty"`
 }
 
 // RuleRepositoryPG implements RuleRepository using PostgreSQL.

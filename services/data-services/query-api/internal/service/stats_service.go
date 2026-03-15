@@ -184,7 +184,7 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 
 	// Alert summary from PostgreSQL
 	if s.db != nil {
-		alertSummary, err := s.getAlertSummary(ctx, actor.TenantID)
+		alertSummary, err := s.getAlertSummary(ctx, actor.TenantID, actor.CanReadAllLogs)
 		if err == nil {
 			stats.AlertSummary = *alertSummary
 		}
@@ -193,9 +193,13 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 	return stats, nil
 }
 
-func (s *StatsService) getAlertSummary(ctx context.Context, tenantID string) (*AlertSummary, error) {
+func (s *StatsService) getAlertSummary(ctx context.Context, tenantID string, bypassTenantScope bool) (*AlertSummary, error) {
 	if s.db == nil {
 		return &AlertSummary{}, nil
+	}
+	tenantScope := any(strings.TrimSpace(tenantID))
+	if bypassTenantScope {
+		tenantScope = nil
 	}
 	query := `
 SELECT 
@@ -203,11 +207,11 @@ SELECT
   COUNT(*) FILTER (WHERE status = 'firing') as firing,
   COUNT(*) FILTER (WHERE status = 'resolved') as resolved
 FROM alert_events
-WHERE tenant_id = $1::uuid
+WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
   AND fired_at >= NOW() - INTERVAL '24 hours'
 `
 	var total, firing, resolved int64
-	err := s.db.QueryRowContext(ctx, query, tenantID).Scan(&total, &firing, &resolved)
+	err := s.db.QueryRowContext(ctx, query, tenantScope).Scan(&total, &firing, &resolved)
 	if err != nil {
 		return nil, err
 	}
