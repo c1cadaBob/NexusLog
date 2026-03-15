@@ -1358,21 +1358,163 @@
 - 当前总体规划仍大量沿用 `admin/operator/viewer` 三角色表述。
 - 如果缺少兼容映射，测试、文档、UI 文案与实现会长期不一致。
 
-### 16.11 建议按优先级纳入后续设计
+### 16.11 身份联邦、服务凭证与密钥轮换治理尚未纳入模型
+
+当前方案已经覆盖本地用户、会话与 Agent，但对照安全架构与现有实现后，仍缺少“凭证类型”这一层统一建模。
+
+证据与原因：
+
+1. 安全架构文档明确列出了 `OIDC`、`SAML`、`API Key`、`mTLS` 四类认证方式。
+2. 当前数据库迁移仅落了 `user_credentials`（本地密码凭证），而代码中又已经存在 `X-Agent-Key` 这类运行时共享密钥链路。
+3. 如果权限模型不区分“人类账号凭证”“系统服务凭证”“Agent 凭证”“联邦身份凭证”，后续 SSO、密钥轮换、凭证吊销、非交互式调用治理都会再次散落到各模块。
+
+建议补充一层“凭证/认证器模型”，至少区分：
+
+- `local_password`
+- `oidc_federated`
+- `saml_federated`
+- `service_api_key`
+- `agent_shared_key`
+- `mtls_client`
+
+并预留以下治理能力：
+
+- `auth.idp.read`
+- `auth.idp.update`
+- `credential.read`
+- `credential.rotate`
+- `credential.revoke`
+- `service_account.key.rotate`
+
+### 16.12 高危操作的确认与审批链路尚未建模
+
+当前方案已经考虑了“谁有权限执行某动作”，但还没有独立回答“高危动作是否需要二次确认或审批”。
+
+结合总体规划，这一块应单独纳入授权设计：
+
+1. 路线图已明确提出高危操作需要二次确认，Phase 3 还会引入审批工作流。
+2. 删除备份、恢复备份、禁用用户、权限下发、脱敏规则修改等动作，不适合仅凭一个 `delete/update` 能力直接放行。
+3. 如果没有审批链路模型，后续实现通常会退化成前端弹窗确认，无法形成真正可审计的双人治理。
+
+建议增加审批相关主体与能力：
+
+- `approval.request.create`
+- `approval.request.read`
+- `approval.request.approve`
+- `approval.request.reject`
+- `approval.request.execute`
+
+并明确哪些动作属于：
+
+- 普通确认即可
+- 需要双人审批
+- 需要超级管理员执行
+
+### 16.13 资源生命周期动作语义尚未统一
+
+当前能力字典里已经有部分显式动作，例如：
+
+- `notification.channel.test`
+- `incident.archive`
+- `export.job.cancel`
+- `backup.restore`
+
+但对照现有代码和路由后，动作语义仍不统一，典型问题包括：
+
+1. 文档中有 `alert.rule.enable`，但代码中真实存在 `alert_rules.disable` 动作。
+2. 采集源当前也存在 `disable` 状态流转，但能力字典尚未单独表达。
+3. 备份接口规划包含 `download` 与 `cancel`，但当前能力字典只到 `read/create/restore/delete`。
+
+这意味着目前仍有一部分状态迁移动作，被隐含在 `update` 或“其他默认管理权限”里，不利于页面按钮、API 守卫与审计事件统一。
+
+建议建立统一动作词表，明确区分：
+
+- `enable`
+- `disable`
+- `pause`
+- `resume`
+- `cancel`
+- `download`
+- `restore`
+- `test`
+- `archive`
+- `rollback`
+
+并优先补齐以下能力缺口：
+
+- `alert.rule.disable`
+- `ingest.source.disable`
+- `backup.download`
+- `backup.cancel`
+
+### 16.14 用户退场后的资源归属与交接机制尚未定义
+
+当前方案已经覆盖了用户禁用、删除与会话撤销，但对照迁移脚本后，还缺少“用户退场后资源怎么办”的正式设计。
+
+现有迁移已经暴露出这一问题：
+
+1. 删除遗留用户前，需要先把 `alert_rules.created_by`、`notification_channels.created_by`、`incidents.assigned_to`、`export_jobs.created_by` 等字段置空。
+2. 这说明当前系统默认允许资源变成“无所有者”状态，而不是先经过交接或归档。
+3. 如果将来批量禁用系统管理员、自定义角色持有者或租户负责人，这会直接影响审计追溯、页面展示和后续授权判断。
+
+建议单独补充“主体退场治理”规则：
+
+- 哪些资源允许无所有者
+- 哪些资源必须先转交
+- 删除与禁用是否采用不同策略
+- 审计中如何保留原始归属快照
+
+可预留的能力包括：
+
+- `iam.user.deactivate`
+- `iam.user.offboard`
+- `resource.transfer_ownership`
+- `resource.reassign`
+
+### 16.15 数据生命周期（保留/归档/恢复）治理尚未纳入主模型
+
+当前方案已经覆盖备份恢复与部分审计保留，但对照总体规划、ES/对象存储配置后，仍缺少“日志数据生命周期治理”的完整授权设计。
+
+证据包括：
+
+1. 总体规划已明确“日志保留策略”是扩展项。
+2. 存储配置与归档策略中已经出现 retention / archive / restore 相关能力。
+3. 日志索引模板里也已存在 `retention_policy`、`pii_masked` 等字段，说明未来页面与 API 会逐步暴露这些治理项。
+
+如果当前只建模 `backup.*`，后续在以下动作上仍会权限漂移：
+
+- 调整日志保留策略
+- 触发归档
+- 从冷存储/归档恢复
+- 查看归档状态与恢复进度
+
+建议补充数据生命周期能力：
+
+- `data.retention.read`
+- `data.retention.update`
+- `archive.read`
+- `archive.restore`
+- `archive.delete`
+
+### 16.16 建议按优先级纳入后续设计
 
 #### P0（必须先补）
 
 1. 入口分层与信任边界
 2. 非人类主体矩阵（Agent / 内部服务）
-3. 导出权限的归属范围与敏感级别
-4. 身份生命周期与会话治理
+3. 身份生命周期 + 身份联邦 / 服务凭证模型
+4. 导出权限的归属范围与敏感级别
+5. 资源生命周期动作语义（`enable/disable/cancel/download/restore`）
 
 #### P1（应尽快补）
 
 1. 共享资源可见性模型
 2. 审计不可篡改与合规报告能力
-3. 作用域扩展位（`tenant_group/project/env/resource`）
-4. 治理级技术约束（幂等、`request_id`、旧角色兼容）
+3. 高危操作确认与审批链路
+4. 用户退场后的资源归属与交接机制
+5. 数据生命周期（保留/归档/恢复）治理
+6. 作用域扩展位（`tenant_group/project/env/resource`）
+7. 治理级技术约束（幂等、`request_id`、旧角色兼容）
 
 #### P2（中期补齐）
 
