@@ -4,13 +4,25 @@ import { Badge } from 'antd';
 import { canAccessRoute } from '../../auth/routeAuthorization';
 import { useAlertStore } from '../../stores/alertStore';
 import { useAuthStore } from '../../stores/authStore';
+import type { AuthorizationSnapshot } from '../../types/authz';
 
-const NAV_ITEMS = [
+export const NAV_ITEMS = [
   { icon: 'dashboard', label: '概览', path: '/' },
   { icon: 'search', label: '搜索', path: '/search/realtime' },
   { icon: 'notifications_active', label: '告警', path: '/alerts/list' },
   { icon: 'settings', label: '设置', path: '/settings/parameters' },
 ];
+
+export function resolveMobileBottomNavItems(
+  authorization: Pick<AuthorizationSnapshot, 'permissions' | 'capabilities'>,
+  authzReady: boolean,
+): typeof NAV_ITEMS {
+  if (!authzReady) {
+    return [];
+  }
+
+  return NAV_ITEMS.filter((item) => canAccessRoute(item.path, authorization));
+}
 
 /** 移动端底部导航栏 */
 const MobileBottomNav: React.FC = () => {
@@ -21,12 +33,10 @@ const MobileBottomNav: React.FC = () => {
   const capabilities = useAuthStore((s) => s.capabilities);
   const authzReady = useAuthStore((s) => s.authzReady);
 
-  const navItems = useMemo(() => {
-    if (!authzReady) {
-      return [];
-    }
-    return NAV_ITEMS.filter((item) => canAccessRoute(item.path, { permissions, capabilities }));
-  }, [authzReady, capabilities, permissions]);
+  const navItems = useMemo(
+    () => resolveMobileBottomNavItems({ permissions, capabilities }, authzReady),
+    [authzReady, capabilities, permissions],
+  );
 
   return (
     <nav

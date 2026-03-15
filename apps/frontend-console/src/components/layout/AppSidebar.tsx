@@ -61,7 +61,7 @@ function canAccessMenuPath(path: string | undefined, authorization: Pick<Authori
 }
 
 /** 按统一注册表过滤菜单 sections。授权未就绪时不渲染可点击菜单。 */
-function filterSectionsByAuthorization(
+export function filterSectionsByAuthorization(
   sections: typeof MENU_SECTIONS,
   authorization: Pick<AuthorizationSnapshot, 'permissions' | 'capabilities'>,
   authzReady: boolean,
