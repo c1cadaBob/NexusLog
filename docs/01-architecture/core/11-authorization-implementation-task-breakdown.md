@@ -72,6 +72,7 @@
 | 文件 | 当前职责 | 需要改动 | 与随机租户 ID 的关系 |
 |---|---|---|---|
 | `storage/postgresql/seeds/seed_data.sql` | 开发环境默认租户、角色、用户种子 | 去掉写死的租户 UUID；默认租户改为 `INSERT ... RETURNING id` 或按 `name='default'` 回查；后续角色种子通过 `tenant.name` 关联，不直接写固定主键 | 这是默认租户固定 UUID 的主要来源之一 |
+| `storage/postgresql/migrations/000018_roles_seed_data.up.sql` | 早期默认角色种子迁移 | 移除固定 `tenant_id` 插入；改为通过租户业务键回查默认租户，或将默认角色种子收敛到后续治理迁移统一处理 | 若保留该迁移，任何从零初始化环境都会重新引入固定租户主键 |
 | `storage/postgresql/migrations/000026_auth_user_governance.up.sql` | 收敛 `sys-superadmin` / `system-automation` / 默认内置角色 | 去掉对固定默认租户 UUID 的直接依赖；统一通过 `WITH target_tenant AS (...)` 查租户；若要创建默认租户，应让 `obs.tenant.id` 使用 DB 默认随机 UUID | 否则保留主体治理仍然绑定到固定租户主键 |
 | `storage/postgresql/migrations/000026_auth_user_governance.down.sql` | 回滚用户治理与保留主体 | 与 `up.sql` 同步改造：不再按固定 UUID 删除/恢复，而是按租户业务键或迁移记录查找目标租户 | 回滚也不能重新引入固定 UUID 假设 |
 
@@ -102,6 +103,10 @@
 | `apps/frontend-console/tests/authStoreLogout.test.ts` | 前端登出状态测试 | 将固定 UUID 改为随机测试值或测试内生成值 |
 | `apps/frontend-console/tests/protectedRouteRefreshFailure.test.tsx` | `ProtectedRoute` 刷新失败测试 | 同步替换固定租户 UUID |
 | `apps/frontend-console/tests/runtimeConfig.test.ts` | 运行时配置测试 | 保留随机 UUID 示例，不再暗示固定默认租户存在 |
+| `scripts/local/ensure-local-tenant-config.sh` | 本地兼容租户同步脚本 | 改为显式 `LOCAL_TENANT_ID` 输入；默认仅在“兼容模式”下写入，不再静默回填固定 UUID |
+| `scripts/seed-demo.sh` | Demo 数据灌入脚本 | 改为必填或启动时查询租户 ID，不再用固定默认值兜底 |
+| `tests/e2e/tests/*.spec.js` | E2E 默认租户环境变量 | 保留 `E2E_TENANT_ID`，但默认值改由启动脚本注入；仓库不再内置固定 UUID |
+| `DEPLOYMENT.md` | 部署说明 | 从“默认兼容租户”表述改为“可选本地兼容模式”；明确生产/长期环境禁止固定租户默认值 |
 
 ## 3.3 实施建议
 
@@ -111,17 +116,22 @@
 2. 再改前端请求头构造与错误提示
 3. 最后统一替换脚本与测试中的固定默认租户 UUID
 
+补充约束：
+
+- 历史证据文档和单元测试可以保留**显式测试 UUID** 作为夹具
+- 但运行时代码、部署默认配置、自动同步脚本不得再反向依赖这些夹具值
+
 ## 4. 工作流 B：`/users/me` 与授权上下文改造
 
 ## 4.1 目标
 
-当前 `/users/me` 只返回：
+设计起点中的 `/users/me` 只返回：
 
 - `user`
 - `roles`
 - `permissions`
 
-目标是扩展为授权上下文接口，至少补齐：
+当前仓库已经完成第一阶段扩展，能够返回：
 
 - `capabilities`
 - `scopes`
@@ -129,6 +139,14 @@
 - `feature_flags`
 - `authz_epoch`
 - `actor_flags`
+- 兼容期继续保留 `permissions`
+
+但当前这些字段仍主要来自 `roles.permissions + 内存兼容映射 + 保留主体硬编码` 的聚合结果，尚未切到正式的授权注册表 / capability 绑定 / reserved policy 事实源。
+
+下一阶段目标应为：
+
+- 保持现有 `/users/me` 对前端的返回结构稳定
+- 将 capability/scopes/authz_epoch 的生成迁到数据库授权事实源
 - 兼容期继续保留 `permissions`
 
 ## 4.2 文件级任务拆解
@@ -147,7 +165,7 @@
 | `services/api-service/internal/service/user_service.go` | 聚合用户、角色与旧权限串 | `GetMe()` 不再只平铺 `roles.permissions`；要引入“旧权限 -> capability 映射 + 角色 capability 绑定 + 保留主体策略 + authz_version”；兼容期继续返回 `permissions` |
 | `services/api-service/internal/repository/user_repository.go` | 用户与角色查询 | 可保留原用户/角色查询，但建议补充或拆分出授权相关读取方法，避免 `user_repository.go` 继续承担过多授权逻辑；尤其不要再让 `RoleRecord.Permissions` 成为唯一运行时事实源 |
 | `services/api-service/internal/repository/authorization_repository.go` | 新增文件 | 新增授权仓储：读取 `legacy_permission_mapping`、`role_capability_binding`、`subject_reserved_policy`、`authz_version`、后续 `route_registry` / `api_policy_registry` |
-| `services/api-service/internal/service/authorization_context_service.go` | 新增文件 | 新增授权上下文聚合服务：输入 `tenant_id + user_id`，输出 `permissions + capabilities + scopes + entitlements + authz_epoch + actor_flags` |
+| `services/api-service/internal/service/authorization_context_service.go` | 已新增文件 | 当前已承接 `/users/me` 的 capability/scopes 聚合；下一步需要从“内存兼容映射”切到数据库事实源，并与中间件共享 |
 | `services/api-service/internal/model/auth.go` | JWT claims 模型 | 决定是否在 access token 中增加 `authz_epoch`、`actor_type` 或 reserved flag；若不加，也要明确 capability 真相只能来自服务端回查 |
 | `services/api-service/internal/service/auth_service.go` | 登录、注册、token 生成与校验 | 与 `model/auth.go` 同步决定 token 是否携带 `authz_epoch`；注册链路对保留用户名的限制也应从硬编码迁到保留主体策略 |
 
@@ -187,23 +205,30 @@
 }
 ```
 
+说明：
+
+- `permissions`：仅用于迁移兼容
+- `capabilities`：作为页面/API 新判定主轴
+- `scopes`：决定是否可跨租户、仅本人、仅资源拥有者等
+- `authz_epoch`：后续用于前端缓存失效、token 内版本比对、JIT 授权刷新
+- `actor_flags`：承载系统保留主体、系统自动化主体、交互式登录是否允许等治理信号
+
 ## 5. 工作流 C：统一 capability 中间件与共享鉴权链路改造
 
 ## 5.1 目标
 
-当前鉴权链路分散在三套实现中：
+当前仓库的鉴权链路存在三套旧逻辑：
 
-- `services/api-service/internal/handler/auth_middleware.go`
-- `services/data-services/shared/auth/*`
-- `services/control-plane/internal/middleware/*`
+1. `api-service` 以 `RequirePermission("users:read")` 为主
+2. `data-services` 以共享 `RequirePermission("logs:read")`、`RequirePermission("audit:read")` 为主
+3. `control-plane` 仍有 `RequireAdminRole`、`RequireOperatorRole`、`sys-superadmin + super_admin` 的硬编码查询
 
-并且大量逻辑仍基于：
+目标状态应为：
 
-- `RequirePermission("users:read")`
-- `role.name IN ('system_admin', 'operator')`
-- `LOWER(u.username) = 'sys-superadmin'`
-
-目标是把它们迁到统一 capability 语义，并保留旧权限兼容层。
+- 统一以 capability 为主判定
+- scope 决定租户/租户组/全租户/本人等资源边界
+- `permissions` 仅作为迁移兼容别名
+- 保留主体策略不再通过用户名、角色名硬编码散落在多个服务中
 
 ## 5.2 文件级任务拆解
 
@@ -211,8 +236,9 @@
 
 | 文件 | 当前职责 | 需要改动 |
 |---|---|---|
-| `services/api-service/internal/handler/auth_middleware.go` | 登录态校验 + 用户角色/权限加载 + `RequirePermission` | 拆成“认证”和“授权上下文装载”两个层次；上下文里新增 `user_capabilities`、`user_scopes`、`authz_epoch`、`actor_flags`；保留 `RequirePermission`，新增 `RequireCapability`；`hasPermission` 不再是唯一判定入口 |
-| `services/api-service/internal/service/user_governance.go` | 保留主体用户名/角色硬编码判断 | 逐步从用户名/角色名判断迁到 `subject_reserved_policy` 读取；兼容期保留常量，但以 DB 事实源优先 |
+| `services/api-service/internal/handler/auth_middleware.go` | API-service JWT 鉴权与 `RequirePermission` | 在不破坏现有 `RequirePermission` 的前提下新增 `RequireCapability` / `RequireScope`；允许先从 `permissions` + compatibility mapping 判定，再逐步切到 capability binding |
+| `services/api-service/internal/handler/identity_context.go` | 读出 `tenant_id/user_id/permissions` | 增加 `AuthenticatedCapabilities()`、`AuthenticatedScopes()`、`AuthenticatedAuthzEpoch()`、`AuthenticatedActorFlags()` |
+| `services/api-service/cmd/api/router.go` | 用户/角色接口的旧权限挂载点 | 逐步把 `users:read` / `users:write` 改成 `iam.user.read`、`iam.user.create`、`iam.user.update_status`、`iam.user.grant_role` 等精细 capability |
 | `services/api-service/internal/service/auth_service.go` | 注册流程与保留用户名限制 | 当前注册流程直接禁止保留用户名，后续应改成读取 `subject_reserved_policy` 或保留主体注册表，而不是继续写死两个用户名 |
 
 ### P0：data-services 共享鉴权包
@@ -265,17 +291,18 @@
 
 ## 6.1 目标
 
-当前前端存在三个结构性问题：
+当前仓库已经解决了“只校验登录，不校验页面访问”的主问题，但仍存在四个结构性缺口：
 
-1. `ProtectedRoute` 只负责“是否登录”，不负责“当前路由是否有权访问”
-2. `authStore` 只缓存 `permissions`，没有 capability/scopes/authz_epoch
-3. `menu.ts` 中存在旧权限借用，例如 `users:write` 被借到登录策略和系统设置
+1. `ProtectedRoute` 已能做页面访问控制，但页面内按钮、弹窗、抽屉和二级入口尚未统一 capability 化
+2. `authStore` 已缓存完整授权上下文，但部分页面仍会直接请求 `/users/me` 或继续只看 `permissions`
+3. `apps/frontend-console/src/auth/routeAuthorization.ts` 已成为页面访问事实源，但 `menu.ts` 仍保留过渡字段与若干 `users:write` 借用
+4. `scope/feature_flags/authz_epoch` 已返回，但大多数页面尚未真正消费这些字段
 
 目标状态是：
 
 - `ProtectedRoute` 既处理登录态，也能按路由注册表做页面授权
 - `authStore` 持有完整授权上下文
-- 菜单与路由共享同一份注册表
+- 菜单、移动端导航、Dashboard 快捷入口与页面内动作共享同一套授权事实源
 - 旧权限只作为过渡别名，不再充当真实授权事实源
 
 ## 6.2 文件级任务拆解
@@ -286,26 +313,36 @@
 |---|---|---|
 | `apps/frontend-console/src/stores/authStore.ts` | 保存 `isAuthenticated/user/permissions`，同步 `/users/me` | 扩展状态：`capabilities`、`scopes`、`entitlements`、`featureFlags`、`authzEpoch`、`actorFlags`、`authzReady`；将 `syncPermissions()` 升级为 `syncAuthorizationContext()` 或保持旧名但拉取完整上下文；不要再把 `permissions=['*']` 当成长期真相源 |
 | `apps/frontend-console/src/api/user.ts` | 用户与 `/users/me` API 类型 | 与后端同步扩展 `GetMeResponse`；兼容期保留 `permissions`，但应在这一层统一归一化成前端消费的 capability 上下文 |
+| `apps/frontend-console/src/types/authz.ts` | 授权上下文类型定义 | 作为前端统一 `AuthorizationSnapshot` 模型；后续若补 `requiredScopes` / `featureFlags` 消费，应优先从这里收敛，而不是在页面里散落字段判断 |
 | `apps/frontend-console/src/components/layout/AppLayout.tsx` | 页面刷新时同步权限 | 将 `syncPermissions()` 替换为新的授权上下文同步；必要时监听 `authz_epoch` 变化触发刷新或登出；避免“授权未就绪时先渲染全部导航” |
 
 ### P0：路由守卫与注册表
 
 | 文件 | 当前职责 | 需要改动 |
 |---|---|---|
-| `apps/frontend-console/src/components/auth/ProtectedRoute.tsx` | 只做登录态校验与 token 刷新 | 扩展为“登录态 + 页面授权”双职责；引入按 `location.pathname` 查 route registry；支持 capability 判定、scope 判定、过渡别名与 `authz_epoch` 强刷；当 `authzReady=false` 时阻塞渲染，避免深链先放行 |
-| `apps/frontend-console/src/App.tsx` | 所有路由都挂在统一 `ProtectedRoute` 下 | 保留统一壳层，但要引入页面注册表或让 `ProtectedRoute` 能读取 pathname -> capability 元数据；不再依赖页面是否出现在菜单中来决定可访问性 |
-| `apps/frontend-console/src/constants/routeRegistry.ts` | 新增文件 | 新增页面注册表：`path`、`viewCapability`、`scope`、`featureFlag`、`compatPermissions`、`riskTags`、`routeKey` |
-| `apps/frontend-console/src/utils/authorization.ts` | 新增文件 | 新增前端授权判定工具：`hasCapability`、`hasScope`、`matchesCompatPermission`、`canAccessRoute`、`shouldRefreshAuthzContext` |
+| `apps/frontend-console/src/components/auth/ProtectedRoute.tsx` | 已处理登录态、token 刷新、授权同步与路由访问判定 | 下一步补齐 `scope` / `featureFlags` / `authzEpoch` 的更细粒度判定，并把“页内动作无权”导向统一的 `disabled / tooltip / redirect` 策略 |
+| `apps/frontend-console/src/App.tsx` | 所有受保护路由都挂在统一 `ProtectedRoute` 下 | 保留统一壳层；新增页面时必须先在 `routeAuthorization.ts` 注册后再挂路由，禁止无注册直挂受保护页面 |
+| `apps/frontend-console/src/auth/routeAuthorization.ts` | 已新增页面授权注册表与基础判定工具 | 继续补 `requiredScopes`、`featureFlags`、`routeKey`、`riskTags`、`fallbackPath` 规范；若逻辑继续增长，再拆出独立 `utils/authorization.ts` |
 
 ### P0：菜单与导航
 
 | 文件 | 当前职责 | 需要改动 |
 |---|---|---|
-| `apps/frontend-console/src/constants/menu.ts` | 侧边栏菜单元数据，仍使用 `requiredPermission` | 逐步从 `requiredPermission` 切到 `requiredCapability` / `routeKey`；兼容期可保留 `compatPermissions` 字段，但要删除 `users:write` 对登录策略与系统设置的借用 |
+| `apps/frontend-console/src/constants/menu.ts` | 侧边栏菜单元数据，仍使用 `requiredPermission` | 逐步从 `requiredPermission` 切到 `requiredCapability` / `routeKey`；兼容期可保留 `compatPermissions` 字段，但要删除 `users:write` 对登录策略和系统设置的借用 |
 | `apps/frontend-console/src/types/navigation.ts` | 菜单类型定义 | 扩展字段：`requiredCapability`、`requiredScope`、`compatPermissions`、`routeKey`；`requiredPermission` 标记为过渡字段 |
 | `apps/frontend-console/src/components/layout/AppSidebar.tsx` | 根据 `permissions` 过滤菜单 | 改成根据 `capabilities + route registry + compat alias` 过滤；不再把“权限为空时显示全部菜单”作为长期行为，而要基于 `authzReady` 明确控制渲染 |
 | `apps/frontend-console/src/components/layout/MobileBottomNav.tsx` | 移动端底部导航 | 目前属于侧边栏外的独立入口，需要改成与 sidebar 共用 route registry 和授权判定，避免移动端绕过页面权限过滤 |
 | `apps/frontend-console/src/pages/Dashboard.tsx` | Dashboard 快捷入口 | 快捷入口应从 route registry 生成或在点击前统一调用 `canAccessRoute()`，避免绕过 sidebar 直达受限页 |
+
+### P0：页面内动作与二级入口
+
+| 文件 | 当前职责 | 需要改动 |
+|---|---|---|
+| `apps/frontend-console/src/pages/security/UserManagement.tsx` | 用户列表、详情、创建、编辑、批量状态、角色授予/移除；页头有“邀请用户/导入用户”占位入口 | 将页面访问 `iam.user.read` 与动作权限拆开：`iam.user.create`、`iam.user.update_profile`、`iam.user.update_status`、`iam.user.grant_role`、`iam.user.revoke_role`；为后续“邀请/导入”预留 `iam.user.invite`、`iam.user.import`；所有按钮、弹窗、行操作与批量操作统一走 capability 判定 |
+| `apps/frontend-console/src/pages/security/RolePermissions.tsx` | 角色列表、详情抽屉、权限复制 | 页面访问继续用 `iam.role.read`；若复制/导出权限视为敏感动作，应额外拆 `iam.role.export` 或 `iam.role.copy_permission`，避免“能看即能导出” |
+| `apps/frontend-console/src/pages/security/AuditLogs.tsx` | 审计日志查询、筛选、快速过滤、详情展示 | 页面访问使用 `audit.log.read`；若后续增加导出、保留主体快速过滤、跨租户查询，应补 `audit.log.export`、`audit.log.read_reserved_subject` 或由后端 scope/actor_flags 接管，不能只依赖提示文案 |
+| `apps/frontend-console/src/pages/security/securityGovernance.ts` | 前端硬编码保留用户名与角色名 | 逐步从硬编码迁到后端保留主体事实源（`actor_flags` + reserved policy 字典）；前端只负责展示，不负责裁决 |
+| `apps/frontend-console/src/pages/Dashboard.tsx` | Dashboard 卡片导航 | 与侧边栏、移动端导航共用同一套 `routeAuthorization` 结果，不得通过卡片点击绕过页面鉴权 |
 
 ### P1：页面级修正
 
@@ -317,7 +354,9 @@
 | `apps/frontend-console/src/pages/settings/ConfigVersions.tsx` | 配置版本 / 回滚 | 改为 `settings.version.read/rollback` |
 | `apps/frontend-console/src/pages/reports/ReportManagement.tsx` | 报表管理 | 不再依赖“菜单没有显式权限”带来的隐式可见，改为 `report.read` |
 | `apps/frontend-console/src/pages/reports/ScheduledTasks.tsx` | 定时任务 | 改为 `report.schedule.read` |
-| `apps/frontend-console/src/pages/reports/DownloadRecords.tsx` | 下载记录 | 改为 `report.download.read` |
+| `apps/frontend-console/src/pages/reports/DownloadRecords.tsx` | 下载记录 | 将查看、创建导出任务、下载文件拆成 `report.download.read`、`log.export.read/create/download` 等细粒度能力 |
+| `apps/frontend-console/src/pages/alerts/AlertRules.tsx` | 告警规则页面 | 页面访问与规则操作拆成 `alert.rule.read/create/update/enable/disable/delete` |
+| `apps/frontend-console/src/pages/alerts/NotificationConfig.tsx` | 通知配置 | 拆成 `notification.channel.read_metadata/update/test/rotate_secret` 等能力 |
 | `apps/frontend-console/src/pages/security/UserManagement.tsx` | 用户管理页 | 当前页内会再次读取 `/users/me`，建议改为统一消费 `authStore` 中的授权上下文和当前主体，避免页面绕开授权状态层 |
 
 ### P1：前端测试
@@ -329,38 +368,38 @@
 | `apps/frontend-console/tests/securityGovernance.test.ts` | 安全治理相关 UI 测试 | 用 capability / route registry 替换旧 permissions 场景 |
 | `apps/frontend-console/tests/runtimeConfig.test.ts` | 运行时配置测试 | 确认 tenantId 为部署注入的随机 UUID，不依赖固定默认值 |
 
-## 7. 建议新增文件
+## 7. 已新增 / 建议新增文件
 
-为避免把所有逻辑继续堆到旧文件里，建议新增以下文件：
+为避免把所有逻辑继续堆到旧文件里，建议按“已落地”和“尚需补齐”两类看待：
 
-| 新文件 | 作用 | 优先级 |
+| 文件 | 作用 | 优先级 |
 |---|---|---|
-| `services/api-service/internal/repository/authorization_repository.go` | 授权相关 DB 读取（mapping / binding / reserved policy / authz version） | P0 |
-| `services/api-service/internal/service/authorization_context_service.go` | 聚合 `/users/me` 与中间件共用的授权上下文 | P0 |
-| `apps/frontend-console/src/constants/routeRegistry.ts` | 页面授权事实源 | P0 |
-| `apps/frontend-console/src/utils/authorization.ts` | 前端 capability / scope 判定工具 | P0 |
+| `services/api-service/internal/service/authorization_context_service.go` | 已新增；当前承接 `/users/me` 的兼容聚合，后续接入 DB 事实源 | P0（已落地，待深化） |
+| `apps/frontend-console/src/auth/routeAuthorization.ts` | 已新增；页面授权注册表 + 判定工具 | P0（已落地，待补 scopes/featureFlags） |
+| `apps/frontend-console/src/types/authz.ts` | 已新增；统一前端授权上下文模型 | P0（已落地） |
+| `services/api-service/internal/repository/authorization_repository.go` | 尚未新增；承担 mapping / binding / reserved policy / authz_version 读取 | P1 |
 
 ## 8. 实施优先级建议
 
-### Sprint P0：先打通授权上下文最短路径
+### Sprint P0：补齐当前基线的缺口
 
-1. 处理随机租户 ID：
-   - `storage/postgresql/seeds/seed_data.sql`
-   - `storage/postgresql/migrations/000026_auth_user_governance.up.sql`
-   - `storage/postgresql/migrations/000026_auth_user_governance.down.sql`
-   - `services/control-plane/internal/ingest/store_pg_common.go`
+1. 收尾随机租户 runtime 遗留：
+   - `storage/postgresql/migrations/000018_roles_seed_data.up.sql`
    - `apps/frontend-console/public/config/app-config.json`
-2. 扩展 `/users/me`：
-   - `services/api-service/internal/model/user.go`
-   - `services/api-service/internal/service/user_service.go`
-   - `services/api-service/internal/handler/user_handler.go`
-   - `apps/frontend-console/src/api/user.ts`
-   - `apps/frontend-console/src/stores/authStore.ts`
-3. 落前端注册表：
-   - `apps/frontend-console/src/constants/routeRegistry.ts`
+   - `apps/frontend-console/src/config/runtime-config.ts`
+   - `services/control-plane/internal/ingest/store_pg_common.go`
+   - `scripts/local/ensure-local-tenant-config.sh`
+2. 把安全页动作级授权补齐：
+   - `apps/frontend-console/src/pages/security/UserManagement.tsx`
+   - `apps/frontend-console/src/pages/security/RolePermissions.tsx`
+   - `apps/frontend-console/src/pages/security/AuditLogs.tsx`
+   - `apps/frontend-console/src/pages/security/securityGovernance.ts`
+   - `apps/frontend-console/src/pages/Dashboard.tsx`
+3. 补 route registry 维度：
+   - `apps/frontend-console/src/auth/routeAuthorization.ts`
    - `apps/frontend-console/src/components/auth/ProtectedRoute.tsx`
-   - `apps/frontend-console/src/constants/menu.ts`
    - `apps/frontend-console/src/components/layout/AppSidebar.tsx`
+   - `apps/frontend-console/src/components/layout/MobileBottomNav.tsx`
 
 ### Sprint P1：替换后端 capability 判定主路径
 
@@ -372,32 +411,30 @@
 6. `services/control-plane/internal/middleware/operator_authorization.go`
 7. `services/control-plane/internal/middleware/global_tenant_access.go`
 
-### Sprint P2：去掉前端过渡别名与高风险借用
+### Sprint P2：下沉正式授权事实源并清除兼容别名
 
-1. `apps/frontend-console/src/pages/security/LoginPolicy.tsx`
-2. `apps/frontend-console/src/pages/settings/SystemParameters.tsx`
-3. `apps/frontend-console/src/pages/settings/GlobalConfig.tsx`
-4. `apps/frontend-console/src/pages/settings/ConfigVersions.tsx`
-5. `apps/frontend-console/src/pages/reports/ReportManagement.tsx`
-6. `apps/frontend-console/src/pages/reports/ScheduledTasks.tsx`
-7. `apps/frontend-console/src/pages/reports/DownloadRecords.tsx`
+1. `services/api-service/internal/repository/authorization_repository.go`
+2. `storage/postgresql/migrations/000027*`、`000028*`、`000029*`
+3. `services/api-service/internal/service/authorization_context_service.go`
+4. `apps/frontend-console/src/auth/routeAuthorization.ts`
+5. `apps/frontend-console/src/pages/**` 中仍依赖 `permissions` 或硬编码保留主体的页面
 
-## 9. 本轮最值得先开的实施任务
+## 9. 下一轮最值得先开的实施任务
 
-如果下一步要直接开始编码，建议先开这 6 个任务：
+如果下一步继续编码，建议优先开这 6 个任务：
 
-1. **去掉固定默认租户 UUID**
-   - 改 `seed_data.sql`、`000026*.sql`、`app-config.json`、`store_pg_common.go`
-2. **扩展 `/users/me` 返回 capability 上下文**
-   - 改 `model/user.go`、`user_service.go`、`user_handler.go`、`api/user.ts`
-3. **新增授权上下文仓储与服务**
-   - 新增 `authorization_repository.go`、`authorization_context_service.go`
-4. **前端 `authStore` 改为完整授权上下文**
-   - 改 `authStore.ts`、`AppLayout.tsx`
-5. **新增 route registry 并改 `ProtectedRoute`**
-   - 新增 `routeRegistry.ts`、`authorization.ts`，改 `ProtectedRoute.tsx`
-6. **拆掉 `users:write` 的前端借用**
-   - 改 `menu.ts`、`AppSidebar.tsx`、`LoginPolicy.tsx`、`settings/*`
+1. **清理运行时固定租户 UUID 残留**
+   - 改 `000018_roles_seed_data.up.sql`、`app-config.json`、`runtime-config.ts`、`store_pg_common.go`、`ensure-local-tenant-config.sh`
+2. **把安全页从“页面可见”升级到“动作可控”**
+   - 改 `UserManagement.tsx`、`RolePermissions.tsx`、`AuditLogs.tsx`、`Dashboard.tsx`
+3. **把保留主体硬编码迁向事实源**
+   - 改 `securityGovernance.ts`、`user_governance.go`、`auth_service.go`、`global_tenant_access.go`
+4. **让后端 capability 中间件接管主路径**
+   - 改 `auth_middleware.go`、`shared/auth/authorization.go`、`admin_authorization.go`、`operator_authorization.go`
+5. **把 `/users/me` 从兼容聚合升级到正式授权聚合**
+   - 新增 `authorization_repository.go`，并让 `authorization_context_service.go` 读取正式注册表/绑定表
+6. **把路由注册表升级到 scope / feature flag 维度**
+   - 改 `routeAuthorization.ts`、`ProtectedRoute.tsx`、`AppSidebar.tsx`、`MobileBottomNav.tsx`
 
 ## 10. 与前面文档的衔接
 
@@ -414,3 +451,21 @@
 
 - **`000027` / `000028` 正式迁移脚本草案**，或
 - **按本文件 P0 清单开始逐文件实施**
+
+## 11. 当前仓库基线对齐（2026-03-15）
+
+| 主题 | 当前状态 | 说明 |
+|---|---|---|
+| `/users/me` 返回授权上下文 | 已完成第一阶段 | 后端与前端已对齐 `capabilities/scopes/entitlements/feature_flags/authz_epoch/actor_flags`，但能力事实源仍是内存兼容映射 |
+| 页面级路由访问控制 | 已完成第一阶段 | `ProtectedRoute`、`routeAuthorization.ts`、`AppSidebar`、`MobileBottomNav` 已共享同一套页面授权事实源 |
+| 页面内动作级授权 | 未完成 | 多数页面按钮、弹窗、批量操作仍主要依赖“能进页面”这一层，不足以覆盖完整治理闭环 |
+| 运行时固定租户 UUID | 部分未完成 | `app-config.json`、`store_pg_common.go`、`000018_roles_seed_data.up.sql`、本地脚本/部署说明仍有残留 |
+| 保留主体事实源 DB 化 | 未完成 | `securityGovernance.ts`、`user_governance.go`、`auth_service.go`、跨租户访问中间件仍保留用户名/角色名硬编码 |
+| data-services / control-plane capability 中间件 | 未完成 | 仍以 `RequirePermission`、`RequireAdminRole`、`RequireOperatorRole` 和特定用户名/角色 SQL 查询为主 |
+
+## 12. 不应遗漏的联动项
+
+1. `docs/01-architecture/core/05-security-architecture.md` 仍是旧 RBAC 描述，后续需补 capability / scope 模型对齐。
+2. `docs/NexusLog/10-process/11-current-project-overall-planning.md` 中 Week6 的“治理闭环”验收，必须同时覆盖页面访问和页面内操作授权，不能只验菜单隐藏。
+3. Query / export / audit 当前仍有 `tenant_id IS NULL`、`BypassTenantScope`、空字符串代表跨租户的旧语义，能力化改造时必须一起收口。
+4. `authz_epoch` 目前主要用于前端同步链路，若要做即时失效或临时授权（JIT），还需要同步到 token refresh、缓存失效和跨服务鉴权策略。
