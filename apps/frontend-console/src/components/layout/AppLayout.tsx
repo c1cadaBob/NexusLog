@@ -5,7 +5,6 @@ import AppSidebar from './AppSidebar';
 import AppHeader from './AppHeader';
 import MobileBottomNav from './MobileBottomNav';
 import SkipLink from '../common/SkipLink';
-import { useAuthStore } from '../../stores/authStore';
 
 const { Sider, Content } = Layout;
 
@@ -17,12 +16,6 @@ const AppLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const syncPermissions = useAuthStore((s) => s.syncPermissions);
-
-  // 加载权限（页面刷新时恢复）
-  useEffect(() => {
-    syncPermissions();
-  }, [syncPermissions]);
 
   // 响应式检测
   useEffect(() => {

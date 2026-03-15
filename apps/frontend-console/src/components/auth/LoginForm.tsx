@@ -154,7 +154,7 @@ function extractErrorMessage(errorBody: ApiErrorEnvelope | null, fallback: strin
 
 const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, disabled }) => {
   const [form] = Form.useForm();
-  const { login, isLoading, setLoading, syncPermissions, setPermissions } = useAuthStore();
+  const { login, isLoading, setLoading, syncAuthorizationContext, setAuthorizationContext } = useAuthStore();
   const { message } = App.useApp();
   const isDisabled = isLoading || disabled;
 
@@ -193,7 +193,19 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, dis
           email: `${emergencyUsername}@nexuslog.local`,
           role: 'admin',
         });
-        setPermissions(['*']);
+        setAuthorizationContext({
+          permissions: ['*'],
+          capabilities: ['*'],
+          scopes: ['system', 'all_tenants', 'tenant_group', 'tenant', 'owned', 'resource', 'self'],
+          entitlements: [],
+          featureFlags: [],
+          authzEpoch: 0,
+          actorFlags: {
+            reserved: false,
+            interactive_login_allowed: true,
+            system_subject: false,
+          },
+        });
         message.warning('应急模式已启用：当前使用本地模拟登录');
       } finally {
         setLoading(false);
@@ -264,8 +276,8 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword, onSSOLogin, dis
         role: mapRole(successBody.data.user.role),
       });
 
-      // 获取当前用户权限
-      await syncPermissions();
+      // 获取当前用户授权上下文
+      await syncAuthorizationContext();
 
       // 提示登录成功
       message.success('登录成功');

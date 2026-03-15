@@ -3,16 +3,11 @@ import { Menu, Badge, theme } from 'antd';
 import type { MenuProps } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MENU_SECTIONS } from '../../constants/menu';
+import { canAccessRoute } from '../../auth/routeAuthorization';
 import { useAlertStore } from '../../stores/alertStore';
 import { useAuthStore } from '../../stores/authStore';
+import type { AuthorizationSnapshot } from '../../types/authz';
 import type { MenuItem as MenuItemType } from '../../types/navigation';
-
-function hasPermission(userPermissions: string[], required?: string | string[]): boolean {
-  if (!required) return true;
-  if (userPermissions.includes('*')) return true;
-  const arr = Array.isArray(required) ? required : [required];
-  return arr.some((p) => userPermissions.includes(p));
-}
 
 interface AppSidebarProps {
   collapsed: boolean;
@@ -40,10 +35,10 @@ export function getOpenKeysForPath(pathname: string, sections: typeof MENU_SECTI
 function getSelectedKey(pathname: string, sections: typeof MENU_SECTIONS): string {
   for (const section of sections) {
     for (const item of section.items) {
-      if (item.path === pathname) return item.path!;
+      if (item.path === pathname) return item.path;
       if (item.children) {
         for (const child of item.children) {
-          if (child.path === pathname) return child.path!;
+          if (child.path === pathname) return child.path;
         }
       }
     }
@@ -60,32 +55,39 @@ function getSelectedKey(pathname: string, sections: typeof MENU_SECTIONS): strin
   return '/';
 }
 
-/** 按权限过滤菜单 sections。权限未加载时显示全部菜单，避免闪烁。 */
-function filterSectionsByPermission(
+function canAccessMenuPath(path: string | undefined, authorization: Pick<AuthorizationSnapshot, 'permissions' | 'capabilities'>): boolean {
+  if (!path) return false;
+  return canAccessRoute(path, authorization);
+}
+
+/** 按统一注册表过滤菜单 sections。授权未就绪时不渲染可点击菜单。 */
+function filterSectionsByAuthorization(
   sections: typeof MENU_SECTIONS,
-  permissions: string[],
+  authorization: Pick<AuthorizationSnapshot, 'permissions' | 'capabilities'>,
+  authzReady: boolean,
 ): typeof MENU_SECTIONS {
-  if (permissions.length === 0) return sections;
+  if (!authzReady) {
+    return [];
+  }
+
   return sections
     .map((section) => ({
       ...section,
       items: section.items
         .map((item) => {
-          if (item.requiredPermission && !hasPermission(permissions, item.requiredPermission)) {
-            return null;
-          }
           if (item.children) {
-            const filteredChildren = item.children.filter(
-              (child) => !child.requiredPermission || hasPermission(permissions, child.requiredPermission),
-            );
+            const filteredChildren = item.children.filter((child) => canAccessMenuPath(child.path, authorization));
             if (filteredChildren.length === 0) return null;
             return { ...item, children: filteredChildren };
           }
-          return item;
+          if (canAccessMenuPath(item.path, authorization)) {
+            return item;
+          }
+          return null;
         })
-        .filter((i): i is NonNullable<typeof i> => i !== null),
+        .filter((menuItem): menuItem is NonNullable<typeof menuItem> => menuItem !== null),
     }))
-    .filter((s) => s.items.length > 0);
+    .filter((section) => section.items.length > 0);
 }
 
 /** 构建 AntD Menu items */
@@ -109,7 +111,6 @@ function buildMenuItems(
           </span>
         );
 
-        // 收缩时红点放图标上，展开时放文字上
         const icon = isAlert && collapsed ? (
           <Badge count={unreadCount} size="small" offset={[-2, 2]}>
             {baseIcon}
@@ -158,11 +159,18 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggleCollapse }) 
   const location = useLocation();
   const unreadCount = useAlertStore((s) => s.unreadCount);
   const permissions = useAuthStore((s) => s.permissions);
+  const capabilities = useAuthStore((s) => s.capabilities);
+  const authzReady = useAuthStore((s) => s.authzReady);
   const { token } = theme.useToken();
 
+  const authorization = useMemo(
+    () => ({ permissions, capabilities }),
+    [permissions, capabilities],
+  );
+
   const filteredSections = useMemo(
-    () => filterSectionsByPermission(MENU_SECTIONS, permissions),
-    [permissions],
+    () => filterSectionsByAuthorization(MENU_SECTIONS, authorization, authzReady),
+    [authorization, authzReady],
   );
 
   const selectedKey = useMemo(
@@ -180,12 +188,11 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggleCollapse }) 
   );
 
   const handleClick: MenuProps['onClick'] = ({ key }) => {
-    navigate(key);
+    navigate(String(key));
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* 品牌 Logo 区域 + 折叠按钮 */}
       <div
         style={{
           display: 'flex',
@@ -234,7 +241,6 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggleCollapse }) 
         )}
       </div>
 
-      {/* 菜单 */}
       <div style={{ flex: 1, overflow: 'auto' }}>
         <Menu
           mode="inline"

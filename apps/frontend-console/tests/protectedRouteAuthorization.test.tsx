@@ -21,16 +21,9 @@ vi.mock('../src/config/runtime-config', () => ({
   }),
 }));
 
-describe('ProtectedRoute refresh failure handling', () => {
+describe('ProtectedRoute authorization fallback', () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        json: vi.fn().mockRejectedValue(new Error('invalid json body')),
-      }),
-    );
+    vi.stubGlobal('fetch', vi.fn());
 
     window.localStorage.clear();
     window.sessionStorage.clear();
@@ -78,11 +71,13 @@ describe('ProtectedRoute refresh failure handling', () => {
     });
   });
 
-  it('redirects to login and clears persisted auth when refresh fails under StrictMode', async () => {
+  it('redirects to the first accessible page when current route is denied', async () => {
+    const accessToken = 'valid-access-token';
+    const refreshToken = 'valid-refresh-token';
     window.localStorage.setItem('nexuslog-auth-storage-scope', 'local');
-    window.localStorage.setItem(ACCESS_TOKEN_KEY, 'expired-access-token');
-    window.localStorage.setItem(REFRESH_TOKEN_KEY, 'bad-refresh-token');
-    window.localStorage.setItem(TOKEN_EXPIRES_AT_KEY, String(Date.now() - 60_000));
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+    window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    window.localStorage.setItem(TOKEN_EXPIRES_AT_KEY, String(Date.now() + 60_000));
     window.localStorage.setItem(
       AUTH_PERSIST_KEY,
       JSON.stringify({
@@ -90,7 +85,7 @@ describe('ProtectedRoute refresh failure handling', () => {
           isAuthenticated: true,
           user: {
             id: '11111111-1111-1111-1111-111111111111',
-            username: 'demo',
+            username: 'viewer-user',
           },
         },
         version: 0,
@@ -101,62 +96,54 @@ describe('ProtectedRoute refresh failure handling', () => {
       isAuthenticated: true,
       user: {
         id: '11111111-1111-1111-1111-111111111111',
-        username: 'demo',
-        email: 'demo@example.com',
-        role: 'admin',
+        username: 'viewer-user',
+        email: 'viewer@example.com',
+        role: 'viewer',
       },
-      permissions: [],
-      capabilities: [],
-      scopes: [],
+      permissions: ['logs:read'],
+      capabilities: ['log.query.read'],
+      scopes: ['tenant'],
       entitlements: [],
       featureFlags: [],
-      authzEpoch: 0,
+      authzEpoch: 1,
       actorFlags: {
         reserved: false,
-        interactive_login_allowed: false,
+        interactive_login_allowed: true,
         system_subject: false,
       },
-      authzReady: false,
-      authzSourceToken: null,
+      authzReady: true,
+      authzSourceToken: accessToken,
       isLoading: false,
     });
 
     render(
-      <React.StrictMode>
-        <MemoryRouter initialEntries={['/']}>
-          <Routes>
-            <Route path="/login" element={<div>login-page</div>} />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <div>protected-page</div>
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
-        </MemoryRouter>
-      </React.StrictMode>,
+      <MemoryRouter initialEntries={['/security/users']}>
+        <Routes>
+          <Route path="/login" element={<div>login-page</div>} />
+          <Route
+            path="/search/realtime"
+            element={
+              <ProtectedRoute>
+                <div>search-page</div>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/security/users"
+            element={
+              <ProtectedRoute>
+                <div>user-page</div>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
-      expect(screen.getByText('login-page')).toBeTruthy();
+      expect(screen.getByText('search-page')).toBeTruthy();
     });
 
-    await waitFor(() => {
-      expect(window.localStorage.getItem(ACCESS_TOKEN_KEY)).toBeNull();
-      expect(window.localStorage.getItem(REFRESH_TOKEN_KEY)).toBeNull();
-      expect(window.localStorage.getItem(TOKEN_EXPIRES_AT_KEY)).toBeNull();
-      expect(useAuthStore.getState().isAuthenticated).toBe(false);
-    });
-
-    const persistedAuth = window.localStorage.getItem(AUTH_PERSIST_KEY);
-    expect(persistedAuth).toBeTruthy();
-    expect(JSON.parse(persistedAuth ?? '{}')).toMatchObject({
-      state: {
-        isAuthenticated: false,
-        user: null,
-      },
-    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

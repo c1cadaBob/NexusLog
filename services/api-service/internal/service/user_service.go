@@ -514,31 +514,41 @@ func (s *UserService) RemoveRole(ctx context.Context, tenantHeader, userID, role
 	return nil
 }
 
-// GetMe returns the current user's info, roles, and flattened permissions list.
+// GetMe returns the current user's info plus backward-compatible authorization context.
 func (s *UserService) GetMe(ctx context.Context, tenantHeader, userID string) (model.GetMeResponseData, *model.APIError) {
 	userData, apiErr := s.GetUser(ctx, tenantHeader, userID)
 	if apiErr != nil {
 		return model.GetMeResponseData{}, apiErr
 	}
 
-	permsSet := make(map[string]struct{})
-	for _, r := range userData.Roles {
-		for _, p := range r.Permissions {
-			if p != "" {
-				permsSet[p] = struct{}{}
-			}
-		}
-	}
-	permissions := make([]string, 0, len(permsSet))
-	for p := range permsSet {
-		permissions = append(permissions, p)
-	}
+	permissions := sortedUniquePermissions(userData.Roles)
+	authorizationContext := buildAuthorizationContext(userData.Username, userData.Roles, permissions)
 
 	return model.GetMeResponseData{
-		User:        userData,
-		Roles:       userData.Roles,
-		Permissions: permissions,
+		User:         userData,
+		Roles:        userData.Roles,
+		Permissions:  permissions,
+		Capabilities: authorizationContext.Capabilities,
+		Scopes:       authorizationContext.Scopes,
+		Entitlements: authorizationContext.Entitlements,
+		FeatureFlags: authorizationContext.FeatureFlags,
+		AuthzEpoch:   authorizationContext.AuthzEpoch,
+		ActorFlags:   authorizationContext.ActorFlags,
 	}, nil
+}
+
+func sortedUniquePermissions(roles []model.RoleData) []string {
+	permissionSet := make(map[string]struct{})
+	for _, role := range roles {
+		for _, permission := range role.Permissions {
+			normalizedPermission := strings.TrimSpace(permission)
+			if normalizedPermission == "" {
+				continue
+			}
+			permissionSet[normalizedPermission] = struct{}{}
+		}
+	}
+	return sortedStringSet(permissionSet)
 }
 
 func (s *UserService) ListRoles(ctx context.Context, tenantHeader string) ([]model.RoleData, *model.APIError) {

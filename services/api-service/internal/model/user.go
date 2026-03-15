@@ -76,9 +76,15 @@ type CreateUserResponseData struct {
 	Username string `json:"username"`
 }
 
-// GetMeResponseData defines response for GET /users/me (user + roles + permissions).
+// GetMeResponseData defines response for GET /users/me (user + roles + authorization context).
 type GetMeResponseData struct {
-	User        UserData   `json:"user"`
-	Roles       []RoleData `json:"roles"`
-	Permissions []string   `json:"permissions"`
+	User         UserData        `json:"user"`
+	Roles        []RoleData      `json:"roles"`
+	Permissions  []string        `json:"permissions"`
+	Capabilities []string        `json:"capabilities"`
+	Scopes       []string        `json:"scopes"`
+	Entitlements []string        `json:"entitlements"`
+	FeatureFlags []string        `json:"feature_flags"`
+	AuthzEpoch   int64           `json:"authz_epoch"`
+	ActorFlags   map[string]bool `json:"actor_flags"`
 }

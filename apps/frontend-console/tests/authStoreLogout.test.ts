@@ -14,7 +14,7 @@ import {
 vi.mock('../src/config/runtime-config', () => ({
   getRuntimeConfig: () => ({
     apiBaseUrl: '/api/v1',
-    tenantId: '00000000-0000-0000-0000-000000000001',
+    tenantId: '11111111-1111-1111-1111-111111111111',
   }),
 }));
 
@@ -40,6 +40,18 @@ describe('authStore logout', () => {
       isAuthenticated: false,
       user: null,
       permissions: [],
+      capabilities: [],
+      scopes: [],
+      entitlements: [],
+      featureFlags: [],
+      authzEpoch: 0,
+      actorFlags: {
+        reserved: false,
+        interactive_login_allowed: false,
+        system_subject: false,
+      },
+      authzReady: false,
+      authzSourceToken: null,
       isLoading: false,
     });
   });
@@ -51,6 +63,18 @@ describe('authStore logout', () => {
       isAuthenticated: false,
       user: null,
       permissions: [],
+      capabilities: [],
+      scopes: [],
+      entitlements: [],
+      featureFlags: [],
+      authzEpoch: 0,
+      actorFlags: {
+        reserved: false,
+        interactive_login_allowed: false,
+        system_subject: false,
+      },
+      authzReady: false,
+      authzSourceToken: null,
       isLoading: false,
     });
   });
@@ -62,7 +86,7 @@ describe('authStore logout', () => {
       expiresAtMs: Date.now() + 60_000,
       remember: true,
     });
-    window.localStorage.setItem('nexuslog-tenant-id', '00000000-0000-0000-0000-000000000001');
+    window.localStorage.setItem('nexuslog-tenant-id', '11111111-1111-1111-1111-111111111111');
     useAuthStore.setState({
       isAuthenticated: true,
       user: {
@@ -72,6 +96,18 @@ describe('authStore logout', () => {
         role: 'admin',
       },
       permissions: ['*'],
+      capabilities: ['*'],
+      scopes: ['system', 'all_tenants', 'tenant_group', 'tenant', 'owned', 'resource', 'self'],
+      entitlements: [],
+      featureFlags: [],
+      authzEpoch: 0,
+      actorFlags: {
+        reserved: false,
+        interactive_login_allowed: true,
+        system_subject: false,
+      },
+      authzReady: true,
+      authzSourceToken: 'access-token-123',
       isLoading: false,
     });
 
@@ -83,7 +119,7 @@ describe('authStore logout', () => {
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer access-token-123',
-        'X-Tenant-ID': '00000000-0000-0000-0000-000000000001',
+        'X-Tenant-ID': '11111111-1111-1111-1111-111111111111',
       },
       body: JSON.stringify({ refresh_token: 'refresh-token-456' }),
     });
@@ -120,6 +156,18 @@ describe('authStore logout', () => {
         role: 'admin',
       },
       permissions: ['*'],
+      capabilities: ['*'],
+      scopes: ['system', 'all_tenants', 'tenant_group', 'tenant', 'owned', 'resource', 'self'],
+      entitlements: [],
+      featureFlags: [],
+      authzEpoch: 0,
+      actorFlags: {
+        reserved: false,
+        interactive_login_allowed: true,
+        system_subject: false,
+      },
+      authzReady: true,
+      authzSourceToken: 'expired-access-token',
       isLoading: false,
     });
 

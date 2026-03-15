@@ -719,6 +719,20 @@ func TestGetMeUsesAuthenticatedContext(t *testing.T) {
 	if !ok || len(permissions) != 1 || permissions[0] != "users:read" {
 		t.Fatalf("unexpected permissions payload: %#v", data["permissions"])
 	}
+	capabilities, ok := data["capabilities"].([]any)
+	if !ok || len(capabilities) == 0 {
+		t.Fatalf("unexpected capabilities payload: %#v", data["capabilities"])
+	}
+	if data["authz_epoch"] != float64(1) {
+		t.Fatalf("unexpected authz_epoch payload: %#v", data["authz_epoch"])
+	}
+	actorFlags, ok := data["actor_flags"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected actor_flags payload: %#v", data["actor_flags"])
+	}
+	if actorFlags["interactive_login_allowed"] != true {
+		t.Fatalf("unexpected actor flags payload: %#v", actorFlags)
+	}
 }
 
 func TestGetMeRejectsSpoofedUserHeaderWithoutAuthContext(t *testing.T) {

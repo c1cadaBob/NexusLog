@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Badge } from 'antd';
+import { canAccessRoute } from '../../auth/routeAuthorization';
 import { useAlertStore } from '../../stores/alertStore';
+import { useAuthStore } from '../../stores/authStore';
 
 const NAV_ITEMS = [
   { icon: 'dashboard', label: '概览', path: '/' },
@@ -15,6 +17,16 @@ const MobileBottomNav: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const unreadCount = useAlertStore((s) => s.unreadCount);
+  const permissions = useAuthStore((s) => s.permissions);
+  const capabilities = useAuthStore((s) => s.capabilities);
+  const authzReady = useAuthStore((s) => s.authzReady);
+
+  const navItems = useMemo(() => {
+    if (!authzReady) {
+      return [];
+    }
+    return NAV_ITEMS.filter((item) => canAccessRoute(item.path, { permissions, capabilities }));
+  }, [authzReady, capabilities, permissions]);
 
   return (
     <nav
@@ -35,7 +47,7 @@ const MobileBottomNav: React.FC = () => {
       role="navigation"
       aria-label="移动端导航"
     >
-      {NAV_ITEMS.map((item) => {
+      {navItems.map((item) => {
         const isActive = item.path === '/'
           ? location.pathname === '/'
           : location.pathname.startsWith(item.path);

@@ -4,6 +4,7 @@
  */
 
 import { getRuntimeConfig } from '../config/runtime-config';
+import type { ActorFlags } from '../types/authz';
 import { getAuthStorageItem } from '../utils/authStorage';
 
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
@@ -86,6 +87,12 @@ export interface GetMeResponse {
   user: UserData;
   roles: RoleData[];
   permissions: string[];
+  capabilities: string[];
+  scopes: string[];
+  entitlements: string[];
+  feature_flags: string[];
+  authz_epoch: number;
+  actor_flags: ActorFlags;
 }
 
 function normalizeApiBaseUrl(rawBaseUrl: string): string {
@@ -317,5 +324,15 @@ export async function fetchCurrentUser(): Promise<GetMeResponse> {
     user: data.user,
     roles: data.roles ?? [],
     permissions: data.permissions ?? [],
+    capabilities: data.capabilities ?? [],
+    scopes: data.scopes ?? [],
+    entitlements: data.entitlements ?? [],
+    feature_flags: data.feature_flags ?? [],
+    authz_epoch: data.authz_epoch ?? 0,
+    actor_flags: data.actor_flags ?? {
+      reserved: false,
+      interactive_login_allowed: true,
+      system_subject: false,
+    },
   };
 }

@@ -69,7 +69,10 @@ func TestRegisterRoutes_UserMeDoesNotRequireUsersRead(t *testing.T) {
 	var body struct {
 		Code string `json:"code"`
 		Data struct {
-			Permissions []string `json:"permissions"`
+			Permissions  []string        `json:"permissions"`
+			Capabilities []string        `json:"capabilities"`
+			ActorFlags   map[string]bool `json:"actor_flags"`
+			AuthzEpoch   int64           `json:"authz_epoch"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
@@ -80,6 +83,15 @@ func TestRegisterRoutes_UserMeDoesNotRequireUsersRead(t *testing.T) {
 	}
 	if len(body.Data.Permissions) != 1 || body.Data.Permissions[0] != "logs:read" {
 		t.Fatalf("unexpected permissions: %#v", body.Data.Permissions)
+	}
+	if len(body.Data.Capabilities) == 0 || body.Data.Capabilities[0] != "analysis.anomaly.read" {
+		t.Fatalf("unexpected capabilities: %#v", body.Data.Capabilities)
+	}
+	if body.Data.AuthzEpoch != 1 {
+		t.Fatalf("unexpected authz epoch: %d", body.Data.AuthzEpoch)
+	}
+	if !body.Data.ActorFlags["interactive_login_allowed"] {
+		t.Fatalf("unexpected actor flags: %#v", body.Data.ActorFlags)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
