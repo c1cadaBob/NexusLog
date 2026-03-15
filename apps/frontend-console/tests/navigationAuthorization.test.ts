@@ -63,6 +63,34 @@ describe('navigation authorization', () => {
     expect(navItems.map((item) => item.path)).toEqual(['/']);
   });
 
+  it('does not expose settings navigation through users:write alone', () => {
+    const sections = filterSectionsByAuthorization(
+      MENU_SECTIONS,
+      {
+        permissions: ['users:write', 'dashboards:read'],
+        capabilities: [],
+      },
+      true,
+    );
+
+    const visiblePaths = collectVisiblePaths(sections);
+
+    expect(visiblePaths).not.toContain('/security/login-policy');
+    expect(visiblePaths).not.toContain('/settings/parameters');
+    expect(visiblePaths).not.toContain('/settings/global');
+    expect(visiblePaths).not.toContain('/settings/versions');
+
+    const navItems = resolveMobileBottomNavItems(
+      {
+        permissions: ['users:write', 'dashboards:read'],
+        capabilities: [],
+      },
+      true,
+    );
+
+    expect(navItems.map((item) => item.path)).toEqual(['/']);
+  });
+
   it('returns route-accessible mobile tabs with granular capabilities', () => {
     const navItems = resolveMobileBottomNavItems(
       {
