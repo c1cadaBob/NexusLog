@@ -12,7 +12,10 @@ import (
 	"github.com/lib/pq"
 )
 
-const ingestDefaultTenantEnvKey = "INGEST_DEFAULT_TENANT_ID"
+const (
+	ingestDefaultTenantEnvKey     = "INGEST_DEFAULT_TENANT_ID"
+	ingestDefaultTenantFileEnvKey = "INGEST_DEFAULT_TENANT_ID_FILE"
+)
 
 // PGOptions 定义 PG 后端选项。
 type PGOptions struct {
@@ -30,6 +33,9 @@ func NewPGBackend(db *sql.DB, opts PGOptions) (*PGBackend, error) {
 	tenantID := strings.TrimSpace(opts.DefaultTenantID)
 	if tenantID == "" {
 		tenantID = strings.TrimSpace(os.Getenv(ingestDefaultTenantEnvKey))
+	}
+	if tenantID == "" {
+		tenantID = readTenantIDFromFile(strings.TrimSpace(os.Getenv(ingestDefaultTenantFileEnvKey)))
 	}
 	if tenantID == "" {
 		return nil, fmt.Errorf("%s is required for postgres ingest backend", ingestDefaultTenantEnvKey)
@@ -109,4 +115,16 @@ func wrapDBError(action string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", action, err)
+}
+
+func readTenantIDFromFile(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
 }

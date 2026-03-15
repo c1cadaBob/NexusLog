@@ -252,9 +252,28 @@ func main() {
 	}
 
 	// 7. 启动系统资源指标采集器（每 30s 采集一次）
-	sysMetrics := metrics.NewCollector(30 * time.Second)
+	systemMetricsInterval := parseDurationEnv("AGENT_SYSTEM_METRICS_INTERVAL", 30*time.Second)
+	sysMetrics := metrics.NewCollector(systemMetricsInterval)
 	sysMetrics.Start()
 	defer sysMetrics.Stop()
+
+	metricsReporter, err := metrics.NewReporter(metrics.ReporterConfig{
+		Enabled:    isTruthy(getEnv("AGENT_METRICS_REPORT_ENABLED", "false")),
+		BaseURL:    getEnv("CONTROL_PLANE_BASE_URL", "http://localhost:8080"),
+		Path:       getEnv("AGENT_METRICS_REPORT_PATH", "/api/v1/metrics/report"),
+		AgentID:    metaInfo.AgentID,
+		ServerID:   firstNonEmptyString(metaInfo.Hostname, metaInfo.AgentID),
+		AgentKeyID: activeKeyID,
+		AgentKey:   activeKey,
+		Interval:   parseDurationEnv("AGENT_METRICS_REPORT_INTERVAL", systemMetricsInterval),
+		Timeout:    parseDurationEnv("AGENT_METRICS_REPORT_TIMEOUT", 10*time.Second),
+	})
+	if err != nil {
+		log.Printf("初始化系统指标上报器失败: %v", err)
+	} else if metricsReporter != nil {
+		metricsReporter.Start(ctx, sysMetrics)
+		log.Printf("系统指标上报已启用: endpoint=%s interval=%s", getEnv("AGENT_METRICS_REPORT_PATH", "/api/v1/metrics/report"), parseDurationEnv("AGENT_METRICS_REPORT_INTERVAL", systemMetricsInterval))
+	}
 
 	// 8. 启动健康检查与 Agent Pull API HTTP 端点
 	var httpServer *http.Server

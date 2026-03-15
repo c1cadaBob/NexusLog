@@ -73,6 +73,16 @@ func enablePullIngestRuntime(operatorRoutes gin.IRouter, adminRoutes gin.IRouter
 	if err != nil {
 		return err
 	}
+	if defaultAgentKey != "" {
+		if err := authKeyStore.Upsert(ingest.AgentAuthKey{
+			KeyRef:            defaultAgentKeyID,
+			ActiveKeyID:       defaultAgentKeyID,
+			ActiveKeyMaterial: defaultAgentKey,
+			Status:            "active",
+		}); err != nil {
+			return fmt.Errorf("bootstrap default agent auth key: %w", err)
+		}
+	}
 
 	executor := ingest.NewPullTaskExecutor(
 		sourceStore,
