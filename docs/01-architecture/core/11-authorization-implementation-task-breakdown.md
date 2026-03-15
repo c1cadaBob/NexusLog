@@ -384,11 +384,8 @@
 ### Sprint P0：补齐当前基线的缺口
 
 1. 收尾随机租户 runtime 遗留：
-   - `storage/postgresql/migrations/000018_roles_seed_data.up.sql`
-   - `apps/frontend-console/public/config/app-config.json`
-   - `apps/frontend-console/src/config/runtime-config.ts`
-   - `services/control-plane/internal/ingest/store_pg_common.go`
-   - `scripts/local/ensure-local-tenant-config.sh`
+   - `scripts/local/ensure-local-tenant-config.sh`（仅保留 `LOCAL_TENANT_COMPAT_MODE=true` 时的兼容常量）
+   - `tests/e2e/tests/*.spec.js`（将固定演示租户默认值改为运行时注入或本地生成）
 2. 把安全页动作级授权补齐：
    - `apps/frontend-console/src/pages/security/UserManagement.tsx`
    - `apps/frontend-console/src/pages/security/RolePermissions.tsx`
@@ -459,7 +456,7 @@
 | `/users/me` 返回授权上下文 | 已完成第一阶段 | 后端与前端已对齐 `capabilities/scopes/entitlements/feature_flags/authz_epoch/actor_flags`，但能力事实源仍是内存兼容映射 |
 | 页面级路由访问控制 | 已完成第一阶段 | `ProtectedRoute`、`routeAuthorization.ts`、`AppSidebar`、`MobileBottomNav` 已共享同一套页面授权事实源 |
 | 页面内动作级授权 | 未完成 | 多数页面按钮、弹窗、批量操作仍主要依赖“能进页面”这一层，不足以覆盖完整治理闭环 |
-| 运行时固定租户 UUID | 部分未完成 | `app-config.json`、`store_pg_common.go`、`000018_roles_seed_data.up.sql`、本地脚本/部署说明仍有残留 |
+| 运行时固定租户 UUID | 已基本完成 | 运行时代码与部署链路已去掉固定默认租户；仅保留 `ensure-local-tenant-config.sh` 的显式兼容模式常量，以及少量测试夹具默认值 |
 | 保留主体事实源 DB 化 | 未完成 | `securityGovernance.ts`、`user_governance.go`、`auth_service.go`、跨租户访问中间件仍保留用户名/角色名硬编码 |
 | data-services / control-plane capability 中间件 | 未完成 | 仍以 `RequirePermission`、`RequireAdminRole`、`RequireOperatorRole` 和特定用户名/角色 SQL 查询为主 |
 
