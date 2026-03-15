@@ -47,14 +47,46 @@ function buildTrendData(overview: DashboardOverviewStats | null): DashboardTrend
   }));
 }
 
+function normalizeIdentityValue(value: string | undefined, fallback: string): string {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (!trimmed || trimmed.toLowerCase() === 'unknown') {
+    return fallback;
+  }
+  return trimmed;
+}
+
+function formatTopSourceLabel(topSource: DashboardOverviewStats['top_sources'][number] | undefined): string {
+  if (!topSource) {
+    return '等待数据';
+  }
+
+  const host = normalizeIdentityValue(topSource.host, '');
+  const service = normalizeIdentityValue(topSource.service, '');
+  if (host && service) {
+    return `Top ${host} · ${service}`;
+  }
+  if (host) {
+    return `Top 主机 ${host}`;
+  }
+  if (service) {
+    return `Top 服务 ${service}`;
+  }
+  return topSource.source?.trim() ? `Top ${topSource.source}` : '等待数据';
+}
+
 function buildSourceRows(overview: DashboardOverviewStats | null): ServiceStatus[] {
   const sources = overview?.top_sources ?? [];
   const maxCount = Math.max(...sources.map((item) => Number(item.count) || 0), 0);
   return sources.slice(0, 5).map((item) => {
     const count = Number(item.count) || 0;
     const ratio = maxCount > 0 ? count / maxCount : 0;
+    const host = normalizeIdentityValue(item.host, '未知主机');
+    const service = normalizeIdentityValue(item.service, '未知服务');
     return {
-      name: item.source || '-',
+      name: `${host} · ${service}`,
+      source: item.source || '',
+      host,
+      service,
       errorRate: count,
       status: ratio >= 0.75 ? 'critical' : ratio >= 0.35 ? 'warning' : 'healthy',
     };
@@ -80,7 +112,7 @@ function buildKpiData(overview: DashboardOverviewStats | null): KpiData[] {
       value: formatCompactCount(totalLogs),
       trend: '近 24 小时',
       trendType: 'neutral',
-      trendLabel: topSource ? `Top 来源 ${topSource.source}` : '等待数据',
+      trendLabel: formatTopSourceLabel(topSource),
       icon: 'data_usage',
       color: 'primary',
     },
@@ -116,7 +148,7 @@ function buildKpiData(overview: DashboardOverviewStats | null): KpiData[] {
       value: `${overview?.top_sources?.length ?? 0}`,
       trend: topSource ? formatCompactCount(Number(topSource.count) || 0) : '0',
       trendType: 'neutral',
-      trendLabel: topSource ? `Top ${topSource.source}` : '等待数据',
+      trendLabel: formatTopSourceLabel(topSource),
       icon: 'dns',
       color: 'info',
     },
@@ -258,7 +290,7 @@ const KpiCard: React.FC<{ data: KpiData }> = React.memo(({ data }) => {
           >
             {data.trend}
           </Tag>
-          <span className="text-[10px] opacity-50">{data.trendLabel}</span>
+          <span className="min-w-0 flex-1 truncate text-[10px] opacity-50">{data.trendLabel}</span>
         </div>
       )}
     </Card>
@@ -595,7 +627,25 @@ const Dashboard: React.FC = () => {
   }, [dashboardEntryAccess.realtimeSearch, navigate]);
 
   const serviceColumns: ColumnsType<ServiceStatus> = useMemo(() => [
-    { title: '来源', dataIndex: 'name', key: 'name', render: (value: string) => <span className="font-medium">{value}</span> },
+    {
+      title: '主机 / 服务',
+      dataIndex: 'name',
+      key: 'name',
+      render: (_: string, row: ServiceStatus) => (
+        <Tooltip title={row.source || undefined}>
+          <div className="grid min-w-0 grid-cols-2 gap-3">
+            <div className="min-w-0">
+              <div className="text-[11px] opacity-45">主机名</div>
+              <div className="truncate font-medium">{row.host || '未知主机'}</div>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] opacity-45">服务名</div>
+              <div className="truncate font-medium">{row.service || '未知服务'}</div>
+            </div>
+          </div>
+        </Tooltip>
+      ),
+    },
     {
       title: '日志量 (24h)', dataIndex: 'errorRate', key: 'errorRate',
       render: (value: number, row: ServiceStatus) => (
@@ -705,7 +755,7 @@ const Dashboard: React.FC = () => {
         </Col>
         <Col xs={24} lg={8}>
           <Card
-            title={<span className="text-sm font-bold">活跃日志来源 Top 5</span>}
+            title={<span className="text-sm font-bold">活跃主机 / 服务 Top 5</span>}
             extra={
               <Tooltip title={dashboardEntryAccess.alertsList.allowed ? undefined : dashboardEntryAccess.alertsList.deniedTooltip}>
                 <Button
@@ -730,10 +780,10 @@ const Dashboard: React.FC = () => {
               columns={serviceColumns}
               pagination={false}
               size="small"
-              rowKey="name"
+              rowKey={(record) => record.source || record.name}
               locale={{ emptyText: '暂无来源统计' }}
               onRow={(record) => ({
-                onClick: () => handleRealtimeSearchNavigate(record.name),
+                onClick: () => handleRealtimeSearchNavigate(record.source || record.service || record.host || record.name),
                 style: {
                   cursor: dashboardEntryAccess.realtimeSearch.allowed ? 'pointer' : 'not-allowed',
                   opacity: dashboardEntryAccess.realtimeSearch.allowed ? 1 : 0.6,

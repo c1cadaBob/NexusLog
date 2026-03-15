@@ -135,11 +135,19 @@ export interface SavedQueryUpsertPayload {
   filters?: Record<string, unknown>;
 }
 
+/** Dashboard top source summary from GET /api/v1/query/stats/overview */
+export interface DashboardTopSource {
+  source: string;
+  host: string;
+  service: string;
+  count: number;
+}
+
 /** Dashboard overview stats from GET /api/v1/query/stats/overview */
 export interface DashboardOverviewStats {
   total_logs: number;
   level_distribution: Record<string, number>;
-  top_sources: Array<{ source: string; count: number }>;
+  top_sources: DashboardTopSource[];
   alert_summary: { total: number; firing: number; resolved: number };
   log_trend: Array<{ time: string; count: number }>;
 }
@@ -832,6 +840,32 @@ function shouldUseQueryCollectionFallback(): boolean {
   return accessToken.startsWith(EMERGENCY_ACCESS_TOKEN_PREFIX);
 }
 
+function deriveDashboardTopSourceService(source: string): string {
+  const normalized = source.trim().replace(/\\/g, '/');
+  if (!normalized) {
+    return 'unknown';
+  }
+  const segments = normalized.split('/').filter(Boolean);
+  const tail = segments[segments.length - 1] ?? normalized;
+  const display = tail.replace(/\.(log|txt|out|jsonl?)$/i, '').trim();
+  return display || tail || 'unknown';
+}
+
+function normalizeDashboardTopSource(source: Partial<DashboardTopSource> | null | undefined): DashboardTopSource {
+  const rawSource = typeof source?.source === 'string' ? source.source.trim() : '';
+  const host = typeof source?.host === 'string' && source.host.trim() ? source.host.trim() : 'unknown';
+  const service = typeof source?.service === 'string' && source.service.trim()
+    ? source.service.trim()
+    : deriveDashboardTopSourceService(rawSource);
+
+  return {
+    source: rawSource,
+    host,
+    service,
+    count: Number(source?.count) || 0,
+  };
+}
+
 /** Fetch dashboard overview stats */
 export async function fetchDashboardOverview(): Promise<DashboardOverviewStats> {
   const envelope = await requestQueryApi<DashboardOverviewStats>('/stats/overview', { method: 'GET' });
@@ -842,7 +876,7 @@ export async function fetchDashboardOverview(): Promise<DashboardOverviewStats> 
   return {
     total_logs: Number(data.total_logs) || 0,
     level_distribution: data.level_distribution ?? {},
-    top_sources: data.top_sources ?? [],
+    top_sources: Array.isArray(data.top_sources) ? data.top_sources.map((item) => normalizeDashboardTopSource(item)) : [],
     alert_summary: data.alert_summary ?? { total: 0, firing: 0, resolved: 0 },
     log_trend: data.log_trend ?? [],
   };

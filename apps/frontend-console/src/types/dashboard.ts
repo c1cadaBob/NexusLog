@@ -10,6 +10,9 @@ export interface KpiData {
 
 export interface ServiceStatus {
   name: string;
+  source?: string;
+  host?: string;
+  service?: string;
   errorRate: number;
   status: 'critical' | 'warning' | 'healthy';
 }

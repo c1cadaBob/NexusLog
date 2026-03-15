@@ -173,3 +173,73 @@ func TestStatsServiceGetOverviewStats_SkipsTenantFilterForGlobalAccess(t *testin
 		t.Fatalf("unexpected governance tenant filter in %s", body)
 	}
 }
+
+func TestStatsServiceGetOverviewStats_ExtractsTopSourceHostAndService(t *testing.T) {
+	t.Helper()
+
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request body failed: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 2,
+			"timed_out": false,
+			"hits": {"total": {"value": 12}, "hits": []},
+			"aggregations": {
+				"by_level": {"buckets": []},
+				"by_source": {
+					"buckets": [
+						{
+							"key": "/var/log/nginx/access.log",
+							"doc_count": 9,
+							"sample_document": {
+								"hits": {
+									"hits": [
+										{
+											"_source": {
+												"source": {"path": "/var/log/nginx/access.log"},
+												"host": {"name": "node-a"},
+												"service": {"name": "nginx"}
+											}
+										}
+									]
+								}
+							}
+						}
+					]
+				},
+				"log_trend": {"buckets": []}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+
+	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
+	result, err := svc.GetOverviewStats(context.Background(), RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"})
+	if err != nil {
+		t.Fatalf("GetOverviewStats() error = %v", err)
+	}
+	if len(result.TopSources) != 1 {
+		t.Fatalf("GetOverviewStats() top sources len = %d, want 1", len(result.TopSources))
+	}
+	if got := result.TopSources[0]; got.Source != "/var/log/nginx/access.log" || got.Host != "node-a" || got.Service != "nginx" || got.Count != 9 {
+		t.Fatalf("unexpected top source: %+v", got)
+	}
+
+	raw, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatalf("marshal captured request failed: %v", err)
+	}
+	body := string(raw)
+	for _, fragment := range []string{"sample_document", "top_hits", "host.name", "service.name"} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("expected request body to contain %q, got %s", fragment, body)
+		}
+	}
+}
