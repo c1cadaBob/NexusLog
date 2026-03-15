@@ -6,7 +6,9 @@
 const { test, expect } = require("@playwright/test");
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
-const TENANT_ID = process.env.E2E_TENANT_ID || "00000000-0000-0000-0000-000000000001";
+const { resolveE2ETenantId } = require("./support/runtimeTenant");
+
+const TENANT_ID = resolveE2ETenantId();
 
 test.describe("SourceManagement & AgentManagement 调试 - W1-F3 & W1-F4", () => {
   test.beforeEach(async ({ page }) => {

@@ -1,7 +1,9 @@
 const { test, expect } = require("@playwright/test");
 
 // 认证接口要求租户头；前端会从 localStorage 读取该值并透传到 X-Tenant-ID。
-const TENANT_ID = process.env.E2E_TENANT_ID || "00000000-0000-0000-0000-000000000001";
+const { resolveE2ETenantId } = require("./support/runtimeTenant");
+
+const TENANT_ID = resolveE2ETenantId();
 
 function uniqueSuffix() {
   return `${Date.now()}_${Math.floor(Math.random() * 1_000_000)}`;

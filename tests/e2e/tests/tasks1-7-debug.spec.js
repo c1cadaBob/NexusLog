@@ -1,7 +1,8 @@
 const { test, expect } = require("@playwright/test");
 
-const TENANT_ID =
-  process.env.E2E_TENANT_ID || "00000000-0000-0000-0000-000000000001";
+const { resolveE2ETenantId } = require("./support/runtimeTenant");
+
+const TENANT_ID = resolveE2ETenantId();
 
 function buildAuthStoragePayload(isAuthenticated = true) {
   return JSON.stringify({
