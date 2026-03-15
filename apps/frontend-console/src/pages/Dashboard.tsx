@@ -8,8 +8,8 @@ import { usePreferencesStore } from '../stores/preferencesStore';
 import { useAuthStore } from '../stores/authStore';
 import { COLORS } from '../theme/tokens';
 import { AUDIT_LOG_DATA } from '../constants';
-import { canAccessRoute } from '../auth/routeAuthorization';
 import type { KpiData, ServiceStatus } from '../types/dashboard';
+import { resolveDashboardQuickActionAccess } from './dashboardAuthorization';
 import ChartWrapper from '../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
 import { fetchDashboardOverview, type DashboardOverviewStats } from '../api/query';
@@ -443,7 +443,14 @@ InfrastructureMonitor.displayName = 'InfrastructureMonitor';
 // ============================================================================
 // Dashboard 主组件
 // ============================================================================
-const REPORT_MANAGEMENT_ENTRY_DENIED_TOOLTIP = '当前会话缺少 report.read 能力';
+const AUTHZ_LOADING_TOOLTIP = '权限信息加载中';
+
+function getDashboardEntryCardStyle(allowed: boolean) {
+  return {
+    opacity: allowed ? 1 : 0.5,
+    cursor: allowed ? 'pointer' : 'not-allowed',
+  } as const;
+}
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -548,23 +555,44 @@ const Dashboard: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [refreshInterval, doRefresh]);
 
-  const canAccessReportManagement = useMemo(() => {
+  const dashboardEntryAccess = useMemo(() => {
     if (!authzReady) {
-      return false;
+      const pendingAccess = {
+        allowed: false,
+        deniedTooltip: AUTHZ_LOADING_TOOLTIP,
+      };
+
+      return {
+        realtimeSearch: pendingAccess,
+        alertsList: pendingAccess,
+        ingestSourceCreate: pendingAccess,
+        alertRuleCreate: pendingAccess,
+        storageIndexCreate: pendingAccess,
+        reportGenerate: pendingAccess,
+        auditLogs: pendingAccess,
+      };
     }
-    return canAccessRoute('/reports/management', { permissions, capabilities });
+
+    return resolveDashboardQuickActionAccess({ permissions, capabilities });
   }, [authzReady, capabilities, permissions]);
 
-  // 导航
-  const handleNavigate = useCallback((path: string) => navigate(path), [navigate]);
-
-  const handleReportManagementNavigate = useCallback(() => {
-    if (!canAccessReportManagement) {
-      message.warning('当前会话缺少报表访问权限');
+  const handleProtectedNavigate = useCallback((path: string, allowed: boolean, deniedTooltip?: string) => {
+    if (!allowed) {
+      message.warning(deniedTooltip ?? '当前会话缺少访问权限');
       return;
     }
-    navigate('/reports/management');
-  }, [canAccessReportManagement, navigate]);
+
+    navigate(path);
+  }, [navigate]);
+
+  const handleRealtimeSearchNavigate = useCallback((presetQuery: string) => {
+    if (!dashboardEntryAccess.realtimeSearch.allowed) {
+      message.warning(dashboardEntryAccess.realtimeSearch.deniedTooltip ?? '当前会话缺少日志查询权限');
+      return;
+    }
+
+    navigate('/search/realtime', { state: { autoRun: true, presetQuery } });
+  }, [dashboardEntryAccess.realtimeSearch, navigate]);
 
   const serviceColumns: ColumnsType<ServiceStatus> = useMemo(() => [
     { title: '来源', dataIndex: 'name', key: 'name', render: (value: string) => <span className="font-medium">{value}</span> },
@@ -679,9 +707,20 @@ const Dashboard: React.FC = () => {
           <Card
             title={<span className="text-sm font-bold">活跃日志来源 Top 5</span>}
             extra={
-              <Button type="link" size="small" onClick={() => handleNavigate('/alerts/list')}>
-                查看更多
-              </Button>
+              <Tooltip title={dashboardEntryAccess.alertsList.allowed ? undefined : dashboardEntryAccess.alertsList.deniedTooltip}>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => handleProtectedNavigate(
+                    '/alerts/list',
+                    dashboardEntryAccess.alertsList.allowed,
+                    dashboardEntryAccess.alertsList.deniedTooltip,
+                  )}
+                  style={dashboardEntryAccess.alertsList.allowed ? undefined : { opacity: 0.5, cursor: 'not-allowed' }}
+                >
+                  查看更多
+                </Button>
+              </Tooltip>
             }
             className="h-full flex flex-col"
             styles={{ body: { padding: 0, flex: 1 } }}
@@ -694,8 +733,11 @@ const Dashboard: React.FC = () => {
               rowKey="name"
               locale={{ emptyText: '暂无来源统计' }}
               onRow={(record) => ({
-                onClick: () => navigate('/search/realtime', { state: { autoRun: true, presetQuery: record.name } }),
-                style: { cursor: 'pointer' },
+                onClick: () => handleRealtimeSearchNavigate(record.name),
+                style: {
+                  cursor: dashboardEntryAccess.realtimeSearch.allowed ? 'pointer' : 'not-allowed',
+                  opacity: dashboardEntryAccess.realtimeSearch.allowed ? 1 : 0.6,
+                },
               })}
             />
           </Card>
@@ -708,11 +750,17 @@ const Dashboard: React.FC = () => {
         <Col xs={24} lg={12}>
           <div className="flex flex-col gap-3 h-full justify-center">
             {/* 大按钮: 新建采集源 */}
-            <Card
-              hoverable
-              styles={{ body: { padding: '16px' } }}
-              onClick={() => handleNavigate('/ingestion/wizard')}
-            >
+            <Tooltip title={dashboardEntryAccess.ingestSourceCreate.allowed ? undefined : dashboardEntryAccess.ingestSourceCreate.deniedTooltip}>
+              <Card
+                hoverable={dashboardEntryAccess.ingestSourceCreate.allowed}
+                styles={{ body: { padding: '16px' } }}
+                onClick={() => handleProtectedNavigate(
+                  '/ingestion/wizard',
+                  dashboardEntryAccess.ingestSourceCreate.allowed,
+                  dashboardEntryAccess.ingestSourceCreate.deniedTooltip,
+                )}
+                style={getDashboardEntryCardStyle(dashboardEntryAccess.ingestSourceCreate.allowed)}
+              >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div
@@ -728,14 +776,21 @@ const Dashboard: React.FC = () => {
                 </div>
                 <span className="material-symbols-outlined opacity-40">chevron_right</span>
               </div>
-            </Card>
+              </Card>
+            </Tooltip>
 
             {/* 大按钮: 新建告警规则 */}
-            <Card
-              hoverable
-              styles={{ body: { padding: '16px' } }}
-              onClick={() => handleNavigate('/alerts/rules')}
-            >
+            <Tooltip title={dashboardEntryAccess.alertRuleCreate.allowed ? undefined : dashboardEntryAccess.alertRuleCreate.deniedTooltip}>
+              <Card
+                hoverable={dashboardEntryAccess.alertRuleCreate.allowed}
+                styles={{ body: { padding: '16px' } }}
+                onClick={() => handleProtectedNavigate(
+                  '/alerts/rules',
+                  dashboardEntryAccess.alertRuleCreate.allowed,
+                  dashboardEntryAccess.alertRuleCreate.deniedTooltip,
+                )}
+                style={getDashboardEntryCardStyle(dashboardEntryAccess.alertRuleCreate.allowed)}
+              >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div
@@ -751,30 +806,39 @@ const Dashboard: React.FC = () => {
                 </div>
                 <span className="material-symbols-outlined opacity-40">chevron_right</span>
               </div>
-            </Card>
+              </Card>
+            </Tooltip>
 
             {/* 小按钮: 创建索引 + 生成报表 */}
             <Row gutter={12}>
               <Col span={12}>
-                <Card
-                  hoverable
-                  styles={{ body: { padding: '12px', textAlign: 'center' } }}
-                  onClick={() => handleNavigate('/storage/indices')}
-                >
-                  <span className="material-symbols-outlined opacity-50 mb-1">database</span>
-                  <div className="text-xs font-medium">创建索引</div>
-                </Card>
+                <Tooltip title={dashboardEntryAccess.storageIndexCreate.allowed ? undefined : dashboardEntryAccess.storageIndexCreate.deniedTooltip}>
+                  <Card
+                    hoverable={dashboardEntryAccess.storageIndexCreate.allowed}
+                    styles={{ body: { padding: '12px', textAlign: 'center' } }}
+                    onClick={() => handleProtectedNavigate(
+                      '/storage/indices',
+                      dashboardEntryAccess.storageIndexCreate.allowed,
+                      dashboardEntryAccess.storageIndexCreate.deniedTooltip,
+                    )}
+                    style={getDashboardEntryCardStyle(dashboardEntryAccess.storageIndexCreate.allowed)}
+                  >
+                    <span className="material-symbols-outlined opacity-50 mb-1">database</span>
+                    <div className="text-xs font-medium">创建索引</div>
+                  </Card>
+                </Tooltip>
               </Col>
               <Col span={12}>
-                <Tooltip title={canAccessReportManagement ? '进入报表管理' : REPORT_MANAGEMENT_ENTRY_DENIED_TOOLTIP}>
+                <Tooltip title={dashboardEntryAccess.reportGenerate.allowed ? '进入报表管理' : dashboardEntryAccess.reportGenerate.deniedTooltip}>
                   <Card
-                    hoverable={canAccessReportManagement}
+                    hoverable={dashboardEntryAccess.reportGenerate.allowed}
                     styles={{ body: { padding: '12px', textAlign: 'center' } }}
-                    onClick={handleReportManagementNavigate}
-                    style={{
-                      opacity: canAccessReportManagement ? 1 : 0.5,
-                      cursor: canAccessReportManagement ? 'pointer' : 'not-allowed',
-                    }}
+                    onClick={() => handleProtectedNavigate(
+                      '/reports/management',
+                      dashboardEntryAccess.reportGenerate.allowed,
+                      dashboardEntryAccess.reportGenerate.deniedTooltip,
+                    )}
+                    style={getDashboardEntryCardStyle(dashboardEntryAccess.reportGenerate.allowed)}
                   >
                     <span className="material-symbols-outlined opacity-50 mb-1">description</span>
                     <div className="text-xs font-medium">生成报表</div>
@@ -790,9 +854,20 @@ const Dashboard: React.FC = () => {
           <Card
             title={<span className="text-sm font-bold">最近审计活动</span>}
             extra={
-              <Button type="link" size="small" onClick={() => handleNavigate('/security/audit')}>
-                查看全部
-              </Button>
+              <Tooltip title={dashboardEntryAccess.auditLogs.allowed ? undefined : dashboardEntryAccess.auditLogs.deniedTooltip}>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => handleProtectedNavigate(
+                    '/security/audit',
+                    dashboardEntryAccess.auditLogs.allowed,
+                    dashboardEntryAccess.auditLogs.deniedTooltip,
+                  )}
+                  style={dashboardEntryAccess.auditLogs.allowed ? undefined : { opacity: 0.5, cursor: 'not-allowed' }}
+                >
+                  查看全部
+                </Button>
+              </Tooltip>
             }
           >
             <div className="space-y-4">
