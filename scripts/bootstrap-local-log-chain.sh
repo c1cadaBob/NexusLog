@@ -6,6 +6,7 @@ ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT_DIR"
 
 LOCAL_TENANT_CONFIG_SCRIPT="${LOCAL_TENANT_CONFIG_SCRIPT:-$ROOT_DIR/scripts/local/ensure-local-tenant-config.sh}"
+LOCAL_TENANT_ID_FILE="${LOCAL_TENANT_ID_FILE:-$ROOT_DIR/.runtime/tenant/local-tenant-id}"
 CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-http://localhost:8080}"
 API_SERVICE_URL="${API_SERVICE_URL:-http://localhost:8085}"
 QUERY_API_URL="${QUERY_API_URL:-http://localhost:8082}"
@@ -45,6 +46,9 @@ LOCAL_BOOTSTRAP_RESET_SUBJECTS="${LOCAL_BOOTSTRAP_RESET_SUBJECTS:-false}"
 LOCAL_BOOTSTRAP_CANCEL_STALE_TASKS="${LOCAL_BOOTSTRAP_CANCEL_STALE_TASKS:-true}"
 LOCAL_BOOTSTRAP_STALE_TASK_MAX_AGE_MINUTES="${LOCAL_BOOTSTRAP_STALE_TASK_MAX_AGE_MINUTES:-15}"
 LOCAL_BOOTSTRAP_TRIGGER_PULL_RUN="${LOCAL_BOOTSTRAP_TRIGGER_PULL_RUN:-true}"
+LOCAL_BOOTSTRAP_RESTART_CONTROL_PLANE_ON_TENANT_SYNC="${LOCAL_BOOTSTRAP_RESTART_CONTROL_PLANE_ON_TENANT_SYNC:-true}"
+PREVIOUS_TENANT_ID=""
+TENANT_ID_RESYNC_REQUIRED="false"
 
 info() {
   echo "[local-bootstrap] $*" >&2
@@ -59,6 +63,17 @@ require_cmd() {
     error "required command not found: $1"
     exit 1
   fi
+}
+
+normalize_uuid() {
+  printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]'
+}
+
+read_current_tenant_file() {
+  if [[ ! -f "$LOCAL_TENANT_ID_FILE" ]]; then
+    return 0
+  fi
+  normalize_uuid "$(cat "$LOCAL_TENANT_ID_FILE")"
 }
 
 resolve_local_tenant_id() {
@@ -93,6 +108,21 @@ wait_for_url() {
   done
   error "$name not ready: $url"
   exit 1
+}
+
+restart_control_plane_if_tenant_resynced() {
+  if [[ "$TENANT_ID_RESYNC_REQUIRED" != "true" ]]; then
+    return 0
+  fi
+  if [[ "$LOCAL_BOOTSTRAP_RESTART_CONTROL_PLANE_ON_TENANT_SYNC" != "true" ]]; then
+    info "tenant file changed to $TENANT_ID but control-plane auto-restart is disabled"
+    return 0
+  fi
+
+  require_cmd docker
+  info "tenant file changed from ${PREVIOUS_TENANT_ID:-<empty>} to $TENANT_ID, restarting control-plane to reload tenant-scoped runtime"
+  docker compose restart control-plane >/dev/null
+  wait_for_url "$CONTROL_PLANE_URL/healthz" "control-plane"
 }
 
 ensure_access_token() {
@@ -260,10 +290,15 @@ if [[ "$LOCAL_BOOTSTRAP_CANCEL_STALE_TASKS" == "true" || "$LOCAL_BOOTSTRAP_TRIGG
   require_cmd docker
 fi
 
+PREVIOUS_TENANT_ID="$(read_current_tenant_file)"
 TENANT_ID="$(resolve_local_tenant_id)"
+if [[ -n "$PREVIOUS_TENANT_ID" && "$PREVIOUS_TENANT_ID" != "$TENANT_ID" ]]; then
+  TENANT_ID_RESYNC_REQUIRED="true"
+fi
 info "using bootstrap tenant: $TENANT_ID"
 
 wait_for_url "$CONTROL_PLANE_URL/healthz" "control-plane"
+restart_control_plane_if_tenant_resynced
 wait_for_url "$API_SERVICE_URL/healthz" "api-service"
 wait_for_url "$QUERY_API_URL/healthz" "query-api"
 wait_for_url "$SCHEMA_REGISTRY_URL/subjects" "schema-registry"

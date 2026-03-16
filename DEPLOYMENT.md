@@ -74,8 +74,8 @@ make local-deploy
 1. 启动本地开发热更新环境
 2. 等待 PostgreSQL ready 后执行运行时数据库迁移
 3. 自动执行链路自举，包括：
-   - 生成或复用本地租户 UUID（首次运行自动生成，后续稳定复用）
-   - 将该租户 ID 同步给 control-plane 的 `INGEST_DEFAULT_TENANT_ID` 与前端本地覆盖配置，确保页面请求头 `X-Tenant-ID` 与采集 / 查询链路一致
+   - 生成、复用或自动修正本地租户 UUID（首次运行自动生成；若数据库里已存在有效的本地 bootstrap 租户，则优先回收并同步）
+   - 将该租户 ID 同步到 `./.runtime/tenant/local-tenant-id` 与前端本地覆盖配置，确保页面请求头 `X-Tenant-ID` 与采集 / 查询链路一致
    - 为该租户幂等创建本地 bootstrap 账号与角色
    - 注册 Schema Registry subjects
    - 安装 Elasticsearch v2 template
@@ -90,7 +90,7 @@ make local-deploy
 - `./.runtime/tenant/local-tenant-id`
 - `apps/frontend-console/public/config/app-config.local.json`（本地覆盖文件，默认已被 Git 忽略）
 
-默认情况下，这两个文件会同步为当前本地租户 UUID：若 `./.runtime/tenant/local-tenant-id` 已存在则直接复用，不存在则首次自动生成一个随机 UUID。
+默认情况下，这两个文件会同步为当前本地租户 UUID：若 `./.runtime/tenant/local-tenant-id` 已存在则优先复用；若数据库里已经存在有效的本地 bootstrap 租户，但文件中的值已经漂移，脚本会自动修正回数据库中的有效租户；如果两者都不存在，则首次自动生成一个随机 UUID。
 
 如需兼容旧的固定本地租户，可显式开启兼容模式：
 
@@ -395,7 +395,7 @@ make dev-test-smoke
 
 大多数情况下，这是因为前端当前使用的 `X-Tenant-ID` 与本地采集 / 查询链路写入 Elasticsearch 时使用的租户不一致。
 
-当前本地部署不再固定使用兼容租户。`make local-deploy` / `make dev-up` 会优先复用 `./.runtime/tenant/local-tenant-id`，首次运行时自动生成一个随机 UUID。如果页面当前使用的租户 ID 与本地采集 / 查询链路写入 Elasticsearch 时使用的租户不一致，日志统计、实时检索、告警列表就会显示为空。
+当前本地部署不再固定使用兼容租户。`make local-deploy` / `make dev-up` 会先启动 PostgreSQL，再校验 `./.runtime/tenant/local-tenant-id` 是否与数据库中的有效本地 bootstrap 租户一致；若检测到本地文件漂移，会自动修正并在后续启动中使用修正后的租户。如果页面当前使用的租户 ID 与本地采集 / 查询链路写入 Elasticsearch 时使用的租户不一致，日志统计、实时检索、告警列表就会显示为空。
 
 可先执行：
 
@@ -409,7 +409,7 @@ cat ./.runtime/tenant/local-tenant-id
 make local-bootstrap
 ```
 
-必要时再重新登录前端页面。
+该命令现在会在发现租户文件已被自动修正时，自动重启 `control-plane` 以重新加载租户作用域配置；随后再重新登录前端页面即可。
 
 如果你必须回到旧的固定兼容租户，再执行：
 

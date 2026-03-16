@@ -144,9 +144,23 @@ docker-push:
 ## 启动开发热更新环境（任务2起默认）
 dev-up:
 	@echo "🔥 启动 dev 热更新环境..."
-	@tenant_id="$$($(LOCAL_TENANT_CONFIG_SCRIPT))"; \
+	@set -e; \
+	tenant_id="$$($(LOCAL_TENANT_CONFIG_SCRIPT))"; \
 	echo "🔐 使用本地租户 $$tenant_id"; \
-	set -a; . $(MIRROR_ENV_FILE); export INGEST_DEFAULT_TENANT_ID="$$tenant_id"; set +a; \
+	set -a; . $(MIRROR_ENV_FILE); set +a; \
+	docker compose $(DEV_COMPOSE_FILES) up -d postgres; \
+	for attempt in $$(seq 1 60); do \
+		if docker compose $(DEV_COMPOSE_FILES) exec -T postgres pg_isready -U $(LOCAL_PG_USER) -d $(LOCAL_PG_DB) >/dev/null 2>&1; then \
+			break; \
+		fi; \
+		if [ "$$attempt" -eq 60 ]; then \
+			echo "ERROR: postgres not ready for local tenant sync"; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done; \
+	tenant_id="$$($(LOCAL_TENANT_CONFIG_SCRIPT))"; \
+	echo "🔐 已同步本地租户 $$tenant_id"; \
 	docker compose $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES); \
 	docker compose $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES)
 	@echo "✅ dev 环境已启动"
@@ -154,9 +168,23 @@ dev-up:
 ## 启动轻量开发热更新环境（低资源，占用更小）
 dev-up-lite:
 	@echo "🔥 启动 dev 轻量热更新环境..."
-	@tenant_id="$$($(LOCAL_TENANT_CONFIG_SCRIPT))"; \
+	@set -e; \
+	tenant_id="$$($(LOCAL_TENANT_CONFIG_SCRIPT))"; \
 	echo "🔐 使用本地租户 $$tenant_id"; \
-	set -a; . $(MIRROR_ENV_FILE); export INGEST_DEFAULT_TENANT_ID="$$tenant_id"; set +a; \
+	set -a; . $(MIRROR_ENV_FILE); set +a; \
+	docker compose $(DEV_COMPOSE_FILES) up -d postgres; \
+	for attempt in $$(seq 1 60); do \
+		if docker compose $(DEV_COMPOSE_FILES) exec -T postgres pg_isready -U $(LOCAL_PG_USER) -d $(LOCAL_PG_DB) >/dev/null 2>&1; then \
+			break; \
+		fi; \
+		if [ "$$attempt" -eq 60 ]; then \
+			echo "ERROR: postgres not ready for local tenant sync"; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done; \
+	tenant_id="$$($(LOCAL_TENANT_CONFIG_SCRIPT))"; \
+	echo "🔐 已同步本地租户 $$tenant_id"; \
 	docker compose $(DEV_COMPOSE_FILES) pull $(DEV_SERVICES_LITE); \
 	docker compose $(DEV_COMPOSE_FILES) up -d $(DEV_SERVICES_LITE)
 	@echo "✅ dev 轻量环境已启动"
