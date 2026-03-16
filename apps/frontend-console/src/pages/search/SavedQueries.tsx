@@ -74,11 +74,20 @@ const SavedQueries: React.FC = () => {
       queryText: normalized.queryText,
       filters: normalized.filters,
     });
+    const previewFilters = Object.entries(normalized.filters)
+      .filter(([, value]) => value != null && value !== '' && (!Array.isArray(value) || value.length > 0))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => ({
+        key,
+        label: formatSavedQueryCleanupFilterLabel(key),
+        value: formatSavedQueryCleanupFilterValue(value),
+      }));
     return {
       item,
       normalized,
       cleanedQuery,
       needsCleanup: cleanedQuery !== item.query.trim(),
+      previewFilters,
     };
   }), [savedList]);
 
@@ -383,7 +392,7 @@ const SavedQueries: React.FC = () => {
       ) : (
         <>
           <Row gutter={[16, 16]}>
-            {savedQueryDiagnostics.map(({ item, normalized, needsCleanup }) => (
+            {savedQueryDiagnostics.map(({ item, normalized, needsCleanup, previewFilters }) => (
               <Col key={item.id} xs={24} md={12} xl={8}>
                 <Card hoverable size="small" styles={{ body: { padding: 16 } }} loading={loading}>
                   <div className="flex flex-col gap-3">
@@ -440,6 +449,21 @@ const SavedQueries: React.FC = () => {
                     >
                       {item.query}
                     </div>
+
+                    {previewFilters.length > 0 && (
+                      <div className="flex flex-col gap-1">
+                        <div className="text-xs opacity-50">
+                          {needsCleanup ? '清洗后保留筛选' : '筛选条件'}
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          {previewFilters.map((filter) => (
+                            <Tag key={`${item.id}-${filter.key}`} color="blue" style={{ margin: 0 }}>
+                              {filter.label}: {filter.value}
+                            </Tag>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between">
                       <div className="flex gap-1 flex-wrap">

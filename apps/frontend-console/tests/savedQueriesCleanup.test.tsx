@@ -179,6 +179,10 @@ describe('SavedQueries legacy cleanup', () => {
       expect(screen.getByText('检测到 1 条旧格式收藏查询')).toBeTruthy();
     });
 
+    expect(screen.getByText('清洗后保留筛选')).toBeTruthy();
+    expect(screen.getByText('级别: error')).toBeTruthy();
+    expect(screen.getByText('来源/服务: vault')).toBeTruthy();
+
     fireEvent.click(screen.getByRole('button', { name: '一键清洗' }));
 
     await waitFor(() => {
@@ -192,6 +196,9 @@ describe('SavedQueries legacy cleanup', () => {
     await waitFor(() => {
       expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(2);
       expect(screen.queryByText('检测到 1 条旧格式收藏查询')).toBeNull();
+      expect(screen.getByText('筛选条件')).toBeTruthy();
+      expect(screen.getByText('级别: error')).toBeTruthy();
+      expect(screen.getByText('来源/服务: vault')).toBeTruthy();
     });
   });
 });
