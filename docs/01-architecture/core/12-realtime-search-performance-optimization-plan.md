@@ -703,7 +703,7 @@ function buildRealtimeTableTimeRange(snapshotTo?: string) {
 4. `services/data-services/query-api/internal/service/service.go`
 5. `services/data-services/query-api/internal/service/stats_service.go`
 
-如果需要，可以在下一轮继续产出一份：
+配套的 P0 级实施拆解文档已经补充完成，可直接继续参考：
 
-- **P0 开发任务拆解单**
-- 精确到函数、接口参数、测试用例和提交流水线的实施文档
+- `docs/01-architecture/core/13-realtime-search-p0-task-breakdown.md`
+- 文档已细化到函数、接口参数、页面状态、联调步骤与验收证据
