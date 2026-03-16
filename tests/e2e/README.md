@@ -20,7 +20,13 @@ E2E_BASE_URL=http://127.0.0.1:4173 pnpm test
 
 ```bash
 make e2e-list
+make e2e-list-regression
+make e2e-list-debug
+make e2e-list-full
 make e2e-smoke
+make e2e-regression
+make e2e-debug
+make e2e-full
 ```
 
 默认会使用 `E2E_BASE_URL=http://127.0.0.1:3000` 与 `playwright.config.js`；如需切到系统 Chrome，可显式传入：
@@ -37,6 +43,13 @@ make e2e-list-chrome
 make e2e-smoke-chrome
 ```
 
+当前默认分组如下：
+
+- `smoke`: `tests/smoke.spec.js`（2 条）
+- `regression`: `tests/auth.spec.js`、`tests/dashboard-restored-verify.spec.js`、`tests/verify-fixed-pages.spec.js`（5 条）
+- `debug`: `tests/dashboard-screenshot.spec.js`、`tests/ingestion-debug.spec.js`、`tests/search-audit-debug.spec.js`、`tests/tasks1-7-debug.spec.js`、`tests/week2-debug.spec.js`、`tests/week2-pages-debug.spec.js`、`tests/week3-pages-debug.spec.js`、`tests/week4-pages-debug.spec.js`（12 条）
+- `full`: 以上全部 19 条
+
 如需在无桌面环境里跑“有界面”模式，可直接使用：
 
 ```bash
@@ -48,6 +61,8 @@ make e2e-smoke-ci
 > `E2E_BASE_URL` 默认为 `http://127.0.0.1:4173`，可按环境覆盖。
 >
 > `make e2e-smoke-ci` 会先构建前端，再通过 `vite preview` 启动静态站点并执行 smoke，默认显式关闭租户自动同步，适合作为 CI / 发布前门禁入口。
+>
+> 如目标环境的登录账号不是默认演示账号，可显式设置 `E2E_LOGIN_USERNAME` 与 `E2E_LOGIN_PASSWORD`；GitHub Actions 手动工作流 `Playwright Regression Suites` 也会透传这两个环境变量。
 >
 > Playwright 入口现在会先执行一次本地租户自校验：若未显式传入 `E2E_TENANT_ID`，会调用仓库根目录下的 `scripts/local/ensure-local-tenant-config.sh`，自动修正 `./.runtime/tenant/local-tenant-id` 与 `app-config.local.json` 的漂移问题，再把修正后的租户注入测试进程。
 >

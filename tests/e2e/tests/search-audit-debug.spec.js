@@ -7,6 +7,7 @@ const { test } = require("@playwright/test");
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
 const { resolveE2ETenantId } = require("./support/runtimeTenant");
+const { E2E_LOGIN_USERNAME, E2E_LOGIN_PASSWORD } = require("./support/runtimeUser");
 
 const TENANT_ID = resolveE2ETenantId();
 
@@ -73,8 +74,8 @@ test.describe("日志检索 & 安全审计 调试", () => {
       (await page.locator('input[id="login-username"], input[name="username"]').count()) > 0;
 
     if (isLoginPage) {
-      await page.locator("#login-username").fill("sys-superadmin");
-      await page.getByPlaceholder("请输入密码").fill("Demo@2026");
+      await page.locator("#login-username").fill(E2E_LOGIN_USERNAME);
+      await page.getByPlaceholder("请输入密码").fill(E2E_LOGIN_PASSWORD);
       await page.locator('button[type="submit"]').click();
       await page.waitForTimeout(3500);
     }
@@ -159,7 +160,7 @@ test.describe("日志检索 & 安全审计 调试", () => {
 
     console.log("\n========== 可复现步骤 ==========");
     console.log("1. 打开", BASE_URL);
-    console.log("2. 使用 sys-superadmin / Demo@2026 登录");
+    console.log(`2. 使用 ${E2E_LOGIN_USERNAME} / <configured-password> 登录`);
     console.log("3. 侧边栏 日志检索 -> 实时检索，或直接访问", BASE_URL + "/#/search/realtime");
     console.log("4. 输入 error，点击执行");
     console.log("5. 侧边栏 安全与审计 -> 审计日志，或直接访问", BASE_URL + "/#/security/audit");

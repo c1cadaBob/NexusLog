@@ -1,0 +1,105 @@
+name: Playwright Regression Suites
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "选择要执行的 Playwright 套件"
+        required: true
+        default: regression
+        type: choice
+        options:
+          - regression
+          - debug
+          - full
+      base_url:
+        description: "目标前端地址，例如 http://192.168.0.202:3000"
+        required: true
+        type: string
+      tenant_id:
+        description: "目标租户 UUID；手动工作流默认关闭本地租户自动同步"
+        required: true
+        type: string
+
+concurrency:
+  group: playwright-regression-${{ github.ref }}-${{ inputs.suite }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  run-suite:
+    name: Run ${{ inputs.suite }} suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 安装 E2E 依赖
+        run: npm ci
+        working-directory: tests/e2e
+
+      - name: 安装 Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: tests/e2e
+
+      - name: 列出目标套件
+        env:
+          E2E_BASE_URL: ${{ inputs.base_url }}
+          E2E_TENANT_ID: ${{ inputs.tenant_id }}
+          E2E_TENANT_AUTO_SYNC: 'false'
+          E2E_LOGIN_USERNAME: ${{ vars.E2E_LOGIN_USERNAME }}
+          E2E_LOGIN_PASSWORD: ${{ secrets.E2E_LOGIN_PASSWORD }}
+        run: |
+          case "${{ inputs.suite }}" in
+            regression) make e2e-list-regression ;;
+            debug) make e2e-list-debug ;;
+            full) make e2e-list-full ;;
+            *) echo "Unsupported suite: ${{ inputs.suite }}" >&2; exit 1 ;;
+          esac
+
+      - name: 执行目标套件
+        env:
+          E2E_BASE_URL: ${{ inputs.base_url }}
+          E2E_TENANT_ID: ${{ inputs.tenant_id }}
+          E2E_TENANT_AUTO_SYNC: 'false'
+          E2E_LOGIN_USERNAME: ${{ vars.E2E_LOGIN_USERNAME }}
+          E2E_LOGIN_PASSWORD: ${{ secrets.E2E_LOGIN_PASSWORD }}
+        run: |
+          case "${{ inputs.suite }}" in
+            regression) make e2e-regression ;;
+            debug) make e2e-debug ;;
+            full) make e2e-full ;;
+            *) echo "Unsupported suite: ${{ inputs.suite }}" >&2; exit 1 ;;
+          esac
+
+      - name: 上传 Playwright 报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ inputs.suite }}-report
+          path: |
+            tests/e2e/playwright-report/
+            tests/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

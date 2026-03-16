@@ -489,8 +489,14 @@ cd apps/frontend-console && pnpm dev     # 启动前端开发服务器 (Vite HMR
 make test                                # 运行全部测试
 make frontend-test                       # 仅前端测试 (Vitest)
 make backend-test                        # 仅后端测试
-make e2e-list                            # 列出 Playwright E2E 用例
+make e2e-list                            # 列出全部 Playwright E2E 用例
+make e2e-list-regression                 # 列出回归套件用例
+make e2e-list-debug                      # 列出调试套件用例
+make e2e-list-full                       # 列出全量套件用例
 make e2e-smoke                           # 执行 Playwright E2E 冒烟
+make e2e-regression                      # 执行 Playwright 回归套件
+make e2e-debug                           # 执行 Playwright 调试套件
+make e2e-full                            # 执行 Playwright 全量套件
 make e2e-list-chrome                     # 使用系统 Chrome 列出 E2E 用例
 make e2e-smoke-chrome                    # 使用系统 Chrome 执行 E2E 冒烟
 make e2e-smoke-headed                    # 通过 XVFB 执行有界面 E2E 冒烟
@@ -557,7 +563,13 @@ pnpm preview              # 预览生产构建
 
 ```bash
 make e2e-list
+make e2e-list-regression
+make e2e-list-debug
+make e2e-list-full
 make e2e-smoke
+make e2e-regression
+make e2e-debug
+make e2e-full
 make e2e-list-chrome
 make e2e-smoke-chrome
 make e2e-smoke-headed
@@ -565,11 +577,14 @@ make e2e-smoke-headed-chrome
 make e2e-smoke-ci
 ```
 
+- 套件划分：`smoke` 2 条、`regression` 5 条、`debug` 12 条、`full` 19 条。
 - 默认使用 `E2E_BASE_URL=http://127.0.0.1:3000`。
 - `make e2e-smoke-ci` 会先构建前端，再通过 `vite preview` 在 `http://127.0.0.1:4173` 执行 smoke，适用于 CI 与发布前门禁。
 - 默认配置为 `tests/e2e/playwright.config.js`；切换系统 Chrome 时使用 `tests/e2e/playwright.chrome.config.js`。
+- 如目标环境不是默认演示账号，可显式设置 `E2E_LOGIN_USERNAME` 与 `E2E_LOGIN_PASSWORD`。
 - 入口会先执行本地租户自校验；若未显式传入 `E2E_TENANT_ID`，会自动同步 `./.runtime/tenant/local-tenant-id` 与前端运行时配置。
 - 租户解析优先级：`E2E_TENANT_ID` > 自动同步结果 > `INGEST_DEFAULT_TENANT_ID` > `./.runtime/tenant/local-tenant-id`。
+- GitHub Actions 已新增手动工作流 `Playwright Regression Suites`，可按 `regression` / `debug` / `full` 套件对指定 `base_url` 与 `tenant_id` 运行回归。
 
 前端包含 15 个功能模块：Dashboard、日志检索、日志分析、告警中心、采集接入、解析字段、索引存储、性能高可用、分布式追踪、报表中心、安全审计、集成平台、成本管理、系统设置、帮助中心。
 

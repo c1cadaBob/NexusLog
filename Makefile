@@ -6,7 +6,7 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push test-contracts stream-install-es stream-register-schemas stream-deploy-local stream-bootstrap-local stream-compare
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-chrome e2e-smoke e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome e2e-smoke-ci local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-suite e2e-list-regression e2e-list-debug e2e-list-full e2e-list-chrome e2e-suite e2e-smoke e2e-regression e2e-debug e2e-full e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome e2e-smoke-ci local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
@@ -19,6 +19,10 @@ E2E_DIR ?= ./tests/e2e
 E2E_BASE_URL ?= http://127.0.0.1:3000
 E2E_PLAYWRIGHT_CONFIG ?= playwright.config.js
 E2E_TENANT_AUTO_SYNC ?= true
+E2E_SMOKE_SPECS ?= tests/smoke.spec.js
+E2E_REGRESSION_SPECS ?= tests/auth.spec.js tests/dashboard-restored-verify.spec.js tests/verify-fixed-pages.spec.js
+E2E_DEBUG_SPECS ?= tests/dashboard-screenshot.spec.js tests/ingestion-debug.spec.js tests/search-audit-debug.spec.js tests/tasks1-7-debug.spec.js tests/week2-debug.spec.js tests/week2-pages-debug.spec.js tests/week3-pages-debug.spec.js tests/week4-pages-debug.spec.js
+E2E_FULL_SPECS ?= $(E2E_SMOKE_SPECS) $(E2E_REGRESSION_SPECS) $(E2E_DEBUG_SPECS)
 E2E_CI_BASE_URL ?= http://127.0.0.1:4173
 E2E_CI_PREVIEW_PORT ?= 4173
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.override.yml
@@ -246,11 +250,57 @@ dev-test-smoke:
 
 ## 列出 E2E 用例（自动同步租户）
 e2e-list:
-	@echo "📋 列出 E2E 用例..."
+	@$(MAKE) e2e-list-suite E2E_SUITE_NAME=all E2E_SPEC_ARGS="$(E2E_FULL_SPECS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+
+## 列出 E2E 套件（内部目标）
+e2e-list-suite:
+	@if [ -z "$(strip $(E2E_SUITE_NAME))" ] || [ -z "$(strip $(E2E_SPEC_ARGS))" ]; then \
+		echo "Usage: make e2e-list-suite E2E_SUITE_NAME=<name> E2E_SPEC_ARGS=\"tests/*.spec.js ...\""; \
+		exit 1; \
+	fi
+	@echo "📋 列出 E2E 用例（$(E2E_SUITE_NAME)）..."
 	@cd $(E2E_DIR) && \
 		E2E_BASE_URL="$(E2E_BASE_URL)" \
 		E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)" \
-		npx playwright test --config="$(E2E_PLAYWRIGHT_CONFIG)" --list
+		npx playwright test --config="$(E2E_PLAYWRIGHT_CONFIG)" --list $(E2E_SPEC_ARGS)
+
+## 执行 E2E 套件（内部目标）
+e2e-suite:
+	@if [ -z "$(strip $(E2E_SUITE_NAME))" ] || [ -z "$(strip $(E2E_SPEC_ARGS))" ]; then \
+		echo "Usage: make e2e-suite E2E_SUITE_NAME=<name> E2E_SPEC_ARGS=\"tests/*.spec.js ...\""; \
+		exit 1; \
+	fi
+	@echo "🧪 执行 E2E 套件（$(E2E_SUITE_NAME)）..."
+	@$(MAKE) e2e-list-suite E2E_SUITE_NAME="$(E2E_SUITE_NAME)" E2E_SPEC_ARGS="$(E2E_SPEC_ARGS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+	@cd $(E2E_DIR) && \
+		E2E_BASE_URL="$(E2E_BASE_URL)" \
+		E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)" \
+		npx playwright test --config="$(E2E_PLAYWRIGHT_CONFIG)" $(E2E_SPEC_ARGS)
+	@echo "✅ E2E $(E2E_SUITE_NAME) 套件检查通过"
+
+## 列出 E2E 回归套件
+e2e-list-regression:
+	@$(MAKE) e2e-list-suite E2E_SUITE_NAME=regression E2E_SPEC_ARGS="$(E2E_REGRESSION_SPECS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+
+## 执行 E2E 回归套件
+e2e-regression:
+	@$(MAKE) e2e-suite E2E_SUITE_NAME=regression E2E_SPEC_ARGS="$(E2E_REGRESSION_SPECS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+
+## 列出 E2E 调试套件
+e2e-list-debug:
+	@$(MAKE) e2e-list-suite E2E_SUITE_NAME=debug E2E_SPEC_ARGS="$(E2E_DEBUG_SPECS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+
+## 执行 E2E 调试套件
+e2e-debug:
+	@$(MAKE) e2e-suite E2E_SUITE_NAME=debug E2E_SPEC_ARGS="$(E2E_DEBUG_SPECS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+
+## 列出 E2E 全量套件
+e2e-list-full:
+	@$(MAKE) e2e-list-suite E2E_SUITE_NAME=full E2E_SPEC_ARGS="$(E2E_FULL_SPECS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+
+## 执行 E2E 全量套件
+e2e-full:
+	@$(MAKE) e2e-suite E2E_SUITE_NAME=full E2E_SPEC_ARGS="$(E2E_FULL_SPECS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
 
 ## 列出 E2E 用例（系统 Chrome）
 e2e-list-chrome:
@@ -259,13 +309,7 @@ e2e-list-chrome:
 
 ## 执行 E2E 冒烟检查（自动同步租户）
 e2e-smoke:
-	@echo "🧪 执行 E2E 冒烟检查..."
-	@$(MAKE) e2e-list E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
-	@cd $(E2E_DIR) && \
-		E2E_BASE_URL="$(E2E_BASE_URL)" \
-		E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)" \
-		npx playwright test --config="$(E2E_PLAYWRIGHT_CONFIG)" tests/smoke.spec.js
-	@echo "✅ E2E 冒烟检查通过"
+	@$(MAKE) e2e-suite E2E_SUITE_NAME=smoke E2E_SPEC_ARGS="$(E2E_SMOKE_SPECS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
 
 ## 执行 E2E 冒烟检查（系统 Chrome）
 e2e-smoke-chrome:
@@ -275,11 +319,11 @@ e2e-smoke-chrome:
 ## 执行 E2E 冒烟检查（有界面 / XVFB）
 e2e-smoke-headed:
 	@echo "🧪 执行 E2E 冒烟检查（Headed）..."
-	@$(MAKE) e2e-list E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+	@$(MAKE) e2e-list-suite E2E_SUITE_NAME=smoke E2E_SPEC_ARGS="$(E2E_SMOKE_SPECS)" E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
 	@cd $(E2E_DIR) && \
 		E2E_BASE_URL="$(E2E_BASE_URL)" \
 		E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)" \
-		xvfb-run -a npx playwright test --headed --config="$(E2E_PLAYWRIGHT_CONFIG)" tests/smoke.spec.js
+		xvfb-run -a npx playwright test --headed --config="$(E2E_PLAYWRIGHT_CONFIG)" $(E2E_SMOKE_SPECS)
 	@echo "✅ E2E Headed 冒烟检查通过"
 
 ## 执行 E2E 冒烟检查（有界面 / XVFB / 系统 Chrome）
@@ -476,9 +520,15 @@ help:
 	@echo "  make dev-down       - 停止 dev 热更新环境"
 	@echo "  make dev-logs       - 查看 dev 热更新日志"
 	@echo "  make dev-test-smoke - 执行 dev 冒烟检查"
-	@echo "  make e2e-list [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 列出 Playwright E2E 用例"
-	@echo "  make e2e-list-chrome [E2E_BASE_URL=http://127.0.0.1:3000] - 使用系统 Chrome 列出 Playwright E2E 用例"
+	@echo "  make e2e-list [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 列出全部 Playwright E2E 用例"
+	@echo "  make e2e-list-regression [E2E_BASE_URL=http://127.0.0.1:3000] - 列出回归套件用例"
+	@echo "  make e2e-list-debug [E2E_BASE_URL=http://127.0.0.1:3000] - 列出调试套件用例"
+	@echo "  make e2e-list-full [E2E_BASE_URL=http://127.0.0.1:3000] - 列出全量套件用例"
+	@echo "  make e2e-list-chrome [E2E_BASE_URL=http://127.0.0.1:3000] - 使用系统 Chrome 列出全部 E2E 用例"
 	@echo "  make e2e-smoke [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 执行 Playwright E2E 冒烟检查"
+	@echo "  make e2e-regression [E2E_BASE_URL=http://127.0.0.1:3000] - 执行 Playwright 回归套件"
+	@echo "  make e2e-debug [E2E_BASE_URL=http://127.0.0.1:3000] - 执行 Playwright 调试套件"
+	@echo "  make e2e-full [E2E_BASE_URL=http://127.0.0.1:3000] - 执行 Playwright 全量套件"
 	@echo "  make e2e-smoke-chrome [E2E_BASE_URL=http://127.0.0.1:3000] - 使用系统 Chrome 执行 Playwright E2E 冒烟检查"
 	@echo "  make e2e-smoke-headed [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 通过 XVFB 执行有界面 Playwright E2E 冒烟检查"
 	@echo "  make e2e-smoke-headed-chrome [E2E_BASE_URL=http://127.0.0.1:3000] - 通过 XVFB + 系统 Chrome 执行有界面 Playwright E2E 冒烟检查"

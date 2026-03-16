@@ -7,6 +7,7 @@ const { test } = require("@playwright/test");
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
 const { resolveE2ETenantId } = require("./support/runtimeTenant");
+const { E2E_LOGIN_USERNAME, E2E_LOGIN_PASSWORD } = require("./support/runtimeUser");
 
 const TENANT_ID = resolveE2ETenantId();
 
@@ -58,8 +59,8 @@ test.describe("Week 4 页面调试", () => {
       (await page.locator('input[id="login-username"], input[name="username"]').count()) > 0;
 
     if (isLoginPage) {
-      await page.locator("#login-username").fill("sys-superadmin");
-      await page.getByPlaceholder("请输入密码").fill("Demo@2026");
+      await page.locator("#login-username").fill(E2E_LOGIN_USERNAME);
+      await page.getByPlaceholder("请输入密码").fill(E2E_LOGIN_PASSWORD);
       await page.locator('button[type="submit"]').click();
       await page.waitForTimeout(3500);
     }
