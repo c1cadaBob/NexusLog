@@ -79,6 +79,7 @@ interface QueryLogsPayload {
   };
   pitId?: string;
   searchAfter?: unknown[];
+  signal?: AbortSignal;
   /** 仅用于前端本地功能：是否写入本地查询历史 */
   recordHistory?: boolean;
 }
@@ -1182,6 +1183,7 @@ async function requestQueryApi<TData>(
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
     body?: unknown;
     query?: Record<string, string | number | undefined>;
+    signal?: AbortSignal;
   } = {},
 ): Promise<ApiEnvelope<TData>> {
   const accessToken = resolveAccessToken();
@@ -1198,6 +1200,7 @@ async function requestQueryApi<TData>(
     method: options.method ?? 'GET',
     headers: buildAuthHeaders(accessToken),
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    signal: options.signal,
   });
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<TData> | null;
   if (!response.ok) {
@@ -1302,6 +1305,7 @@ export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<Quer
   try {
     const envelope = await requestQueryApi<QueryLogsApiData>('/logs', {
       method: 'POST',
+      signal: payload.signal,
       body: {
         keywords: payload.keywords.trim(),
         page: payload.page,
@@ -1531,6 +1535,7 @@ export interface FetchAggregateStatsParams {
   timeRange: '30m' | '1h' | '6h' | '24h' | '7d';
   keywords?: string;
   filters?: Record<string, unknown>;
+  signal?: AbortSignal;
 }
 
 /** Aggregate bucket from API */
@@ -1553,6 +1558,7 @@ export async function fetchAggregateStats(params: FetchAggregateStatsParams): Pr
   try {
     const envelope = await requestQueryApi<{ buckets?: AggregateBucket[] }>('/stats/aggregate', {
       method: 'POST',
+      signal: params.signal,
       body: {
         group_by: params.groupBy,
         time_range: params.timeRange,

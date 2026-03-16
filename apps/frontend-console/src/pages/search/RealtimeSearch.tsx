@@ -21,11 +21,38 @@ import { buildRealtimeQueryFilters } from './realtimeNoiseFilters';
 
 const HISTOGRAM_TIME_RANGE = '30m' as const;
 const MAX_PAGINATION_WINDOW_ROWS = 10_000;
+const LIVE_POLL_INTERVAL_MS = 5_000;
 
-function buildRealtimeTableTimeRange(snapshotTo?: string) {
+type LiveWindowOption = '5m' | '15m' | '30m' | '1h';
+
+const DEFAULT_LIVE_WINDOW: LiveWindowOption = '15m';
+const LIVE_WINDOW_OPTIONS: Array<{ value: LiveWindowOption; label: string }> = [
+  { value: '5m', label: '最近 5 分钟' },
+  { value: '15m', label: '最近 15 分钟' },
+  { value: '30m', label: '最近 30 分钟' },
+  { value: '1h', label: '最近 1 小时' },
+];
+
+function resolveRealtimeWindowDurationMS(liveWindow: LiveWindowOption): number {
+  switch (liveWindow) {
+    case '5m':
+      return 5 * 60 * 1000;
+    case '30m':
+      return 30 * 60 * 1000;
+    case '1h':
+      return 60 * 60 * 1000;
+    case '15m':
+    default:
+      return 15 * 60 * 1000;
+  }
+}
+
+function buildRealtimeTableTimeRange(liveWindow: LiveWindowOption, snapshotTo?: string) {
+  const snapshot = snapshotTo?.trim() ? new Date(snapshotTo) : new Date();
+  const normalizedSnapshot = Number.isNaN(snapshot.getTime()) ? new Date() : snapshot;
   return {
-    from: '',
-    to: snapshotTo?.trim() || new Date().toISOString(),
+    from: new Date(normalizedSnapshot.getTime() - resolveRealtimeWindowDurationMS(liveWindow)).toISOString(),
+    to: normalizedSnapshot.toISOString(),
   };
 }
 
@@ -118,6 +145,10 @@ function refreshCursorMapPitID(cursorMap: Map<number, RealtimePageCursor>, pitId
   });
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
 // ============================================================================
 // RealtimeSearch 主组件
 // ============================================================================
@@ -131,6 +162,7 @@ const RealtimeSearch: React.FC = () => {
   const [query, setQuery] = useState('');
   const [activeQuery, setActiveQuery] = useState('');
   const [isLive, setIsLive] = useState(true);
+  const [liveWindow, setLiveWindow] = useState<LiveWindowOption>(DEFAULT_LIVE_WINDOW);
   const [recentQueries, setRecentQueries] = useState<string[]>(() => readRealtimeRecentQueries());
 
   // 筛选器
@@ -160,9 +192,41 @@ const RealtimeSearch: React.FC = () => {
     setStoredPageSize('realtimeSearch', size);
   }, [setStoredPageSize]);
   const latestQueryRequestRef = useRef(0);
+  const inFlightRequestIDRef = useRef<number | null>(null);
   const initialQueryTriggeredRef = useRef(false);
   const pageCursorMapRef = useRef<Map<number, RealtimePageCursor>>(new Map());
   const resultsTableRef = usePaginationQuickJumperAccessibility('realtime-search');
+  const activeAbortControllersRef = useRef<Set<AbortController>>(new Set());
+  const liveTimerRef = useRef<number | null>(null);
+  const isLiveRef = useRef(isLive);
+  const isUnmountedRef = useRef(false);
+  const scheduleNextLiveTickRef = useRef<(delay?: number) => void>(() => undefined);
+
+  const clearLiveTimer = useCallback(() => {
+    if (liveTimerRef.current != null) {
+      window.clearTimeout(liveTimerRef.current);
+      liveTimerRef.current = null;
+    }
+  }, []);
+
+  const abortActiveRequests = useCallback(() => {
+    activeAbortControllersRef.current.forEach((controller) => {
+      controller.abort();
+    });
+    activeAbortControllersRef.current.clear();
+  }, []);
+
+  const registerAbortController = useCallback((controller: AbortController) => {
+    activeAbortControllersRef.current.add(controller);
+    return controller;
+  }, []);
+
+  const unregisterAbortController = useCallback((controller: AbortController | null) => {
+    if (!controller) {
+      return;
+    }
+    activeAbortControllersRef.current.delete(controller);
+  }, []);
 
   const executeQuery = useCallback(async (options: {
     queryText: string;
@@ -173,10 +237,16 @@ const RealtimeSearch: React.FC = () => {
     snapshotTo?: string;
     cursor?: RealtimePageCursor;
     resetCursor?: boolean;
+    liveWindowOverride?: LiveWindowOption;
   }): Promise<boolean> => {
     const requestID = latestQueryRequestRef.current + 1;
     latestQueryRequestRef.current = requestID;
+    inFlightRequestIDRef.current = requestID;
+    clearLiveTimer();
+    abortActiveRequests();
+
     const snapshotTo = options.snapshotTo?.trim() || new Date().toISOString();
+    const effectiveLiveWindow = options.liveWindowOverride ?? liveWindow;
     const workingCursorMap = options.resetCursor
       ? new Map<number, RealtimePageCursor>()
       : cloneRealtimePageCursorMap(pageCursorMapRef.current);
@@ -185,6 +255,11 @@ const RealtimeSearch: React.FC = () => {
     const activeCursor = requestedCursor ?? (options.page > 1 && rootCursor?.pitId
       ? { pitId: rootCursor.pitId }
       : undefined);
+
+    const tableController = registerAbortController(new AbortController());
+    const totalHistogramController = registerAbortController(new AbortController());
+    const errorHistogramController = !levelFilter ? registerAbortController(new AbortController()) : null;
+
     setTableLoading(true);
     try {
       const filters = buildRealtimeQueryFilters({
@@ -192,14 +267,17 @@ const RealtimeSearch: React.FC = () => {
         sourceFilter,
         queryText: options.queryText,
       });
-      const realtimeTableTimeRange = buildRealtimeTableTimeRange(snapshotTo);
+      const realtimeTableTimeRange = buildRealtimeTableTimeRange(effectiveLiveWindow, snapshotTo);
       const aggregateParams = {
         groupBy: 'minute' as const,
         timeRange: HISTOGRAM_TIME_RANGE,
         keywords: options.queryText,
         filters,
       };
-      const totalHistogramPromise = fetchAggregateStats(aggregateParams);
+      const totalHistogramPromise = fetchAggregateStats({
+        ...aggregateParams,
+        signal: totalHistogramController.signal,
+      });
       const errorHistogramPromise = levelFilter === 'error'
         ? Promise.resolve(null)
         : levelFilter
@@ -210,6 +288,7 @@ const RealtimeSearch: React.FC = () => {
               ...filters,
               level: 'error',
             },
+            signal: errorHistogramController?.signal,
           });
       const [result, totalHistogramResult, errorHistogramResult] = await Promise.all([
         queryRealtimeLogs({
@@ -220,6 +299,7 @@ const RealtimeSearch: React.FC = () => {
           timeRange: realtimeTableTimeRange,
           pitId: activeCursor?.pitId,
           searchAfter: activeCursor?.searchAfter,
+          signal: tableController.signal,
           recordHistory: options.recordHistory,
         }),
         totalHistogramPromise,
@@ -267,17 +347,74 @@ const RealtimeSearch: React.FC = () => {
       if (requestID !== latestQueryRequestRef.current) {
         return false;
       }
+      if (isAbortError(error)) {
+        return false;
+      }
       if (!options.silent) {
         const readableError = error instanceof Error ? error.message : '查询失败，请稍后重试';
         message.error(readableError);
       }
       return false;
     } finally {
+      unregisterAbortController(tableController);
+      unregisterAbortController(totalHistogramController);
+      unregisterAbortController(errorHistogramController);
+      if (inFlightRequestIDRef.current === requestID) {
+        inFlightRequestIDRef.current = null;
+      }
       if (requestID === latestQueryRequestRef.current) {
         setTableLoading(false);
+        if (isLiveRef.current && !isUnmountedRef.current) {
+          scheduleNextLiveTickRef.current();
+        }
       }
     }
-  }, [levelFilter, sourceFilter]);
+  }, [abortActiveRequests, clearLiveTimer, levelFilter, liveWindow, message, registerAbortController, sourceFilter, unregisterAbortController]);
+
+  const scheduleNextLiveTick = useCallback((delay = LIVE_POLL_INTERVAL_MS) => {
+    clearLiveTimer();
+    if (!isLiveRef.current || isUnmountedRef.current) {
+      return;
+    }
+    liveTimerRef.current = window.setTimeout(() => {
+      liveTimerRef.current = null;
+      if (!isLiveRef.current || isUnmountedRef.current) {
+        return;
+      }
+      if (inFlightRequestIDRef.current != null) {
+        scheduleNextLiveTickRef.current(delay);
+        return;
+      }
+      void executeQuery({
+        queryText: activeQuery,
+        page: currentPage,
+        pageSize,
+        silent: true,
+        resetCursor: currentPage === 1,
+      });
+    }, delay);
+  }, [activeQuery, clearLiveTimer, currentPage, executeQuery, pageSize]);
+
+  useEffect(() => {
+    scheduleNextLiveTickRef.current = scheduleNextLiveTick;
+  }, [scheduleNextLiveTick]);
+
+  useEffect(() => {
+    isLiveRef.current = isLive;
+    if (!isLive) {
+      clearLiveTimer();
+      return;
+    }
+    if (inFlightRequestIDRef.current == null) {
+      scheduleNextLiveTick(LIVE_POLL_INTERVAL_MS);
+    }
+  }, [clearLiveTimer, isLive, scheduleNextLiveTick]);
+
+  useEffect(() => () => {
+    isUnmountedRef.current = true;
+    clearLiveTimer();
+    abortActiveRequests();
+  }, [abortActiveRequests, clearLiveTimer]);
 
   useEffect(() => {
     if (initialQueryTriggeredRef.current) {
@@ -292,23 +429,6 @@ const RealtimeSearch: React.FC = () => {
       resetCursor: true,
     });
   }, [executeQuery, pageSize]);
-
-  useEffect(() => {
-    // 实时模式下按 5 秒轮询当前条件。
-    if (!isLive) {
-      return () => undefined;
-    }
-    const timer = window.setInterval(() => {
-      void executeQuery({
-        queryText: activeQuery,
-        page: currentPage,
-        pageSize,
-        silent: true,
-        resetCursor: currentPage === 1,
-      });
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [activeQuery, currentPage, executeQuery, isLive, pageSize]);
 
   useEffect(() => {
     const state = (location.state as RealtimeNavigationState | null) ?? null;
@@ -382,11 +502,30 @@ const RealtimeSearch: React.FC = () => {
     });
   }, [executeQuery, pageSize]);
 
+  const handleLiveWindowChange = useCallback((value: LiveWindowOption) => {
+    if (value === liveWindow) {
+      return;
+    }
+    setLiveWindow(value);
+    setCurrentPage(1);
+    void executeQuery({
+      queryText: activeQuery,
+      page: 1,
+      pageSize,
+      silent: true,
+      resetCursor: true,
+      liveWindowOverride: value,
+    });
+  }, [activeQuery, executeQuery, liveWindow, pageSize]);
+
   const handleToggleLive = useCallback(() => {
     if (isLive) {
+      isLiveRef.current = false;
+      clearLiveTimer();
       setIsLive(false);
       return;
     }
+    isLiveRef.current = true;
     setIsLive(true);
     if (currentPage !== 1) {
       setCurrentPage(1);
@@ -398,7 +537,7 @@ const RealtimeSearch: React.FC = () => {
         resetCursor: true,
       });
     }
-  }, [activeQuery, currentPage, executeQuery, isLive, pageSize]);
+  }, [activeQuery, clearLiveTimer, currentPage, executeQuery, isLive, pageSize]);
 
   // 执行检索（仅手动点击执行/回车时写入历史）
   const handleSearch = useCallback((value: string) => {
@@ -729,8 +868,15 @@ const RealtimeSearch: React.FC = () => {
             >
               {isLive ? '实时' : '已暂停'}
             </Button>
+            <Select
+              size="small"
+              value={liveWindow}
+              onChange={handleLiveWindowChange}
+              style={{ minWidth: 132 }}
+              options={LIVE_WINDOW_OPTIONS}
+            />
             <span className="text-xs opacity-50">
-              共 {total.toLocaleString()} 条结果 · 耗时 {queryTimeMS}ms
+              共 {total.toLocaleString()} 条结果 · 耗时 {queryTimeMS}ms · 时间窗 {liveWindow}
             </span>
             {imageAggregationSummary.hiddenRows > 0 && (
               <Tag color="blue" style={{ margin: 0 }}>
