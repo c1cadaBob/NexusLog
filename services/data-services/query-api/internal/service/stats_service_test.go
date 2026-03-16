@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nexuslog/data-services/query-api/internal/repository"
 )
@@ -241,5 +242,101 @@ func TestStatsServiceGetOverviewStats_ExtractsTopSourceHostAndService(t *testing
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("expected request body to contain %q, got %s", fragment, body)
 		}
+	}
+}
+
+func TestStatsServiceGetOverviewStats_ReusesFreshCacheForBurstRequests(t *testing.T) {
+	t.Helper()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 2,
+			"timed_out": false,
+			"hits": {"total": {"value": 21}, "hits": []},
+			"aggregations": {
+				"by_level": {"buckets": []},
+				"by_source": {"buckets": []},
+				"log_trend": {"buckets": []}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+
+	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
+	actor := RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}
+
+	first, err := svc.GetOverviewStats(context.Background(), actor)
+	if err != nil {
+		t.Fatalf("first GetOverviewStats() error = %v", err)
+	}
+	second, err := svc.GetOverviewStats(context.Background(), actor)
+	if err != nil {
+		t.Fatalf("second GetOverviewStats() error = %v", err)
+	}
+	if requestCount != 1 {
+		t.Fatalf("expected a single ES request, got %d", requestCount)
+	}
+	if first.TotalLogs != 21 || second.TotalLogs != 21 {
+		t.Fatalf("unexpected cached totals: first=%d second=%d", first.TotalLogs, second.TotalLogs)
+	}
+}
+
+func TestStatsServiceGetOverviewStats_FallsBackToStaleCacheOnESError(t *testing.T) {
+	t.Helper()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte(`{
+				"took": 2,
+				"timed_out": false,
+				"hits": {"total": {"value": 34}, "hits": []},
+				"aggregations": {
+					"by_level": {"buckets": []},
+					"by_source": {"buckets": []},
+					"log_trend": {"buckets": []}
+				}
+			}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"es unavailable"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+
+	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
+	actor := RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}
+
+	first, err := svc.GetOverviewStats(context.Background(), actor)
+	if err != nil {
+		t.Fatalf("first GetOverviewStats() error = %v", err)
+	}
+	cacheKey := overviewStatsCacheKey(actor)
+	svc.overviewCacheMu.Lock()
+	entry := svc.overviewCache[cacheKey]
+	entry.expiresAt = time.Now().Add(-time.Second)
+	svc.overviewCache[cacheKey] = entry
+	svc.overviewCacheMu.Unlock()
+
+	second, err := svc.GetOverviewStats(context.Background(), actor)
+	if err != nil {
+		t.Fatalf("second GetOverviewStats() should fall back to stale cache, got %v", err)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected two ES requests, got %d", requestCount)
+	}
+	if first.TotalLogs != 34 || second.TotalLogs != 34 {
+		t.Fatalf("unexpected fallback totals: first=%d second=%d", first.TotalLogs, second.TotalLogs)
 	}
 }

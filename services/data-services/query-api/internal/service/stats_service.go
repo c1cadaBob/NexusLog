@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nexuslog/data-services/query-api/internal/repository"
@@ -40,25 +42,47 @@ type LogTrendPoint struct {
 	Count int64  `json:"count"`
 }
 
+type overviewStatsCacheEntry struct {
+	stats       OverviewStats
+	refreshedAt time.Time
+	expiresAt   time.Time
+}
+
 // StatsService provides dashboard and aggregation stats.
 type StatsService struct {
-	esRepo *repository.ElasticsearchRepository
-	db     *sql.DB
+	esRepo                *repository.ElasticsearchRepository
+	db                    *sql.DB
+	overviewCacheTTL      time.Duration
+	overviewCacheStaleTTL time.Duration
+	overviewCacheMu       sync.RWMutex
+	overviewCache         map[string]overviewStatsCacheEntry
 }
 
 // NewStatsService creates a stats service.
 func NewStatsService(esRepo *repository.ElasticsearchRepository, db *sql.DB) *StatsService {
-	return &StatsService{esRepo: esRepo, db: db}
+	return &StatsService{
+		esRepo:                esRepo,
+		db:                    db,
+		overviewCacheTTL:      5 * time.Second,
+		overviewCacheStaleTTL: time.Minute,
+		overviewCache:         make(map[string]overviewStatsCacheEntry),
+	}
 }
 
-// GetOverviewStats returns overview stats for a tenant. Must complete in < 3s.
+// GetOverviewStats returns overview stats for a tenant.
 func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor) (*OverviewStats, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	actor = normalizeActor(actor)
 	if actor.TenantID == "" {
 		return nil, ErrTenantContextRequired
+	}
+
+	now := time.Now().UTC()
+	cacheKey := overviewStatsCacheKey(actor)
+	if cached, ok := s.getOverviewStatsCache(cacheKey, now); ok {
+		return cached, nil
 	}
 
 	stats := &OverviewStats{
@@ -71,7 +95,6 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 	}
 
 	// Time range: last 24h
-	now := time.Now().UTC()
 	from24h := now.Add(-24 * time.Hour).Format(time.RFC3339)
 	to := now.Format(time.RFC3339)
 
@@ -149,6 +172,9 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 
 	result, err := s.esRepo.SearchWithBody(ctx, body)
 	if err != nil {
+		if cached, ok := s.getStaleOverviewStatsCache(cacheKey, now); ok {
+			return cached, nil
+		}
 		return nil, fmt.Errorf("es overview query: %w", err)
 	}
 
@@ -218,7 +244,65 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 		}
 	}
 
+	s.setOverviewStatsCache(cacheKey, stats, now)
 	return stats, nil
+}
+
+func overviewStatsCacheKey(actor RequestActor) string {
+	return strings.TrimSpace(actor.TenantID) + "|" + strconv.FormatBool(actor.CanReadAllLogs)
+}
+
+func cloneOverviewStats(stats *OverviewStats) *OverviewStats {
+	if stats == nil {
+		return nil
+	}
+	levelDistribution := make(map[string]int64, len(stats.LevelDistribution))
+	for key, value := range stats.LevelDistribution {
+		levelDistribution[key] = value
+	}
+	topSources := append([]SourceCount(nil), stats.TopSources...)
+	logTrend := append([]LogTrendPoint(nil), stats.LogTrend...)
+	return &OverviewStats{
+		TotalLogs:         stats.TotalLogs,
+		LevelDistribution: levelDistribution,
+		TopSources:        topSources,
+		AlertSummary:      stats.AlertSummary,
+		LogTrend:          logTrend,
+	}
+}
+
+func (s *StatsService) getOverviewStatsCache(cacheKey string, now time.Time) (*OverviewStats, bool) {
+	s.overviewCacheMu.RLock()
+	entry, ok := s.overviewCache[cacheKey]
+	s.overviewCacheMu.RUnlock()
+	if !ok || now.After(entry.expiresAt) {
+		return nil, false
+	}
+	return cloneOverviewStats(&entry.stats), true
+}
+
+func (s *StatsService) getStaleOverviewStatsCache(cacheKey string, now time.Time) (*OverviewStats, bool) {
+	s.overviewCacheMu.RLock()
+	entry, ok := s.overviewCache[cacheKey]
+	s.overviewCacheMu.RUnlock()
+	if !ok || now.After(entry.refreshedAt.Add(s.overviewCacheStaleTTL)) {
+		return nil, false
+	}
+	return cloneOverviewStats(&entry.stats), true
+}
+
+func (s *StatsService) setOverviewStatsCache(cacheKey string, stats *OverviewStats, now time.Time) {
+	cloned := cloneOverviewStats(stats)
+	if cloned == nil {
+		return
+	}
+	s.overviewCacheMu.Lock()
+	s.overviewCache[cacheKey] = overviewStatsCacheEntry{
+		stats:       *cloned,
+		refreshedAt: now,
+		expiresAt:   now.Add(s.overviewCacheTTL),
+	}
+	s.overviewCacheMu.Unlock()
 }
 
 func parseOverviewSourceBucket(bucket map[string]any) SourceCount {
