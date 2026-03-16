@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -48,24 +49,37 @@ type overviewStatsCacheEntry struct {
 	expiresAt   time.Time
 }
 
+type aggregateCacheEntry struct {
+	result      AggregateResult
+	refreshedAt time.Time
+	expiresAt   time.Time
+}
+
 // StatsService provides dashboard and aggregation stats.
 type StatsService struct {
-	esRepo                *repository.ElasticsearchRepository
-	db                    *sql.DB
-	overviewCacheTTL      time.Duration
-	overviewCacheStaleTTL time.Duration
-	overviewCacheMu       sync.RWMutex
-	overviewCache         map[string]overviewStatsCacheEntry
+	esRepo                 *repository.ElasticsearchRepository
+	db                     *sql.DB
+	overviewCacheTTL       time.Duration
+	overviewCacheStaleTTL  time.Duration
+	overviewCacheMu        sync.RWMutex
+	overviewCache          map[string]overviewStatsCacheEntry
+	aggregateCacheTTL      time.Duration
+	aggregateCacheStaleTTL time.Duration
+	aggregateCacheMu       sync.RWMutex
+	aggregateCache         map[string]aggregateCacheEntry
 }
 
 // NewStatsService creates a stats service.
 func NewStatsService(esRepo *repository.ElasticsearchRepository, db *sql.DB) *StatsService {
 	return &StatsService{
-		esRepo:                esRepo,
-		db:                    db,
-		overviewCacheTTL:      5 * time.Second,
-		overviewCacheStaleTTL: time.Minute,
-		overviewCache:         make(map[string]overviewStatsCacheEntry),
+		esRepo:                 esRepo,
+		db:                     db,
+		overviewCacheTTL:       5 * time.Second,
+		overviewCacheStaleTTL:  time.Minute,
+		overviewCache:          make(map[string]overviewStatsCacheEntry),
+		aggregateCacheTTL:      15 * time.Second,
+		aggregateCacheStaleTTL: time.Minute,
+		aggregateCache:         make(map[string]aggregateCacheEntry),
 	}
 }
 
@@ -305,6 +319,76 @@ func (s *StatsService) setOverviewStatsCache(cacheKey string, stats *OverviewSta
 	s.overviewCacheMu.Unlock()
 }
 
+func cloneAggregateResult(result *AggregateResult) *AggregateResult {
+	if result == nil {
+		return nil
+	}
+	return &AggregateResult{Buckets: append([]AggregateBucket(nil), result.Buckets...)}
+}
+
+func normalizeAggregateRequest(req AggregateRequest) AggregateRequest {
+	normalized := AggregateRequest{
+		GroupBy:   strings.ToLower(strings.TrimSpace(req.GroupBy)),
+		TimeRange: strings.ToLower(strings.TrimSpace(req.TimeRange)),
+		Keywords:  strings.TrimSpace(req.Keywords),
+		Filters:   make(map[string]any, len(req.Filters)),
+	}
+	if normalized.GroupBy == "" {
+		normalized.GroupBy = "level"
+	}
+	switch normalized.TimeRange {
+	case "30m", "1h", "6h", "24h", "7d":
+	default:
+		normalized.TimeRange = "24h"
+	}
+	for key, value := range req.Filters {
+		normalized.Filters[strings.TrimSpace(key)] = value
+	}
+	return normalized
+}
+
+func aggregateCacheKey(actor RequestActor, req AggregateRequest) string {
+	filtersRaw, err := json.Marshal(req.Filters)
+	if err != nil {
+		filtersRaw = []byte("{}")
+	}
+	return strings.TrimSpace(actor.TenantID) + "|" + strconv.FormatBool(actor.CanReadAllLogs) + "|" + req.GroupBy + "|" + req.TimeRange + "|" + req.Keywords + "|" + string(filtersRaw)
+}
+
+func (s *StatsService) getAggregateCache(cacheKey string, now time.Time) (*AggregateResult, bool) {
+	s.aggregateCacheMu.RLock()
+	entry, ok := s.aggregateCache[cacheKey]
+	s.aggregateCacheMu.RUnlock()
+	if !ok || now.After(entry.expiresAt) {
+		return nil, false
+	}
+	return cloneAggregateResult(&entry.result), true
+}
+
+func (s *StatsService) getStaleAggregateCache(cacheKey string, now time.Time) (*AggregateResult, bool) {
+	s.aggregateCacheMu.RLock()
+	entry, ok := s.aggregateCache[cacheKey]
+	s.aggregateCacheMu.RUnlock()
+	if !ok || now.After(entry.refreshedAt.Add(s.aggregateCacheStaleTTL)) {
+		return nil, false
+	}
+	return cloneAggregateResult(&entry.result), true
+}
+
+func (s *StatsService) setAggregateCache(cacheKey string, result *AggregateResult, now time.Time) {
+	cloned := cloneAggregateResult(result)
+	if cloned == nil {
+		return
+	}
+	s.aggregateCacheMu.Lock()
+	s.aggregateCache[cacheKey] = aggregateCacheEntry{
+		result:      *cloned,
+		refreshedAt: now,
+		expiresAt:   now.Add(s.aggregateCacheTTL),
+	}
+	s.aggregateCacheMu.Unlock()
+}
+
 func parseOverviewSourceBucket(bucket map[string]any) SourceCount {
 	source := normalizeSourcePathForDisplay(stringFromOverviewBucketValue(bucket["key"]))
 	count := int64FromOverviewBucketValue(bucket["doc_count"])
@@ -425,6 +509,23 @@ type AggregateBucket struct {
 	Count int64  `json:"count"`
 }
 
+func resolveAggregateTimeRangeDuration(timeRange string) time.Duration {
+	switch timeRange {
+	case "30m":
+		return 30 * time.Minute
+	case "1h":
+		return 1 * time.Hour
+	case "6h":
+		return 6 * time.Hour
+	case "7d":
+		return 7 * 24 * time.Hour
+	case "24h":
+		fallthrough
+	default:
+		return 24 * time.Hour
+	}
+}
+
 // Aggregate returns aggregated data based on group_by dimension.
 func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req AggregateRequest) (*AggregateResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -435,27 +536,17 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 		return nil, ErrTenantContextRequired
 	}
 
-	// Parse time range
-	dur := 24 * time.Hour
-	switch strings.ToLower(strings.TrimSpace(req.TimeRange)) {
-	case "30m":
-		dur = 30 * time.Minute
-	case "1h":
-		dur = 1 * time.Hour
-	case "6h":
-		dur = 6 * time.Hour
-	case "24h":
-		dur = 24 * time.Hour
-	case "7d":
-		dur = 7 * 24 * time.Hour
-	default:
-		dur = 24 * time.Hour
+	req = normalizeAggregateRequest(req)
+	now := time.Now().UTC()
+	cacheKey := aggregateCacheKey(actor, req)
+	if cached, ok := s.getAggregateCache(cacheKey, now); ok {
+		return cached, nil
 	}
 
-	now := time.Now().UTC().Truncate(time.Second)
-	fromTime := now.Add(-dur)
+	queryNow := now.Truncate(time.Second)
+	fromTime := queryNow.Add(-resolveAggregateTimeRangeDuration(req.TimeRange))
 	from := fromTime.Format(time.RFC3339)
-	to := now.Format(time.RFC3339)
+	to := queryNow.Format(time.RFC3339)
 
 	query := repository.BuildESQuery(repository.SearchLogsInput{
 		TenantID:          actor.TenantID,
@@ -469,14 +560,9 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 		query["bool"] = boolQuery
 	}
 
-	groupBy := strings.ToLower(strings.TrimSpace(req.GroupBy))
-	if groupBy == "" {
-		groupBy = "level"
-	}
-
 	var aggField string
 	var histogram map[string]any
-	switch groupBy {
+	switch req.GroupBy {
 	case "level":
 		aggField = "log.level"
 	case "source":
@@ -530,6 +616,9 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 
 	result, err := s.esRepo.SearchWithBody(ctx, body)
 	if err != nil {
+		if cached, ok := s.getStaleAggregateCache(cacheKey, now); ok {
+			return cached, nil
+		}
 		return nil, fmt.Errorf("es aggregate query: %w", err)
 	}
 
@@ -559,7 +648,9 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 		}
 	}
 
-	return &AggregateResult{Buckets: buckets}, nil
+	aggregateResult := &AggregateResult{Buckets: buckets}
+	s.setAggregateCache(cacheKey, aggregateResult, now)
+	return aggregateResult, nil
 }
 
 func appendTenantFilter(filters []map[string]any, tenantID string, bypassTenantScope bool) []map[string]any {

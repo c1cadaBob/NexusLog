@@ -115,6 +115,108 @@ func TestStatsServiceAggregate_UsesMinuteHistogramAndStructuredQuery(t *testing.
 	}
 }
 
+func TestStatsServiceAggregate_UsesFreshCacheForIdenticalRequests(t *testing.T) {
+	t.Helper()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 2,
+			"timed_out": false,
+			"hits": {"total": {"value": 0}, "hits": []},
+			"aggregations": {
+				"by_dim": {
+					"buckets": [
+						{"key_as_string": "2026-03-11T12:00:00.000Z", "doc_count": 5}
+					]
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+
+	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
+	actor := RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}
+	req := AggregateRequest{GroupBy: "minute", TimeRange: "30m"}
+
+	first, err := svc.Aggregate(context.Background(), actor, req)
+	if err != nil {
+		t.Fatalf("first Aggregate() error = %v", err)
+	}
+	second, err := svc.Aggregate(context.Background(), actor, req)
+	if err != nil {
+		t.Fatalf("second Aggregate() error = %v", err)
+	}
+	if requestCount != 1 {
+		t.Fatalf("expected a single ES request, got %d", requestCount)
+	}
+	if len(first.Buckets) != 1 || len(second.Buckets) != 1 {
+		t.Fatalf("unexpected cached buckets: first=%d second=%d", len(first.Buckets), len(second.Buckets))
+	}
+}
+
+func TestStatsServiceAggregate_FallsBackToStaleCacheOnESError(t *testing.T) {
+	t.Helper()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte(`{
+				"took": 2,
+				"timed_out": false,
+				"hits": {"total": {"value": 0}, "hits": []},
+				"aggregations": {
+					"by_dim": {
+						"buckets": [
+							{"key_as_string": "2026-03-11T12:00:00.000Z", "doc_count": 5}
+						]
+					}
+				}
+			}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"es unavailable"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+
+	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
+	actor := RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}
+	req := AggregateRequest{GroupBy: "minute", TimeRange: "30m"}
+
+	first, err := svc.Aggregate(context.Background(), actor, req)
+	if err != nil {
+		t.Fatalf("first Aggregate() error = %v", err)
+	}
+	cacheKey := aggregateCacheKey(actor, normalizeAggregateRequest(req))
+	svc.aggregateCacheMu.Lock()
+	entry := svc.aggregateCache[cacheKey]
+	entry.expiresAt = time.Now().Add(-time.Second)
+	svc.aggregateCache[cacheKey] = entry
+	svc.aggregateCacheMu.Unlock()
+
+	second, err := svc.Aggregate(context.Background(), actor, req)
+	if err != nil {
+		t.Fatalf("second Aggregate() should fall back to stale cache, got %v", err)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected two ES requests, got %d", requestCount)
+	}
+	if len(first.Buckets) != 1 || len(second.Buckets) != 1 || first.Buckets[0].Count != second.Buckets[0].Count {
+		t.Fatalf("unexpected fallback buckets: first=%+v second=%+v", first.Buckets, second.Buckets)
+	}
+}
+
 func TestAppendTenantFilter_UsesMatchNoneWhenTenantMissing(t *testing.T) {
 	filters := appendTenantFilter(nil, "", false)
 	if len(filters) != 1 {

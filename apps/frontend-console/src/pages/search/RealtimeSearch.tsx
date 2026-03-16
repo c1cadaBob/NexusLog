@@ -14,6 +14,11 @@ import { aggregateRealtimeDisplayLogs, summarizeImageAggregation } from './realt
 import { readRealtimeRecentQueries, recordRealtimeRecentQuery } from './realtimeRecentQueries';
 import { buildRealtimeHistogramData, sumRealtimeHistogramEvents, type RealtimeHistogramPoint } from './realtimeHistogram';
 import { buildRealtimeQueryFilters } from './realtimeNoiseFilters';
+import {
+  buildRealtimeHistogramRefreshKey,
+  shouldRefreshRealtimeHistogram,
+  type RealtimeHistogramRefreshMode,
+} from './realtimeRefreshPolicy';
 
 // ============================================================================
 // 本地 UI 辅助数据
@@ -213,6 +218,8 @@ const RealtimeSearch: React.FC = () => {
   const isLiveRef = useRef(isLive);
   const isUnmountedRef = useRef(false);
   const scheduleNextLiveTickRef = useRef<(delay?: number) => void>(() => undefined);
+  const lastHistogramRefreshKeyRef = useRef('');
+  const lastHistogramFetchedAtRef = useRef(0);
 
   const clearLiveTimer = useCallback(() => {
     if (liveTimerRef.current != null) {
@@ -250,6 +257,7 @@ const RealtimeSearch: React.FC = () => {
     cursor?: RealtimePageCursor;
     resetCursor?: boolean;
     liveWindowOverride?: LiveWindowOption;
+    histogramRefreshMode?: RealtimeHistogramRefreshMode;
   }): Promise<boolean> => {
     const requestID = latestQueryRequestRef.current + 1;
     latestQueryRequestRef.current = requestID;
@@ -268,14 +276,13 @@ const RealtimeSearch: React.FC = () => {
       ? { pitId: rootCursor.pitId }
       : undefined);
 
-    const tableController = registerAbortController(new AbortController());
-    const totalHistogramController = registerAbortController(new AbortController());
-    const errorHistogramController = !levelFilter ? registerAbortController(new AbortController()) : null;
-
-    setTableRefreshing(true);
-    setHistogramRefreshing(true);
-
     let tableSucceeded = false;
+    let shouldRefreshHistogram = false;
+    let histogramRefreshKey = '';
+    const tableController = registerAbortController(new AbortController());
+    let totalHistogramController: AbortController | null = null;
+    let errorHistogramController: AbortController | null = null;
+
     try {
       const filters = buildRealtimeQueryFilters({
         levelFilter,
@@ -283,18 +290,43 @@ const RealtimeSearch: React.FC = () => {
         queryText: options.queryText,
       });
       const realtimeTableTimeRange = buildRealtimeTableTimeRange(effectiveLiveWindow, snapshotTo);
+      histogramRefreshKey = buildRealtimeHistogramRefreshKey({
+        queryText: options.queryText,
+        levelFilter,
+        sourceFilter,
+      });
+      shouldRefreshHistogram = shouldRefreshRealtimeHistogram({
+        mode: options.histogramRefreshMode,
+        nextRequestKey: histogramRefreshKey,
+        lastRequestKey: lastHistogramRefreshKeyRef.current,
+        lastFetchedAt: lastHistogramFetchedAtRef.current,
+        hasHistogramData: histogramData.length > 0,
+      });
+
+      if (shouldRefreshHistogram) {
+        totalHistogramController = registerAbortController(new AbortController());
+        if (!levelFilter) {
+          errorHistogramController = registerAbortController(new AbortController());
+        }
+      }
+
+      setTableRefreshing(true);
+      setHistogramRefreshing(shouldRefreshHistogram);
+
       const aggregateParams = {
         groupBy: 'minute' as const,
         timeRange: HISTOGRAM_TIME_RANGE,
         keywords: options.queryText,
         filters,
       };
-      const totalHistogramPromise = fetchAggregateStats({
-        ...aggregateParams,
-        signal: totalHistogramController.signal,
-      });
+      const totalHistogramPromise = shouldRefreshHistogram && totalHistogramController
+        ? fetchAggregateStats({
+          ...aggregateParams,
+          signal: totalHistogramController.signal,
+        })
+        : Promise.resolve(null);
       void totalHistogramPromise.catch(() => undefined);
-      const errorHistogramPromise = levelFilter === 'error'
+      const errorHistogramPromise = !shouldRefreshHistogram || levelFilter === 'error'
         ? Promise.resolve(null)
         : levelFilter
           ? Promise.resolve(null)
@@ -383,6 +415,10 @@ const RealtimeSearch: React.FC = () => {
         return tableSucceeded;
       }
 
+      if (!shouldRefreshHistogram) {
+        return tableSucceeded;
+      }
+
       const [totalHistogramResult, errorHistogramResult] = await Promise.allSettled([
         totalHistogramPromise,
         errorHistogramPromise,
@@ -416,6 +452,8 @@ const RealtimeSearch: React.FC = () => {
         setHistogramData(buildRealtimeHistogramData(resolvedTotalHistogram.buckets, errorBuckets));
         setHistogramUsingStaleData(false);
         setHistogramInitialLoading(false);
+        lastHistogramRefreshKeyRef.current = histogramRefreshKey;
+        lastHistogramFetchedAtRef.current = Date.now();
       } else if (histogramFailed && !histogramAbortOnly) {
         setHistogramUsingStaleData(histogramData.length > 0);
         setHistogramInitialLoading(false);
@@ -464,6 +502,7 @@ const RealtimeSearch: React.FC = () => {
         pageSize,
         silent: true,
         resetCursor: currentPage === 1,
+        histogramRefreshMode: 'auto',
       });
     }, delay);
   }, [activeQuery, clearLiveTimer, currentPage, executeQuery, pageSize]);
@@ -517,6 +556,7 @@ const RealtimeSearch: React.FC = () => {
       pageSize,
       silent: false,
       resetCursor: true,
+      histogramRefreshMode: 'force',
     });
     navigate(location.pathname, { replace: true, state: null });
   }, [executeQuery, location.pathname, location.state, navigate, pageSize]);
@@ -534,6 +574,7 @@ const RealtimeSearch: React.FC = () => {
       pageSize,
       silent: true,
       resetCursor: true,
+      histogramRefreshMode: 'force',
     });
   }, [levelFilter, sourceFilter, executeQuery]);
 
@@ -572,6 +613,7 @@ const RealtimeSearch: React.FC = () => {
       silent: false,
       recordHistory: shouldRecordHistory,
       resetCursor: true,
+      histogramRefreshMode: 'force',
     });
   }, [executeQuery, pageSize]);
 
@@ -588,6 +630,7 @@ const RealtimeSearch: React.FC = () => {
       silent: true,
       resetCursor: true,
       liveWindowOverride: value,
+      histogramRefreshMode: 'skip',
     });
   }, [activeQuery, executeQuery, liveWindow, pageSize]);
 
@@ -608,6 +651,7 @@ const RealtimeSearch: React.FC = () => {
         pageSize,
         silent: true,
         resetCursor: true,
+        histogramRefreshMode: 'skip',
       });
     }
   }, [activeQuery, clearLiveTimer, currentPage, executeQuery, isLive, pageSize]);
@@ -1025,6 +1069,7 @@ const RealtimeSearch: React.FC = () => {
                 snapshotTo: tableSnapshotTo,
                 cursor: requestCursor,
                 resetCursor: pageSizeChanged,
+                histogramRefreshMode: 'skip',
               }).then((success) => {
                 if (!success) {
                   setCurrentPage(previousPage);
