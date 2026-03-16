@@ -159,6 +159,9 @@ describe('RealtimeSearch bookmark cleanup', () => {
 
     expect(screen.getByText('将移除历史时间范围')).toBeTruthy();
     expect(screen.getByText('保留 2 个筛选条件')).toBeTruthy();
+    expect(screen.getByText('保留筛选')).toBeTruthy();
+    expect(screen.getByText('级别: error')).toBeTruthy();
+    expect(screen.getByText('来源/服务: vault')).toBeTruthy();
     expect(screen.getAllByText(legacyQuery).length).toBeGreaterThan(0);
     expect(screen.getByText(cleanedQuery)).toBeTruthy();
 
