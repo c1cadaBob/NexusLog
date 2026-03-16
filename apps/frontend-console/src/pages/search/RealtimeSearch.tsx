@@ -178,7 +178,12 @@ const RealtimeSearch: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [queryTimeMS, setQueryTimeMS] = useState(0);
   const [queryTimedOut, setQueryTimedOut] = useState(false);
-  const [tableLoading, setTableLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [tableRefreshing, setTableRefreshing] = useState(false);
+  const [tableUsingStaleData, setTableUsingStaleData] = useState(false);
+  const [histogramInitialLoading, setHistogramInitialLoading] = useState(true);
+  const [histogramRefreshing, setHistogramRefreshing] = useState(false);
+  const [histogramUsingStaleData, setHistogramUsingStaleData] = useState(false);
   const [histogramData, setHistogramData] = useState<RealtimeHistogramPoint[]>([]);
   const [tableSnapshotTo, setTableSnapshotTo] = useState(() => new Date().toISOString());
 
@@ -260,7 +265,10 @@ const RealtimeSearch: React.FC = () => {
     const totalHistogramController = registerAbortController(new AbortController());
     const errorHistogramController = !levelFilter ? registerAbortController(new AbortController()) : null;
 
-    setTableLoading(true);
+    setTableRefreshing(true);
+    setHistogramRefreshing(true);
+
+    let tableSucceeded = false;
     try {
       const filters = buildRealtimeQueryFilters({
         levelFilter,
@@ -278,6 +286,7 @@ const RealtimeSearch: React.FC = () => {
         ...aggregateParams,
         signal: totalHistogramController.signal,
       });
+      void totalHistogramPromise.catch(() => undefined);
       const errorHistogramPromise = levelFilter === 'error'
         ? Promise.resolve(null)
         : levelFilter
@@ -290,8 +299,10 @@ const RealtimeSearch: React.FC = () => {
             },
             signal: errorHistogramController?.signal,
           });
-      const [result, totalHistogramResult, errorHistogramResult] = await Promise.all([
-        queryRealtimeLogs({
+      void errorHistogramPromise.catch(() => undefined);
+
+      try {
+        const result = await queryRealtimeLogs({
           keywords: options.queryText,
           page: options.page,
           pageSize: options.pageSize,
@@ -301,60 +312,111 @@ const RealtimeSearch: React.FC = () => {
           searchAfter: activeCursor?.searchAfter,
           signal: tableController.signal,
           recordHistory: options.recordHistory,
-        }),
+        });
+
+        if (requestID !== latestQueryRequestRef.current) {
+          return false;
+        }
+
+        const effectivePitId = result.pitId?.trim() || activeCursor?.pitId?.trim() || '';
+        if (effectivePitId) {
+          refreshCursorMapPitID(workingCursorMap, effectivePitId);
+          workingCursorMap.set(1, { pitId: effectivePitId });
+          const currentPageCursor = workingCursorMap.get(result.page);
+          workingCursorMap.set(result.page, {
+            pitId: effectivePitId,
+            searchAfter: cloneSearchAfter(currentPageCursor?.searchAfter),
+          });
+          workingCursorMap.delete(result.page + 1);
+          if (result.nextSearchAfter && result.nextSearchAfter.length > 0) {
+            workingCursorMap.set(result.page + 1, {
+              pitId: effectivePitId,
+              searchAfter: cloneSearchAfter(result.nextSearchAfter),
+            });
+          }
+        }
+        pageCursorMapRef.current = workingCursorMap;
+        setLogs(result.hits);
+        setTotal(result.total);
+        setCurrentPage(result.page);
+        setQueryTimeMS(result.queryTimeMS);
+        setQueryTimedOut(result.timedOut);
+        setTableSnapshotTo(snapshotTo);
+        setTableUsingStaleData(false);
+        if (result.timedOut && !options.silent) {
+          message.warning('查询超时，结果可能不完整');
+        }
+        tableSucceeded = true;
+      } catch (error) {
+        if (requestID !== latestQueryRequestRef.current) {
+          return false;
+        }
+        if (isAbortError(error)) {
+          return false;
+        }
+        const hasStaleTableData = logs.length > 0;
+        setTableUsingStaleData(hasStaleTableData);
+        if (!options.silent) {
+          if (hasStaleTableData) {
+            message.warning('表格刷新失败，已保留上一版结果');
+          } else {
+            const readableError = error instanceof Error ? error.message : '查询失败，请稍后重试';
+            message.error(readableError);
+          }
+        }
+      } finally {
+        if (requestID === latestQueryRequestRef.current) {
+          setInitialLoading(false);
+          setTableRefreshing(false);
+        }
+      }
+
+      if (requestID !== latestQueryRequestRef.current) {
+        return tableSucceeded;
+      }
+
+      const [totalHistogramResult, errorHistogramResult] = await Promise.allSettled([
         totalHistogramPromise,
         errorHistogramPromise,
       ]);
 
       if (requestID !== latestQueryRequestRef.current) {
-        return false;
+        return tableSucceeded;
       }
 
-      const errorBuckets = levelFilter === 'error'
-        ? totalHistogramResult.buckets
-        : errorHistogramResult?.buckets ?? [];
+      const resolvedTotalHistogram = totalHistogramResult.status === 'fulfilled'
+        ? totalHistogramResult.value
+        : null;
+      const resolvedErrorHistogram = errorHistogramResult.status === 'fulfilled'
+        ? errorHistogramResult.value
+        : null;
+      const histogramFailed = totalHistogramResult.status === 'rejected'
+        || errorHistogramResult.status === 'rejected';
+      const histogramAbortOnly = [totalHistogramResult, errorHistogramResult].every((result) => {
+        if (result.status === 'fulfilled') {
+          return true;
+        }
+        return isAbortError(result.reason);
+      });
+      const canUpdateHistogram = Boolean(resolvedTotalHistogram)
+        && (levelFilter === 'error' || Boolean(levelFilter) || Boolean(resolvedErrorHistogram));
 
-      const effectivePitId = result.pitId?.trim() || activeCursor?.pitId?.trim() || '';
-      if (effectivePitId) {
-        refreshCursorMapPitID(workingCursorMap, effectivePitId);
-        workingCursorMap.set(1, { pitId: effectivePitId });
-        const currentPageCursor = workingCursorMap.get(result.page);
-        workingCursorMap.set(result.page, {
-          pitId: effectivePitId,
-          searchAfter: cloneSearchAfter(currentPageCursor?.searchAfter),
-        });
-        workingCursorMap.delete(result.page + 1);
-        if (result.nextSearchAfter && result.nextSearchAfter.length > 0) {
-          workingCursorMap.set(result.page + 1, {
-            pitId: effectivePitId,
-            searchAfter: cloneSearchAfter(result.nextSearchAfter),
-          });
+      if (canUpdateHistogram && resolvedTotalHistogram) {
+        const errorBuckets = levelFilter === 'error'
+          ? resolvedTotalHistogram.buckets
+          : resolvedErrorHistogram?.buckets ?? [];
+        setHistogramData(buildRealtimeHistogramData(resolvedTotalHistogram.buckets, errorBuckets));
+        setHistogramUsingStaleData(false);
+        setHistogramInitialLoading(false);
+      } else if (histogramFailed && !histogramAbortOnly) {
+        setHistogramUsingStaleData(histogramData.length > 0);
+        setHistogramInitialLoading(false);
+        if (!options.silent) {
+          message.warning(histogramData.length > 0 ? '图表刷新失败，已保留上一版统计' : '图表刷新失败');
         }
       }
-      pageCursorMapRef.current = workingCursorMap;
-      setLogs(result.hits);
-      setHistogramData(buildRealtimeHistogramData(totalHistogramResult.buckets, errorBuckets));
-      setTotal(result.total);
-      setCurrentPage(result.page);
-      setQueryTimeMS(result.queryTimeMS);
-      setQueryTimedOut(result.timedOut);
-      setTableSnapshotTo(snapshotTo);
-      if (result.timedOut && !options.silent) {
-        message.warning('查询超时，结果可能不完整');
-      }
-      return true;
-    } catch (error) {
-      if (requestID !== latestQueryRequestRef.current) {
-        return false;
-      }
-      if (isAbortError(error)) {
-        return false;
-      }
-      if (!options.silent) {
-        const readableError = error instanceof Error ? error.message : '查询失败，请稍后重试';
-        message.error(readableError);
-      }
-      return false;
+
+      return tableSucceeded;
     } finally {
       unregisterAbortController(tableController);
       unregisterAbortController(totalHistogramController);
@@ -363,13 +425,16 @@ const RealtimeSearch: React.FC = () => {
         inFlightRequestIDRef.current = null;
       }
       if (requestID === latestQueryRequestRef.current) {
-        setTableLoading(false);
+        setInitialLoading(false);
+        setTableRefreshing(false);
+        setHistogramRefreshing(false);
+        setHistogramInitialLoading(false);
         if (isLiveRef.current && !isUnmountedRef.current) {
           scheduleNextLiveTickRef.current();
         }
       }
     }
-  }, [abortActiveRequests, clearLiveTimer, levelFilter, liveWindow, message, registerAbortController, sourceFilter, unregisterAbortController]);
+  }, [abortActiveRequests, clearLiveTimer, histogramData.length, levelFilter, liveWindow, logs.length, message, registerAbortController, sourceFilter, unregisterAbortController]);
 
   const scheduleNextLiveTick = useCallback((delay = LIVE_POLL_INTERVAL_MS) => {
     clearLiveTimer();
@@ -848,6 +913,13 @@ const RealtimeSearch: React.FC = () => {
       <ChartWrapper
         title="事件量分布"
         subtitle={`最近 30 分钟 · 共 ${totalEvents.toLocaleString()} 条`}
+        loading={histogramInitialLoading && histogramRefreshing && histogramData.length === 0}
+        actions={(
+          <Space size={8}>
+            {histogramRefreshing && !histogramInitialLoading && <Tag color="processing" style={{ margin: 0 }}>刷新中</Tag>}
+            {histogramUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次统计</Tag>}
+          </Space>
+        )}
         option={histogramOption}
         height={160}
       />
@@ -878,6 +950,8 @@ const RealtimeSearch: React.FC = () => {
             <span className="text-xs opacity-50">
               共 {total.toLocaleString()} 条结果 · 耗时 {queryTimeMS}ms · 时间窗 {liveWindow}
             </span>
+            {tableRefreshing && !initialLoading && <Tag color="processing" style={{ margin: 0 }}>刷新中</Tag>}
+            {tableUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次结果</Tag>}
             {imageAggregationSummary.hiddenRows > 0 && (
               <Tag color="blue" style={{ margin: 0 }}>
                 本页已聚合 {imageAggregationSummary.groupedRows} 组图片日志，折叠 {imageAggregationSummary.hiddenRows} 条
@@ -904,7 +978,7 @@ const RealtimeSearch: React.FC = () => {
           dataSource={displayLogs}
           columns={columns}
           rowKey="id"
-          loading={tableLoading}
+          loading={initialLoading && tableRefreshing}
           size="small"
           pagination={{
             current: currentPage,
