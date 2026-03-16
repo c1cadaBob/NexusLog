@@ -10,6 +10,33 @@ import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
 import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 
+function formatHistoryBookmarkFilterLabel(key: string): string {
+  switch (key) {
+    case 'level':
+      return '级别';
+    case 'service':
+      return '来源/服务';
+    case 'source':
+      return '来源';
+    default:
+      return key;
+  }
+}
+
+function formatHistoryBookmarkFilterValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(', ');
+  }
+  if (value && typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value ?? '');
+}
+
 const SearchHistory: React.FC = () => {
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
@@ -124,6 +151,14 @@ const SearchHistory: React.FC = () => {
       filters: normalized.filters,
     });
     const shouldConfirmCleanup = cleanedQuery !== record.query.trim();
+    const previewFilters = Object.entries(normalized.filters)
+      .filter(([, value]) => value != null && value !== '' && (!Array.isArray(value) || value.length > 0))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => ({
+        key,
+        label: formatHistoryBookmarkFilterLabel(key),
+        value: formatHistoryBookmarkFilterValue(value),
+      }));
     const persistBookmark = async () => {
       try {
         await createSavedQuery({
@@ -153,8 +188,20 @@ const SearchHistory: React.FC = () => {
           <div className="text-sm opacity-80">该历史查询包含回放遗留的时间范围。为避免后续继续传播旧格式，收藏时将仅保留可复用的查询语义。</div>
           <div className="flex gap-2 flex-wrap">
             {normalized.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
-            {Object.keys(normalized.filters).length > 0 && <Tag color="blue" style={{ margin: 0 }}>保留 {Object.keys(normalized.filters).length} 个筛选条件</Tag>}
+            {previewFilters.length > 0 && <Tag color="blue" style={{ margin: 0 }}>保留 {previewFilters.length} 个筛选条件</Tag>}
           </div>
+          {previewFilters.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <div className="text-xs opacity-60">保留筛选</div>
+              <div className="flex gap-2 flex-wrap">
+                {previewFilters.map((filter) => (
+                  <Tag key={filter.key} color="blue" style={{ margin: 0 }}>
+                    {filter.label}: {filter.value}
+                  </Tag>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex flex-col gap-1">
             <div className="text-xs opacity-60">原始查询</div>
             <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.04)' }}>
