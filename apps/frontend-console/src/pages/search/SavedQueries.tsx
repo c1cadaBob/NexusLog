@@ -30,6 +30,7 @@ const SavedQueries: React.FC = () => {
   const [modalMode, setModalMode] = useState<ModalMode>('create');
   const [editingItem, setEditingItem] = useState<SavedQuery | null>(null);
   const [cleanupSubmitting, setCleanupSubmitting] = useState(false);
+  const watchedModalQuery = Form.useWatch('query', form);
 
   const mergedTags = useMemo(() => {
     const values = new Set<string>(knownTags);
@@ -58,6 +59,30 @@ const SavedQueries: React.FC = () => {
     () => savedQueryDiagnostics.filter((entry) => entry.needsCleanup),
     [savedQueryDiagnostics],
   );
+
+  const modalQueryCleanupPreview = useMemo(() => {
+    const rawQuery = typeof watchedModalQuery === 'string' ? watchedModalQuery.trim() : '';
+    if (!rawQuery) {
+      return null;
+    }
+
+    const normalized = normalizeRealtimePresetQuery(rawQuery);
+    const cleanedQuery = buildRealtimePresetQuery({
+      queryText: normalized.queryText,
+      filters: normalized.filters,
+    });
+
+    if (cleanedQuery === rawQuery) {
+      return null;
+    }
+
+    return {
+      cleanedQuery,
+      strippedTimeRange: normalized.strippedTimeRange,
+      extractedFilters: normalized.extractedFilters,
+      filterCount: Object.keys(normalized.filters).length,
+    };
+  }, [watchedModalQuery]);
 
   // 收藏查询改为真实 API 数据源，页面仅做展示和交互。
   const loadSavedQueries = useCallback(async () => {
@@ -435,6 +460,30 @@ const SavedQueries: React.FC = () => {
           <Form.Item name="query" label="查询语句" rules={[{ required: true, message: '请输入查询语句' }]}>
             <Input.TextArea rows={3} placeholder='例如: level:error AND service:"payment-service"' className="font-mono" />
           </Form.Item>
+          {modalQueryCleanupPreview && (
+            <Alert
+              type="warning"
+              showIcon
+              message="检测到旧格式查询语句"
+              description={(
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2 flex-wrap">
+                    {modalQueryCleanupPreview.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
+                    {modalQueryCleanupPreview.extractedFilters && modalQueryCleanupPreview.filterCount > 0 && (
+                      <Tag color="blue" style={{ margin: 0 }}>保留 {modalQueryCleanupPreview.filterCount} 个筛选条件</Tag>
+                    )}
+                  </div>
+                  <div className="text-xs opacity-70">保存后将自动清洗为以下查询语句：</div>
+                  <div
+                    className="font-mono text-sm p-2 rounded break-all"
+                    style={{ backgroundColor: 'rgba(0,0,0,0.04)' }}
+                  >
+                    {modalQueryCleanupPreview.cleanedQuery}
+                  </div>
+                </div>
+              )}
+            />
+          )}
           <Form.Item name="tags" label="标签">
             <Select
               mode="tags"
