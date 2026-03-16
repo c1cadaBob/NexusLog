@@ -220,6 +220,8 @@ const RealtimeSearch: React.FC = () => {
   const scheduleNextLiveTickRef = useRef<(delay?: number) => void>(() => undefined);
   const lastHistogramRefreshKeyRef = useRef('');
   const lastHistogramFetchedAtRef = useRef(0);
+  const activeQueryRef = useRef(activeQuery);
+  const pageSizeRef = useRef(pageSize);
 
   const clearLiveTimer = useCallback(() => {
     if (liveTimerRef.current != null) {
@@ -482,6 +484,20 @@ const RealtimeSearch: React.FC = () => {
     }
   }, [abortActiveRequests, clearLiveTimer, histogramData.length, levelFilter, liveWindow, logs.length, message, registerAbortController, sourceFilter, unregisterAbortController]);
 
+  const executeQueryRef = useRef(executeQuery);
+
+  useEffect(() => {
+    executeQueryRef.current = executeQuery;
+  }, [executeQuery]);
+
+  useEffect(() => {
+    activeQueryRef.current = activeQuery;
+  }, [activeQuery]);
+
+  useEffect(() => {
+    pageSizeRef.current = pageSize;
+  }, [pageSize]);
+
   const scheduleNextLiveTick = useCallback((delay = LIVE_POLL_INTERVAL_MS) => {
     clearLiveTimer();
     if (!isLiveRef.current || isUnmountedRef.current) {
@@ -568,15 +584,15 @@ const RealtimeSearch: React.FC = () => {
       filterEffectMounted.current = true;
       return;
     }
-    void executeQuery({
-      queryText: activeQuery,
+    void executeQueryRef.current({
+      queryText: activeQueryRef.current,
       page: 1,
-      pageSize,
+      pageSize: pageSizeRef.current,
       silent: true,
       resetCursor: true,
       histogramRefreshMode: 'force',
     });
-  }, [levelFilter, sourceFilter, executeQuery]);
+  }, [levelFilter, sourceFilter]);
 
   // 直方图数据
   const displayLogs = useMemo(() => aggregateRealtimeDisplayLogs(logs), [logs]);
