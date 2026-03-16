@@ -7,19 +7,42 @@ const { test } = require("@playwright/test");
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
 const { resolveE2ETenantId } = require("./support/runtimeTenant");
-const { E2E_LOGIN_USERNAME, E2E_LOGIN_PASSWORD } = require("./support/runtimeUser");
+const { E2E_LOGIN_USERNAME } = require("./support/runtimeUser");
+const { resolveRuntimeAuthSession } = require("./support/runtimeAuthSession");
 
 const TENANT_ID = resolveE2ETenantId();
+const AUTH_SESSION = resolveRuntimeAuthSession({ tenantId: TENANT_ID, username: E2E_LOGIN_USERNAME });
 
 test.describe("验证修复后的页面", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript((tenantId) => {
+    await page.addInitScript((session) => {
       window.localStorage.clear();
-      window.localStorage.setItem("nexuslog-tenant-id", tenantId);
-    }, TENANT_ID);
+      window.sessionStorage.clear();
+      window.localStorage.setItem("nexuslog-tenant-id", session.tenantId);
+      window.sessionStorage.setItem("nexuslog-auth-storage-scope", "session");
+      window.sessionStorage.setItem("nexuslog-access-token", session.accessToken);
+      window.sessionStorage.setItem("nexuslog-refresh-token", session.refreshToken);
+      window.sessionStorage.setItem("nexuslog-token-expires-at", String(session.expiresAtMs));
+      window.sessionStorage.setItem(
+        "nexuslog-auth",
+        JSON.stringify({
+          state: {
+            isAuthenticated: true,
+            user: {
+              id: session.userId,
+              username: session.username,
+              email: session.email,
+              role: session.role,
+            },
+          },
+          version: 0,
+        }),
+      );
+    }, AUTH_SESSION);
   });
 
   test("审计日志 + 实时检索 + 下载记录", async ({ page }) => {
+    test.setTimeout(60000);
     const consoleErrors = [];
     const apiResponses = [];
 
@@ -53,20 +76,6 @@ test.describe("验证修复后的页面", () => {
         });
       }
     });
-
-    // 1. 登录
-    await page.goto(BASE_URL);
-    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
-
-    const isLoginPage =
-      (await page.locator('input[id="login-username"], input[name="username"]').count()) > 0;
-
-    if (isLoginPage) {
-      await page.locator("#login-username").fill(E2E_LOGIN_USERNAME);
-      await page.getByPlaceholder("请输入密码").fill(E2E_LOGIN_PASSWORD);
-      await page.locator('button[type="submit"]').click();
-      await page.waitForTimeout(3500);
-    }
 
     const report = { audit: {}, search: {}, download: {} };
 

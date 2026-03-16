@@ -1,65 +1,134 @@
 /**
- * 验证 Dashboard 已恢复原始状态
+ * 验证 Dashboard 已恢复当前真实状态，并将关键模块作为回归门禁。
  * 运行: E2E_BASE_URL=http://localhost:3000 npx playwright test dashboard-restored-verify.spec.js --retries=0
  */
-const { test } = require("@playwright/test");
+const { test, expect } = require("@playwright/test");
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
 const { resolveE2ETenantId } = require("./support/runtimeTenant");
-const { E2E_LOGIN_USERNAME, E2E_LOGIN_PASSWORD } = require("./support/runtimeUser");
+const { E2E_LOGIN_USERNAME } = require("./support/runtimeUser");
+const { resolveRuntimeAuthSession } = require("./support/runtimeAuthSession");
 
 const TENANT_ID = resolveE2ETenantId();
+const AUTH_SESSION = resolveRuntimeAuthSession({ tenantId: TENANT_ID, username: E2E_LOGIN_USERNAME });
 
 test("Dashboard 原始状态验证", async ({ page }) => {
-  await page.addInitScript((tenantId) => {
+  const consoleErrors = [];
+
+  page.on("console", (msg) => {
+    if (msg.type() !== "error") {
+      return;
+    }
+
+    const text = msg.text();
+    if (text.includes("net::ERR_NETWORK_CHANGED")) {
+      return;
+    }
+
+    consoleErrors.push(text);
+  });
+
+  await page.addInitScript((session) => {
     window.localStorage.clear();
-    window.localStorage.setItem("nexuslog-tenant-id", tenantId);
-  }, TENANT_ID);
+    window.sessionStorage.clear();
+    window.localStorage.setItem("nexuslog-tenant-id", session.tenantId);
+    window.sessionStorage.setItem("nexuslog-auth-storage-scope", "session");
+    window.sessionStorage.setItem("nexuslog-access-token", session.accessToken);
+    window.sessionStorage.setItem("nexuslog-refresh-token", session.refreshToken);
+    window.sessionStorage.setItem("nexuslog-token-expires-at", String(session.expiresAtMs));
+    window.sessionStorage.setItem(
+      "nexuslog-auth",
+      JSON.stringify({
+        state: {
+          isAuthenticated: true,
+          user: {
+            id: session.userId,
+            username: session.username,
+            email: session.email,
+            role: session.role,
+          },
+        },
+        version: 0,
+      }),
+    );
+  }, AUTH_SESSION);
 
-  await page.goto(BASE_URL);
-  await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
+  const overviewResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" && response.url().includes("/api/v1/query/stats/overview"),
+    { timeout: 15000 },
+  );
+  const metricsResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" && response.url().includes("/api/v1/metrics/overview"),
+    { timeout: 15000 },
+  );
+  const auditResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" && response.url().includes("/api/v1/audit/logs"),
+    { timeout: 15000 },
+  );
 
-  const isLoginPage =
-    (await page.locator('input[id="login-username"], input[name="username"]').count()) > 0;
+  const [overviewResponse, metricsResponse, auditResponse] = await Promise.all([
+    overviewResponsePromise,
+    metricsResponsePromise,
+    auditResponsePromise,
+    page.goto(`${BASE_URL}/#/`, { waitUntil: "domcontentloaded" }),
+  ]);
 
-  if (isLoginPage) {
-    await page.locator("#login-username").fill(E2E_LOGIN_USERNAME);
-    await page.getByPlaceholder("请输入密码").fill(E2E_LOGIN_PASSWORD);
-    await page.locator('button[type="submit"]').click();
-    await page.waitForTimeout(4000);
-  }
-
-  await page.goto(`${BASE_URL}/#/`);
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
-  await page.waitForTimeout(3500);
+  await page.waitForTimeout(2500);
 
   await page.screenshot({ path: "test-results/dashboard-restored.png", fullPage: true });
 
-  const body = await page.textContent("body").catch(() => "");
+  expect(overviewResponse.status()).toBe(200);
+  expect(metricsResponse.status()).toBe(200);
+  expect(auditResponse.status()).toBe(200);
+  expect(consoleErrors).toEqual([]);
 
-  const checks = {
-    refreshControl: body?.includes("最后更新") && body?.includes("刷新"),
-    refreshIntervalSelect: (await page.locator(".ant-select").first().count()) > 0,
-    kpiCards: (await page.locator(".ant-statistic").count()) >= 6,
-    storageBar: body?.includes("热") && body?.includes("温") && body?.includes("冷"),
-    infraMonitor: body?.includes("系统基础设施监控") || body?.includes("Infrastructure"),
-    cpuLoad: body?.includes("CPU Load") || body?.includes("负载"),
-    memory: body?.includes("内存") || body?.includes("Memory"),
-    connections: body?.includes("连接数") || body?.includes("传输连接"),
-    bandwidth: body?.includes("带宽") || body?.includes("流量统计"),
-    logTrend: body?.includes("日志量趋势"),
-    abnormalServiceTop5: body?.includes("异常服务排行") && body?.includes("Top 5"),
-    quickActionCollect: body?.includes("新建采集源"),
-    quickActionAlert: body?.includes("新建告警规则"),
-    quickActionIndex: body?.includes("创建索引"),
-    quickActionReport: body?.includes("生成报表"),
-    auditActivity: body?.includes("最近审计活动"),
-  };
+  const kpiCount = await page.locator(".ant-statistic").count();
+  expect.soft(kpiCount, "应至少渲染 6 个 KPI 卡片").toBeGreaterThanOrEqual(6);
 
-  console.log("\n========== Dashboard 原始状态验证 ==========\n");
-  Object.entries(checks).forEach(([k, v]) => {
-    console.log(`${k}: ${v ? "✓" : "✗"}`);
-  });
-  const allPass = Object.values(checks).every(Boolean);
-  console.log("\n全部通过:", allPass ? "是" : "否");
+  await expect.soft(page.getByText(/最后更新:/)).toBeVisible();
+  await expect.soft(page.getByRole("combobox")).toBeVisible();
+  await expect.soft(page.getByRole("button", { name: /刷新/ })).toBeVisible();
+
+  await expect.soft(page.getByText("总日志量", { exact: true })).toBeVisible();
+  await expect.soft(page.getByText("错误率", { exact: true })).toBeVisible();
+  await expect.soft(page.getByText("告警中", { exact: true })).toBeVisible();
+  await expect.soft(page.getByText("已解决告警", { exact: true })).toBeVisible();
+  await expect.soft(page.getByText("活跃来源", { exact: true })).toBeVisible();
+  await expect.soft(page.getByText("级别覆盖", { exact: true })).toBeVisible();
+
+  await expect.soft(page.getByText("系统基础设施监控")).toBeVisible();
+  await expect.soft(page.getByText("平均 CPU 使用率")).toBeVisible();
+  await expect.soft(page.getByText("平均内存使用率")).toBeVisible();
+  await expect.soft(page.getByText("平均磁盘使用率")).toBeVisible();
+  await expect.soft(page.getByText("最近窗口入站")).toBeVisible();
+  await expect.soft(page.getByText("最近窗口出站")).toBeVisible();
+  await expect.soft(page.getByText("累计入站")).toBeVisible();
+  await expect.soft(page.getByText("累计出站")).toBeVisible();
+
+  await expect.soft(page.getByText("日志量趋势")).toBeVisible();
+  await expect.soft(page.getByText("活跃主机 / 服务 Top 5")).toBeVisible();
+  await expect.soft(page.getByText("主机名").first()).toBeVisible();
+  await expect.soft(page.getByText("服务名").first()).toBeVisible();
+
+  await expect.soft(page.getByText("新建采集源").first()).toBeVisible();
+  await expect.soft(page.getByText("新建告警规则")).toBeVisible();
+  await expect.soft(page.getByText("创建索引")).toBeVisible();
+  await expect.soft(page.getByText("生成报表")).toBeVisible();
+  await expect.soft(page.getByText("最近审计活动")).toBeVisible();
+
+  console.log("\n========== Dashboard 原始状态验证 ==========");
+  console.log("URL:", `${BASE_URL}/#/`);
+  console.log("overview status:", overviewResponse.status());
+  console.log("metrics status:", metricsResponse.status());
+  console.log("audit status:", auditResponse.status());
+  console.log("kpi count:", kpiCount);
+  console.log("console errors:", consoleErrors.length);
+
+  if (test.info().errors.length > 0) {
+    throw new Error(`dashboard assertions failed: ${test.info().errors.length}`);
+  }
 });
