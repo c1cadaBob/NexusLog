@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import type { QueryHistory } from '../../types/log';
 import { createSavedQuery, deleteQueryHistory, fetchQueryHistory } from '../../api/query';
+import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 
 const SearchHistory: React.FC = () => {
@@ -105,6 +106,7 @@ const SearchHistory: React.FC = () => {
     } catch {
       message.info(`请在实时检索页执行: ${record.query}`);
     }
+    persistPendingRealtimeStartupQuery(record.query);
     navigate('/search/realtime', {
       state: {
         autoRun: true,

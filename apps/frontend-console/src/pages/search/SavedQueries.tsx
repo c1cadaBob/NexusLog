@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { COLORS } from '../../theme/tokens';
 import type { SavedQuery } from '../../types/log';
 import { createSavedQuery, deleteSavedQuery, fetchSavedQueries, updateSavedQuery } from '../../api/query';
+import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
 
 type ModalMode = 'create' | 'edit';
 
@@ -157,6 +158,7 @@ const SavedQueries: React.FC = () => {
     } catch {
       msg.info(`请在实时检索页执行: ${item.query}`);
     }
+    persistPendingRealtimeStartupQuery(item.query);
     navigate('/search/realtime', {
       state: {
         autoRun: true,

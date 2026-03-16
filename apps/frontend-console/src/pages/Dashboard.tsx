@@ -14,6 +14,7 @@ import type { EChartsCoreOption } from 'echarts/core';
 import { fetchDashboardOverview, type DashboardOverviewStats } from '../api/query';
 import { fetchAuditLogs, type AuditLogItem } from '../api/audit';
 import { fetchMetricsOverview, type MetricsOverviewData } from '../api/metrics';
+import { persistPendingRealtimeStartupQuery } from './search/realtimeStartupQuery';
 
 interface DashboardTrendPoint {
   time: string;
@@ -819,6 +820,7 @@ const Dashboard: React.FC = () => {
       return;
     }
 
+    persistPendingRealtimeStartupQuery(presetQuery);
     navigate('/search/realtime', { state: { autoRun: true, presetQuery } });
   }, [dashboardEntryAccess.realtimeSearch, navigate]);
 
