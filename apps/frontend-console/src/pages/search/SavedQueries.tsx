@@ -6,35 +6,9 @@ import type { SavedQuery } from '../../types/log';
 import { createSavedQuery, deleteSavedQuery, fetchSavedQueries, updateSavedQuery } from '../../api/query';
 import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
 import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
+import { buildQueryCleanupPreviewFilters } from './queryCleanupPreview';
 
 type ModalMode = 'create' | 'edit';
-
-function formatSavedQueryCleanupFilterLabel(key: string): string {
-  switch (key) {
-    case 'level':
-      return '级别';
-    case 'service':
-      return '来源/服务';
-    case 'source':
-      return '来源';
-    default:
-      return key;
-  }
-}
-
-function formatSavedQueryCleanupFilterValue(value: unknown): string {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item)).join(', ');
-  }
-  if (value && typeof value === 'object') {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-  return String(value ?? '');
-}
 
 const SavedQueries: React.FC = () => {
   const { message: msg, modal } = App.useApp();
@@ -74,14 +48,7 @@ const SavedQueries: React.FC = () => {
       queryText: normalized.queryText,
       filters: normalized.filters,
     });
-    const previewFilters = Object.entries(normalized.filters)
-      .filter(([, value]) => value != null && value !== '' && (!Array.isArray(value) || value.length > 0))
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, value]) => ({
-        key,
-        label: formatSavedQueryCleanupFilterLabel(key),
-        value: formatSavedQueryCleanupFilterValue(value),
-      }));
+    const previewFilters = buildQueryCleanupPreviewFilters(normalized.filters);
     return {
       item,
       normalized,
@@ -112,14 +79,7 @@ const SavedQueries: React.FC = () => {
       return null;
     }
 
-    const previewFilters = Object.entries(normalized.filters)
-      .filter(([, value]) => value != null && value !== '' && (!Array.isArray(value) || value.length > 0))
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, value]) => ({
-        key,
-        label: formatSavedQueryCleanupFilterLabel(key),
-        value: formatSavedQueryCleanupFilterValue(value),
-      }));
+    const previewFilters = buildQueryCleanupPreviewFilters(normalized.filters);
 
     return {
       cleanedQuery,

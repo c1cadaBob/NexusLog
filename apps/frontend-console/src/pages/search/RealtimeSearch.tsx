@@ -24,6 +24,7 @@ import {
   type RealtimeHistogramRefreshMode,
 } from './realtimeRefreshPolicy';
 import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
+import { buildQueryCleanupPreviewFilters } from './queryCleanupPreview';
 
 // ============================================================================
 // 本地 UI 辅助数据
@@ -104,32 +105,6 @@ function formatDetailValue(value: unknown, fallback = '—'): string {
   }
 }
 
-function formatRealtimeBookmarkFilterLabel(key: string): string {
-  switch (key) {
-    case 'level':
-      return '级别';
-    case 'service':
-      return '来源/服务';
-    case 'source':
-      return '来源';
-    default:
-      return key;
-  }
-}
-
-function formatRealtimeBookmarkFilterValue(value: unknown): string {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item)).join(', ');
-  }
-  if (value && typeof value === 'object') {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-  return String(value ?? '');
-}
 
 // ============================================================================
 // 级别颜色映射
@@ -827,14 +802,7 @@ const RealtimeSearch: React.FC = () => {
         filters: selectedFilters,
       });
     const shouldConfirmCleanup = cleanedQuery !== comparisonBaseQuery;
-    const previewFilters = Object.entries(effectiveFilters)
-      .filter(([, value]) => value != null && value !== '' && (!Array.isArray(value) || value.length > 0))
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, value]) => ({
-        key,
-        label: formatRealtimeBookmarkFilterLabel(key),
-        value: formatRealtimeBookmarkFilterValue(value),
-      }));
+    const previewFilters = buildQueryCleanupPreviewFilters(effectiveFilters);
     const filterCount = previewFilters.length;
 
     const persistBookmark = async () => {

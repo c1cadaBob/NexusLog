@@ -8,34 +8,8 @@ import type { QueryHistory } from '../../types/log';
 import { createSavedQuery, deleteQueryHistory, fetchQueryHistory } from '../../api/query';
 import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
 import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
+import { buildQueryCleanupPreviewFilters } from './queryCleanupPreview';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
-
-function formatHistoryBookmarkFilterLabel(key: string): string {
-  switch (key) {
-    case 'level':
-      return '级别';
-    case 'service':
-      return '来源/服务';
-    case 'source':
-      return '来源';
-    default:
-      return key;
-  }
-}
-
-function formatHistoryBookmarkFilterValue(value: unknown): string {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item)).join(', ');
-  }
-  if (value && typeof value === 'object') {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-  return String(value ?? '');
-}
 
 const SearchHistory: React.FC = () => {
   const { message, modal } = App.useApp();
@@ -151,14 +125,7 @@ const SearchHistory: React.FC = () => {
       filters: normalized.filters,
     });
     const shouldConfirmCleanup = cleanedQuery !== record.query.trim();
-    const previewFilters = Object.entries(normalized.filters)
-      .filter(([, value]) => value != null && value !== '' && (!Array.isArray(value) || value.length > 0))
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, value]) => ({
-        key,
-        label: formatHistoryBookmarkFilterLabel(key),
-        value: formatHistoryBookmarkFilterValue(value),
-      }));
+    const previewFilters = buildQueryCleanupPreviewFilters(normalized.filters);
     const persistBookmark = async () => {
       try {
         await createSavedQuery({
