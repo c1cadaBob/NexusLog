@@ -87,6 +87,7 @@ interface QueryLogsPayload {
 export interface QueryLogsResult {
   hits: LogEntry[];
   total: number;
+  totalIsLowerBound: boolean;
   page: number;
   pageSize: number;
   hasNext: boolean;
@@ -1056,6 +1057,7 @@ function buildLocalRealtimeLogsResult(payload: QueryLogsPayload): QueryLogsResul
     total: paged.total,
     page: paged.page,
     pageSize: paged.pageSize,
+    totalIsLowerBound: false,
     hasNext: paged.hasNext,
     queryTimeMS: 12,
     timedOut: false,
@@ -1329,10 +1331,12 @@ export async function queryRealtimeLogs(payload: QueryLogsPayload): Promise<Quer
     const hasNext = Boolean(envelope.meta?.has_next ?? page * pageSize < total);
     const queryTimeMS = Number(envelope.meta?.query_time_ms ?? 0);
     const timedOut = Boolean(envelope.meta?.timed_out ?? false);
+    const totalRelation = String(envelope.meta?.total_relation ?? '').trim().toLowerCase();
 
     const result: QueryLogsResult = {
       hits,
       total: Number.isFinite(total) ? total : hits.length,
+      totalIsLowerBound: totalRelation === 'gte' || Boolean(envelope.meta?.total_is_lower_bound),
       page: Number.isFinite(page) ? page : payload.page,
       pageSize: Number.isFinite(pageSize) ? pageSize : payload.pageSize,
       hasNext,

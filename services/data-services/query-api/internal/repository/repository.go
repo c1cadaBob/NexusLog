@@ -17,10 +17,13 @@ import (
 )
 
 const (
-	defaultElasticsearchAddress = "http://localhost:9200"
-	defaultLogsIndex            = "nexuslog-logs-read"
-	defaultRequestTimeout       = 15 * time.Second
-	defaultPITKeepAlive         = "5m"
+	defaultElasticsearchAddress   = "http://localhost:9200"
+	defaultLogsIndex              = "nexuslog-logs-read"
+	defaultRequestTimeout         = 15 * time.Second
+	defaultPITKeepAlive           = "5m"
+	defaultTrackTotalHitsLimit    = 10000
+	totalRelationEqual            = "eq"
+	totalRelationGreaterThanEqual = "gte"
 )
 
 // SortField 定义 ES 排序字段。
@@ -56,6 +59,7 @@ type SearchLogsResult struct {
 	TookMS          int
 	TimedOut        bool
 	Total           int64
+	TotalRelation   string
 	Hits            []RawLogHit
 	Aggregations    map[string]any
 	PITID           string
@@ -148,7 +152,7 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 	}
 
 	queryPayload := map[string]any{
-		"track_total_hits": true,
+		"track_total_hits": resolveTrackTotalHits(in),
 		"size":             in.PageSize,
 		"query":            BuildESQuery(in),
 		"sort":             buildESSort(in.Sort),
@@ -183,13 +187,15 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 		return SearchLogsResult{}, err
 	}
 
+	total, totalRelation := parseHitsTotal(parsed.Hits.Total)
 	result := SearchLogsResult{
-		TookMS:       parsed.Took,
-		TimedOut:     parsed.TimedOut,
-		Total:        parseHitsTotal(parsed.Hits.Total),
-		Hits:         make([]RawLogHit, 0, len(parsed.Hits.Hits)),
-		Aggregations: parsed.Aggregations,
-		PITID:        strings.TrimSpace(firstNonEmpty(parsed.PITID, pitID)),
+		TookMS:        parsed.Took,
+		TimedOut:      parsed.TimedOut,
+		Total:         total,
+		TotalRelation: totalRelation,
+		Hits:          make([]RawLogHit, 0, len(parsed.Hits.Hits)),
+		Aggregations:  parsed.Aggregations,
+		PITID:         strings.TrimSpace(firstNonEmpty(parsed.PITID, pitID)),
 	}
 	for _, hit := range parsed.Hits.Hits {
 		result.Hits = append(result.Hits, RawLogHit{
@@ -236,12 +242,14 @@ func (r *ElasticsearchRepository) SearchWithBody(ctx context.Context, body map[s
 	if err := json.Unmarshal(bodyRaw, &parsed); err != nil {
 		return SearchLogsResult{}, fmt.Errorf("decode es response: %w", err)
 	}
+	total, totalRelation := parseHitsTotal(parsed.Hits.Total)
 	result := SearchLogsResult{
-		TookMS:       parsed.Took,
-		TimedOut:     parsed.TimedOut,
-		Total:        parseHitsTotal(parsed.Hits.Total),
-		Hits:         make([]RawLogHit, 0, len(parsed.Hits.Hits)),
-		Aggregations: parsed.Aggregations,
+		TookMS:        parsed.Took,
+		TimedOut:      parsed.TimedOut,
+		Total:         total,
+		TotalRelation: totalRelation,
+		Hits:          make([]RawLogHit, 0, len(parsed.Hits.Hits)),
+		Aggregations:  parsed.Aggregations,
 	}
 	for _, hit := range parsed.Hits.Hits {
 		result.Hits = append(result.Hits, RawLogHit{
@@ -332,6 +340,13 @@ func shouldAutoOpenPIT(in SearchLogsInput) bool {
 		return true
 	}
 	return in.Page > 1
+}
+
+func resolveTrackTotalHits(in SearchLogsInput) any {
+	if in.Page <= 1 && strings.TrimSpace(in.PITID) == "" && len(in.SearchAfter) == 0 {
+		return defaultTrackTotalHitsLimit
+	}
+	return true
 }
 
 func isRetryablePITError(err error) bool {
@@ -464,21 +479,26 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func parseHitsTotal(raw json.RawMessage) int64 {
+func parseHitsTotal(raw json.RawMessage) (int64, string) {
 	if len(raw) == 0 {
-		return 0
+		return 0, totalRelationEqual
 	}
 	var wrapped struct {
-		Value int64 `json:"value"`
+		Value    int64  `json:"value"`
+		Relation string `json:"relation"`
 	}
 	if err := json.Unmarshal(raw, &wrapped); err == nil {
-		return wrapped.Value
+		relation := strings.TrimSpace(strings.ToLower(wrapped.Relation))
+		if relation == "" {
+			relation = totalRelationEqual
+		}
+		return wrapped.Value, relation
 	}
 	var plain int64
 	if err := json.Unmarshal(raw, &plain); err == nil {
-		return plain
+		return plain, totalRelationEqual
 	}
-	return 0
+	return 0, totalRelationEqual
 }
 
 func BuildESQuery(in SearchLogsInput) map[string]any {

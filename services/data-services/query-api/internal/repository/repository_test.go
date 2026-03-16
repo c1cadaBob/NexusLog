@@ -310,7 +310,7 @@ func TestSearchLogs_FirstPageSkipsAutoPIT(t *testing.T) {
 				"took": 5,
 				"timed_out": false,
 				"hits": {
-					"total": {"value": 42},
+					"total": {"value": 10000, "relation": "gte"},
 					"hits": [
 						{
 							"_id": "log-first-page",
@@ -350,8 +350,14 @@ func TestSearchLogs_FirstPageSkipsAutoPIT(t *testing.T) {
 	if got := capturedSearch["from"]; got != float64(0) {
 		t.Fatalf("from=%v, want 0", got)
 	}
+	if got := capturedSearch["track_total_hits"]; got != float64(defaultTrackTotalHitsLimit) {
+		t.Fatalf("track_total_hits=%v, want %d", got, defaultTrackTotalHitsLimit)
+	}
 	if result.PITID != "" {
 		t.Fatalf("result.PITID=%q, want empty", result.PITID)
+	}
+	if result.Total != 10000 || result.TotalRelation != totalRelationGreaterThanEqual {
+		t.Fatalf("unexpected total metadata: total=%d relation=%q", result.Total, result.TotalRelation)
 	}
 	if len(result.NextSearchAfter) != 2 {
 		t.Fatalf("len(result.NextSearchAfter)=%d, want 2", len(result.NextSearchAfter))
@@ -424,6 +430,9 @@ func TestSearchLogs_OpensPITAndReturnsNextSearchAfter(t *testing.T) {
 	}
 	if got := pit["keep_alive"]; got != defaultPITKeepAlive {
 		t.Fatalf("pit.keep_alive=%v, want %s", got, defaultPITKeepAlive)
+	}
+	if got := capturedSearch["track_total_hits"]; got != true {
+		t.Fatalf("track_total_hits=%v, want true", got)
 	}
 	if got := capturedSearch["from"]; got != float64(20) {
 		t.Fatalf("from=%v, want 20", got)

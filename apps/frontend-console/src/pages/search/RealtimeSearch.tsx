@@ -61,6 +61,12 @@ function resolveMaxPaginationPage(pageSize: number): number {
   return Math.max(1, Math.floor(MAX_PAGINATION_WINDOW_ROWS / normalizedPageSize));
 }
 
+function formatRealtimeTotal(total: number, isLowerBound: boolean): string {
+  const normalizedTotal = Number.isFinite(total) ? total : 0;
+  const displayTotal = Math.max(0, Math.floor(normalizedTotal)).toLocaleString();
+  return isLowerBound ? `${displayTotal}+` : displayTotal;
+}
+
 function toDisplayText(value: unknown, fallback = '—'): string {
   if (value == null) {
     return fallback;
@@ -178,6 +184,7 @@ const RealtimeSearch: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [queryTimeMS, setQueryTimeMS] = useState(0);
   const [queryTimedOut, setQueryTimedOut] = useState(false);
+  const [totalIsLowerBound, setTotalIsLowerBound] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [tableRefreshing, setTableRefreshing] = useState(false);
   const [tableUsingStaleData, setTableUsingStaleData] = useState(false);
@@ -338,6 +345,7 @@ const RealtimeSearch: React.FC = () => {
         pageCursorMapRef.current = workingCursorMap;
         setLogs(result.hits);
         setTotal(result.total);
+        setTotalIsLowerBound(result.totalIsLowerBound);
         setCurrentPage(result.page);
         setQueryTimeMS(result.queryTimeMS);
         setQueryTimedOut(result.timedOut);
@@ -948,17 +956,18 @@ const RealtimeSearch: React.FC = () => {
               options={LIVE_WINDOW_OPTIONS}
             />
             <span className="text-xs opacity-50">
-              共 {total.toLocaleString()} 条结果 · 耗时 {queryTimeMS}ms · 时间窗 {liveWindow}
+              共 {formatRealtimeTotal(total, totalIsLowerBound)} 条结果 · 耗时 {queryTimeMS}ms · 时间窗 {liveWindow}
             </span>
             {tableRefreshing && !initialLoading && <Tag color="processing" style={{ margin: 0 }}>刷新中</Tag>}
             {tableUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次结果</Tag>}
+            {totalIsLowerBound && <Tag color="default" style={{ margin: 0 }}>总数按阈值统计</Tag>}
             {imageAggregationSummary.hiddenRows > 0 && (
               <Tag color="blue" style={{ margin: 0 }}>
                 本页已聚合 {imageAggregationSummary.groupedRows} 组图片日志，折叠 {imageAggregationSummary.hiddenRows} 条
               </Tag>
             )}
             {queryTimedOut && <Tag color="warning" style={{ margin: 0 }}>查询超时</Tag>}
-            {total > MAX_PAGINATION_WINDOW_ROWS && (
+            {(total > MAX_PAGINATION_WINDOW_ROWS || (totalIsLowerBound && total >= MAX_PAGINATION_WINDOW_ROWS)) && (
               <Tag color="gold" style={{ margin: 0 }}>
                 超过前 {MAX_PAGINATION_WINDOW_ROWS.toLocaleString()} 条后，仅支持顺序翻页或返回已访问页
               </Tag>
@@ -986,7 +995,7 @@ const RealtimeSearch: React.FC = () => {
             total,
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 条`,
+            showTotal: (itemsTotal) => `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`,
             pageSizeOptions: ['10', '20', '50', '100'],
             onChange: (page, size) => {
               const nextPageSize = size ?? pageSize;

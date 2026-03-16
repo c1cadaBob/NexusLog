@@ -76,4 +76,48 @@ describe('query api emergency fallback', () => {
     expect(result.buckets.length).toBeGreaterThan(0);
     expect(result.buckets[0]?.key).toContain('T');
   });
+
+  it('parses lower-bound totals from query api metadata', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, 'standard-demo-token');
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'ok',
+        data: {
+          hits: [
+            {
+              id: 'log-1',
+              timestamp: '2026-03-16T06:00:00Z',
+              level: 'info',
+              service: 'query-api',
+              message: 'hello',
+              fields: {},
+            },
+          ],
+        },
+        meta: {
+          total: 10000,
+          total_relation: 'gte',
+          page: 1,
+          page_size: 20,
+          has_next: true,
+          query_time_ms: 88,
+          timed_out: false,
+        },
+      }),
+    } as Response);
+
+    const result = await queryRealtimeLogs({
+      keywords: '',
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalled();
+    expect(result.total).toBe(10000);
+    expect(result.totalIsLowerBound).toBe(true);
+    expect(result.hasNext).toBe(true);
+  });
 });

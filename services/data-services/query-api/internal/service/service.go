@@ -103,6 +103,7 @@ type SearchLogsResult struct {
 	Hits            []SearchLogHit `json:"hits"`
 	Aggregations    map[string]any `json:"aggregations,omitempty"`
 	Total           int64          `json:"total"`
+	TotalRelation   string         `json:"total_relation,omitempty"`
 	Page            int            `json:"page"`
 	PageSize        int            `json:"page_size"`
 	QueryTimeMS     int            `json:"query_time_ms"`
@@ -252,6 +253,7 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 		Hits:            hits,
 		Aggregations:    repoResult.Aggregations,
 		Total:           repoResult.Total,
+		TotalRelation:   strings.TrimSpace(repoResult.TotalRelation),
 		Page:            page,
 		PageSize:        pageSize,
 		QueryTimeMS:     repoResult.TookMS,

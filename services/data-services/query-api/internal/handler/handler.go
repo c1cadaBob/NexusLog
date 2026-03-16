@@ -65,18 +65,25 @@ func (h *QueryHandler) SearchLogs(c *gin.Context) {
 		return
 	}
 
+	hasNext := int64(result.Page*result.PageSize) < result.Total
+	if !hasNext && strings.TrimSpace(result.TotalRelation) == "gte" && len(result.Hits) >= result.PageSize && result.Page*result.PageSize < service.MaxSearchResultWindow {
+		hasNext = true
+	}
+
 	writeSuccess(c, http.StatusOK, gin.H{
 		"hits":         result.Hits,
 		"aggregations": result.Aggregations,
 	}, gin.H{
-		"page":              result.Page,
-		"page_size":         result.PageSize,
-		"total":             result.Total,
-		"has_next":          int64(result.Page*result.PageSize) < result.Total,
-		"query_time_ms":     result.QueryTimeMS,
-		"timed_out":         result.TimedOut,
-		"pit_id":            result.PITID,
-		"next_search_after": result.NextSearchAfter,
+		"page":                 result.Page,
+		"page_size":            result.PageSize,
+		"total":                result.Total,
+		"total_relation":       result.TotalRelation,
+		"total_is_lower_bound": strings.TrimSpace(result.TotalRelation) == "gte",
+		"has_next":             hasNext,
+		"query_time_ms":        result.QueryTimeMS,
+		"timed_out":            result.TimedOut,
+		"pit_id":               result.PITID,
+		"next_search_after":    result.NextSearchAfter,
 	})
 }
 
