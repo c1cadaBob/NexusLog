@@ -128,11 +128,24 @@ type AuditLogFiltersSnapshot = {
   dateRange: [dayjs.Dayjs | null, dayjs.Dayjs | null];
 };
 
+type AppliedAuditQuerySnapshot = {
+  userFilter: string;
+  actionFilter?: string;
+  resourceTypeFilter?: string;
+  from?: string;
+  to: string;
+};
+
+type AuditLoadMode = 'replace' | 'paginate';
+
 const AuditLogs: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const capabilities = useAuthStore((state) => state.capabilities);
   const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
   const initialLoadCompletedRef = useRef(false);
+  const appliedQueryRef = useRef<AppliedAuditQuerySnapshot | null>(null);
+  const inFlightRequestRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  const requestSequenceRef = useRef(0);
 
   const [userFilter, setUserFilter] = useState('');
   const [actionFilter, setActionFilter] = useState<string | undefined>(undefined);
@@ -165,7 +178,9 @@ const AuditLogs: React.FC = () => {
     pageOverride?: number,
     pageSizeOverride?: number,
     filtersOverride?: Partial<AuditLogFiltersSnapshot>,
+    options?: { mode?: AuditLoadMode },
   ) => {
+    const mode = options?.mode ?? 'replace';
     const currentPage = pageOverride ?? page;
     const currentPageSize = pageSizeOverride ?? pageSize;
     const resolvedFilters: AuditLogFiltersSnapshot = {
@@ -174,11 +189,20 @@ const AuditLogs: React.FC = () => {
       resourceTypeFilter: filtersOverride?.resourceTypeFilter ?? resourceTypeFilter,
       dateRange: filtersOverride?.dateRange ?? dateRange,
     };
-    const normalizedUserFilter = resolvedFilters.userFilter.trim();
+
+    const nextAppliedQuery: AppliedAuditQuerySnapshot = mode === 'paginate' && appliedQueryRef.current
+      ? appliedQueryRef.current
+      : {
+          userFilter: resolvedFilters.userFilter.trim(),
+          actionFilter: resolvedFilters.actionFilter,
+          resourceTypeFilter: resolvedFilters.resourceTypeFilter,
+          from: resolvedFilters.dateRange[0]?.toISOString(),
+          to: resolvedFilters.dateRange[1]?.toISOString() ?? new Date().toISOString(),
+        };
 
     if (
       !actionAccess.canReadReservedSubjects &&
-      isReservedAuditSubjectQuery(normalizedUserFilter, protectedGovernanceUsernames)
+      isReservedAuditSubjectQuery(nextAppliedQuery.userFilter, protectedGovernanceUsernames)
     ) {
       message.warning(RESERVED_SUBJECT_DENIED_MESSAGE);
       setError(RESERVED_SUBJECT_DENIED_MESSAGE);
@@ -189,34 +213,63 @@ const AuditLogs: React.FC = () => {
       return;
     }
 
+    const params: FetchAuditLogsParams = {
+      page: currentPage,
+      page_size: currentPageSize,
+      user_query: nextAppliedQuery.userFilter || undefined,
+      action: nextAppliedQuery.actionFilter,
+      resource_type: nextAppliedQuery.resourceTypeFilter,
+      from: nextAppliedQuery.from,
+      to: nextAppliedQuery.to,
+      sort_by: 'created_at',
+      sort_order: 'desc',
+    };
+    const requestKey = JSON.stringify(params);
+    if (inFlightRequestRef.current?.key === requestKey) {
+      return inFlightRequestRef.current.promise;
+    }
+
+    appliedQueryRef.current = nextAppliedQuery;
     setLoading(true);
     setError(null);
-    try {
-      const params: FetchAuditLogsParams = {
-        page: currentPage,
-        page_size: currentPageSize,
-        user_query: normalizedUserFilter || undefined,
-        action: resolvedFilters.actionFilter,
-        resource_type: resolvedFilters.resourceTypeFilter,
-        from: resolvedFilters.dateRange[0]?.toISOString(),
-        to: resolvedFilters.dateRange[1]?.toISOString(),
-        sort_by: 'created_at',
-        sort_order: 'desc',
-      };
-      const result = await fetchAuditLogs(params);
-      setItems(result.items);
-      setTotal(result.total);
-      setPage(currentPage);
-      setPageSize(currentPageSize);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : '加载审计日志失败';
-      message.error(msg);
-      setError(msg);
-      setItems([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
+    const requestSequence = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestSequence;
+
+    const requestPromise = (async () => {
+      try {
+        const result = await fetchAuditLogs(params);
+        if (requestSequence !== requestSequenceRef.current) {
+          return;
+        }
+        setItems(result.items);
+        setTotal(result.total);
+        setPage(currentPage);
+        setPageSize(currentPageSize);
+      } catch (err) {
+        if (requestSequence !== requestSequenceRef.current) {
+          return;
+        }
+        const msg = err instanceof Error ? err.message : '加载审计日志失败';
+        message.error(msg);
+        setError(msg);
+        setItems([]);
+        setTotal(0);
+      } finally {
+        if (requestSequence === requestSequenceRef.current) {
+          setLoading(false);
+        }
+        if (inFlightRequestRef.current?.key === requestKey) {
+          inFlightRequestRef.current = null;
+        }
+      }
+    })();
+
+    inFlightRequestRef.current = {
+      key: requestKey,
+      promise: requestPromise,
+    };
+
+    return requestPromise;
   }, [actionAccess.canReadReservedSubjects, actionFilter, dateRange, page, pageSize, resourceTypeFilter, userFilter]);
 
   useEffect(() => {
@@ -224,11 +277,11 @@ const AuditLogs: React.FC = () => {
       return;
     }
     initialLoadCompletedRef.current = true;
-    void loadData();
+    void loadData(undefined, undefined, undefined, { mode: 'replace' });
   }, [loadData]);
 
   const handleSearch = useCallback(() => {
-    void loadData(1, pageSize);
+    void loadData(1, pageSize, undefined, { mode: 'replace' });
   }, [loadData, pageSize]);
 
   const handleReset = useCallback(() => {
@@ -243,7 +296,7 @@ const AuditLogs: React.FC = () => {
       actionFilter: undefined,
       resourceTypeFilter: undefined,
       dateRange: nextDateRange,
-    });
+    }, { mode: 'replace' });
   }, [loadData]);
 
   const applyGovernanceQuickFilter = useCallback((username: string) => {
@@ -253,7 +306,7 @@ const AuditLogs: React.FC = () => {
     }
     setUserFilter(username);
     setPage(1);
-    void loadData(1, pageSize, { userFilter: username });
+    void loadData(1, pageSize, { userFilter: username }, { mode: 'replace' });
   }, [actionAccess.canReadReservedSubjects, loadData, pageSize]);
 
   const handleExportAuditLogs = useCallback(() => {
@@ -472,7 +525,7 @@ const AuditLogs: React.FC = () => {
             showSizeChanger: true,
             pageSizeOptions: ['10', '20', '50'],
             onChange: (nextPage, nextPageSize) => {
-              void loadData(nextPage, nextPageSize ?? pageSize);
+              void loadData(nextPage, nextPageSize ?? pageSize, undefined, { mode: 'paginate' });
             },
           }}
         />

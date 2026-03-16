@@ -274,6 +274,18 @@ function compareAuditItemsByCreatedAt(left: AuditLogItem, right: AuditLogItem): 
   return rightTime - leftTime;
 }
 
+interface AuditLogSourceCacheEntry {
+  items: AuditLogItem[];
+  total: number;
+  hasNext: boolean;
+  loadedPages: number;
+}
+
+const AUDIT_SOURCE_CACHE_LIMIT = 24;
+const auditApiPageCache = new Map<string, AuditLogSourceCacheEntry>();
+const auditApiFilteredCache = new Map<string, AuditLogSourceCacheEntry>();
+const queryPipelinePageCache = new Map<string, AuditLogSourceCacheEntry>();
+
 function resolveAuditFetchWindow(params: FetchAuditLogsParams): { page: number; pageSize: number; windowSize: number } {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.max(1, params.page_size ?? 20);
@@ -284,8 +296,62 @@ function resolveAuditFetchWindow(params: FetchAuditLogsParams): { page: number; 
   };
 }
 
+function createAuditLogSourceCacheEntry(): AuditLogSourceCacheEntry {
+  return {
+    items: [],
+    total: 0,
+    hasNext: true,
+    loadedPages: 0,
+  };
+}
+
+function touchAuditLogSourceCache(
+  cache: Map<string, AuditLogSourceCacheEntry>,
+  key: string,
+): AuditLogSourceCacheEntry | undefined {
+  const entry = cache.get(key);
+  if (!entry) {
+    return undefined;
+  }
+  cache.delete(key);
+  cache.set(key, entry);
+  return entry;
+}
+
+function setAuditLogSourceCache(
+  cache: Map<string, AuditLogSourceCacheEntry>,
+  key: string,
+  entry: AuditLogSourceCacheEntry,
+): void {
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+  cache.set(key, entry);
+  while (cache.size > AUDIT_SOURCE_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    cache.delete(oldestKey);
+  }
+}
+
 function normalizeAuditUserQuery(value?: string): string {
   return (value ?? '').trim();
+}
+
+function buildAuditSourceCacheKey(source: string, params: FetchAuditLogsParams, pageSize?: number): string {
+  return JSON.stringify({
+    source,
+    user_query: normalizeAuditUserQuery(params.user_query),
+    action: params.action?.trim() ?? '',
+    resource_type: params.resource_type?.trim() ?? '',
+    from: params.from?.trim() ?? '',
+    to: params.to?.trim() ?? '',
+    sort_by: params.sort_by?.trim() ?? '',
+    sort_order: params.sort_order?.trim() ?? '',
+    page_size: pageSize ?? 0,
+  });
 }
 
 function resolveAuditApiUserIdFilter(userQuery?: string): string | undefined {
@@ -356,6 +422,51 @@ async function fetchAuditLogsFromQueryPipeline(params: FetchAuditLogsParams = {}
   };
 }
 
+async function fetchBoundedAuditLogsFromQueryPipeline(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
+  const { page, pageSize } = resolveAuditFetchWindow(params);
+  const cacheKey = buildAuditSourceCacheKey('query-pipeline-window', params, pageSize);
+  let cacheEntry = touchAuditLogSourceCache(queryPipelinePageCache, cacheKey) ?? createAuditLogSourceCacheEntry();
+
+  while (cacheEntry.loadedPages < page && (cacheEntry.loadedPages === 0 || cacheEntry.hasNext)) {
+    const nextPage = cacheEntry.loadedPages + 1;
+    const nextWindowSize = nextPage * pageSize;
+    const result = await queryRealtimeLogs({
+      keywords: buildAuditKeywords(params),
+      page: 1,
+      pageSize: nextWindowSize,
+      filters: {
+        service: 'audit.log',
+        exclude_internal_noise: false,
+      },
+      timeRange: {
+        from: params.from,
+        to: params.to,
+      },
+      recordHistory: false,
+    });
+
+    cacheEntry = {
+      items: result.hits.map(mapAuditLogEntry),
+      total: result.total,
+      hasNext: result.total > nextWindowSize,
+      loadedPages: nextPage,
+    };
+    setAuditLogSourceCache(queryPipelinePageCache, cacheKey, cacheEntry);
+
+    if (!cacheEntry.hasNext) {
+      break;
+    }
+  }
+
+  return {
+    items: cacheEntry.items,
+    total: cacheEntry.total,
+    page,
+    pageSize,
+    hasNext: page * pageSize < cacheEntry.total,
+  };
+}
+
 async function requestAuditLogPage(
   params: FetchAuditLogsParams,
   requestPage: number,
@@ -392,6 +503,90 @@ async function requestAuditLogPage(
   };
 }
 
+async function fetchBoundedAuditApiPages(
+  params: FetchAuditLogsParams,
+  page: number,
+  pageSize: number,
+  userIDFilter?: string,
+): Promise<FetchAuditLogsResult> {
+  const cacheKey = buildAuditSourceCacheKey('audit-api-page', params, pageSize);
+  let cacheEntry = touchAuditLogSourceCache(auditApiPageCache, cacheKey) ?? createAuditLogSourceCacheEntry();
+
+  while (cacheEntry.loadedPages < page && (cacheEntry.loadedPages === 0 || cacheEntry.hasNext)) {
+    const nextPage = cacheEntry.loadedPages + 1;
+    const batch = await requestAuditLogPage(params, nextPage, pageSize, userIDFilter);
+    cacheEntry = {
+      items: [...cacheEntry.items, ...batch.items],
+      total: batch.total,
+      hasNext: batch.hasNext,
+      loadedPages: nextPage,
+    };
+    setAuditLogSourceCache(auditApiPageCache, cacheKey, cacheEntry);
+
+    if (!batch.hasNext) {
+      break;
+    }
+  }
+
+  return {
+    items: cacheEntry.items,
+    total: cacheEntry.total,
+    page,
+    pageSize,
+    hasNext: cacheEntry.hasNext,
+  };
+}
+
+async function fetchBoundedAuditApiFilteredLogs(
+  params: FetchAuditLogsParams,
+  page: number,
+  pageSize: number,
+  userQuery: string,
+): Promise<FetchAuditLogsResult> {
+  const cacheKey = buildAuditSourceCacheKey('audit-api-filtered', params);
+  const cachedEntry = touchAuditLogSourceCache(auditApiFilteredCache, cacheKey);
+
+  if (cachedEntry) {
+    return {
+      items: cachedEntry.items,
+      total: cachedEntry.total,
+      page,
+      pageSize,
+      hasNext: page * pageSize < cachedEntry.total,
+    };
+  }
+
+  const batchSize = 200;
+  let requestPageNumber = 1;
+  let hasNext = true;
+  let total = 0;
+  const matchedItems: AuditLogItem[] = [];
+
+  while (hasNext) {
+    const batch = await requestAuditLogPage(params, requestPageNumber, batchSize);
+    const matchingItems = batch.items.filter((item) => matchesAuditUserQuery(item, userQuery));
+    matchedItems.push(...matchingItems);
+    total += matchingItems.length;
+    hasNext = batch.hasNext;
+    requestPageNumber += 1;
+  }
+
+  setAuditLogSourceCache(auditApiFilteredCache, cacheKey, {
+    items: matchedItems,
+    total,
+    hasNext: false,
+    loadedPages: requestPageNumber - 1,
+  });
+
+  return {
+    items: matchedItems,
+    total,
+    page,
+    pageSize,
+    hasNext: page * pageSize < total,
+  };
+}
+
 async function fetchAuditLogsFromAuditApi(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
   const { page, pageSize } = resolveAuditFetchWindow(params);
   const userQuery = normalizeAuditUserQuery(params.user_query);
@@ -425,7 +620,19 @@ async function fetchAuditLogsFromAuditApi(params: FetchAuditLogsParams = {}): Pr
   };
 }
 
-export async function fetchAuditLogs(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
+async function fetchBoundedAuditLogsFromAuditApi(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
+  const { page, pageSize } = resolveAuditFetchWindow(params);
+  const userQuery = normalizeAuditUserQuery(params.user_query);
+  const auditApiUserIDFilter = resolveAuditApiUserIdFilter(userQuery);
+
+  if (!userQuery || auditApiUserIDFilter) {
+    return fetchBoundedAuditApiPages(params, page, pageSize, auditApiUserIDFilter);
+  }
+
+  return fetchBoundedAuditApiFilteredLogs(params, page, pageSize, userQuery);
+}
+
+async function fetchAuditLogsWithSlidingWindow(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
   const { page, pageSize, windowSize } = resolveAuditFetchWindow(params);
   const mergedParams: FetchAuditLogsParams = {
     ...params,
@@ -459,4 +666,52 @@ export async function fetchAuditLogs(params: FetchAuditLogsParams = {}): Promise
     pageSize,
     hasNext: end < total,
   };
+}
+
+async function fetchAuditLogsWithBoundedWindow(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
+  const { page, pageSize } = resolveAuditFetchWindow(params);
+  const boundedParams: FetchAuditLogsParams = {
+    ...params,
+    page,
+    page_size: pageSize,
+  };
+
+  const [applicationResult, systemResult] = await Promise.allSettled([
+    fetchBoundedAuditLogsFromAuditApi(boundedParams),
+    fetchBoundedAuditLogsFromQueryPipeline(boundedParams),
+  ]);
+
+  const applicationItems = applicationResult.status === 'fulfilled' ? applicationResult.value.items : [];
+  const applicationTotal = applicationResult.status === 'fulfilled' ? applicationResult.value.total : 0;
+  const systemItems = systemResult.status === 'fulfilled' ? systemResult.value.items : [];
+  const systemTotal = systemResult.status === 'fulfilled' ? systemResult.value.total : 0;
+
+  if (applicationResult.status === 'rejected' && systemResult.status === 'rejected') {
+    throw applicationResult.reason instanceof Error ? applicationResult.reason : systemResult.reason;
+  }
+
+  const mergedItems = [...applicationItems, ...systemItems].sort(compareAuditItemsByCreatedAt);
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize;
+  const total = applicationTotal + systemTotal;
+
+  return {
+    items: mergedItems.slice(start, end),
+    total,
+    page,
+    pageSize,
+    hasNext: end < total,
+  };
+}
+
+export async function fetchAuditLogs(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
+  const normalizedTo = params.to?.trim();
+  if (!normalizedTo) {
+    return fetchAuditLogsWithSlidingWindow(params);
+  }
+
+  return fetchAuditLogsWithBoundedWindow({
+    ...params,
+    to: normalizedTo,
+  });
 }
