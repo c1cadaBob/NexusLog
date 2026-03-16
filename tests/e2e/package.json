@@ -6,7 +6,9 @@
   "scripts": {
     "test": "playwright test",
     "test:list": "playwright test --list",
+    "test:list:chrome": "playwright test --config=playwright.chrome.config.js --list",
     "test:smoke": "playwright test tests/smoke.spec.js",
+    "test:smoke:chrome": "playwright test --config=playwright.chrome.config.js tests/smoke.spec.js",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui"
   },
