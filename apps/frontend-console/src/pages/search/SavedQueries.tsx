@@ -9,6 +9,33 @@ import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realti
 
 type ModalMode = 'create' | 'edit';
 
+function formatSavedQueryCleanupFilterLabel(key: string): string {
+  switch (key) {
+    case 'level':
+      return '级别';
+    case 'service':
+      return '来源/服务';
+    case 'source':
+      return '来源';
+    default:
+      return key;
+  }
+}
+
+function formatSavedQueryCleanupFilterValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(', ');
+  }
+  if (value && typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value ?? '');
+}
+
 const SavedQueries: React.FC = () => {
   const { message: msg } = App.useApp();
   const [form] = Form.useForm();
@@ -76,11 +103,21 @@ const SavedQueries: React.FC = () => {
       return null;
     }
 
+    const previewFilters = Object.entries(normalized.filters)
+      .filter(([, value]) => value != null && value !== '' && (!Array.isArray(value) || value.length > 0))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => ({
+        key,
+        label: formatSavedQueryCleanupFilterLabel(key),
+        value: formatSavedQueryCleanupFilterValue(value),
+      }));
+
     return {
       cleanedQuery,
       strippedTimeRange: normalized.strippedTimeRange,
       extractedFilters: normalized.extractedFilters,
-      filterCount: Object.keys(normalized.filters).length,
+      filterCount: previewFilters.length,
+      previewFilters,
     };
   }, [watchedModalQuery]);
 
@@ -473,6 +510,18 @@ const SavedQueries: React.FC = () => {
                       <Tag color="blue" style={{ margin: 0 }}>保留 {modalQueryCleanupPreview.filterCount} 个筛选条件</Tag>
                     )}
                   </div>
+                  {modalQueryCleanupPreview.previewFilters.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                      <div className="text-xs opacity-70">保留筛选</div>
+                      <div className="flex gap-2 flex-wrap">
+                        {modalQueryCleanupPreview.previewFilters.map((filter) => (
+                          <Tag key={filter.key} color="blue" style={{ margin: 0 }}>
+                            {filter.label}: {filter.value}
+                          </Tag>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="text-xs opacity-70">保存后将自动清洗为以下查询语句：</div>
                   <div
                     className="font-mono text-sm p-2 rounded break-all"

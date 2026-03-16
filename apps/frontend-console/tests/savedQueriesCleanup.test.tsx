@@ -108,6 +108,9 @@ describe('SavedQueries legacy cleanup', () => {
     });
 
     expect(screen.getByText('检测到旧格式查询语句')).toBeTruthy();
+    expect(screen.getByText('保留筛选')).toBeTruthy();
+    expect(screen.getByText('级别: error')).toBeTruthy();
+    expect(screen.getByText('来源/服务: vault')).toBeTruthy();
     expect(screen.getByText('保存后将自动清洗为以下查询语句：')).toBeTruthy();
     expect(screen.getByText('error filters:{"level":"error","service":"vault"}')).toBeTruthy();
 
