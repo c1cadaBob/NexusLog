@@ -15,6 +15,7 @@ import {
   silenceAlertEvent,
   type AlertEventSummary,
 } from '../../api/alert';
+import { persistPendingRealtimeStartupQuery } from '../search/realtimeStartupQuery';
 
 const formatTimeAgo = (timestamp: number): string => {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -238,6 +239,7 @@ const AlertList: React.FC = () => {
       .map((item) => item?.trim() ?? '')
       .find((item) => item.length > 0) ?? '';
 
+    persistPendingRealtimeStartupQuery(presetQuery);
     navigate('/search/realtime', {
       state: {
         autoRun: true,

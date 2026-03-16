@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react'
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 import { App, Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, Select, Collapse } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useThemeStore } from '../../stores/themeStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { COLORS } from '../../theme/tokens';
@@ -12,6 +12,10 @@ import type { LogEntry } from '../../types/log';
 import { fetchAggregateStats, queryRealtimeLogs } from '../../api/query';
 import { aggregateRealtimeDisplayLogs, summarizeImageAggregation } from './realtimeLogAggregation';
 import { readRealtimeRecentQueries, recordRealtimeRecentQuery } from './realtimeRecentQueries';
+import {
+  clearPendingRealtimeStartupQuery,
+  readPendingRealtimeStartupQuery,
+} from './realtimeStartupQuery';
 import { buildRealtimeHistogramData, sumRealtimeHistogramEvents, type RealtimeHistogramPoint } from './realtimeHistogram';
 import { buildRealtimeQueryFilters } from './realtimeNoiseFilters';
 import {
@@ -27,6 +31,7 @@ import {
 const HISTOGRAM_TIME_RANGE = '30m' as const;
 const MAX_PAGINATION_WINDOW_ROWS = 10_000;
 const LIVE_POLL_INTERVAL_MS = 5_000;
+const STARTUP_QUERY_DELAY_MS = 200;
 
 type LiveWindowOption = '5m' | '15m' | '30m' | '1h';
 
@@ -166,7 +171,6 @@ function isAbortError(error: unknown): boolean {
 const RealtimeSearch: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const location = useLocation();
-  const navigate = useNavigate();
   const { message } = App.useApp();
 
   // 查询状态
@@ -222,11 +226,20 @@ const RealtimeSearch: React.FC = () => {
   const lastHistogramFetchedAtRef = useRef(0);
   const activeQueryRef = useRef(activeQuery);
   const pageSizeRef = useRef(pageSize);
+  const currentPageRef = useRef(currentPage);
+  const startupQueryTimerRef = useRef<number | null>(null);
 
   const clearLiveTimer = useCallback(() => {
     if (liveTimerRef.current != null) {
       window.clearTimeout(liveTimerRef.current);
       liveTimerRef.current = null;
+    }
+  }, []);
+
+  const clearStartupQueryTimer = useCallback(() => {
+    if (startupQueryTimerRef.current != null) {
+      window.clearTimeout(startupQueryTimerRef.current);
+      startupQueryTimerRef.current = null;
     }
   }, []);
 
@@ -485,6 +498,22 @@ const RealtimeSearch: React.FC = () => {
   }, [abortActiveRequests, clearLiveTimer, histogramData.length, levelFilter, liveWindow, logs.length, message, registerAbortController, sourceFilter, unregisterAbortController]);
 
   const executeQueryRef = useRef(executeQuery);
+  const startupAutoRunPresetQuery = useMemo(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const queryPreset = searchParams.get('presetQuery')?.trim() ?? '';
+    const queryAutoRun = searchParams.get('autoRun')?.trim() ?? '';
+    if ((queryAutoRun === '1' || queryAutoRun.toLowerCase() === 'true') && queryPreset) {
+      return queryPreset;
+    }
+
+    const state = (location.state as RealtimeNavigationState | null) ?? null;
+    const presetQuery = state?.presetQuery?.trim() ?? '';
+    if (state?.autoRun && presetQuery) {
+      return presetQuery;
+    }
+
+    return readPendingRealtimeStartupQuery();
+  }, [location.search, location.state]);
 
   useEffect(() => {
     executeQueryRef.current = executeQuery;
@@ -498,30 +527,34 @@ const RealtimeSearch: React.FC = () => {
     pageSizeRef.current = pageSize;
   }, [pageSize]);
 
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
+
   const scheduleNextLiveTick = useCallback((delay = LIVE_POLL_INTERVAL_MS) => {
     clearLiveTimer();
-    if (!isLiveRef.current || isUnmountedRef.current) {
+    if (!isLiveRef.current || isUnmountedRef.current || document.hidden) {
       return;
     }
     liveTimerRef.current = window.setTimeout(() => {
       liveTimerRef.current = null;
-      if (!isLiveRef.current || isUnmountedRef.current) {
+      if (!isLiveRef.current || isUnmountedRef.current || document.hidden) {
         return;
       }
       if (inFlightRequestIDRef.current != null) {
         scheduleNextLiveTickRef.current(delay);
         return;
       }
-      void executeQuery({
-        queryText: activeQuery,
-        page: currentPage,
-        pageSize,
+      void executeQueryRef.current({
+        queryText: activeQueryRef.current,
+        page: currentPageRef.current,
+        pageSize: pageSizeRef.current,
         silent: true,
-        resetCursor: currentPage === 1,
+        resetCursor: currentPageRef.current === 1,
         histogramRefreshMode: 'auto',
       });
     }, delay);
-  }, [activeQuery, clearLiveTimer, currentPage, executeQuery, pageSize]);
+  }, [clearLiveTimer]);
 
   useEffect(() => {
     scheduleNextLiveTickRef.current = scheduleNextLiveTick;
@@ -538,52 +571,89 @@ const RealtimeSearch: React.FC = () => {
     }
   }, [clearLiveTimer, isLive, scheduleNextLiveTick]);
 
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!isLiveRef.current) {
+        return;
+      }
+      if (document.hidden) {
+        clearLiveTimer();
+        return;
+      }
+      if (inFlightRequestIDRef.current != null) {
+        return;
+      }
+      void executeQueryRef.current({
+        queryText: activeQueryRef.current,
+        page: currentPageRef.current,
+        pageSize: pageSizeRef.current,
+        silent: true,
+        resetCursor: currentPageRef.current === 1,
+        histogramRefreshMode: 'auto',
+      });
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [clearLiveTimer]);
+
   useEffect(() => () => {
     isUnmountedRef.current = true;
     clearLiveTimer();
+    clearStartupQueryTimer();
     abortActiveRequests();
-  }, [abortActiveRequests, clearLiveTimer]);
+  }, [abortActiveRequests, clearLiveTimer, clearStartupQueryTimer]);
 
   useEffect(() => {
-    if (initialQueryTriggeredRef.current) {
+    if (initialQueryTriggeredRef.current || startupAutoRunPresetQuery) {
       return;
     }
-    initialQueryTriggeredRef.current = true;
-    void executeQuery({
-      queryText: '',
-      page: 1,
-      pageSize,
-      silent: true,
-      resetCursor: true,
-    });
-  }, [executeQuery, pageSize]);
+    clearStartupQueryTimer();
+    startupQueryTimerRef.current = window.setTimeout(() => {
+      startupQueryTimerRef.current = null;
+      initialQueryTriggeredRef.current = true;
+      void executeQueryRef.current({
+        queryText: '',
+        page: 1,
+        pageSize: pageSizeRef.current,
+        silent: true,
+        resetCursor: true,
+      });
+    }, STARTUP_QUERY_DELAY_MS);
+    return clearStartupQueryTimer;
+  }, [clearStartupQueryTimer, startupAutoRunPresetQuery]);
 
   useEffect(() => {
-    const state = (location.state as RealtimeNavigationState | null) ?? null;
-    const presetQuery = state?.presetQuery?.trim() ?? '';
-    if (!state?.autoRun || !presetQuery) {
+    if (!startupAutoRunPresetQuery) {
       return;
     }
-    setQuery(presetQuery);
-    setActiveQuery(presetQuery);
-    void executeQuery({
-      queryText: presetQuery,
-      page: 1,
-      pageSize,
-      silent: false,
-      resetCursor: true,
-      histogramRefreshMode: 'force',
-    });
-    navigate(location.pathname, { replace: true, state: null });
-  }, [executeQuery, location.pathname, location.state, navigate, pageSize]);
+    clearStartupQueryTimer();
+    startupQueryTimerRef.current = window.setTimeout(() => {
+      startupQueryTimerRef.current = null;
+      initialQueryTriggeredRef.current = true;
+      clearPendingRealtimeStartupQuery();
+      setQuery(startupAutoRunPresetQuery);
+      setActiveQuery(startupAutoRunPresetQuery);
+      void executeQueryRef.current({
+        queryText: startupAutoRunPresetQuery,
+        page: 1,
+        pageSize: pageSizeRef.current,
+        silent: false,
+        resetCursor: true,
+        histogramRefreshMode: 'force',
+      });
+    }, STARTUP_QUERY_DELAY_MS);
+    return clearStartupQueryTimer;
+  }, [clearStartupQueryTimer, startupAutoRunPresetQuery]);
 
-  // 筛选器变化时重新执行查询（跳过首次挂载，避免与初始查询重复）
-  const filterEffectMounted = useRef(false);
+  // 筛选器变化时重新执行查询（仅在筛选值实际变化时触发，避免 StrictMode 首次挂载重复执行）
+  const lastFilterStateRef = useRef(`${levelFilter}\u0000${sourceFilter}`);
   useEffect(() => {
-    if (!filterEffectMounted.current) {
-      filterEffectMounted.current = true;
+    const nextFilterState = `${levelFilter}\u0000${sourceFilter}`;
+    if (lastFilterStateRef.current === nextFilterState) {
       return;
     }
+    lastFilterStateRef.current = nextFilterState;
     void executeQueryRef.current({
       queryText: activeQueryRef.current,
       page: 1,
