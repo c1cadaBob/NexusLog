@@ -9,6 +9,8 @@
     "test:list:chrome": "playwright test --config=playwright.chrome.config.js --list",
     "test:smoke": "playwright test tests/smoke.spec.js",
     "test:smoke:chrome": "playwright test --config=playwright.chrome.config.js tests/smoke.spec.js",
+    "test:smoke:headed": "xvfb-run -a playwright test --headed tests/smoke.spec.js",
+    "test:smoke:headed:chrome": "xvfb-run -a playwright test --headed --config=playwright.chrome.config.js tests/smoke.spec.js",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui"
   },
