@@ -37,7 +37,7 @@ function formatSavedQueryCleanupFilterValue(value: unknown): string {
 }
 
 const SavedQueries: React.FC = () => {
-  const { message: msg } = App.useApp();
+  const { message: msg, modal } = App.useApp();
   const [form] = Form.useForm();
   const navigate = useNavigate();
 
@@ -271,7 +271,7 @@ const SavedQueries: React.FC = () => {
     });
   }, [msg, navigate]);
 
-  const handleCleanupDirtyQueries = useCallback(async () => {
+  const performCleanupDirtyQueries = useCallback(async () => {
     if (dirtySavedQueries.length === 0) {
       return;
     }
@@ -303,6 +303,68 @@ const SavedQueries: React.FC = () => {
       setCleanupSubmitting(false);
     }
   }, [dirtySavedQueries, loadSavedQueries, msg]);
+
+  const handleCleanupDirtyQueries = useCallback(() => {
+    if (dirtySavedQueries.length === 0) {
+      return;
+    }
+
+    modal.confirm({
+      title: '批量清洗旧格式收藏查询',
+      okText: '确认清洗',
+      cancelText: '取消',
+      width: 760,
+      content: (
+        <div className="flex flex-col gap-3">
+          <div className="text-sm opacity-80">
+            以下收藏查询仍包含历史时间范围。确认后会批量移除旧格式时间范围，仅保留可复用的查询语义与筛选条件。
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Tag color="warning" style={{ margin: 0 }}>待清洗 {dirtySavedQueries.length} 条收藏</Tag>
+          </div>
+          <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
+            {dirtySavedQueries.map(({ item, cleanedQuery, previewFilters }) => (
+              <div key={item.id} className="rounded border p-3 flex flex-col gap-2" style={{ borderColor: 'rgba(245, 158, 11, 0.28)' }}>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="text-sm font-medium">{item.name}</div>
+                  {previewFilters.length > 0 && (
+                    <Tag color="blue" style={{ margin: 0 }}>保留 {previewFilters.length} 个筛选条件</Tag>
+                  )}
+                </div>
+                {previewFilters.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <div className="text-xs opacity-60">保留筛选</div>
+                    <div className="flex gap-2 flex-wrap">
+                      {previewFilters.map((filter) => (
+                        <Tag key={`${item.id}-${filter.key}`} color="blue" style={{ margin: 0 }}>
+                          {filter.label}: {filter.value}
+                        </Tag>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex flex-col gap-1">
+                  <div className="text-xs opacity-60">当前收藏</div>
+                  <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.04)' }}>
+                    {item.query}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <div className="text-xs opacity-60">清洗后写入</div>
+                  <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.06)' }}>
+                    {cleanedQuery}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ),
+      onOk: async () => {
+        await performCleanupDirtyQueries();
+      },
+    });
+  }, [dirtySavedQueries, modal, performCleanupDirtyQueries]);
 
   return (
     <div className="flex flex-col gap-4">

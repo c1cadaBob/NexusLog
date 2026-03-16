@@ -185,6 +185,15 @@ describe('SavedQueries legacy cleanup', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '一键清洗' }));
 
+    expect(screen.getAllByText('批量清洗旧格式收藏查询').length).toBeGreaterThan(0);
+    expect(screen.getAllByText((_, element) => element?.textContent === '待清洗 1 条收藏').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('保留筛选').length).toBeGreaterThan(0);
+    expect(screen.getByText('当前收藏')).toBeTruthy();
+    expect(screen.getByText('清洗后写入')).toBeTruthy();
+    expect(screen.getAllByText('Vault Error Legacy').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '确认清洗' }));
+
     await waitFor(() => {
       expect(updateSavedQueryMock).toHaveBeenCalledWith('saved-1', {
         name: 'Vault Error Legacy',
