@@ -646,56 +646,79 @@ const Dashboard: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const initialRefreshCompletedRef = useRef(false);
+  const refreshRequestRef = useRef<Promise<void> | null>(null);
+
+  const clearRefreshTimers = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearInterval(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+  }, []);
 
   const kpiData = useMemo(() => buildKpiData(overview), [overview]);
   const serviceData = useMemo(() => buildSourceRows(overview), [overview]);
   const trendData = useMemo(() => buildTrendData(overview), [overview]);
 
   const doRefresh = useCallback(async (silent: boolean) => {
-    setIsLoading(true);
-    try {
-      const [overviewResult, metricsOverviewResult, auditLogsResult] = await Promise.allSettled([
-        fetchDashboardOverview(),
-        fetchMetricsOverview('24h', 4),
-        fetchAuditLogs({ page: 1, page_size: 5 }),
-      ]);
-
-      const errors: string[] = [];
-      let hasSuccessfulUpdate = false;
-
-      if (overviewResult.status === 'fulfilled') {
-        setOverview(overviewResult.value);
-        hasSuccessfulUpdate = true;
-      } else {
-        errors.push(`日志概览：${overviewResult.reason instanceof Error ? overviewResult.reason.message : '加载失败'}`);
-      }
-
-      if (metricsOverviewResult.status === 'fulfilled') {
-        setMetricsOverview(metricsOverviewResult.value.data);
-        hasSuccessfulUpdate = true;
-      } else {
-        errors.push(`基础设施监控：${metricsOverviewResult.reason instanceof Error ? metricsOverviewResult.reason.message : '加载失败'}`);
-      }
-
-      if (auditLogsResult.status === 'fulfilled') {
-        setAuditLogs(mapAuditLogsForDashboard(auditLogsResult.value.items));
-        hasSuccessfulUpdate = true;
-      } else {
-        errors.push(`审计活动：${auditLogsResult.reason instanceof Error ? auditLogsResult.reason.message : '加载失败'}`);
-      }
-
-      if (hasSuccessfulUpdate) {
-        setLastUpdated(Date.now());
-      }
-
-      const nextLoadError = errors.length > 0 ? errors.join('；') : null;
-      setLoadError(nextLoadError);
-      if (nextLoadError && !silent) {
-        message.error(nextLoadError);
-      }
-    } finally {
-      setIsLoading(false);
+    if (refreshRequestRef.current) {
+      return refreshRequestRef.current;
     }
+
+    setIsLoading(true);
+    const refreshRequest = (async () => {
+      try {
+        const [overviewResult, metricsOverviewResult, auditLogsResult] = await Promise.allSettled([
+          fetchDashboardOverview(),
+          fetchMetricsOverview('24h', 4),
+          fetchAuditLogs({ page: 1, page_size: 5 }),
+        ]);
+
+        const errors: string[] = [];
+        let hasSuccessfulUpdate = false;
+
+        if (overviewResult.status === 'fulfilled') {
+          setOverview(overviewResult.value);
+          hasSuccessfulUpdate = true;
+        } else {
+          errors.push(`日志概览：${overviewResult.reason instanceof Error ? overviewResult.reason.message : '加载失败'}`);
+        }
+
+        if (metricsOverviewResult.status === 'fulfilled') {
+          setMetricsOverview(metricsOverviewResult.value.data);
+          hasSuccessfulUpdate = true;
+        } else {
+          errors.push(`基础设施监控：${metricsOverviewResult.reason instanceof Error ? metricsOverviewResult.reason.message : '加载失败'}`);
+        }
+
+        if (auditLogsResult.status === 'fulfilled') {
+          setAuditLogs(mapAuditLogsForDashboard(auditLogsResult.value.items));
+          hasSuccessfulUpdate = true;
+        } else {
+          errors.push(`审计活动：${auditLogsResult.reason instanceof Error ? auditLogsResult.reason.message : '加载失败'}`);
+        }
+
+        if (hasSuccessfulUpdate) {
+          setLastUpdated(Date.now());
+        }
+
+        const nextLoadError = errors.length > 0 ? errors.join('；') : null;
+        setLoadError(nextLoadError);
+        if (nextLoadError && !silent) {
+          message.error(nextLoadError);
+        }
+      } finally {
+        refreshRequestRef.current = null;
+        setIsLoading(false);
+      }
+    })();
+
+    refreshRequestRef.current = refreshRequest;
+    return refreshRequest;
   }, []);
 
   const handleRefresh = useCallback(() => {
@@ -715,51 +738,50 @@ const Dashboard: React.FC = () => {
     }
   }, [setStoredRefreshInterval]);
 
+  const startRefreshTimers = useCallback(() => {
+    clearRefreshTimers();
+
+    if (refreshInterval <= 0 || document.hidden) {
+      return;
+    }
+
+    setCountdown(refreshInterval / 1000);
+    refreshTimerRef.current = setInterval(() => {
+      void doRefresh(true);
+      setCountdown(refreshInterval / 1000);
+    }, refreshInterval);
+    countdownTimerRef.current = setInterval(() => {
+      setCountdown((p) => (p > 0 ? p - 1 : refreshInterval / 1000));
+    }, 1000);
+  }, [clearRefreshTimers, doRefresh, refreshInterval]);
+
   useEffect(() => {
+    if (initialRefreshCompletedRef.current) {
+      return;
+    }
+    initialRefreshCompletedRef.current = true;
     void doRefresh(true);
   }, [doRefresh]);
 
   useEffect(() => {
-    if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-
-    if (refreshInterval > 0) {
-      setCountdown(refreshInterval / 1000);
-      refreshTimerRef.current = setInterval(() => {
-        void doRefresh(true);
-        setCountdown(refreshInterval / 1000);
-      }, refreshInterval);
-      countdownTimerRef.current = setInterval(() => {
-        setCountdown((p) => (p > 0 ? p - 1 : refreshInterval / 1000));
-      }, 1000);
-    }
-
-    return () => {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-    };
-  }, [refreshInterval, doRefresh]);
+    startRefreshTimers();
+    return clearRefreshTimers;
+  }, [clearRefreshTimers, startRefreshTimers]);
 
   useEffect(() => {
     const handleVisibility = () => {
       if (document.hidden) {
-        if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-        if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-      } else if (refreshInterval > 0) {
+        clearRefreshTimers();
+        return;
+      }
+      if (refreshInterval > 0) {
         void doRefresh(true);
-        setCountdown(refreshInterval / 1000);
-        refreshTimerRef.current = setInterval(() => {
-          void doRefresh(true);
-          setCountdown(refreshInterval / 1000);
-        }, refreshInterval);
-        countdownTimerRef.current = setInterval(() => {
-          setCountdown((p) => (p > 0 ? p - 1 : refreshInterval / 1000));
-        }, 1000);
+        startRefreshTimers();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [refreshInterval, doRefresh]);
+  }, [clearRefreshTimers, doRefresh, refreshInterval, startRefreshTimers]);
 
   const dashboardEntryAccess = useMemo(() => {
     if (!authzReady) {
