@@ -11,7 +11,7 @@ import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realti
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 
 const SearchHistory: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
 
   const [keywordInput, setKeywordInput] = useState('');
@@ -116,24 +116,64 @@ const SearchHistory: React.FC = () => {
     });
   }, [message, navigate]);
 
-  const handleBookmark = useCallback(async (record: QueryHistory) => {
-    try {
-      const now = new Date();
-      const normalized = normalizeRealtimePresetQuery(record.query);
-      await createSavedQuery({
-        name: `历史查询 ${now.toLocaleString('zh-CN')}`,
-        query: buildRealtimePresetQuery({
-          queryText: normalized.queryText,
-          filters: normalized.filters,
-        }),
-        tags: ['历史查询'],
-      });
-      message.success(normalized.strippedTimeRange ? '已收藏查询语句，并自动移除历史时间范围' : '已收藏查询语句');
-    } catch (error) {
-      const readable = error instanceof Error ? error.message : '收藏失败';
-      message.error(readable);
+  const handleBookmark = useCallback((record: QueryHistory) => {
+    const now = new Date();
+    const normalized = normalizeRealtimePresetQuery(record.query);
+    const cleanedQuery = buildRealtimePresetQuery({
+      queryText: normalized.queryText,
+      filters: normalized.filters,
+    });
+    const shouldConfirmCleanup = cleanedQuery !== record.query.trim();
+    const persistBookmark = async () => {
+      try {
+        await createSavedQuery({
+          name: `历史查询 ${now.toLocaleString('zh-CN')}`,
+          query: cleanedQuery,
+          tags: ['历史查询'],
+        });
+        message.success(normalized.strippedTimeRange ? '已收藏查询语句，并自动移除历史时间范围' : '已收藏查询语句');
+      } catch (error) {
+        const readable = error instanceof Error ? error.message : '收藏失败';
+        message.error(readable);
+      }
+    };
+
+    if (!shouldConfirmCleanup) {
+      void persistBookmark();
+      return;
     }
-  }, [message]);
+
+    modal.confirm({
+      title: '收藏前将清洗旧格式查询',
+      okText: '收藏并清洗',
+      cancelText: '取消',
+      width: 720,
+      content: (
+        <div className="flex flex-col gap-3">
+          <div className="text-sm opacity-80">该历史查询包含回放遗留的时间范围。为避免后续继续传播旧格式，收藏时将仅保留可复用的查询语义。</div>
+          <div className="flex gap-2 flex-wrap">
+            {normalized.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
+            {Object.keys(normalized.filters).length > 0 && <Tag color="blue" style={{ margin: 0 }}>保留 {Object.keys(normalized.filters).length} 个筛选条件</Tag>}
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="text-xs opacity-60">原始查询</div>
+            <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.04)' }}>
+              {record.query}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="text-xs opacity-60">收藏后写入</div>
+            <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.06)' }}>
+              {cleanedQuery}
+            </div>
+          </div>
+        </div>
+      ),
+      onOk: async () => {
+        await persistBookmark();
+      },
+    });
+  }, [message, modal]);
 
   const handleDelete = useCallback(async (historyID: string) => {
     try {
