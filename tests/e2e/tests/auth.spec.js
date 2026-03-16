@@ -73,8 +73,16 @@ test.describe("认证功能链路", () => {
 
     await expect(page).toHaveURL(/#\/$/);
 
-    const accessToken = await page.evaluate(() => window.localStorage.getItem("nexuslog-access-token"));
-    expect(accessToken).toBeTruthy();
+    const authSession = await page.evaluate(() => ({
+      accessToken:
+        window.localStorage.getItem("nexuslog-access-token") ??
+        window.sessionStorage.getItem("nexuslog-access-token"),
+      storageScope:
+        window.localStorage.getItem("nexuslog-auth-storage-scope") ??
+        window.sessionStorage.getItem("nexuslog-auth-storage-scope"),
+    }));
+    expect(authSession.accessToken).toBeTruthy();
+    expect(["local", "session"]).toContain(authSession.storageScope);
   });
 
   test("忘记密码", async ({ page, request }) => {
