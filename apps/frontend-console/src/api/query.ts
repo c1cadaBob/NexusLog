@@ -181,6 +181,8 @@ class QueryApiRequestError extends Error {
   }
 }
 
+const IN_FLIGHT_QUERY_GET_REQUESTS = new Map<string, Promise<ApiEnvelope<unknown>>>();
+
 function normalizeApiBaseUrl(rawBaseUrl: string): string {
   const normalized = (rawBaseUrl || '/api/v1').trim();
   if (!normalized) {
@@ -1198,33 +1200,59 @@ async function requestQueryApi<TData>(
     url.searchParams.set(key, String(value));
   });
 
-  const response = await fetch(url.pathname + url.search, {
-    method: options.method ?? 'GET',
-    headers: buildAuthHeaders(accessToken),
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    signal: options.signal,
-  });
-  const envelope = (await response.json().catch(() => null)) as ApiEnvelope<TData> | null;
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw new QueryApiAuthError(
-        'AUTH_UNAUTHORIZED',
-        envelope?.message ?? '当前会话未授权，请重新登录',
+  const method = options.method ?? 'GET';
+  const requestPath = url.pathname + url.search;
+  const requestKey = `${method} ${requestPath}`;
+  const shouldDedupe = method === 'GET' && !options.signal;
+
+  const performRequest = async (): Promise<ApiEnvelope<TData>> => {
+    const response = await fetch(requestPath, {
+      method,
+      headers: buildAuthHeaders(accessToken),
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: options.signal,
+    });
+    const envelope = (await response.json().catch(() => null)) as ApiEnvelope<TData> | null;
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new QueryApiAuthError(
+          'AUTH_UNAUTHORIZED',
+          envelope?.message ?? '当前会话未授权，请重新登录',
+          response.status,
+        );
+      }
+      throw new QueryApiRequestError(
         response.status,
+        envelope?.code ?? 'QUERY_API_REQUEST_FAILED',
+        envelope?.message ?? `query api request failed: HTTP ${response.status}`,
       );
     }
-    throw new QueryApiRequestError(
-      response.status,
-      envelope?.code ?? 'QUERY_API_REQUEST_FAILED',
-      envelope?.message ?? `query api request failed: HTTP ${response.status}`,
-    );
-  }
-  return envelope ?? {
-    code: 'OK',
-    message: 'success',
-    data: undefined,
-    meta: {},
+    return envelope ?? {
+      code: 'OK',
+      message: 'success',
+      data: undefined,
+      meta: {},
+    };
   };
+
+  if (!shouldDedupe) {
+    return performRequest();
+  }
+
+  const existingRequest = IN_FLIGHT_QUERY_GET_REQUESTS.get(requestKey) as Promise<ApiEnvelope<TData>> | undefined;
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const requestPromise = performRequest();
+  IN_FLIGHT_QUERY_GET_REQUESTS.set(requestKey, requestPromise as Promise<ApiEnvelope<unknown>>);
+  try {
+    return await requestPromise;
+  } finally {
+    if (IN_FLIGHT_QUERY_GET_REQUESTS.get(requestKey) === requestPromise) {
+      IN_FLIGHT_QUERY_GET_REQUESTS.delete(requestKey);
+    }
+  }
 }
 
 function shouldUseQueryCollectionFallback(): boolean {

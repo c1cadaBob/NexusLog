@@ -1,5 +1,10 @@
 import type { RealtimeQueryFilters, RealtimeQueryFilterValue } from './realtimeQueryFilterTypes';
 
+interface RealtimePresetTimeRange {
+  from?: string;
+  to?: string;
+}
+
 interface NormalizedRealtimePresetQuery {
   queryText: string;
   filters: RealtimeQueryFilters;
@@ -7,9 +12,10 @@ interface NormalizedRealtimePresetQuery {
   sourceFilter: string;
   strippedTimeRange: boolean;
   extractedFilters: boolean;
+  timeRange?: RealtimePresetTimeRange;
 }
 
-const TRAILING_TIME_RANGE_PATTERN = /(?:^|\s)time:\[[^\]]*\]\s*$/i;
+const TRAILING_TIME_RANGE_PATTERN = /(?:^|\s)time:\[\s*([^,\]]*)\s*,\s*([^\]]*)\s*\]\s*$/i;
 const FILTERS_PREFIX = 'filters:';
 
 function normalizeFilterString(value: unknown): string {
@@ -21,6 +27,43 @@ function normalizeFilterString(value: unknown): string {
     return firstString?.trim() ?? '';
   }
   return '';
+}
+
+function normalizeTimeRangeBoundary(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    return '';
+  }
+  return Number.isNaN(Date.parse(normalized)) ? '' : normalized;
+}
+
+function extractTrailingTimeRange(queryText: string): {
+  queryText: string;
+  timeRange?: RealtimePresetTimeRange;
+  extracted: boolean;
+} {
+  const trimmedQuery = queryText.trim();
+  if (!trimmedQuery) {
+    return { queryText: '', extracted: false };
+  }
+
+  const matched = trimmedQuery.match(TRAILING_TIME_RANGE_PATTERN);
+  if (!matched || typeof matched.index !== 'number') {
+    return { queryText: trimmedQuery, extracted: false };
+  }
+
+  const from = normalizeTimeRangeBoundary(matched[1]);
+  const to = normalizeTimeRangeBoundary(matched[2]);
+  const hasTimeRange = Boolean(from || to);
+
+  return {
+    queryText: trimmedQuery.slice(0, matched.index).trim(),
+    timeRange: hasTimeRange ? { from, to } : undefined,
+    extracted: true,
+  };
 }
 
 function extractTrailingFilters(queryText: string): {
@@ -111,10 +154,11 @@ function sortJSONValue(value: RealtimeQueryFilterValue): RealtimeQueryFilterValu
     return value.map((item) => sortJSONValue(item));
   }
   if (value && typeof value === 'object') {
-    return Object.keys(value as Record<string, unknown>)
+    const objectValue = value as RealtimeQueryFilters;
+    return Object.keys(objectValue)
       .sort((left, right) => left.localeCompare(right))
-      .reduce<Record<string, unknown>>((result, key) => {
-        result[key] = sortJSONValue((value as Record<string, unknown>)[key]);
+      .reduce<RealtimeQueryFilters>((result, key) => {
+        result[key] = sortJSONValue(objectValue[key]);
         return result;
       }, {});
   }
@@ -140,16 +184,9 @@ export function buildRealtimePresetQuery(params: {
 }
 
 export function normalizeRealtimePresetQuery(rawQuery: string): NormalizedRealtimePresetQuery {
-  let queryText = rawQuery.trim();
-  let strippedTimeRange = false;
-
-  const timeMatch = queryText.match(TRAILING_TIME_RANGE_PATTERN);
-  if (timeMatch && typeof timeMatch.index === 'number') {
-    queryText = queryText.slice(0, timeMatch.index).trim();
-    strippedTimeRange = true;
-  }
-
-  const { queryText: queryWithoutFilters, filters, extracted } = extractTrailingFilters(queryText);
+  const extractedTimeRange = extractTrailingTimeRange(rawQuery);
+  const strippedTimeRange = extractedTimeRange.extracted;
+  const { queryText: queryWithoutFilters, filters, extracted } = extractTrailingFilters(extractedTimeRange.queryText);
   const normalizedFilters = normalizeRealtimePresetFilters(filters);
 
   return {
@@ -159,5 +196,6 @@ export function normalizeRealtimePresetQuery(rawQuery: string): NormalizedRealti
     sourceFilter: normalizeFilterString(normalizedFilters.service) || normalizeFilterString(normalizedFilters.source),
     strippedTimeRange,
     extractedFilters: extracted,
+    timeRange: extractedTimeRange.timeRange,
   };
 }

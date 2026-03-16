@@ -180,11 +180,11 @@ const SavedQueries: React.FC = () => {
   }, [currentPage, loadSavedQueries, msg, savedList.length]);
 
   const handleExecute = useCallback(async (item: SavedQuery) => {
-    const normalized = normalizeRealtimePresetQuery(item.query);
-    const presetQuery = buildRealtimePresetQuery({
-      queryText: normalized.queryText,
-      filters: normalized.filters,
-    });
+    const presetQuery = item.query.trim();
+    if (!presetQuery) {
+      msg.warning('收藏查询语句为空，无法执行');
+      return;
+    }
     try {
       await navigator.clipboard.writeText(presetQuery);
       msg.success('已执行收藏查询并同步到剪贴板');
@@ -301,6 +301,7 @@ const SavedQueries: React.FC = () => {
         <Input.Search
           id="saved-query-search"
           name="saved-query-search"
+          autoComplete="off"
           placeholder="搜索查询名称或语句..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
@@ -379,7 +380,7 @@ const SavedQueries: React.FC = () => {
       )}
 
       {savedList.length === 0 && !loading ? (
-        <Empty description="没有匹配的收藏查询" />
+        <Empty description={appliedSearch || selectedTag ? '没有匹配的收藏查询' : '暂无收藏查询'} />
       ) : (
         <>
           <Row gutter={[16, 16]}>
@@ -507,10 +508,10 @@ const SavedQueries: React.FC = () => {
       >
         <Form form={form} layout="vertical" className="mt-4">
           <Form.Item name="name" label="查询名称" rules={[{ required: true, message: '请输入查询名称' }]}>
-            <Input placeholder="例如：支付服务错误" />
+            <Input autoComplete="off" placeholder="例如：支付服务错误" />
           </Form.Item>
           <Form.Item name="query" label="查询语句" rules={[{ required: true, message: '请输入查询语句' }]}>
-            <Input.TextArea rows={3} placeholder='例如: level:error AND service:"payment-service"' className="font-mono" />
+            <Input.TextArea autoComplete="off" rows={3} placeholder='例如: level:error AND service:"payment-service"' className="font-mono" />
           </Form.Item>
           {modalQueryCleanupPreview && (
             <Alert

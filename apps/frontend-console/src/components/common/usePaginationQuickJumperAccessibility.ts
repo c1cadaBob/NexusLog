@@ -21,6 +21,7 @@ export function usePaginationQuickJumperAccessibility(prefix: string) {
         if (!input.name) {
           input.name = `${prefix}PageJumper${index === 0 ? '' : index + 1}`;
         }
+        input.autocomplete = 'off';
       });
     };
 

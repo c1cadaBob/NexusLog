@@ -103,9 +103,12 @@ const SearchHistory: React.FC = () => {
 
   const handleReplay = useCallback(async (record: QueryHistory) => {
     const cleanupState = buildQueryCleanupState({ rawQuery: record.query });
-    const replayQuery = cleanupState.cleanedQuery || cleanupState.rawQuery;
-    const replayMessage = cleanupState.strippedTimeRange
-      ? '已跳转到实时检索并自动执行，历史时间范围已移除'
+    const replayQuery = cleanupState.rawQuery.trim();
+    const hasHistoricalTimeRange = Boolean(
+      cleanupState.normalized.timeRange?.from?.trim() || cleanupState.normalized.timeRange?.to?.trim(),
+    );
+    const replayMessage = hasHistoricalTimeRange
+      ? '已跳转到实时检索并按原时间范围自动执行'
       : '已跳转到实时检索并自动执行';
 
     try {
@@ -318,6 +321,7 @@ const SearchHistory: React.FC = () => {
         <Input.Search
           id="search-history-keyword"
           name="search-history-keyword"
+          autoComplete="off"
           placeholder="搜索查询语句..."
           value={keywordInput}
           onChange={(e) => setKeywordInput(e.target.value)}

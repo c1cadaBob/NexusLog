@@ -25,7 +25,6 @@ describe('query cleanup preview helpers', () => {
       buildQueryCleanupPreviewFilters({
         service: 'vault',
         emptyText: '',
-        nullable: null,
         tags: [],
         level: 'error',
         zone: ['cn-hz-a', 'cn-hz-b'],

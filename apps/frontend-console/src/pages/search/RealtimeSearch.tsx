@@ -35,15 +35,50 @@ const MAX_PAGINATION_WINDOW_ROWS = 10_000;
 const LIVE_POLL_INTERVAL_MS = 5_000;
 const STARTUP_QUERY_DELAY_MS = 200;
 
-type LiveWindowOption = '5m' | '15m' | '30m' | '1h';
+type RealtimeExplicitTimeRange = {
+  from?: string;
+  to?: string;
+};
+
+type LiveWindowOption = '5m' | '15m' | '30m' | '1h' | 'all' | 'custom';
 
 const DEFAULT_LIVE_WINDOW: LiveWindowOption = '15m';
-const LIVE_WINDOW_OPTIONS: Array<{ value: LiveWindowOption; label: string }> = [
+const BASE_LIVE_WINDOW_OPTIONS: Array<{ value: Exclude<LiveWindowOption, 'custom'>; label: string }> = [
   { value: '5m', label: '最近 5 分钟' },
   { value: '15m', label: '最近 15 分钟' },
   { value: '30m', label: '最近 30 分钟' },
   { value: '1h', label: '最近 1 小时' },
+  { value: 'all', label: '全部时间' },
 ];
+
+function normalizeRealtimeExplicitTimeRange(timeRange?: RealtimeExplicitTimeRange | null): RealtimeExplicitTimeRange | null {
+  if (!timeRange) {
+    return null;
+  }
+  const from = timeRange.from?.trim() ?? '';
+  const to = timeRange.to?.trim() ?? '';
+  if (!from && !to) {
+    return null;
+  }
+  return {
+    from: from || undefined,
+    to: to || undefined,
+  };
+}
+
+function hasRealtimeExplicitTimeRange(timeRange?: RealtimeExplicitTimeRange | null): boolean {
+  return Boolean(timeRange?.from?.trim() || timeRange?.to?.trim());
+}
+
+function formatRealtimeExplicitTimeRange(timeRange?: RealtimeExplicitTimeRange | null): string {
+  const normalized = normalizeRealtimeExplicitTimeRange(timeRange);
+  if (!normalized) {
+    return '';
+  }
+  const fromText = normalized.from ? new Date(normalized.from).toLocaleString('zh-CN') : '起始未限制';
+  const toText = normalized.to ? new Date(normalized.to).toLocaleString('zh-CN') : '结束未限制';
+  return `${fromText} ~ ${toText}`;
+}
 
 function resolveRealtimeWindowDurationMS(liveWindow: LiveWindowOption): number {
   switch (liveWindow) {
@@ -59,14 +94,28 @@ function resolveRealtimeWindowDurationMS(liveWindow: LiveWindowOption): number {
   }
 }
 
-function shouldUseUnboundedRealtimeQuery(queryText: string): boolean {
-  return queryText.trim() !== '';
+function shouldUseUnboundedRealtimeQuery(
+  liveWindow: LiveWindowOption,
+  explicitTimeRange?: RealtimeExplicitTimeRange | null,
+): boolean {
+  return liveWindow === 'all' && !hasRealtimeExplicitTimeRange(explicitTimeRange);
 }
 
-export function buildRealtimeTableTimeRange(liveWindow: LiveWindowOption, snapshotTo?: string, queryText = '') {
+export function buildRealtimeTableTimeRange(
+  liveWindow: LiveWindowOption,
+  snapshotTo?: string,
+  explicitTimeRange?: RealtimeExplicitTimeRange | null,
+) {
   const snapshot = snapshotTo?.trim() ? new Date(snapshotTo) : new Date();
   const normalizedSnapshot = Number.isNaN(snapshot.getTime()) ? new Date() : snapshot;
-  if (shouldUseUnboundedRealtimeQuery(queryText)) {
+  const normalizedExplicitTimeRange = normalizeRealtimeExplicitTimeRange(explicitTimeRange);
+  if (normalizedExplicitTimeRange) {
+    return {
+      from: normalizedExplicitTimeRange.from ?? '',
+      to: normalizedExplicitTimeRange.to ?? normalizedSnapshot.toISOString(),
+    };
+  }
+  if (shouldUseUnboundedRealtimeQuery(liveWindow, normalizedExplicitTimeRange)) {
     return {
       from: '',
       to: normalizedSnapshot.toISOString(),
@@ -78,7 +127,13 @@ export function buildRealtimeTableTimeRange(liveWindow: LiveWindowOption, snapsh
   };
 }
 
-function resolveRealtimeHistogramRequestTimeRange(liveWindow: LiveWindowOption): '30m' | '1h' {
+function resolveRealtimeHistogramRequestTimeRange(
+  liveWindow: LiveWindowOption,
+  explicitTimeRange?: RealtimeExplicitTimeRange | null,
+): '30m' | '1h' | null {
+  if (hasRealtimeExplicitTimeRange(explicitTimeRange) || liveWindow === 'all' || liveWindow === 'custom') {
+    return null;
+  }
   return liveWindow === '1h' ? '1h' : '30m';
 }
 
@@ -166,6 +221,7 @@ const LEVEL_CONFIG: Record<string, { color: string; tagColor: string }> = {
 interface RealtimeNavigationState {
   autoRun?: boolean;
   presetQuery?: string;
+  timeRange?: RealtimeExplicitTimeRange;
 }
 
 export interface RealtimePageCursor {
@@ -355,11 +411,26 @@ const RealtimeSearch: React.FC = () => {
   const [activeQuery, setActiveQuery] = useState('');
   const [isLive, setIsLive] = useState(true);
   const [liveWindow, setLiveWindow] = useState<LiveWindowOption>(DEFAULT_LIVE_WINDOW);
+  const [customTimeRange, setCustomTimeRange] = useState<RealtimeExplicitTimeRange | null>(null);
   const [recentQueries, setRecentQueries] = useState<string[]>(() => readRealtimeRecentQueries());
 
   // 筛选器
   const [levelFilter, setLevelFilter] = useState<string>('');
   const [sourceFilter, setSourceFilter] = useState<string>('');
+  const normalizedCustomTimeRange = useMemo(() => normalizeRealtimeExplicitTimeRange(customTimeRange), [customTimeRange]);
+  const hasCustomTimeRange = hasRealtimeExplicitTimeRange(normalizedCustomTimeRange);
+  const customTimeRangeLabel = useMemo(() => formatRealtimeExplicitTimeRange(normalizedCustomTimeRange), [normalizedCustomTimeRange]);
+  const livePollingDisabled = hasCustomTimeRange || liveWindow === 'all';
+  const histogramDisabled = hasCustomTimeRange || liveWindow === 'all';
+  const liveWindowOptions = useMemo(() => {
+    if (!hasCustomTimeRange) {
+      return BASE_LIVE_WINDOW_OPTIONS;
+    }
+    return [
+      ...BASE_LIVE_WINDOW_OPTIONS,
+      { value: 'custom' as const, label: '历史时间范围' },
+    ];
+  }, [hasCustomTimeRange]);
 
   // 日志详情抽屉
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -450,6 +521,7 @@ const RealtimeSearch: React.FC = () => {
     cursor?: RealtimePageCursor;
     resetCursor?: boolean;
     liveWindowOverride?: LiveWindowOption;
+    timeRangeOverride?: RealtimeExplicitTimeRange | null;
     histogramRefreshMode?: RealtimeHistogramRefreshMode;
     levelFilterOverride?: string;
     sourceFilterOverride?: string;
@@ -486,13 +558,22 @@ const RealtimeSearch: React.FC = () => {
         sourceFilter: effectiveSourceFilter,
         queryText: options.queryText,
       });
-      const realtimeTableTimeRange = buildRealtimeTableTimeRange(effectiveLiveWindow, snapshotTo, options.queryText);
+      const effectiveExplicitTimeRange = normalizeRealtimeExplicitTimeRange(options.timeRangeOverride ?? customTimeRange);
+      const realtimeTableTimeRange = buildRealtimeTableTimeRange(
+        effectiveLiveWindow,
+        snapshotTo,
+        effectiveExplicitTimeRange,
+      );
+      const histogramTimeRange = resolveRealtimeHistogramRequestTimeRange(
+        effectiveLiveWindow,
+        effectiveExplicitTimeRange,
+      );
       histogramRefreshKey = buildRealtimeHistogramRefreshKey({
         queryText: options.queryText,
         levelFilter: effectiveLevelFilter,
         sourceFilter: effectiveSourceFilter,
       });
-      shouldRefreshHistogram = shouldRefreshRealtimeHistogram({
+      shouldRefreshHistogram = histogramTimeRange != null && shouldRefreshRealtimeHistogram({
         mode: options.histogramRefreshMode,
         nextRequestKey: histogramRefreshKey,
         lastRequestKey: lastHistogramRefreshKeyRef.current,
@@ -505,25 +586,31 @@ const RealtimeSearch: React.FC = () => {
         if (!effectiveLevelFilter) {
           errorHistogramController = registerAbortController(new AbortController());
         }
+      } else if (histogramTimeRange == null) {
+        setHistogramData([]);
+        setHistogramUsingStaleData(false);
+        setHistogramInitialLoading(false);
       }
 
       setTableRefreshing(true);
       setHistogramRefreshing(shouldRefreshHistogram);
 
-      const aggregateParams = {
-        groupBy: 'minute' as const,
-        timeRange: resolveRealtimeHistogramRequestTimeRange(effectiveLiveWindow),
-        keywords: options.queryText,
-        filters,
-      };
-      const totalHistogramPromise = shouldRefreshHistogram && totalHistogramController
+      const aggregateParams = histogramTimeRange
+        ? {
+          groupBy: 'minute' as const,
+          timeRange: histogramTimeRange,
+          keywords: options.queryText,
+          filters,
+        }
+        : null;
+      const totalHistogramPromise = shouldRefreshHistogram && totalHistogramController && aggregateParams
         ? fetchAggregateStats({
           ...aggregateParams,
           signal: totalHistogramController.signal,
         })
         : Promise.resolve(null);
       void totalHistogramPromise.catch(() => undefined);
-      const errorHistogramPromise = !shouldRefreshHistogram || effectiveLevelFilter === 'error'
+      const errorHistogramPromise = !shouldRefreshHistogram || effectiveLevelFilter === 'error' || !aggregateParams
         ? Promise.resolve(null)
         : effectiveLevelFilter
           ? Promise.resolve(null)
@@ -714,24 +801,31 @@ const RealtimeSearch: React.FC = () => {
         }
       }
     }
-  }, [abortActiveRequests, clearLiveTimer, histogramData.length, levelFilter, liveWindow, logs.length, message, registerAbortController, sourceFilter, unregisterAbortController]);
+  }, [abortActiveRequests, clearLiveTimer, customTimeRange, histogramData.length, levelFilter, liveWindow, logs.length, message, registerAbortController, sourceFilter, unregisterAbortController]);
 
   const executeQueryRef = useRef(executeQuery);
-  const startupAutoRunPresetQuery = useMemo(() => {
+  const startupAutoRunState = useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
     const queryPreset = searchParams.get('presetQuery')?.trim() ?? '';
     const queryAutoRun = searchParams.get('autoRun')?.trim() ?? '';
     if ((queryAutoRun === '1' || queryAutoRun.toLowerCase() === 'true') && queryPreset) {
-      return queryPreset;
+      return { presetQuery: queryPreset, timeRange: null };
     }
 
     const state = (location.state as RealtimeNavigationState | null) ?? null;
     const presetQuery = state?.presetQuery?.trim() ?? '';
     if (state?.autoRun && presetQuery) {
-      return presetQuery;
+      return {
+        presetQuery,
+        timeRange: normalizeRealtimeExplicitTimeRange(state.timeRange),
+      };
     }
 
-    return readPendingRealtimeStartupQuery();
+    const pendingPresetQuery = readPendingRealtimeStartupQuery();
+    if (!pendingPresetQuery) {
+      return null;
+    }
+    return { presetQuery: pendingPresetQuery, timeRange: null };
   }, [location.search, location.state]);
 
   useEffect(() => {
@@ -752,7 +846,7 @@ const RealtimeSearch: React.FC = () => {
 
   const scheduleNextLiveTick = useCallback((delay = LIVE_POLL_INTERVAL_MS) => {
     clearLiveTimer();
-    if (!isLiveRef.current || isUnmountedRef.current || document.hidden) {
+    if (!isLiveRef.current || isUnmountedRef.current || document.hidden || livePollingDisabled) {
       return;
     }
     liveTimerRef.current = window.setTimeout(() => {
@@ -773,26 +867,34 @@ const RealtimeSearch: React.FC = () => {
         histogramRefreshMode: 'auto',
       });
     }, delay);
-  }, [clearLiveTimer]);
+  }, [clearLiveTimer, livePollingDisabled]);
 
   useEffect(() => {
     scheduleNextLiveTickRef.current = scheduleNextLiveTick;
   }, [scheduleNextLiveTick]);
 
   useEffect(() => {
+    if (livePollingDisabled && isLive) {
+      isLiveRef.current = false;
+      setIsLive(false);
+      clearLiveTimer();
+    }
+  }, [clearLiveTimer, isLive, livePollingDisabled]);
+
+  useEffect(() => {
     isLiveRef.current = isLive;
-    if (!isLive) {
+    if (!isLive || livePollingDisabled) {
       clearLiveTimer();
       return;
     }
     if (inFlightRequestIDRef.current == null) {
       scheduleNextLiveTick(LIVE_POLL_INTERVAL_MS);
     }
-  }, [clearLiveTimer, isLive, scheduleNextLiveTick]);
+  }, [clearLiveTimer, isLive, livePollingDisabled, scheduleNextLiveTick]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!isLiveRef.current) {
+      if (!isLiveRef.current || livePollingDisabled) {
         return;
       }
       if (document.hidden) {
@@ -814,7 +916,7 @@ const RealtimeSearch: React.FC = () => {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [clearLiveTimer]);
+  }, [clearLiveTimer, livePollingDisabled]);
 
   useEffect(() => () => {
     isUnmountedRef.current = true;
@@ -824,7 +926,7 @@ const RealtimeSearch: React.FC = () => {
   }, [abortActiveRequests, clearLiveTimer, clearStartupQueryTimer]);
 
   useEffect(() => {
-    if (initialQueryTriggeredRef.current || startupAutoRunPresetQuery) {
+    if (initialQueryTriggeredRef.current || startupAutoRunState?.presetQuery) {
       return;
     }
     clearStartupQueryTimer();
@@ -840,36 +942,45 @@ const RealtimeSearch: React.FC = () => {
       });
     }, STARTUP_QUERY_DELAY_MS);
     return clearStartupQueryTimer;
-  }, [clearStartupQueryTimer, startupAutoRunPresetQuery]);
+  }, [clearStartupQueryTimer, startupAutoRunState]);
 
   useEffect(() => {
-    if (!startupAutoRunPresetQuery) {
+    if (!startupAutoRunState?.presetQuery) {
       return;
     }
     clearStartupQueryTimer();
     startupQueryTimerRef.current = window.setTimeout(() => {
       startupQueryTimerRef.current = null;
       initialQueryTriggeredRef.current = true;
-      const normalizedPresetQuery = normalizeRealtimePresetQuery(startupAutoRunPresetQuery);
+      const normalizedPresetQuery = normalizeRealtimePresetQuery(startupAutoRunState.presetQuery);
+      const startupTimeRange = normalizeRealtimeExplicitTimeRange(startupAutoRunState.timeRange ?? normalizedPresetQuery.timeRange);
       lastFilterStateRef.current = `${normalizedPresetQuery.levelFilter}\u0000${normalizedPresetQuery.sourceFilter}`;
       clearPendingRealtimeStartupQuery();
       setLevelFilter(normalizedPresetQuery.levelFilter);
       setSourceFilter(normalizedPresetQuery.sourceFilter);
       setQuery(normalizedPresetQuery.queryText);
       setActiveQuery(normalizedPresetQuery.queryText);
+      setCustomTimeRange(startupTimeRange);
+      if (startupTimeRange) {
+        isLiveRef.current = false;
+        setIsLive(false);
+        setLiveWindow('custom');
+      }
       void executeQueryRef.current({
         queryText: normalizedPresetQuery.queryText,
         page: 1,
         pageSize: pageSizeRef.current,
         silent: false,
         resetCursor: true,
+        timeRangeOverride: startupTimeRange,
+        liveWindowOverride: startupTimeRange ? 'custom' : undefined,
         histogramRefreshMode: 'force',
         levelFilterOverride: normalizedPresetQuery.levelFilter,
         sourceFilterOverride: normalizedPresetQuery.sourceFilter,
       });
     }, STARTUP_QUERY_DELAY_MS);
     return clearStartupQueryTimer;
-  }, [clearStartupQueryTimer, startupAutoRunPresetQuery]);
+  }, [clearStartupQueryTimer, startupAutoRunState]);
 
   // 筛选器变化时重新执行查询（仅在筛选值实际变化时触发，避免 StrictMode 首次挂载重复执行）
   useEffect(() => {
@@ -911,6 +1022,7 @@ const RealtimeSearch: React.FC = () => {
     const keyword = normalizedQuery.queryText;
     const nextLevelFilter = normalizedQuery.extractedFilters ? normalizedQuery.levelFilter : levelFilter;
     const nextSourceFilter = normalizedQuery.extractedFilters ? normalizedQuery.sourceFilter : sourceFilter;
+    const nextExplicitTimeRange = normalizeRealtimeExplicitTimeRange(normalizedQuery.timeRange);
     const shouldRecordHistory = recordHistory && keyword !== '';
 
     if (shouldRecordHistory) {
@@ -923,6 +1035,13 @@ const RealtimeSearch: React.FC = () => {
       setLevelFilter(nextLevelFilter);
       setSourceFilter(nextSourceFilter);
     }
+    if (nextExplicitTimeRange) {
+      isLiveRef.current = false;
+      clearLiveTimer();
+      setIsLive(false);
+      setCustomTimeRange(nextExplicitTimeRange);
+      setLiveWindow('custom');
+    }
     setQuery(keyword);
     setActiveQuery(keyword);
     void executeQuery({
@@ -932,34 +1051,46 @@ const RealtimeSearch: React.FC = () => {
       silent: false,
       recordHistory: shouldRecordHistory,
       resetCursor: true,
+      timeRangeOverride: nextExplicitTimeRange ?? normalizedCustomTimeRange,
+      liveWindowOverride: nextExplicitTimeRange ? 'custom' : undefined,
       histogramRefreshMode: 'force',
       levelFilterOverride: nextLevelFilter,
       sourceFilterOverride: nextSourceFilter,
     });
-  }, [executeQuery, levelFilter, pageSize, sourceFilter]);
+  }, [clearLiveTimer, executeQuery, levelFilter, normalizedCustomTimeRange, pageSize, sourceFilter]);
 
   const handleLiveWindowChange = useCallback((value: LiveWindowOption) => {
-    if (value === liveWindow) {
+    if (value === liveWindow && !(value === 'custom' && hasCustomTimeRange)) {
       return;
     }
-    const affectsTableQuery = !shouldUseUnboundedRealtimeQuery(activeQueryRef.current);
+    const nextExplicitTimeRange = value === 'custom' ? normalizedCustomTimeRange : null;
     setLiveWindow(value);
-    if (affectsTableQuery) {
-      setCurrentPage(1);
+    if (value !== 'custom') {
+      setCustomTimeRange(null);
     }
+    if (value === 'all' || value === 'custom') {
+      isLiveRef.current = false;
+      clearLiveTimer();
+      setIsLive(false);
+    }
+    setCurrentPage(1);
     void executeQuery({
       queryText: activeQueryRef.current,
-      page: affectsTableQuery ? 1 : currentPageRef.current,
+      page: 1,
       pageSize: pageSizeRef.current,
       silent: true,
-      snapshotTo: affectsTableQuery ? undefined : tableSnapshotTo,
-      resetCursor: affectsTableQuery,
+      resetCursor: true,
+      timeRangeOverride: nextExplicitTimeRange,
       liveWindowOverride: value,
       histogramRefreshMode: 'force',
     });
-  }, [executeQuery, liveWindow, tableSnapshotTo]);
+  }, [clearLiveTimer, executeQuery, hasCustomTimeRange, liveWindow, normalizedCustomTimeRange]);
 
   const handleToggleLive = useCallback(() => {
+    if (livePollingDisabled) {
+      message.info('全部时间或历史时间范围下不支持实时轮询');
+      return;
+    }
     if (isLive) {
       isLiveRef.current = false;
       clearLiveTimer();
@@ -979,7 +1110,7 @@ const RealtimeSearch: React.FC = () => {
         histogramRefreshMode: 'skip',
       });
     }
-  }, [activeQuery, clearLiveTimer, currentPage, executeQuery, isLive, pageSize]);
+  }, [activeQuery, clearLiveTimer, currentPage, executeQuery, isLive, livePollingDisabled, message, pageSize]);
 
   const handleBookmarkCurrentQuery = useCallback(() => {
     const now = new Date();
@@ -1091,6 +1222,8 @@ const RealtimeSearch: React.FC = () => {
       axisPointer: { type: 'shadow' },
     },
   }), [histogramData, isDark]);
+
+  const deepPaginationRestricted = total > MAX_PAGINATION_WINDOW_ROWS || (totalIsLowerBound && total >= MAX_PAGINATION_WINDOW_ROWS);
 
   // 表格列定义
   const columns: ColumnsType<LogEntry> = useMemo(() => [
@@ -1277,6 +1410,7 @@ const RealtimeSearch: React.FC = () => {
           <Input.Search
             id="realtime-query-input"
             name="realtime-query"
+            autoComplete="off"
             placeholder='输入查询语句，例如: level:error AND service:"payment-service"'
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -1355,8 +1489,11 @@ const RealtimeSearch: React.FC = () => {
       <ChartWrapper
         title="事件量分布"
         loading={histogramInitialLoading && histogramRefreshing && histogramData.length === 0}
+        empty={histogramDisabled || (!histogramRefreshing && !histogramInitialLoading && histogramData.length === 0)}
+        subtitle={histogramDisabled ? '全部时间或精确时间范围下不展示趋势图' : undefined}
         actions={(
           <Space size={8}>
+            {histogramDisabled && <Tag color="default" style={{ margin: 0 }}>{hasCustomTimeRange ? '精确时间范围' : '全部时间'}</Tag>}
             {histogramRefreshing && !histogramInitialLoading && <Tag color="processing" style={{ margin: 0 }}>刷新中</Tag>}
             {histogramUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次统计</Tag>}
           </Space>
@@ -1386,11 +1523,16 @@ const RealtimeSearch: React.FC = () => {
               value={liveWindow}
               onChange={handleLiveWindowChange}
               style={{ minWidth: 132 }}
-              options={LIVE_WINDOW_OPTIONS}
+              options={liveWindowOptions}
             />
             <span className="text-xs opacity-50">
               共 {formatRealtimeTotal(total, totalIsLowerBound)} 条结果 · 耗时 {queryTimeMS}ms
             </span>
+            {hasCustomTimeRange && (
+              <Tooltip title={customTimeRangeLabel}>
+                <Tag color="blue" style={{ margin: 0 }}>历史时间范围</Tag>
+              </Tooltip>
+            )}
             {tableRefreshing && !initialLoading && <Tag color="processing" style={{ margin: 0 }}>刷新中</Tag>}
             {tableUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次结果</Tag>}
             {totalIsLowerBound && <Tag color="default" style={{ margin: 0 }}>总数按阈值统计</Tag>}
@@ -1400,7 +1542,7 @@ const RealtimeSearch: React.FC = () => {
               </Tag>
             )}
             {queryTimedOut && <Tag color="warning" style={{ margin: 0 }}>查询超时</Tag>}
-            {(total > MAX_PAGINATION_WINDOW_ROWS || (totalIsLowerBound && total >= MAX_PAGINATION_WINDOW_ROWS)) && (
+            {deepPaginationRestricted && (
               <Tag color="gold" style={{ margin: 0 }}>
                 超过前 {MAX_PAGINATION_WINDOW_ROWS.toLocaleString()} 条后，仅支持顺序翻页或返回已访问页
               </Tag>
@@ -1430,7 +1572,7 @@ const RealtimeSearch: React.FC = () => {
             pageSize,
             total,
             showSizeChanger: true,
-            showQuickJumper: true,
+            showQuickJumper: !deepPaginationRestricted,
             showTotal: (itemsTotal) => `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`,
             pageSizeOptions: ['10', '20', '50', '100'],
             onChange: (page, size) => {
@@ -1448,7 +1590,11 @@ const RealtimeSearch: React.FC = () => {
 
               const cachedCursor = cloneRealtimePageCursor(pageCursorMapRef.current.get(targetPage));
               const maxPaginationPage = resolveMaxPaginationPage(nextPageSize);
-              if (targetPage > maxPaginationPage && !cachedCursor) {
+              if (deepPaginationRestricted && targetPage >= maxPaginationPage && !cachedCursor) {
+                void message.warning('当前结果集超过 10,000 条，仅支持顺序翻页或返回已访问页');
+                return;
+              }
+              if (shouldResolveRealtimeDeepPageCursor(targetPage, nextPageSize, cachedCursor)) {
                 void message.open({
                   key: 'realtime-deep-pagination',
                   type: 'loading',

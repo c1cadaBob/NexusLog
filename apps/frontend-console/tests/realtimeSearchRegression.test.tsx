@@ -142,7 +142,7 @@ describe('RealtimeSearch regressions', () => {
     vi.clearAllMocks();
   });
 
-  it('uses an unbounded table time range for non-empty manual search', async () => {
+  it('uses the selected live window for manual search without explicit historical range', async () => {
     render(
       <App>
         <MemoryRouter initialEntries={['/search/realtime']}>
@@ -172,10 +172,11 @@ describe('RealtimeSearch regressions', () => {
     expect(queryRealtimeLogsMock.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
       keywords: 'service:vault',
       timeRange: expect.objectContaining({
-        from: '',
+        from: expect.any(String),
         to: expect.any(String),
       }),
     }));
+    expect(queryRealtimeLogsMock.mock.calls[1]?.[0]?.timeRange?.from).not.toBe('');
   });
 
   it('keeps histogram refresh working when the error-only aggregate request fails', async () => {
@@ -253,8 +254,8 @@ describe('RealtimeSearch regressions', () => {
     expect(shouldResolveRealtimeDeepPageCursor(100, 100, undefined)).toBe(false);
   });
 
-  it('returns an unbounded from-range for keyword searches', () => {
-    const result = buildRealtimeTableTimeRange('15m', '2026-03-16T08:00:00.000Z', 'service:vault');
+  it('returns an unbounded from-range only for the all-time mode', () => {
+    const result = buildRealtimeTableTimeRange('all', '2026-03-16T08:00:00.000Z', null);
 
     expect(result).toEqual({
       from: '',

@@ -78,7 +78,7 @@ describe('AlertList initial fetch dedupe', () => {
   });
 
   it('issues only one initial fetch under StrictMode while the first request is in flight', async () => {
-    let resolveFetch: ((value: { items: []; total: number }) => void) | null = null;
+    let resolveFetch: ((value: { items: []; total: number }) => void) | undefined;
 
     fetchAlertEventsMock.mockImplementation(
       () =>
@@ -101,7 +101,11 @@ describe('AlertList initial fetch dedupe', () => {
 
     expect(fetchAlertEventsMock).toHaveBeenCalledWith(1, 200, undefined);
 
-    resolveFetch?.({ items: [], total: 0 });
+    if (!resolveFetch) {
+      throw new Error('resolveFetch was not initialized');
+    }
+
+    resolveFetch({ items: [], total: 0 });
 
     await screen.findByText('暂无告警');
   });
