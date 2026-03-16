@@ -9,7 +9,7 @@ import { COLORS } from '../../theme/tokens';
 import ChartWrapper from '../../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
 import type { LogEntry } from '../../types/log';
-import { fetchAggregateStats, queryRealtimeLogs } from '../../api/query';
+import { createSavedQuery, fetchAggregateStats, queryRealtimeLogs } from '../../api/query';
 import { aggregateRealtimeDisplayLogs, summarizeImageAggregation } from './realtimeLogAggregation';
 import { readRealtimeRecentQueries, recordRealtimeRecentQuery } from './realtimeRecentQueries';
 import {
@@ -23,7 +23,7 @@ import {
   shouldRefreshRealtimeHistogram,
   type RealtimeHistogramRefreshMode,
 } from './realtimeRefreshPolicy';
-import { normalizeRealtimePresetQuery } from './realtimePresetQuery';
+import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
 
 // ============================================================================
 // 本地 UI 辅助数据
@@ -172,7 +172,7 @@ function isAbortError(error: unknown): boolean {
 const RealtimeSearch: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const location = useLocation();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   // 查询状态
   const [query, setQuery] = useState('');
@@ -765,6 +765,102 @@ const RealtimeSearch: React.FC = () => {
     }
   }, [activeQuery, clearLiveTimer, currentPage, executeQuery, isLive, pageSize]);
 
+  const handleBookmarkCurrentQuery = useCallback(() => {
+    const now = new Date();
+    const rawQuery = query.trim();
+    const normalizedQuery = normalizeRealtimePresetQuery(rawQuery);
+    const selectedFilters: Record<string, unknown> = {};
+
+    if (!normalizedQuery.extractedFilters) {
+      const normalizedLevelFilter = levelFilter.trim();
+      const normalizedSourceFilter = sourceFilter.trim();
+      if (normalizedLevelFilter) {
+        selectedFilters.level = normalizedLevelFilter;
+      }
+      if (normalizedSourceFilter) {
+        selectedFilters.service = normalizedSourceFilter;
+      }
+    }
+
+    const effectiveFilters = normalizedQuery.extractedFilters ? normalizedQuery.filters : selectedFilters;
+    const cleanedQuery = buildRealtimePresetQuery({
+      queryText: normalizedQuery.queryText,
+      filters: effectiveFilters,
+    });
+
+    if (!cleanedQuery) {
+      message.warning('请先输入查询语句或选择筛选条件');
+      return;
+    }
+
+    const comparisonBaseQuery = normalizedQuery.extractedFilters
+      ? rawQuery
+      : buildRealtimePresetQuery({
+        queryText: rawQuery,
+        filters: selectedFilters,
+      });
+    const shouldConfirmCleanup = cleanedQuery !== comparisonBaseQuery;
+    const filterCount = Object.keys(effectiveFilters).length;
+
+    const persistBookmark = async () => {
+      try {
+        await createSavedQuery({
+          name: `实时查询 ${now.toLocaleString('zh-CN')}`,
+          query: cleanedQuery,
+          tags: [],
+        });
+        if (normalizedQuery.strippedTimeRange) {
+          message.success('已收藏当前查询，并自动移除旧格式时间范围');
+          return;
+        }
+        if (shouldConfirmCleanup) {
+          message.success('已收藏当前查询，并自动规范旧格式查询');
+          return;
+        }
+        message.success('已收藏当前查询');
+      } catch (error) {
+        const readable = error instanceof Error ? error.message : '收藏失败';
+        message.error(readable);
+      }
+    };
+
+    if (!shouldConfirmCleanup) {
+      void persistBookmark();
+      return;
+    }
+
+    modal.confirm({
+      title: '收藏前将清洗旧格式查询',
+      okText: '收藏并清洗',
+      cancelText: '取消',
+      width: 720,
+      content: (
+        <div className="flex flex-col gap-3">
+          <div className="text-sm opacity-80">当前输入包含旧格式时间范围或遗留筛选表达式。为避免后续继续传播旧格式，收藏时将仅保留可复用的查询语义。</div>
+          <div className="flex gap-2 flex-wrap">
+            {normalizedQuery.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
+            {filterCount > 0 && <Tag color="blue" style={{ margin: 0 }}>保留 {filterCount} 个筛选条件</Tag>}
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="text-xs opacity-60">原始查询</div>
+            <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.04)' }}>
+              {rawQuery}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="text-xs opacity-60">收藏后写入</div>
+            <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.06)' }}>
+              {cleanedQuery}
+            </div>
+          </div>
+        </div>
+      ),
+      onOk: async () => {
+        await persistBookmark();
+      },
+    });
+  }, [levelFilter, message, modal, query, sourceFilter]);
+
   // 执行检索（仅手动点击执行/回车时写入历史）
   const handleSearch = useCallback((value: string) => {
     runSearch(value, true);
@@ -1013,7 +1109,10 @@ const RealtimeSearch: React.FC = () => {
             allowClear
           />
           <Tooltip title="保存查询">
-            <Button icon={<span className="material-symbols-outlined text-sm">bookmark_add</span>} />
+            <Button
+              icon={<span className="material-symbols-outlined text-sm">bookmark_add</span>}
+              onClick={handleBookmarkCurrentQuery}
+            />
           </Tooltip>
           <Button type="link" size="small">
             <span className="flex items-center gap-1 text-xs">
