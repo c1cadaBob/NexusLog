@@ -67,6 +67,24 @@ make dev-up
 make dev-test-smoke
 ```
 
+如需顺手补一轮前端入口与本地租户联动校验，可额外执行：
+
+```bash
+make e2e-list
+make e2e-smoke
+```
+
+如需切到系统 Chrome 或无桌面环境，可使用：
+
+```bash
+make e2e-list-chrome
+make e2e-smoke-chrome
+make e2e-smoke-headed
+make e2e-smoke-headed-chrome
+```
+
+说明：以上命令会先自动同步本地有效租户；若未显式传入 `E2E_TENANT_ID`，将复用本地 bootstrap 租户，并同步前端运行时配置。
+
 预期至少包含：
 
 - `http://localhost:18081/subjects` 可访问

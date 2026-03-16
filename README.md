@@ -489,6 +489,12 @@ cd apps/frontend-console && pnpm dev     # 启动前端开发服务器 (Vite HMR
 make test                                # 运行全部测试
 make frontend-test                       # 仅前端测试 (Vitest)
 make backend-test                        # 仅后端测试
+make e2e-list                            # 列出 Playwright E2E 用例
+make e2e-smoke                           # 执行 Playwright E2E 冒烟
+make e2e-list-chrome                     # 使用系统 Chrome 列出 E2E 用例
+make e2e-smoke-chrome                    # 使用系统 Chrome 执行 E2E 冒烟
+make e2e-smoke-headed                    # 通过 XVFB 执行有界面 E2E 冒烟
+make e2e-smoke-headed-chrome             # 通过 XVFB + 系统 Chrome 执行有界面 E2E 冒烟
 
 # 构建
 make build                               # 构建全部
@@ -545,6 +551,22 @@ pnpm test:watch           # 测试监听模式
 pnpm test:coverage        # 测试覆盖率
 pnpm preview              # 预览生产构建
 ```
+
+### 本地 E2E / Playwright
+
+```bash
+make e2e-list
+make e2e-smoke
+make e2e-list-chrome
+make e2e-smoke-chrome
+make e2e-smoke-headed
+make e2e-smoke-headed-chrome
+```
+
+- 默认使用 `E2E_BASE_URL=http://127.0.0.1:3000`。
+- 默认配置为 `tests/e2e/playwright.config.js`；切换系统 Chrome 时使用 `tests/e2e/playwright.chrome.config.js`。
+- 入口会先执行本地租户自校验；若未显式传入 `E2E_TENANT_ID`，会自动同步 `./.runtime/tenant/local-tenant-id` 与前端运行时配置。
+- 租户解析优先级：`E2E_TENANT_ID` > 自动同步结果 > `INGEST_DEFAULT_TENANT_ID` > `./.runtime/tenant/local-tenant-id`。
 
 前端包含 15 个功能模块：Dashboard、日志检索、日志分析、告警中心、采集接入、解析字段、索引存储、性能高可用、分布式追踪、报表中心、安全审计、集成平台、成本管理、系统设置、帮助中心。
 
