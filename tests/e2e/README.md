@@ -16,6 +16,18 @@ npx playwright install --with-deps chromium
 E2E_BASE_URL=http://127.0.0.1:4173 pnpm test
 ```
 
+或直接在仓库根目录执行统一入口：
+
+```bash
+make e2e-smoke
+```
+
+默认会使用 `E2E_BASE_URL=http://127.0.0.1:3000` 与 `playwright.config.js`；如需切到系统 Chrome，可显式传入：
+
+```bash
+make e2e-smoke E2E_PLAYWRIGHT_CONFIG=playwright.chrome.config.js
+```
+
 > `E2E_BASE_URL` 默认为 `http://127.0.0.1:4173`，可按环境覆盖。
 >
 > Playwright 入口现在会先执行一次本地租户自校验：若未显式传入 `E2E_TENANT_ID`，会调用仓库根目录下的 `scripts/local/ensure-local-tenant-config.sh`，自动修正 `./.runtime/tenant/local-tenant-id` 与 `app-config.local.json` 的漂移问题，再把修正后的租户注入测试进程。
