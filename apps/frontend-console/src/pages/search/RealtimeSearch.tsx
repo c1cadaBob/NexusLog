@@ -695,12 +695,22 @@ const RealtimeSearch: React.FC = () => {
   }, []);
 
   const runSearch = useCallback((value: string, recordHistory: boolean) => {
-    const keyword = value.trim();
+    const normalizedQuery = normalizeRealtimePresetQuery(value);
+    const keyword = normalizedQuery.queryText;
+    const nextLevelFilter = normalizedQuery.extractedFilters ? normalizedQuery.levelFilter : levelFilter;
+    const nextSourceFilter = normalizedQuery.extractedFilters ? normalizedQuery.sourceFilter : sourceFilter;
     const shouldRecordHistory = recordHistory && keyword !== '';
+
     if (shouldRecordHistory) {
       setRecentQueries(recordRealtimeRecentQuery(keyword));
     }
+
+    lastFilterStateRef.current = `${nextLevelFilter}\u0000${nextSourceFilter}`;
     setCurrentPage(1);
+    if (normalizedQuery.extractedFilters) {
+      setLevelFilter(nextLevelFilter);
+      setSourceFilter(nextSourceFilter);
+    }
     setQuery(keyword);
     setActiveQuery(keyword);
     void executeQuery({
@@ -711,8 +721,10 @@ const RealtimeSearch: React.FC = () => {
       recordHistory: shouldRecordHistory,
       resetCursor: true,
       histogramRefreshMode: 'force',
+      levelFilterOverride: nextLevelFilter,
+      sourceFilterOverride: nextSourceFilter,
     });
-  }, [executeQuery, pageSize]);
+  }, [executeQuery, levelFilter, pageSize, sourceFilter]);
 
   const handleLiveWindowChange = useCallback((value: LiveWindowOption) => {
     if (value === liveWindow) {

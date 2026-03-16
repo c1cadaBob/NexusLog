@@ -3,7 +3,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from 'antd';
-import { render, waitFor, cleanup, screen } from '@testing-library/react';
+import { render, waitFor, cleanup, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import RealtimeSearch from '../src/pages/search/RealtimeSearch';
 import {
@@ -293,5 +293,47 @@ describe('RealtimeSearch startup query behavior', () => {
       expect.objectContaining({ keywords: 'service:vault' }),
     );
     expect((screen.getByPlaceholderText('输入查询语句，例如: level:error AND service:"payment-service"') as HTMLInputElement).value).toBe('service:vault');
+  });
+
+  it('normalizes manually executed history-style queries', async () => {
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
+    });
+
+    queryRealtimeLogsMock.mockClear();
+    fetchAggregateStatsMock.mockClear();
+
+    const queryInput = screen.getByPlaceholderText('输入查询语句，例如: level:error AND service:"payment-service"');
+    fireEvent.change(queryInput, {
+      target: {
+        value: 'service:vault time:[2026-03-16T05:10:26.361Z,2026-03-16T05:25:26.361Z]',
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /执行/ }));
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
+    });
+
+    expect(queryRealtimeLogsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ keywords: 'service:vault', page: 1, pageSize: 20 }),
+    );
+    expect(fetchAggregateStatsMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ keywords: 'service:vault' }),
+    );
+    expect((queryInput as HTMLInputElement).value).toBe('service:vault');
   });
 });
