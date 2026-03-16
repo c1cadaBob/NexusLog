@@ -102,17 +102,24 @@ const SearchHistory: React.FC = () => {
   }, []);
 
   const handleReplay = useCallback(async (record: QueryHistory) => {
+    const cleanupState = buildQueryCleanupState({ rawQuery: record.query });
+    const replayQuery = cleanupState.cleanedQuery || cleanupState.rawQuery;
+    const replayMessage = cleanupState.strippedTimeRange
+      ? '已跳转到实时检索并自动执行，历史时间范围已移除'
+      : '已跳转到实时检索并自动执行';
+
     try {
-      await navigator.clipboard.writeText(record.query);
-      message.success('已执行历史查询并同步到剪贴板');
+      await navigator.clipboard.writeText(replayQuery);
+      message.success(`${replayMessage}，并同步到剪贴板`);
     } catch {
-      message.info(`请在实时检索页执行: ${record.query}`);
+      message.info(`${replayMessage}，但未能同步到剪贴板`);
     }
-    persistPendingRealtimeStartupQuery(record.query);
+
+    persistPendingRealtimeStartupQuery(replayQuery);
     navigate('/search/realtime', {
       state: {
         autoRun: true,
-        presetQuery: record.query,
+        presetQuery: replayQuery,
       },
     });
   }, [message, navigate]);

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
-import { App, Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, Select, Collapse } from 'antd';
+import { App, Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, Select, Collapse, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useLocation } from 'react-router-dom';
 import { useThemeStore } from '../../stores/themeStore';
@@ -1421,6 +1421,9 @@ const RealtimeSearch: React.FC = () => {
           columns={columns}
           rowKey="id"
           loading={initialLoading && tableRefreshing}
+          locale={{
+            emptyText: tableRefreshing ? <span /> : <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
+          }}
           size="small"
           pagination={{
             current: currentPage,
