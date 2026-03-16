@@ -25,6 +25,7 @@ import {
 } from './realtimeRefreshPolicy';
 import { normalizeRealtimePresetQuery } from './realtimePresetQuery';
 import { buildQueryCleanupFallbackFilters, buildQueryCleanupState } from './queryCleanupState';
+import QueryCleanupPreviewContent from './queryCleanupPreviewContent';
 
 // ============================================================================
 // 本地 UI 辅助数据
@@ -817,37 +818,11 @@ const RealtimeSearch: React.FC = () => {
       cancelText: '取消',
       width: 720,
       content: (
-        <div className="flex flex-col gap-3">
-          <div className="text-sm opacity-80">当前输入包含旧格式时间范围或遗留筛选表达式。为避免后续继续传播旧格式，收藏时将仅保留可复用的查询语义。</div>
-          <div className="flex gap-2 flex-wrap">
-            {cleanupState.normalized.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
-            {cleanupState.filterCount > 0 && <Tag color="blue" style={{ margin: 0 }}>保留 {cleanupState.filterCount} 个筛选条件</Tag>}
-          </div>
-          {cleanupState.previewFilters.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <div className="text-xs opacity-60">保留筛选</div>
-              <div className="flex gap-2 flex-wrap">
-                {cleanupState.previewFilters.map((filter) => (
-                  <Tag key={filter.key} color="blue" style={{ margin: 0 }}>
-                    {filter.label}: {filter.value}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="flex flex-col gap-1">
-            <div className="text-xs opacity-60">原始查询</div>
-            <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.04)' }}>
-              {rawQuery}
-            </div>
-          </div>
-          <div className="flex flex-col gap-1">
-            <div className="text-xs opacity-60">收藏后写入</div>
-            <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.06)' }}>
-              {cleanupState.cleanedQuery}
-            </div>
-          </div>
-        </div>
+        <QueryCleanupPreviewContent
+          cleanupState={cleanupState}
+          intro="当前输入包含旧格式时间范围或遗留筛选表达式。为避免后续继续传播旧格式，收藏时将仅保留可复用的查询语义。"
+          sourceQuery={rawQuery}
+        />
       ),
       onOk: async () => {
         await persistBookmark();

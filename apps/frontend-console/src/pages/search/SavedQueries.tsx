@@ -6,6 +6,7 @@ import type { SavedQuery } from '../../types/log';
 import { createSavedQuery, deleteSavedQuery, fetchSavedQueries, updateSavedQuery } from '../../api/query';
 import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
 import { buildQueryCleanupState } from './queryCleanupState';
+import QueryCleanupPreviewContent from './queryCleanupPreviewContent';
 
 type ModalMode = 'create' | 'edit';
 
@@ -517,33 +518,14 @@ const SavedQueries: React.FC = () => {
               showIcon
               message="检测到旧格式查询语句"
               description={(
-                <div className="flex flex-col gap-2">
-                  <div className="flex gap-2 flex-wrap">
-                    {modalQueryCleanupPreview.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
-                    {modalQueryCleanupPreview.extractedFilters && modalQueryCleanupPreview.filterCount > 0 && (
-                      <Tag color="blue" style={{ margin: 0 }}>保留 {modalQueryCleanupPreview.filterCount} 个筛选条件</Tag>
-                    )}
-                  </div>
-                  {modalQueryCleanupPreview.previewFilters.length > 0 && (
-                    <div className="flex flex-col gap-1">
-                      <div className="text-xs opacity-70">保留筛选</div>
-                      <div className="flex gap-2 flex-wrap">
-                        {modalQueryCleanupPreview.previewFilters.map((filter) => (
-                          <Tag key={filter.key} color="blue" style={{ margin: 0 }}>
-                            {filter.label}: {filter.value}
-                          </Tag>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="text-xs opacity-70">保存后将自动清洗为以下查询语句：</div>
-                  <div
-                    className="font-mono text-sm p-2 rounded break-all"
-                    style={{ backgroundColor: 'rgba(0,0,0,0.04)' }}
-                  >
-                    {modalQueryCleanupPreview.cleanedQuery}
-                  </div>
-                </div>
+                <QueryCleanupPreviewContent
+                  cleanupState={modalQueryCleanupPreview}
+                  rootClassName="flex flex-col gap-2"
+                  secondaryTextClassName="text-xs opacity-70"
+                  showFilterCountTag={modalQueryCleanupPreview.extractedFilters}
+                  showSourceQuery={false}
+                  cleanedQueryLabel="保存后将自动清洗为以下查询语句："
+                />
               )}
             />
           )}
