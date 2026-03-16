@@ -7,6 +7,8 @@ on:
     branches: [main, develop, 'release/**']
     paths:
       - 'apps/frontend-console/**'
+      - 'tests/e2e/**'
+      - 'Makefile'
       - 'package.json'
       - 'pnpm-workspace.yaml'
       - 'pnpm-lock.yaml'
@@ -14,6 +16,8 @@ on:
     branches: [main, develop]
     paths:
       - 'apps/frontend-console/**'
+      - 'tests/e2e/**'
+      - 'Makefile'
       - 'package.json'
       - 'pnpm-workspace.yaml'
       - 'pnpm-lock.yaml'
@@ -110,4 +114,47 @@ jobs:
         with:
           name: frontend-dist
           path: apps/frontend-console/dist/
+          retention-days: 7
+
+  e2e-smoke:
+    name: Playwright Smoke
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 安装 E2E 依赖
+        run: npm ci
+        working-directory: tests/e2e
+
+      - name: 安装 Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: tests/e2e
+
+      - name: 运行 Playwright Smoke
+        run: make e2e-smoke-ci
+
+      - name: 上传 Playwright 报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-report
+          path: |
+            tests/e2e/playwright-report/
+            tests/e2e/test-results/
           retention-days: 7

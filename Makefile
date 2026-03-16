@@ -6,7 +6,7 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push test-contracts stream-install-es stream-register-schemas stream-deploy-local stream-bootstrap-local stream-compare
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-chrome e2e-smoke e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-chrome e2e-smoke e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome e2e-smoke-ci local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
@@ -19,6 +19,8 @@ E2E_DIR ?= ./tests/e2e
 E2E_BASE_URL ?= http://127.0.0.1:3000
 E2E_PLAYWRIGHT_CONFIG ?= playwright.config.js
 E2E_TENANT_AUTO_SYNC ?= true
+E2E_CI_BASE_URL ?= http://127.0.0.1:4173
+E2E_CI_PREVIEW_PORT ?= 4173
 DEV_COMPOSE_FILES := -f docker-compose.yml -f docker-compose.override.yml
 DEV_SERVICES := \
 	postgres redis elasticsearch elasticsearch-init zookeeper kafka kafka-init schema-registry schema-registry-init \
@@ -285,6 +287,36 @@ e2e-smoke-headed-chrome:
 	@echo "🧪 执行 E2E 冒烟检查（Headed + Chrome）..."
 	@$(MAKE) e2e-smoke-headed E2E_PLAYWRIGHT_CONFIG=playwright.chrome.config.js E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
 
+## 构建前端并基于 vite preview 执行 E2E 冒烟检查（CI / 发布前门禁）
+e2e-smoke-ci:
+	@echo "🧪 执行 E2E 冒烟检查（CI Preview）..."
+	@set -e; \
+		tenant_id="$${E2E_TENANT_ID:-$$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)}"; \
+		preview_log="/tmp/nexuslog-e2e-preview.log"; \
+		echo "🔐 使用临时 E2E 租户 $$tenant_id"; \
+		cd apps/frontend-console; \
+		pnpm build; \
+		pnpm exec vite preview --host 127.0.0.1 --port $(E2E_CI_PREVIEW_PORT) >"$$preview_log" 2>&1 & \
+		preview_pid=$$!; \
+		trap 'kill $$preview_pid >/dev/null 2>&1 || true' EXIT INT TERM; \
+		cd $(CURDIR); \
+		ok=0; \
+		for attempt in $$(seq 1 60); do \
+			if curl --noproxy '*' -fsS --max-time 5 "$(E2E_CI_BASE_URL)" >/dev/null 2>&1; then \
+				ok=1; \
+				break; \
+			fi; \
+			sleep 1; \
+		done; \
+		if [ "$$ok" -ne 1 ]; then \
+			echo "ERROR: preview server not ready: $(E2E_CI_BASE_URL)"; \
+			echo "--- preview log ---"; \
+			cat "$$preview_log"; \
+			exit 1; \
+		fi; \
+		$(MAKE) e2e-smoke E2E_BASE_URL="$(E2E_CI_BASE_URL)" E2E_TENANT_AUTO_SYNC=false E2E_TENANT_ID="$$tenant_id"; \
+		echo "✅ E2E CI Preview 冒烟检查通过"
+
 ## 对正在运行的本地环境补齐数据库迁移（等待 postgres ready 后执行）
 local-db-migrate-up:
 	@echo "🗃️ 确保本地数据库迁移已执行..."
@@ -450,6 +482,7 @@ help:
 	@echo "  make e2e-smoke-chrome [E2E_BASE_URL=http://127.0.0.1:3000] - 使用系统 Chrome 执行 Playwright E2E 冒烟检查"
 	@echo "  make e2e-smoke-headed [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 通过 XVFB 执行有界面 Playwright E2E 冒烟检查"
 	@echo "  make e2e-smoke-headed-chrome [E2E_BASE_URL=http://127.0.0.1:3000] - 通过 XVFB + 系统 Chrome 执行有界面 Playwright E2E 冒烟检查"
+	@echo "  make e2e-smoke-ci [E2E_TENANT_ID=<uuid>] - 构建前端并基于 vite preview 执行 E2E 冒烟门禁"
 	@echo "  make api-register-smoke SMOKE_TENANT_ID=<uuid> [API_BASE_URL=http://localhost:8085] - 执行注册接口冒烟"
 	@echo "  make api-auth-storage-verify TEST_DB_DSN=<dsn> VERIFY_TENANT_ID=<uuid> VERIFY_USERNAME=<name> - 执行认证落库核验"
 	@echo "  make api-auth-chain-test [TEST_DB_DSN=<dsn>] [TEST_REGEX=<regex>] [KEEP_ENV=1] - 执行认证链路自动化测试（成功/失败）"

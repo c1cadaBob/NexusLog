@@ -42,9 +42,12 @@ make e2e-smoke-chrome
 ```bash
 make e2e-smoke-headed
 make e2e-smoke-headed-chrome
+make e2e-smoke-ci
 ```
 
 > `E2E_BASE_URL` 默认为 `http://127.0.0.1:4173`，可按环境覆盖。
+>
+> `make e2e-smoke-ci` 会先构建前端，再通过 `vite preview` 启动静态站点并执行 smoke，默认显式关闭租户自动同步，适合作为 CI / 发布前门禁入口。
 >
 > Playwright 入口现在会先执行一次本地租户自校验：若未显式传入 `E2E_TENANT_ID`，会调用仓库根目录下的 `scripts/local/ensure-local-tenant-config.sh`，自动修正 `./.runtime/tenant/local-tenant-id` 与 `app-config.local.json` 的漂移问题，再把修正后的租户注入测试进程。
 >
