@@ -161,12 +161,7 @@ describe('RealtimeSearch startup query behavior', () => {
     expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
     expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
     expect(queryRealtimeLogsMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        keywords: '',
-        page: 1,
-        pageSize: 200,
-        timeRange: expect.objectContaining({ from: '' }),
-      }),
+      expect.objectContaining({ keywords: '', page: 1, pageSize: 20 }),
     );
   });
 

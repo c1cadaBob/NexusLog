@@ -16,7 +16,7 @@ import {
   clearPendingRealtimeStartupQuery,
   readPendingRealtimeStartupQuery,
 } from './realtimeStartupQuery';
-import { buildRealtimeHistogramData, type RealtimeHistogramPoint } from './realtimeHistogram';
+import { buildRealtimeHistogramData, sumRealtimeHistogramEvents, type RealtimeHistogramPoint } from './realtimeHistogram';
 import { buildRealtimeQueryFilters } from './realtimeNoiseFilters';
 import {
   buildRealtimeHistogramRefreshKey,
@@ -31,8 +31,8 @@ import QueryCleanupPreviewContent from './queryCleanupPreviewContent';
 // 本地 UI 辅助数据
 // ============================================================================
 
+const HISTOGRAM_TIME_RANGE = '30m' as const;
 const MAX_PAGINATION_WINDOW_ROWS = 10_000;
-const PREFETCH_LOG_WINDOW_SIZE = 200;
 const LIVE_POLL_INTERVAL_MS = 5_000;
 const STARTUP_QUERY_DELAY_MS = 200;
 
@@ -60,40 +60,13 @@ function resolveRealtimeWindowDurationMS(liveWindow: LiveWindowOption): number {
   }
 }
 
-function buildRealtimeTableTimeRange(snapshotTo?: string) {
+function buildRealtimeTableTimeRange(liveWindow: LiveWindowOption, snapshotTo?: string) {
   const snapshot = snapshotTo?.trim() ? new Date(snapshotTo) : new Date();
   const normalizedSnapshot = Number.isNaN(snapshot.getTime()) ? new Date() : snapshot;
   return {
-    from: '',
+    from: new Date(normalizedSnapshot.getTime() - resolveRealtimeWindowDurationMS(liveWindow)).toISOString(),
     to: normalizedSnapshot.toISOString(),
   };
-}
-
-function resolveRealtimeHistogramRequestTimeRange(liveWindow: LiveWindowOption): '30m' | '1h' {
-  return liveWindow === '1h' ? '1h' : '30m';
-}
-
-function filterRealtimeHistogramBucketsByLiveWindow<T extends { key: string; count: number }>(
-  buckets: T[],
-  liveWindow: LiveWindowOption,
-  snapshotTo?: string,
-): T[] {
-  if (liveWindow === '30m' || liveWindow === '1h') {
-    return buckets;
-  }
-
-  const snapshot = snapshotTo?.trim() ? new Date(snapshotTo) : new Date();
-  const normalizedSnapshotMS = Number.isNaN(snapshot.getTime()) ? Date.now() : snapshot.getTime();
-  const fromMS = normalizedSnapshotMS - resolveRealtimeWindowDurationMS(liveWindow);
-
-  return buckets.filter((bucket) => {
-    const bucketTime = new Date(bucket.key);
-    const bucketTimeMS = bucketTime.getTime();
-    if (Number.isNaN(bucketTimeMS)) {
-      return true;
-    }
-    return bucketTimeMS >= fromMS && bucketTimeMS <= normalizedSnapshotMS;
-  });
 }
 
 function resolveMaxPaginationPage(pageSize: number): number {
@@ -154,64 +127,18 @@ interface RealtimePageCursor {
   searchAfter?: unknown[];
 }
 
-interface RealtimePrefetchWindow {
-  hits: LogEntry[];
-  total: number;
-  totalIsLowerBound: boolean;
-  queryTimeMS: number;
-  timedOut: boolean;
-  snapshotTo: string;
-}
-
 function cloneSearchAfter(searchAfter?: unknown[]): unknown[] | undefined {
   return Array.isArray(searchAfter) && searchAfter.length > 0 ? [...searchAfter] : undefined;
-}
-
-function resolveRealtimePrefetchPageSize(page: number, pageSize: number, silent?: boolean): number {
-  if (page !== 1 || !silent) {
-    return pageSize;
-  }
-  return Math.max(pageSize, PREFETCH_LOG_WINDOW_SIZE);
-}
-
-function getRealtimePrefetchSlice(windowState: RealtimePrefetchWindow | null, page: number, pageSize: number): LogEntry[] | null {
-  if (!windowState || page <= 0 || pageSize <= 0) {
-    return null;
-  }
-
-  const start = (page - 1) * pageSize;
-  const end = start + pageSize;
-  if (start >= windowState.hits.length || end > windowState.hits.length) {
-    return null;
-  }
-
-  return windowState.hits.slice(start, end);
-}
-
-function resolveRealtimePrefetchPageCount(windowState: RealtimePrefetchWindow | null, pageSize: number): number {
-  if (!windowState || pageSize <= 0) {
-    return 0;
-  }
-  return Math.max(1, Math.ceil(windowState.hits.length / pageSize));
-}
-
-function buildRealtimePageCursor(pitId?: string, searchAfter?: unknown[]): RealtimePageCursor | undefined {
-  const normalizedPitId = pitId?.trim() || undefined;
-  const normalizedSearchAfter = cloneSearchAfter(searchAfter);
-  if (!normalizedPitId && !normalizedSearchAfter) {
-    return undefined;
-  }
-  return {
-    pitId: normalizedPitId,
-    searchAfter: normalizedSearchAfter,
-  };
 }
 
 function cloneRealtimePageCursor(cursor?: RealtimePageCursor): RealtimePageCursor | undefined {
   if (!cursor) {
     return undefined;
   }
-  return buildRealtimePageCursor(cursor.pitId, cursor.searchAfter);
+  return {
+    pitId: cursor.pitId?.trim() || undefined,
+    searchAfter: cloneSearchAfter(cursor.searchAfter),
+  };
 }
 
 function cloneRealtimePageCursorMap(source: Map<number, RealtimePageCursor>): Map<number, RealtimePageCursor> {
@@ -304,7 +231,6 @@ const RealtimeSearch: React.FC = () => {
   const activeQueryRef = useRef(activeQuery);
   const pageSizeRef = useRef(pageSize);
   const currentPageRef = useRef(currentPage);
-  const prefetchedWindowRef = useRef<RealtimePrefetchWindow | null>(null);
   const startupQueryTimerRef = useRef<number | null>(null);
   const lastFilterStateRef = useRef(`${levelFilter}\u0000${sourceFilter}`);
 
@@ -365,11 +291,6 @@ const RealtimeSearch: React.FC = () => {
     const effectiveLiveWindow = options.liveWindowOverride ?? liveWindow;
     const effectiveLevelFilter = options.levelFilterOverride ?? levelFilter;
     const effectiveSourceFilter = options.sourceFilterOverride ?? sourceFilter;
-    const requestedTablePageSize = resolveRealtimePrefetchPageSize(options.page, options.pageSize, options.silent);
-    const shouldPrefetchTableWindow = requestedTablePageSize > options.pageSize;
-    if (options.resetCursor && !shouldPrefetchTableWindow) {
-      prefetchedWindowRef.current = null;
-    }
     const workingCursorMap = options.resetCursor
       ? new Map<number, RealtimePageCursor>()
       : cloneRealtimePageCursorMap(pageCursorMapRef.current);
@@ -392,7 +313,7 @@ const RealtimeSearch: React.FC = () => {
         sourceFilter: effectiveSourceFilter,
         queryText: options.queryText,
       });
-      const realtimeTableTimeRange = buildRealtimeTableTimeRange(snapshotTo);
+      const realtimeTableTimeRange = buildRealtimeTableTimeRange(effectiveLiveWindow, snapshotTo);
       histogramRefreshKey = buildRealtimeHistogramRefreshKey({
         queryText: options.queryText,
         levelFilter: effectiveLevelFilter,
@@ -418,7 +339,7 @@ const RealtimeSearch: React.FC = () => {
 
       const aggregateParams = {
         groupBy: 'minute' as const,
-        timeRange: resolveRealtimeHistogramRequestTimeRange(effectiveLiveWindow),
+        timeRange: HISTOGRAM_TIME_RANGE,
         keywords: options.queryText,
         filters,
       };
@@ -447,7 +368,7 @@ const RealtimeSearch: React.FC = () => {
         const result = await queryRealtimeLogs({
           keywords: options.queryText,
           page: options.page,
-          pageSize: requestedTablePageSize,
+          pageSize: options.pageSize,
           filters,
           timeRange: realtimeTableTimeRange,
           pitId: activeCursor?.pitId,
@@ -463,50 +384,25 @@ const RealtimeSearch: React.FC = () => {
         const effectivePitId = result.pitId?.trim() || activeCursor?.pitId?.trim() || '';
         if (effectivePitId) {
           refreshCursorMapPitID(workingCursorMap, effectivePitId);
+          workingCursorMap.set(1, { pitId: effectivePitId });
+          const currentPageCursor = workingCursorMap.get(result.page);
+          workingCursorMap.set(result.page, {
+            pitId: effectivePitId,
+            searchAfter: cloneSearchAfter(currentPageCursor?.searchAfter),
+          });
+          workingCursorMap.delete(result.page + 1);
+          if (result.nextSearchAfter && result.nextSearchAfter.length > 0) {
+            workingCursorMap.set(result.page + 1, {
+              pitId: effectivePitId,
+              searchAfter: cloneSearchAfter(result.nextSearchAfter),
+            });
+          }
         }
-
-        if (shouldPrefetchTableWindow) {
-          const prefetchedWindow: RealtimePrefetchWindow = {
-            hits: result.hits,
-            total: result.total,
-            totalIsLowerBound: result.totalIsLowerBound,
-            queryTimeMS: result.queryTimeMS,
-            timedOut: result.timedOut,
-            snapshotTo,
-          };
-          prefetchedWindowRef.current = prefetchedWindow;
-          Array.from(workingCursorMap.keys())
-            .filter((pageNumber) => pageNumber > 1)
-            .forEach((pageNumber) => workingCursorMap.delete(pageNumber));
-          const prefetchedPageCount = resolveRealtimePrefetchPageCount(prefetchedWindow, options.pageSize);
-          const nextPrefetchedCursor = buildRealtimePageCursor(effectivePitId, result.nextSearchAfter);
-          if (nextPrefetchedCursor) {
-            workingCursorMap.set(prefetchedPageCount + 1, nextPrefetchedCursor);
-          }
-          const prefetchedRootCursor = buildRealtimePageCursor(effectivePitId);
-          if (prefetchedRootCursor) {
-            workingCursorMap.set(1, prefetchedRootCursor);
-          }
-          setLogs(result.hits.slice(0, options.pageSize));
-        } else {
-          const currentPageCursor = cloneRealtimePageCursor(workingCursorMap.get(options.page)) ?? cloneRealtimePageCursor(activeCursor);
-          const currentCursorPitId = effectivePitId || currentPageCursor?.pitId?.trim() || '';
-          const nextPageCursor = buildRealtimePageCursor(currentCursorPitId, result.nextSearchAfter);
-          const normalizedCurrentCursor = buildRealtimePageCursor(currentCursorPitId, currentPageCursor?.searchAfter);
-          if (normalizedCurrentCursor) {
-            workingCursorMap.set(options.page, normalizedCurrentCursor);
-          }
-          workingCursorMap.delete(options.page + 1);
-          if (nextPageCursor) {
-            workingCursorMap.set(options.page + 1, nextPageCursor);
-          }
-          setLogs(result.hits);
-        }
-
         pageCursorMapRef.current = workingCursorMap;
+        setLogs(result.hits);
         setTotal(result.total);
         setTotalIsLowerBound(result.totalIsLowerBound);
-        setCurrentPage(options.page);
+        setCurrentPage(result.page);
         setQueryTimeMS(result.queryTimeMS);
         setQueryTimedOut(result.timedOut);
         setTableSnapshotTo(snapshotTo);
@@ -570,22 +466,14 @@ const RealtimeSearch: React.FC = () => {
         }
         return isAbortError(result.reason);
       });
-      const canUpdateHistogram = Boolean(resolvedTotalHistogram);
+      const canUpdateHistogram = Boolean(resolvedTotalHistogram)
+        && (effectiveLevelFilter === 'error' || Boolean(effectiveLevelFilter) || Boolean(resolvedErrorHistogram));
 
       if (canUpdateHistogram && resolvedTotalHistogram) {
-        const totalBuckets = filterRealtimeHistogramBucketsByLiveWindow(
-          resolvedTotalHistogram.buckets,
-          effectiveLiveWindow,
-          snapshotTo,
-        );
         const errorBuckets = effectiveLevelFilter === 'error'
-          ? totalBuckets
-          : filterRealtimeHistogramBucketsByLiveWindow(
-            resolvedErrorHistogram?.buckets ?? [],
-            effectiveLiveWindow,
-            snapshotTo,
-          );
-        setHistogramData(buildRealtimeHistogramData(totalBuckets, errorBuckets));
+          ? resolvedTotalHistogram.buckets
+          : resolvedErrorHistogram?.buckets ?? [];
+        setHistogramData(buildRealtimeHistogramData(resolvedTotalHistogram.buckets, errorBuckets));
         setHistogramUsingStaleData(false);
         setHistogramInitialLoading(false);
         lastHistogramRefreshKeyRef.current = histogramRefreshKey;
@@ -801,6 +689,7 @@ const RealtimeSearch: React.FC = () => {
     });
     return Array.from(seen).sort();
   }, [logs]);
+  const totalEvents = useMemo(() => sumRealtimeHistogramEvents(histogramData), [histogramData]);
 
   // 打开日志详情
   const handleRowClick = useCallback((record: LogEntry) => {
@@ -845,17 +734,17 @@ const RealtimeSearch: React.FC = () => {
       return;
     }
     setLiveWindow(value);
+    setCurrentPage(1);
     void executeQuery({
-      queryText: activeQueryRef.current,
-      page: currentPageRef.current,
-      pageSize: pageSizeRef.current,
+      queryText: activeQuery,
+      page: 1,
+      pageSize,
       silent: true,
-      snapshotTo: currentPageRef.current > 1 ? tableSnapshotTo : undefined,
-      resetCursor: currentPageRef.current === 1,
+      resetCursor: true,
       liveWindowOverride: value,
-      histogramRefreshMode: 'force',
+      histogramRefreshMode: 'skip',
     });
-  }, [executeQuery, liveWindow, tableSnapshotTo]);
+  }, [activeQuery, executeQuery, liveWindow, pageSize]);
 
   const handleToggleLive = useCallback(() => {
     if (isLive) {
@@ -1252,6 +1141,7 @@ const RealtimeSearch: React.FC = () => {
       {/* 事件量直方图 */}
       <ChartWrapper
         title="事件量分布"
+        subtitle={`最近 30 分钟 · 共 ${totalEvents.toLocaleString()} 条`}
         loading={histogramInitialLoading && histogramRefreshing && histogramData.length === 0}
         actions={(
           <Space size={8}>
@@ -1287,7 +1177,7 @@ const RealtimeSearch: React.FC = () => {
               options={LIVE_WINDOW_OPTIONS}
             />
             <span className="text-xs opacity-50">
-              共 {formatRealtimeTotal(total, totalIsLowerBound)} 条结果 · 耗时 {queryTimeMS}ms
+              共 {formatRealtimeTotal(total, totalIsLowerBound)} 条结果 · 耗时 {queryTimeMS}ms · 时间窗 {liveWindow}
             </span>
             {tableRefreshing && !initialLoading && <Tag color="processing" style={{ margin: 0 }}>刷新中</Tag>}
             {tableUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次结果</Tag>}
@@ -1332,46 +1222,24 @@ const RealtimeSearch: React.FC = () => {
               const nextPageSize = size ?? pageSize;
               const pageSizeChanged = nextPageSize !== pageSize;
               const targetPage = pageSizeChanged ? 1 : page;
-              const previousPage = currentPage;
-              const previousPageSize = pageSize;
-
-              if (targetPage > 1 && isLiveRef.current) {
-                isLiveRef.current = false;
-                clearLiveTimer();
-                setIsLive(false);
-              }
-
-              const prefetchedWindow = prefetchedWindowRef.current;
-              const prefetchedSlice = !pageSizeChanged
-                ? getRealtimePrefetchSlice(prefetchedWindow, targetPage, nextPageSize)
-                : null;
-              if (prefetchedWindow && prefetchedSlice) {
-                setCurrentPage(targetPage);
-                setLogs(prefetchedSlice);
-                setTotal(prefetchedWindow.total);
-                setTotalIsLowerBound(prefetchedWindow.totalIsLowerBound);
-                setQueryTimeMS(prefetchedWindow.queryTimeMS);
-                setQueryTimedOut(prefetchedWindow.timedOut);
-                setTableSnapshotTo(prefetchedWindow.snapshotTo);
-                setTableUsingStaleData(false);
-                return;
-              }
-
               const maxPaginationPage = resolveMaxPaginationPage(nextPageSize);
               const cachedCursor = cloneRealtimePageCursor(pageCursorMapRef.current.get(targetPage));
               if (targetPage > maxPaginationPage && !cachedCursor) {
                 message.warning(`超过前 ${MAX_PAGINATION_WINDOW_ROWS.toLocaleString()} 条后仅支持顺序深分页；请先逐页浏览到目标页，或返回已访问页。`);
                 return;
               }
-
+              const previousPage = currentPage;
+              const previousPageSize = pageSize;
+              if (targetPage > 1 && isLive) {
+                setIsLive(false);
+              }
               const requestCursor = cachedCursor ?? (targetPage > 1
                 ? cloneRealtimePageCursor(pageCursorMapRef.current.get(1))
                 : undefined);
-              if (pageSizeChanged) {
-                setPageSize(nextPageSize);
-              }
+              setCurrentPage(targetPage);
+              setPageSize(nextPageSize);
               void executeQuery({
-                queryText: activeQueryRef.current,
+                queryText: activeQuery,
                 page: targetPage,
                 pageSize: nextPageSize,
                 silent: false,
