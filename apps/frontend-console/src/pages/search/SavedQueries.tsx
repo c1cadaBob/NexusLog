@@ -5,6 +5,7 @@ import { COLORS } from '../../theme/tokens';
 import type { SavedQuery } from '../../types/log';
 import { createSavedQuery, deleteSavedQuery, fetchSavedQueries, updateSavedQuery } from '../../api/query';
 import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
+import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
 
 type ModalMode = 'create' | 'edit';
 
@@ -28,6 +29,7 @@ const SavedQueries: React.FC = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
   const [editingItem, setEditingItem] = useState<SavedQuery | null>(null);
+  const [cleanupSubmitting, setCleanupSubmitting] = useState(false);
 
   const mergedTags = useMemo(() => {
     const values = new Set<string>(knownTags);
@@ -37,6 +39,25 @@ const SavedQueries: React.FC = () => {
     }
     return Array.from(values).sort((a, b) => a.localeCompare(b, 'zh-CN'));
   }, [knownTags, savedList, selectedTag]);
+
+  const savedQueryDiagnostics = useMemo(() => savedList.map((item) => {
+    const normalized = normalizeRealtimePresetQuery(item.query);
+    const cleanedQuery = buildRealtimePresetQuery({
+      queryText: normalized.queryText,
+      filters: normalized.filters,
+    });
+    return {
+      item,
+      normalized,
+      cleanedQuery,
+      needsCleanup: cleanedQuery !== item.query.trim(),
+    };
+  }), [savedList]);
+
+  const dirtySavedQueries = useMemo(
+    () => savedQueryDiagnostics.filter((entry) => entry.needsCleanup),
+    [savedQueryDiagnostics],
+  );
 
   // 收藏查询改为真实 API 数据源，页面仅做展示和交互。
   const loadSavedQueries = useCallback(async () => {
@@ -96,9 +117,15 @@ const SavedQueries: React.FC = () => {
   const handleSave = useCallback(async () => {
     try {
       const values = await form.validateFields();
+      const rawQuery = String(values.query ?? '').trim();
+      const normalized = normalizeRealtimePresetQuery(rawQuery);
+      const cleanedQuery = buildRealtimePresetQuery({
+        queryText: normalized.queryText,
+        filters: normalized.filters,
+      });
       const payload = {
         name: String(values.name ?? '').trim(),
-        query: String(values.query ?? '').trim(),
+        query: cleanedQuery,
         tags: Array.isArray(values.tags)
           ? values.tags.map((tag: unknown) => String(tag).trim()).filter(Boolean)
           : [],
@@ -108,12 +135,13 @@ const SavedQueries: React.FC = () => {
         return;
       }
 
+      const normalizedChangedQuery = cleanedQuery !== rawQuery;
       if (modalMode === 'create') {
         await createSavedQuery(payload);
-        msg.success('已创建收藏查询');
+        msg.success(normalizedChangedQuery ? '已创建收藏查询，并自动清洗旧格式时间范围' : '已创建收藏查询');
       } else if (editingItem) {
         await updateSavedQuery(editingItem.id, payload);
-        msg.success('已保存修改');
+        msg.success(normalizedChangedQuery ? '已保存修改，并自动清洗旧格式时间范围' : '已保存修改');
       }
 
       setEditModalOpen(false);
@@ -152,20 +180,58 @@ const SavedQueries: React.FC = () => {
   }, [currentPage, loadSavedQueries, msg, savedList.length]);
 
   const handleExecute = useCallback(async (item: SavedQuery) => {
+    const normalized = normalizeRealtimePresetQuery(item.query);
+    const presetQuery = buildRealtimePresetQuery({
+      queryText: normalized.queryText,
+      filters: normalized.filters,
+    });
     try {
-      await navigator.clipboard.writeText(item.query);
+      await navigator.clipboard.writeText(presetQuery);
       msg.success('已执行收藏查询并同步到剪贴板');
     } catch {
-      msg.info(`请在实时检索页执行: ${item.query}`);
+      msg.info(`请在实时检索页执行: ${presetQuery}`);
     }
-    persistPendingRealtimeStartupQuery(item.query);
+    persistPendingRealtimeStartupQuery(presetQuery);
     navigate('/search/realtime', {
       state: {
         autoRun: true,
-        presetQuery: item.query,
+        presetQuery,
       },
     });
   }, [msg, navigate]);
+
+  const handleCleanupDirtyQueries = useCallback(async () => {
+    if (dirtySavedQueries.length === 0) {
+      return;
+    }
+    setCleanupSubmitting(true);
+    try {
+      const results = await Promise.allSettled(dirtySavedQueries.map(({ item, cleanedQuery }) => updateSavedQuery(item.id, {
+        name: item.name,
+        query: cleanedQuery,
+        tags: item.tags,
+      })));
+      let successCount = 0;
+      let failedCount = 0;
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          successCount += 1;
+          return;
+        }
+        failedCount += 1;
+      });
+
+      if (successCount > 0) {
+        msg.success(`已清洗 ${successCount} 条旧格式收藏查询`);
+        void loadSavedQueries();
+      }
+      if (failedCount > 0) {
+        msg.error(`${failedCount} 条收藏查询清洗失败，请稍后重试`);
+      }
+    } finally {
+      setCleanupSubmitting(false);
+    }
+  }, [dirtySavedQueries, loadSavedQueries, msg]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -236,21 +302,37 @@ const SavedQueries: React.FC = () => {
         />
       )}
 
+      {dirtySavedQueries.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message={`检测到 ${dirtySavedQueries.length} 条旧格式收藏查询`}
+          description="这些查询仍包含历史回放遗留的时间范围，执行时虽然已兼容，但建议一键清洗，避免后续继续传播旧格式。"
+          action={(
+            <Button size="small" type="primary" loading={cleanupSubmitting} onClick={() => void handleCleanupDirtyQueries()}>
+              一键清洗
+            </Button>
+          )}
+        />
+      )}
+
       {savedList.length === 0 && !loading ? (
         <Empty description="没有匹配的收藏查询" />
       ) : (
         <>
           <Row gutter={[16, 16]}>
-            {savedList.map((item) => (
+            {savedQueryDiagnostics.map(({ item, normalized, needsCleanup }) => (
               <Col key={item.id} xs={24} md={12} xl={8}>
                 <Card hoverable size="small" styles={{ body: { padding: 16 } }} loading={loading}>
                   <div className="flex flex-col gap-3">
                     <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="material-symbols-outlined text-base" style={{ color: COLORS.warning }}>
                           bookmark
                         </span>
                         <span className="text-sm font-medium">{item.name}</span>
+                        {needsCleanup && <Tag color="warning" style={{ margin: 0 }}>旧格式</Tag>}
+                        {Object.keys(normalized.filters).length > 0 && <Tag color="blue" style={{ margin: 0 }}>含筛选</Tag>}
                       </div>
                       <Space size={0}>
                         <Tooltip title="执行">

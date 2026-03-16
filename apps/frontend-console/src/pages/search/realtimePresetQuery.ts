@@ -1,5 +1,6 @@
 interface NormalizedRealtimePresetQuery {
   queryText: string;
+  filters: Record<string, unknown>;
   levelFilter: string;
   sourceFilter: string;
   strippedTimeRange: boolean;
@@ -61,7 +62,81 @@ function extractTrailingFilters(queryText: string): {
   }
 }
 
+function normalizeRealtimePresetFilters(filters: Record<string, unknown>): Record<string, unknown> {
+  return Object.entries(filters).reduce<Record<string, unknown>>((result, [key, value]) => {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      return result;
+    }
+
+    if (typeof value === 'string') {
+      const trimmedValue = value.trim();
+      if (!trimmedValue) {
+        return result;
+      }
+      result[normalizedKey] = trimmedValue;
+      return result;
+    }
+
+    if (Array.isArray(value)) {
+      const normalizedValues = value
+        .map((item) => (typeof item === 'string' ? item.trim() : item))
+        .filter((item) => item != null && item !== '');
+      if (normalizedValues.length === 0) {
+        return result;
+      }
+      result[normalizedKey] = normalizedValues;
+      return result;
+    }
+
+    if (value && typeof value === 'object') {
+      const normalizedObject = normalizeRealtimePresetFilters(value as Record<string, unknown>);
+      if (Object.keys(normalizedObject).length === 0) {
+        return result;
+      }
+      result[normalizedKey] = normalizedObject;
+      return result;
+    }
+
+    if (value != null) {
+      result[normalizedKey] = value;
+    }
+    return result;
+  }, {});
+}
+
+function sortJSONValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJSONValue(item));
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>)
+      .sort((left, right) => left.localeCompare(right))
+      .reduce<Record<string, unknown>>((result, key) => {
+        result[key] = sortJSONValue((value as Record<string, unknown>)[key]);
+        return result;
+      }, {});
+  }
+  return value;
+}
+
+function hasRealtimePresetFilters(filters: Record<string, unknown>): boolean {
+  return Object.keys(filters).length > 0;
+}
+
 export type { NormalizedRealtimePresetQuery };
+
+export function buildRealtimePresetQuery(params: {
+  queryText: string;
+  filters?: Record<string, unknown>;
+}): string {
+  const queryText = params.queryText.trim();
+  const normalizedFilters = normalizeRealtimePresetFilters(params.filters ?? {});
+  const filtersText = hasRealtimePresetFilters(normalizedFilters)
+    ? `${FILTERS_PREFIX}${JSON.stringify(sortJSONValue(normalizedFilters))}`
+    : '';
+  return [queryText, filtersText].filter(Boolean).join(' ').trim();
+}
 
 export function normalizeRealtimePresetQuery(rawQuery: string): NormalizedRealtimePresetQuery {
   let queryText = rawQuery.trim();
@@ -74,11 +149,13 @@ export function normalizeRealtimePresetQuery(rawQuery: string): NormalizedRealti
   }
 
   const { queryText: queryWithoutFilters, filters, extracted } = extractTrailingFilters(queryText);
+  const normalizedFilters = normalizeRealtimePresetFilters(filters);
 
   return {
     queryText: queryWithoutFilters,
-    levelFilter: normalizeFilterString(filters.level),
-    sourceFilter: normalizeFilterString(filters.service) || normalizeFilterString(filters.source),
+    filters: normalizedFilters,
+    levelFilter: normalizeFilterString(normalizedFilters.level),
+    sourceFilter: normalizeFilterString(normalizedFilters.service) || normalizeFilterString(normalizedFilters.source),
     strippedTimeRange,
     extractedFilters: extracted,
   };

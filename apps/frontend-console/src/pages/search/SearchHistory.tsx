@@ -7,6 +7,7 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import type { QueryHistory } from '../../types/log';
 import { createSavedQuery, deleteQueryHistory, fetchQueryHistory } from '../../api/query';
 import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
+import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 
 const SearchHistory: React.FC = () => {
@@ -118,12 +119,16 @@ const SearchHistory: React.FC = () => {
   const handleBookmark = useCallback(async (record: QueryHistory) => {
     try {
       const now = new Date();
+      const normalized = normalizeRealtimePresetQuery(record.query);
       await createSavedQuery({
         name: `历史查询 ${now.toLocaleString('zh-CN')}`,
-        query: record.query,
+        query: buildRealtimePresetQuery({
+          queryText: normalized.queryText,
+          filters: normalized.filters,
+        }),
         tags: ['历史查询'],
       });
-      message.success('已收藏查询语句');
+      message.success(normalized.strippedTimeRange ? '已收藏查询语句，并自动移除历史时间范围' : '已收藏查询语句');
     } catch (error) {
       const readable = error instanceof Error ? error.message : '收藏失败';
       message.error(readable);
