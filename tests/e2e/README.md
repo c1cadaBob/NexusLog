@@ -18,4 +18,8 @@ E2E_BASE_URL=http://127.0.0.1:4173 pnpm test
 
 > `E2E_BASE_URL` 默认为 `http://127.0.0.1:4173`，可按环境覆盖。
 >
-> `E2E_TENANT_ID` 建议显式传入；若未传入，测试会依次尝试读取 `INGEST_DEFAULT_TENANT_ID` 与仓库根目录下的 `./.runtime/tenant/local-tenant-id`。仓库内不再内置固定演示租户 UUID。
+> Playwright 入口现在会先执行一次本地租户自校验：若未显式传入 `E2E_TENANT_ID`，会调用仓库根目录下的 `scripts/local/ensure-local-tenant-config.sh`，自动修正 `./.runtime/tenant/local-tenant-id` 与 `app-config.local.json` 的漂移问题，再把修正后的租户注入测试进程。
+>
+> 优先级如下：`E2E_TENANT_ID` > 自动同步结果 > `INGEST_DEFAULT_TENANT_ID` > `./.runtime/tenant/local-tenant-id`。
+>
+> 如需关闭这一步自动同步，可显式设置 `E2E_TENANT_AUTO_SYNC=false`。仓库内不再内置固定演示租户 UUID。

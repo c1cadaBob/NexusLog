@@ -3,6 +3,7 @@ const { defineConfig, devices } = require("@playwright/test");
 const baseURL = process.env.E2E_BASE_URL || "http://127.0.0.1:4173";
 
 module.exports = defineConfig({
+  globalSetup: require.resolve("./global-setup"),
   testDir: "./tests",
   fullyParallel: true,
   timeout: 30000,
