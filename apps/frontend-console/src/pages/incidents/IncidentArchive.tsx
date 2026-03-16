@@ -213,6 +213,8 @@ const IncidentArchive: React.FC = () => {
 
       {/* 搜索 */}
       <Input.Search
+        id="incident-archive-search"
+        name="incident-archive-search"
         placeholder="按事件 ID、研判结论搜索..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}

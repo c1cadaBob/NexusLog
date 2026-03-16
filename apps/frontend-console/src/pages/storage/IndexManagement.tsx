@@ -220,6 +220,8 @@ const IndexManagement: React.FC = () => {
         {/* 过滤器 */}
         <div style={{ padding: '16px 24px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, borderBottom: `1px solid ${p.border}` }}>
           <Input
+            id="index-management-search"
+            name="index-management-search"
             prefix={<span className="material-symbols-outlined" style={{ fontSize: 20, color: p.textSecondary }}>search</span>}
             placeholder="输入索引名称..."
             value={search}
@@ -260,6 +262,14 @@ const IndexManagement: React.FC = () => {
             rowSelection={{
               selectedRowKeys,
               onChange: setSelectedRowKeys,
+              getTitleCheckboxProps: () => ({
+                name: 'index-management-select-all',
+                'aria-label': '选择全部索引',
+              }),
+              getCheckboxProps: (record) => ({
+                name: `index-management-select-${record.name}`,
+                'aria-label': `选择索引 ${record.name}`,
+              }),
             }}
             pagination={{
               pageSize,

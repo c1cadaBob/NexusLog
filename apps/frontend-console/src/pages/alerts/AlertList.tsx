@@ -440,6 +440,8 @@ const AlertList: React.FC = () => {
           }}
         >
           <Input
+            id="alert-list-search"
+            name="alert-list-search"
             prefix={<span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>search</span>}
             placeholder="按告警名称、来源搜索..."
             value={search}
@@ -522,6 +524,14 @@ const AlertList: React.FC = () => {
               rowSelection={{
                 selectedRowKeys,
                 onChange: setSelectedRowKeys,
+                getTitleCheckboxProps: () => ({
+                  name: 'alert-list-select-all',
+                  'aria-label': '选择全部告警',
+                }),
+                getCheckboxProps: (record) => ({
+                  name: `alert-list-select-${record.id}`,
+                  'aria-label': `选择告警 ${record.id}`,
+                }),
               }}
               pagination={{
                 current: undefined,
