@@ -43,6 +43,8 @@ const mapStatusFilterToApi = (s: AlertStatus | 'all'): 'firing' | 'acknowledged'
   return undefined;
 };
 
+const POLL_INTERVAL_MS = 30000;
+
 const AlertList: React.FC = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
@@ -65,6 +67,10 @@ const AlertList: React.FC = () => {
   const [batchRunning, setBatchRunning] = useState(false);
   const [singleSilenceTargetID, setSingleSilenceTargetID] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const initialLoadCompletedRef = useRef(false);
+  const lastStatusFilterRef = useRef<AlertStatus | 'all'>(statusFilter);
+  const loadRequestRef = useRef<{ key: string; promise: Promise<void>; seq: number } | null>(null);
+  const latestLoadSeqRef = useRef(0);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['alertList'] ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -77,38 +83,106 @@ const AlertList: React.FC = () => {
     [setStoredPageSize],
   );
 
-  const loadAlerts = useCallback(async () => {
+  const clearPollTimer = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const loadAlerts = useCallback(async (options: { force?: boolean; silent?: boolean } = {}) => {
+    const statusParam = mapStatusFilterToApi(statusFilter);
+    const requestKey = statusParam ?? '__all__';
+
+    if (!options.force && loadRequestRef.current?.key === requestKey) {
+      return loadRequestRef.current.promise;
+    }
+
+    const currentSeq = latestLoadSeqRef.current + 1;
+    latestLoadSeqRef.current = currentSeq;
     setLoading(true);
     setError(null);
-    try {
-      const statusParam = mapStatusFilterToApi(statusFilter);
-      const { items } = await fetchAlertEvents(1, 200, statusParam);
-      setAlerts(items);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : '加载告警列表失败';
-      setError(msg);
-      message.error(msg);
-      setAlerts([]);
-    } finally {
-      setLoading(false);
-    }
+
+    const request = (async () => {
+      try {
+        const { items } = await fetchAlertEvents(1, 200, statusParam);
+        if (latestLoadSeqRef.current !== currentSeq) {
+          return;
+        }
+        setAlerts(items);
+      } catch (err) {
+        if (latestLoadSeqRef.current !== currentSeq) {
+          return;
+        }
+        const msg = err instanceof Error ? err.message : '加载告警列表失败';
+        setError(msg);
+        setAlerts([]);
+        if (!options.silent) {
+          message.error(msg);
+        }
+      } finally {
+        if (loadRequestRef.current?.seq === currentSeq) {
+          loadRequestRef.current = null;
+        }
+        if (latestLoadSeqRef.current === currentSeq) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    loadRequestRef.current = { key: requestKey, promise: request, seq: currentSeq };
+    return request;
   }, [statusFilter]);
 
+  const startPollTimer = useCallback(() => {
+    clearPollTimer();
+    if (document.hidden) {
+      return;
+    }
+    pollRef.current = setInterval(() => {
+      void loadAlerts({ silent: true });
+    }, POLL_INTERVAL_MS);
+  }, [clearPollTimer, loadAlerts]);
+
   useEffect(() => {
-    loadAlerts();
+    if (initialLoadCompletedRef.current) {
+      return;
+    }
+    initialLoadCompletedRef.current = true;
+    void loadAlerts();
   }, [loadAlerts]);
 
   useEffect(() => {
-    pollRef.current = setInterval(() => {
-      loadAlerts();
-    }, 30000);
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
+    if (!initialLoadCompletedRef.current) {
+      return;
+    }
+    if (lastStatusFilterRef.current === statusFilter) {
+      return;
+    }
+    lastStatusFilterRef.current = statusFilter;
+    void loadAlerts({ force: true });
+  }, [loadAlerts, statusFilter]);
+
+  useEffect(() => {
+    startPollTimer();
+    return clearPollTimer;
+  }, [clearPollTimer, startPollTimer]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) {
+        clearPollTimer();
+        return;
       }
+      void loadAlerts({ silent: true });
+      startPollTimer();
     };
-  }, [loadAlerts]);
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [clearPollTimer, loadAlerts, startPollTimer]);
 
   const filteredAlerts = useMemo(() => {
     return alerts.filter((alert) => {
@@ -136,7 +210,7 @@ const AlertList: React.FC = () => {
     try {
       await acknowledgeAlertEvent(id);
       message.success('告警已确认');
-      await loadAlerts();
+      await loadAlerts({ force: true });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '确认告警失败');
     }
@@ -146,7 +220,7 @@ const AlertList: React.FC = () => {
     try {
       await resolveAlertEvent(id);
       message.success('告警已解决');
-      await loadAlerts();
+      await loadAlerts({ force: true });
     } catch (err) {
       message.error(err instanceof Error ? err.message : '解决告警失败');
     }
@@ -189,7 +263,7 @@ const AlertList: React.FC = () => {
           message.success(`已静默 ${targetIDs.length} 条告警`);
         }
         setSelectedRowKeys([]);
-        await loadAlerts();
+        await loadAlerts({ force: true });
       } catch (err) {
         message.error(err instanceof Error ? err.message : '批量操作失败');
       } finally {
@@ -205,7 +279,7 @@ const AlertList: React.FC = () => {
         setBatchRunning(true);
         await silenceAlertEvent(singleSilenceTargetID, { reason: silenceReason, durationSeconds: silenceDuration });
         message.success('告警已静默');
-        await loadAlerts();
+        await loadAlerts({ force: true });
       } else {
         await executeBatch('silence');
       }
@@ -357,7 +431,7 @@ const AlertList: React.FC = () => {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 16 }}>
         <Empty description={error} />
-        <Button type="primary" onClick={loadAlerts}>
+        <Button type="primary" onClick={() => { void loadAlerts({ force: true }); }}>
           重试
         </Button>
       </div>
@@ -376,7 +450,7 @@ const AlertList: React.FC = () => {
             type="text"
             shape="circle"
             icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>refresh</span>}
-            onClick={loadAlerts}
+            onClick={() => { void loadAlerts({ force: true }); }}
           />
           <Badge status="success" text="系统正常" />
         </div>
