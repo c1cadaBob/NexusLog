@@ -3,6 +3,7 @@ import { Input, Table, Tag, Button, Card, Space, Modal, Form, DatePicker, messag
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
+import { useUnnamedFormFieldAccessibility } from '../../components/common/useUnnamedFormFieldAccessibility';
 import {
   fetchAlertSilences,
   createAlertSilence,
@@ -65,6 +66,7 @@ const SilencePolicy: React.FC = () => {
   const [currentSilence, setCurrentSilence] = useState<AlertSilence | null>(null);
   const [matchers, setMatchers] = useState<{ name: string; value: string }[]>([{ name: '', value: '' }]);
   const [submitLoading, setSubmitLoading] = useState(false);
+  const silencePolicyModalRef = useUnnamedFormFieldAccessibility('silence-policy-modal');
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -361,8 +363,10 @@ const SilencePolicy: React.FC = () => {
         width={640}
         confirmLoading={submitLoading}
         destroyOnHidden
+        forceRender
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        <div ref={silencePolicyModalRef}>
+          <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="reason" label="原因/备注" rules={[{ required: true, message: '请输入原因或备注' }]}>
             <Input.TextArea placeholder="输入静默原因或备注" rows={2} />
           </Form.Item>
@@ -414,7 +418,8 @@ const SilencePolicy: React.FC = () => {
               ))}
             </div>
           </div>
-        </Form>
+          </Form>
+        </div>
       </Modal>
 
       {/* 删除确认 */}

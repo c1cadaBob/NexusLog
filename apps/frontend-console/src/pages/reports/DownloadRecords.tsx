@@ -11,6 +11,7 @@ import {
 } from '../../api/export';
 import { resolveDownloadRecordsActionAccess } from './downloadRecordsAuthorization';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
+import { useUnnamedFormFieldAccessibility } from '../../components/common/useUnnamedFormFieldAccessibility';
 
 const FORMAT_OPTIONS = [
   { value: 'csv', label: 'CSV' },
@@ -62,6 +63,7 @@ const DownloadRecords: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [formatFilter, setFormatFilter] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const createExportModalRef = useUnnamedFormFieldAccessibility('download-records-create-export');
   const [createLoading, setCreateLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState<string | null>(null);
   const [form] = Form.useForm();
@@ -433,8 +435,10 @@ const DownloadRecords: React.FC = () => {
         onCancel={() => setShowCreateModal(false)}
         footer={null}
         destroyOnHidden
+        forceRender
       >
-        <Form form={form} layout="vertical" onFinish={handleCreateExport}>
+        <div ref={createExportModalRef}>
+          <Form form={form} layout="vertical" onFinish={handleCreateExport}>
           <Form.Item
             name="query_params"
             label="查询参数 (JSON)"
@@ -465,7 +469,8 @@ const DownloadRecords: React.FC = () => {
               </Button>
             </div>
           </Form.Item>
-        </Form>
+          </Form>
+        </div>
       </Modal>
     </div>
   );

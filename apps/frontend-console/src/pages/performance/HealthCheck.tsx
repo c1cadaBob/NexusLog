@@ -24,6 +24,7 @@ import {
   type CreateResourceThresholdPayload,
 } from '@/api/metrics';
 import InlineLoadingState from '@/components/common/InlineLoadingState';
+import { useUnnamedFormFieldAccessibility } from '@/components/common/useUnnamedFormFieldAccessibility';
 
 const METRIC_OPTIONS = [
   { label: 'CPU 使用率', value: 'cpu_usage_pct' },
@@ -59,6 +60,7 @@ const HealthCheck: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingThreshold, setEditingThreshold] = useState<ResourceThreshold | null>(null);
+  const thresholdModalRef = useUnnamedFormFieldAccessibility('health-threshold-modal');
   const [form] = Form.useForm();
 
   const loadThresholds = useCallback(async () => {
@@ -257,8 +259,10 @@ const HealthCheck: React.FC = () => {
         onOk={handleModalOk}
         onCancel={() => setModalOpen(false)}
         destroyOnHidden
+        forceRender
       >
-        <Form form={form} layout="vertical">
+        <div ref={thresholdModalRef}>
+          <Form form={form} layout="vertical">
           <Form.Item
             name="metric_name"
             label="指标"
@@ -289,7 +293,8 @@ const HealthCheck: React.FC = () => {
           <Form.Item name="enabled" label="启用" valuePropName="checked" initialValue={true}>
             <Switch />
           </Form.Item>
-        </Form>
+          </Form>
+        </div>
       </Modal>
     </div>
   );

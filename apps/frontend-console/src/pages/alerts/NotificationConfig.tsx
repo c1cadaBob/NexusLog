@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Button, Card, Tag, Modal, Form, Input, Select, Checkbox, Space, message, Spin, Empty } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
+import { useUnnamedFormFieldAccessibility } from '../../components/common/useUnnamedFormFieldAccessibility';
 import type { NotificationChannel } from '../../types/alert';
 import {
   fetchNotificationChannels,
@@ -55,6 +56,7 @@ const NotificationConfig: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const notificationChannelModalRef = useUnnamedFormFieldAccessibility('notification-channel-modal');
   const [currentChannel, setCurrentChannel] = useState<NotificationChannel | null>(null);
   const [channelType, setChannelType] = useState<SupportedChannelType>('email');
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -379,9 +381,11 @@ const NotificationConfig: React.FC = () => {
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
         destroyOnHidden
+        forceRender
         confirmLoading={submitting}
       >
-        <Form
+        <div ref={notificationChannelModalRef}>
+          <Form
           form={form}
           layout="vertical"
           style={{ marginTop: 16 }}
@@ -390,7 +394,7 @@ const NotificationConfig: React.FC = () => {
           }}
         >
           <Form.Item name="name" label="渠道名称" rules={[{ required: true, message: '请输入渠道名称' }]}>
-            <Input placeholder="输入渠道名称" />
+            <Input placeholder="输入渠道名称" autoComplete="off" />
           </Form.Item>
           <Form.Item name="type" label="渠道类型" initialValue="email">
             <Select
@@ -405,22 +409,22 @@ const NotificationConfig: React.FC = () => {
           {channelType === 'email' && (
             <>
               <Form.Item name="smtpHost" label="SMTP 服务器" rules={[{ required: true, message: '请输入 SMTP 服务器' }]}>
-                <Input placeholder="smtp.example.com" />
+                <Input placeholder="smtp.example.com" autoComplete="off" />
               </Form.Item>
               <Form.Item name="smtpPort" label="SMTP 端口" rules={[{ required: true, message: '请输入端口' }]} initialValue={587}>
-                <Input type="number" placeholder="587" />
+                <Input type="number" placeholder="587" autoComplete="off" />
               </Form.Item>
               <Form.Item name="smtpUsername" label="SMTP 用户名">
-                <Input placeholder="user@example.com" />
+                <Input placeholder="user@example.com" autoComplete="username" />
               </Form.Item>
               <Form.Item name="smtpPassword" label="SMTP 密码">
-                <Input.Password placeholder="密码" />
+                <Input.Password placeholder="密码" autoComplete="new-password" />
               </Form.Item>
               <Form.Item name="fromEmail" label="发件人地址" rules={[{ required: true, message: '请输入发件人地址' }]}>
-                <Input placeholder="alerts@example.com" />
+                <Input placeholder="alerts@example.com" autoComplete="email" />
               </Form.Item>
               <Form.Item name="fromName" label="发件人名称">
-                <Input placeholder="NexusLog Alerts" />
+                <Input placeholder="NexusLog Alerts" autoComplete="off" />
               </Form.Item>
               <Form.Item name="useTls" valuePropName="checked" initialValue={true}>
                 <Checkbox>使用 TLS</Checkbox>
@@ -430,23 +434,24 @@ const NotificationConfig: React.FC = () => {
           {channelType === 'dingtalk' && (
             <>
               <Form.Item name="webhookUrl" label="Webhook URL">
-                <Input placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
+                <Input placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." autoComplete="url" />
               </Form.Item>
               <Form.Item name="accessToken" label="Access Token（二选一）">
-                <Input placeholder="机器人 access_token" />
+                <Input placeholder="机器人 access_token" autoComplete="off" />
               </Form.Item>
             </>
           )}
           {channelType === 'sms' && (
             <Form.Item name="provider" label="提供商" rules={[{ required: true, message: '请输入提供商' }]}>
-              <Input placeholder="如: aliyun, tencent" />
+              <Input placeholder="如: aliyun, tencent" autoComplete="organization" />
             </Form.Item>
           )}
 
           <Form.Item name="enabled" valuePropName="checked" initialValue={true}>
             <Checkbox>启用此渠道</Checkbox>
           </Form.Item>
-        </Form>
+          </Form>
+        </div>
       </Modal>
 
       <Modal

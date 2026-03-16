@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Input, Select, Table, Tag, Button, Card, Space, Modal, Form, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
+import { useUnnamedFormFieldAccessibility } from '../../components/common/useUnnamedFormFieldAccessibility';
 
 // ============================================================================
 // 类型与模拟数据
@@ -54,6 +55,8 @@ const WebhookManagement: React.FC = () => {
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [selectedWebhook, setSelectedWebhook] = useState<Webhook | null>(null);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const createWebhookModalRef = useUnnamedFormFieldAccessibility('webhook-create-modal');
+  const editWebhookModalRef = useUnnamedFormFieldAccessibility('webhook-edit-modal');
   const [isTesting, setIsTesting] = useState(false);
 
   // 分页
@@ -127,12 +130,35 @@ const WebhookManagement: React.FC = () => {
     setIsTesting(false);
   }, []);
 
+  const openCreate = useCallback(() => {
+    setSelectedWebhook(null);
+    setCreateModalOpen(true);
+  }, []);
+
   // 打开编辑
   const openEdit = useCallback((wh: Webhook) => {
     setSelectedWebhook(wh);
-    form.setFieldsValue({ name: wh.name, url: wh.url, trigger: wh.trigger });
     setEditModalOpen(true);
-  }, [form]);
+  }, []);
+
+  useEffect(() => {
+    if (!createModalOpen) {
+      return;
+    }
+    form.resetFields();
+    form.setFieldsValue({ trigger: '告警触发' });
+  }, [createModalOpen, form]);
+
+  useEffect(() => {
+    if (!editModalOpen || !selectedWebhook) {
+      return;
+    }
+    form.setFieldsValue({
+      name: selectedWebhook.name,
+      url: selectedWebhook.url,
+      trigger: selectedWebhook.trigger,
+    });
+  }, [editModalOpen, form, selectedWebhook]);
 
   // 表格列
   const columns: ColumnsType<Webhook> = [
@@ -215,18 +241,20 @@ const WebhookManagement: React.FC = () => {
   ];
 
   // 表单
-  const renderForm = () => (
-    <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+  const renderForm = (containerRef?: React.RefObject<HTMLDivElement | null>) => (
+    <div ref={containerRef}>
+      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
       <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入 Webhook 名称' }]}>
-        <Input placeholder="例如：告警通知推送" />
+        <Input placeholder="例如：告警通知推送" autoComplete="off" />
       </Form.Item>
       <Form.Item name="url" label="目标 URL" rules={[{ required: true, message: '请输入目标 URL' }, { type: 'url', message: '请输入有效的 URL' }]}>
-        <Input placeholder="https://example.com/webhook" />
+        <Input placeholder="https://example.com/webhook" autoComplete="url" />
       </Form.Item>
-      <Form.Item name="trigger" label="触发事件" initialValue="告警触发" rules={[{ required: true }]}>
+      <Form.Item name="trigger" label="触发事件" rules={[{ required: true }]}>
         <Select options={triggerOptions} />
       </Form.Item>
-    </Form>
+      </Form>
+    </div>
   );
 
   return (
@@ -244,7 +272,7 @@ const WebhookManagement: React.FC = () => {
             开发文档
           </Button>
           <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>}
-            onClick={() => { form.resetFields(); setCreateModalOpen(true); }}>
+            onClick={openCreate}>
             新建 Webhook
           </Button>
         </div>
@@ -254,10 +282,13 @@ const WebhookManagement: React.FC = () => {
       <Card size="small" styles={{ body: { padding: 16 } }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <Input
+            id="webhook-management-search"
+            name="webhook-management-search"
             prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>}
             placeholder="搜索 Webhook 名称或目标 URL..."
             value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             style={{ maxWidth: 400 }} allowClear
+            autoComplete="off"
           />
           <Space>
             <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 160 }}
@@ -321,13 +352,13 @@ const WebhookManagement: React.FC = () => {
       {/* 创建模态框 */}
       <Modal open={createModalOpen} title="新建 Webhook" onCancel={() => setCreateModalOpen(false)}
         onOk={handleCreate} okText="创建" cancelText="取消" width={520} destroyOnHidden>
-        {renderForm()}
+        {renderForm(createWebhookModalRef)}
       </Modal>
 
       {/* 编辑模态框 */}
       <Modal open={editModalOpen} title="编辑 Webhook" onCancel={() => setEditModalOpen(false)}
         onOk={handleEdit} okText="保存" cancelText="取消" width={520} destroyOnHidden>
-        {renderForm()}
+        {renderForm(editWebhookModalRef)}
       </Modal>
 
       {/* 删除确认 */}
