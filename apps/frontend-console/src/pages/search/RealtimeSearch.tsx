@@ -23,8 +23,8 @@ import {
   shouldRefreshRealtimeHistogram,
   type RealtimeHistogramRefreshMode,
 } from './realtimeRefreshPolicy';
-import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
-import { buildQueryCleanupPreviewFilters } from './queryCleanupPreview';
+import { normalizeRealtimePresetQuery } from './realtimePresetQuery';
+import { buildQueryCleanupFallbackFilters, buildQueryCleanupState } from './queryCleanupState';
 
 // ============================================================================
 // 本地 UI 辅助数据
@@ -770,53 +770,32 @@ const RealtimeSearch: React.FC = () => {
   const handleBookmarkCurrentQuery = useCallback(() => {
     const now = new Date();
     const rawQuery = query.trim();
-    const normalizedQuery = normalizeRealtimePresetQuery(rawQuery);
-    const selectedFilters: Record<string, unknown> = {};
-
-    if (!normalizedQuery.extractedFilters) {
-      const normalizedLevelFilter = levelFilter.trim();
-      const normalizedSourceFilter = sourceFilter.trim();
-      if (normalizedLevelFilter) {
-        selectedFilters.level = normalizedLevelFilter;
-      }
-      if (normalizedSourceFilter) {
-        selectedFilters.service = normalizedSourceFilter;
-      }
-    }
-
-    const effectiveFilters = normalizedQuery.extractedFilters ? normalizedQuery.filters : selectedFilters;
-    const cleanedQuery = buildRealtimePresetQuery({
-      queryText: normalizedQuery.queryText,
-      filters: effectiveFilters,
+    const fallbackFilters = buildQueryCleanupFallbackFilters({
+      levelFilter,
+      sourceFilter,
+    });
+    const cleanupState = buildQueryCleanupState({
+      rawQuery,
+      fallbackFilters,
     });
 
-    if (!cleanedQuery) {
+    if (!cleanupState.cleanedQuery) {
       message.warning('请先输入查询语句或选择筛选条件');
       return;
     }
-
-    const comparisonBaseQuery = normalizedQuery.extractedFilters
-      ? rawQuery
-      : buildRealtimePresetQuery({
-        queryText: rawQuery,
-        filters: selectedFilters,
-      });
-    const shouldConfirmCleanup = cleanedQuery !== comparisonBaseQuery;
-    const previewFilters = buildQueryCleanupPreviewFilters(effectiveFilters);
-    const filterCount = previewFilters.length;
 
     const persistBookmark = async () => {
       try {
         await createSavedQuery({
           name: `实时查询 ${now.toLocaleString('zh-CN')}`,
-          query: cleanedQuery,
+          query: cleanupState.cleanedQuery,
           tags: [],
         });
-        if (normalizedQuery.strippedTimeRange) {
+        if (cleanupState.normalized.strippedTimeRange) {
           message.success('已收藏当前查询，并自动移除旧格式时间范围');
           return;
         }
-        if (shouldConfirmCleanup) {
+        if (cleanupState.needsCleanup) {
           message.success('已收藏当前查询，并自动规范旧格式查询');
           return;
         }
@@ -827,7 +806,7 @@ const RealtimeSearch: React.FC = () => {
       }
     };
 
-    if (!shouldConfirmCleanup) {
+    if (!cleanupState.needsCleanup) {
       void persistBookmark();
       return;
     }
@@ -841,14 +820,14 @@ const RealtimeSearch: React.FC = () => {
         <div className="flex flex-col gap-3">
           <div className="text-sm opacity-80">当前输入包含旧格式时间范围或遗留筛选表达式。为避免后续继续传播旧格式，收藏时将仅保留可复用的查询语义。</div>
           <div className="flex gap-2 flex-wrap">
-            {normalizedQuery.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
-            {filterCount > 0 && <Tag color="blue" style={{ margin: 0 }}>保留 {filterCount} 个筛选条件</Tag>}
+            {cleanupState.normalized.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
+            {cleanupState.filterCount > 0 && <Tag color="blue" style={{ margin: 0 }}>保留 {cleanupState.filterCount} 个筛选条件</Tag>}
           </div>
-          {previewFilters.length > 0 && (
+          {cleanupState.previewFilters.length > 0 && (
             <div className="flex flex-col gap-1">
               <div className="text-xs opacity-60">保留筛选</div>
               <div className="flex gap-2 flex-wrap">
-                {previewFilters.map((filter) => (
+                {cleanupState.previewFilters.map((filter) => (
                   <Tag key={filter.key} color="blue" style={{ margin: 0 }}>
                     {filter.label}: {filter.value}
                   </Tag>
@@ -865,7 +844,7 @@ const RealtimeSearch: React.FC = () => {
           <div className="flex flex-col gap-1">
             <div className="text-xs opacity-60">收藏后写入</div>
             <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.06)' }}>
-              {cleanedQuery}
+              {cleanupState.cleanedQuery}
             </div>
           </div>
         </div>

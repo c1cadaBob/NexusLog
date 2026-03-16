@@ -7,8 +7,7 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import type { QueryHistory } from '../../types/log';
 import { createSavedQuery, deleteQueryHistory, fetchQueryHistory } from '../../api/query';
 import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
-import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
-import { buildQueryCleanupPreviewFilters } from './queryCleanupPreview';
+import { buildQueryCleanupState } from './queryCleanupState';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 
 const SearchHistory: React.FC = () => {
@@ -119,28 +118,22 @@ const SearchHistory: React.FC = () => {
 
   const handleBookmark = useCallback((record: QueryHistory) => {
     const now = new Date();
-    const normalized = normalizeRealtimePresetQuery(record.query);
-    const cleanedQuery = buildRealtimePresetQuery({
-      queryText: normalized.queryText,
-      filters: normalized.filters,
-    });
-    const shouldConfirmCleanup = cleanedQuery !== record.query.trim();
-    const previewFilters = buildQueryCleanupPreviewFilters(normalized.filters);
+    const cleanupState = buildQueryCleanupState({ rawQuery: record.query });
     const persistBookmark = async () => {
       try {
         await createSavedQuery({
           name: `历史查询 ${now.toLocaleString('zh-CN')}`,
-          query: cleanedQuery,
+          query: cleanupState.cleanedQuery,
           tags: ['历史查询'],
         });
-        message.success(normalized.strippedTimeRange ? '已收藏查询语句，并自动移除历史时间范围' : '已收藏查询语句');
+        message.success(cleanupState.normalized.strippedTimeRange ? '已收藏查询语句，并自动移除历史时间范围' : '已收藏查询语句');
       } catch (error) {
         const readable = error instanceof Error ? error.message : '收藏失败';
         message.error(readable);
       }
     };
 
-    if (!shouldConfirmCleanup) {
+    if (!cleanupState.needsCleanup) {
       void persistBookmark();
       return;
     }
@@ -154,14 +147,14 @@ const SearchHistory: React.FC = () => {
         <div className="flex flex-col gap-3">
           <div className="text-sm opacity-80">该历史查询包含回放遗留的时间范围。为避免后续继续传播旧格式，收藏时将仅保留可复用的查询语义。</div>
           <div className="flex gap-2 flex-wrap">
-            {normalized.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
-            {previewFilters.length > 0 && <Tag color="blue" style={{ margin: 0 }}>保留 {previewFilters.length} 个筛选条件</Tag>}
+            {cleanupState.normalized.strippedTimeRange && <Tag color="warning" style={{ margin: 0 }}>将移除历史时间范围</Tag>}
+            {cleanupState.previewFilters.length > 0 && <Tag color="blue" style={{ margin: 0 }}>保留 {cleanupState.previewFilters.length} 个筛选条件</Tag>}
           </div>
-          {previewFilters.length > 0 && (
+          {cleanupState.previewFilters.length > 0 && (
             <div className="flex flex-col gap-1">
               <div className="text-xs opacity-60">保留筛选</div>
               <div className="flex gap-2 flex-wrap">
-                {previewFilters.map((filter) => (
+                {cleanupState.previewFilters.map((filter) => (
                   <Tag key={filter.key} color="blue" style={{ margin: 0 }}>
                     {filter.label}: {filter.value}
                   </Tag>
@@ -178,7 +171,7 @@ const SearchHistory: React.FC = () => {
           <div className="flex flex-col gap-1">
             <div className="text-xs opacity-60">收藏后写入</div>
             <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.06)' }}>
-              {cleanedQuery}
+              {cleanupState.cleanedQuery}
             </div>
           </div>
         </div>

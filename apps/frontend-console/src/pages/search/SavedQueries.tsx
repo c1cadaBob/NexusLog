@@ -5,8 +5,7 @@ import { COLORS } from '../../theme/tokens';
 import type { SavedQuery } from '../../types/log';
 import { createSavedQuery, deleteSavedQuery, fetchSavedQueries, updateSavedQuery } from '../../api/query';
 import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
-import { buildRealtimePresetQuery, normalizeRealtimePresetQuery } from './realtimePresetQuery';
-import { buildQueryCleanupPreviewFilters } from './queryCleanupPreview';
+import { buildQueryCleanupState } from './queryCleanupState';
 
 type ModalMode = 'create' | 'edit';
 
@@ -42,21 +41,10 @@ const SavedQueries: React.FC = () => {
     return Array.from(values).sort((a, b) => a.localeCompare(b, 'zh-CN'));
   }, [knownTags, savedList, selectedTag]);
 
-  const savedQueryDiagnostics = useMemo(() => savedList.map((item) => {
-    const normalized = normalizeRealtimePresetQuery(item.query);
-    const cleanedQuery = buildRealtimePresetQuery({
-      queryText: normalized.queryText,
-      filters: normalized.filters,
-    });
-    const previewFilters = buildQueryCleanupPreviewFilters(normalized.filters);
-    return {
-      item,
-      normalized,
-      cleanedQuery,
-      needsCleanup: cleanedQuery !== item.query.trim(),
-      previewFilters,
-    };
-  }), [savedList]);
+  const savedQueryDiagnostics = useMemo(() => savedList.map((item) => ({
+    item,
+    ...buildQueryCleanupState({ rawQuery: item.query }),
+  })), [savedList]);
 
   const dirtySavedQueries = useMemo(
     () => savedQueryDiagnostics.filter((entry) => entry.needsCleanup),
@@ -69,25 +57,8 @@ const SavedQueries: React.FC = () => {
       return null;
     }
 
-    const normalized = normalizeRealtimePresetQuery(rawQuery);
-    const cleanedQuery = buildRealtimePresetQuery({
-      queryText: normalized.queryText,
-      filters: normalized.filters,
-    });
-
-    if (cleanedQuery === rawQuery) {
-      return null;
-    }
-
-    const previewFilters = buildQueryCleanupPreviewFilters(normalized.filters);
-
-    return {
-      cleanedQuery,
-      strippedTimeRange: normalized.strippedTimeRange,
-      extractedFilters: normalized.extractedFilters,
-      filterCount: previewFilters.length,
-      previewFilters,
-    };
+    const cleanupState = buildQueryCleanupState({ rawQuery });
+    return cleanupState.needsCleanup ? cleanupState : null;
   }, [watchedModalQuery]);
 
   // 收藏查询改为真实 API 数据源，页面仅做展示和交互。
@@ -149,11 +120,8 @@ const SavedQueries: React.FC = () => {
     try {
       const values = await form.validateFields();
       const rawQuery = String(values.query ?? '').trim();
-      const normalized = normalizeRealtimePresetQuery(rawQuery);
-      const cleanedQuery = buildRealtimePresetQuery({
-        queryText: normalized.queryText,
-        filters: normalized.filters,
-      });
+      const cleanupState = buildQueryCleanupState({ rawQuery });
+      const cleanedQuery = cleanupState.cleanedQuery;
       const payload = {
         name: String(values.name ?? '').trim(),
         query: cleanedQuery,
@@ -166,7 +134,7 @@ const SavedQueries: React.FC = () => {
         return;
       }
 
-      const normalizedChangedQuery = cleanedQuery !== rawQuery;
+      const normalizedChangedQuery = cleanupState.needsCleanup;
       if (modalMode === 'create') {
         await createSavedQuery(payload);
         msg.success(normalizedChangedQuery ? '已创建收藏查询，并自动清洗旧格式时间范围' : '已创建收藏查询');
