@@ -61,6 +61,14 @@ func TestStatsServiceAggregate_UsesMinuteHistogramAndStructuredQuery(t *testing.
 		t.Fatalf("unexpected first bucket: %+v", result.Buckets[0])
 	}
 
+	trackTotalHits, ok := captured["track_total_hits"].(bool)
+	if !ok {
+		t.Fatalf("request track_total_hits missing: %#v", captured)
+	}
+	if trackTotalHits {
+		t.Fatalf("track_total_hits = %v, want false", trackTotalHits)
+	}
+
 	aggs, ok := captured["aggs"].(map[string]any)
 	if !ok {
 		t.Fatalf("request aggs missing: %#v", captured)

@@ -522,9 +522,10 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 	}
 
 	body := map[string]any{
-		"size":  0,
-		"query": query,
-		"aggs":  aggs,
+		"track_total_hits": false,
+		"size":             0,
+		"query":            query,
+		"aggs":             aggs,
 	}
 
 	result, err := s.esRepo.SearchWithBody(ctx, body)

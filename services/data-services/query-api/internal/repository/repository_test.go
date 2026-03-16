@@ -292,6 +292,72 @@ func sortOptions(t *testing.T, clause map[string]any, field string) map[string]a
 	return options
 }
 
+func TestSearchLogs_FirstPageSkipsAutoPIT(t *testing.T) {
+	var pitCalls int
+	var capturedSearch map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/nexuslog-logs-read/_pit":
+			pitCalls++
+			http.Error(w, "unexpected pit open", http.StatusBadRequest)
+		case r.Method == http.MethodPost && r.URL.Path == "/nexuslog-logs-read/_search":
+			if err := json.NewDecoder(r.Body).Decode(&capturedSearch); err != nil {
+				t.Fatalf("decode search body failed: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"took": 5,
+				"timed_out": false,
+				"hits": {
+					"total": {"value": 42},
+					"hits": [
+						{
+							"_id": "log-first-page",
+							"_index": "nexuslog-logs-read",
+							"sort": ["2026-03-13T08:00:00Z", 99],
+							"_source": {"message": "hello first page"}
+						}
+					]
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	result, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		TenantID: "tenant-a",
+		Page:     1,
+		PageSize: 20,
+		Sort:     []SortField{{Field: "@timestamp", Order: "desc"}},
+	})
+	if err != nil {
+		t.Fatalf("SearchLogs() error = %v", err)
+	}
+	if pitCalls != 0 {
+		t.Fatalf("pitCalls=%d, want 0", pitCalls)
+	}
+	if _, exists := capturedSearch["pit"]; exists {
+		t.Fatalf("pit should be omitted for first page realtime-style query: %#v", capturedSearch)
+	}
+	if got := capturedSearch["from"]; got != float64(0) {
+		t.Fatalf("from=%v, want 0", got)
+	}
+	if result.PITID != "" {
+		t.Fatalf("result.PITID=%q, want empty", result.PITID)
+	}
+	if len(result.NextSearchAfter) != 2 {
+		t.Fatalf("len(result.NextSearchAfter)=%d, want 2", len(result.NextSearchAfter))
+	}
+}
+
 func TestSearchLogs_OpensPITAndReturnsNextSearchAfter(t *testing.T) {
 	var pitCalls int
 	var capturedSearch map[string]any

@@ -137,7 +137,7 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 
 	pitID := strings.TrimSpace(in.PITID)
 	usePIT := pitID != ""
-	if !usePIT {
+	if !usePIT && shouldAutoOpenPIT(in) {
 		openedPIT, err := r.openPointInTime(ctx, defaultPITKeepAlive)
 		if err == nil {
 			pitID = openedPIT
@@ -325,6 +325,13 @@ func (r *ElasticsearchRepository) executeSearch(ctx context.Context, endpoint st
 		return esSearchResponse{}, fmt.Errorf("decode es response: %w", err)
 	}
 	return parsed, nil
+}
+
+func shouldAutoOpenPIT(in SearchLogsInput) bool {
+	if len(in.SearchAfter) > 0 {
+		return true
+	}
+	return in.Page > 1
 }
 
 func isRetryablePITError(err error) bool {
