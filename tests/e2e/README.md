@@ -19,18 +19,21 @@ E2E_BASE_URL=http://127.0.0.1:4173 pnpm test
 或直接在仓库根目录执行统一入口：
 
 ```bash
+make e2e-list
 make e2e-smoke
 ```
 
 默认会使用 `E2E_BASE_URL=http://127.0.0.1:3000` 与 `playwright.config.js`；如需切到系统 Chrome，可显式传入：
 
 ```bash
+make e2e-list E2E_PLAYWRIGHT_CONFIG=playwright.chrome.config.js
 make e2e-smoke E2E_PLAYWRIGHT_CONFIG=playwright.chrome.config.js
 ```
 
 或直接使用单独的系统 Chrome 入口：
 
 ```bash
+make e2e-list-chrome
 make e2e-smoke-chrome
 ```
 
@@ -38,6 +41,7 @@ make e2e-smoke-chrome
 
 ```bash
 make e2e-smoke-headed
+make e2e-smoke-headed-chrome
 ```
 
 > `E2E_BASE_URL` 默认为 `http://127.0.0.1:4173`，可按环境覆盖。

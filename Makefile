@@ -6,7 +6,7 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push test-contracts stream-install-es stream-register-schemas stream-deploy-local stream-bootstrap-local stream-compare
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-smoke e2e-smoke-chrome e2e-smoke-headed local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-chrome e2e-smoke e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
@@ -242,13 +242,24 @@ dev-test-smoke:
 	fi; \
 	echo "✅ dev 冒烟检查通过"
 
-## 执行 E2E 冒烟检查（自动同步租户）
-e2e-smoke:
-	@echo "🧪 执行 E2E 冒烟检查..."
+## 列出 E2E 用例（自动同步租户）
+e2e-list:
+	@echo "📋 列出 E2E 用例..."
 	@cd $(E2E_DIR) && \
 		E2E_BASE_URL="$(E2E_BASE_URL)" \
 		E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)" \
-		npx playwright test --config="$(E2E_PLAYWRIGHT_CONFIG)" --list && \
+		npx playwright test --config="$(E2E_PLAYWRIGHT_CONFIG)" --list
+
+## 列出 E2E 用例（系统 Chrome）
+e2e-list-chrome:
+	@echo "📋 列出 E2E 用例（Chrome）..."
+	@$(MAKE) e2e-list E2E_PLAYWRIGHT_CONFIG=playwright.chrome.config.js E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+
+## 执行 E2E 冒烟检查（自动同步租户）
+e2e-smoke:
+	@echo "🧪 执行 E2E 冒烟检查..."
+	@$(MAKE) e2e-list E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
+	@cd $(E2E_DIR) && \
 		E2E_BASE_URL="$(E2E_BASE_URL)" \
 		E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)" \
 		npx playwright test --config="$(E2E_PLAYWRIGHT_CONFIG)" tests/smoke.spec.js
@@ -262,14 +273,17 @@ e2e-smoke-chrome:
 ## 执行 E2E 冒烟检查（有界面 / XVFB）
 e2e-smoke-headed:
 	@echo "🧪 执行 E2E 冒烟检查（Headed）..."
+	@$(MAKE) e2e-list E2E_PLAYWRIGHT_CONFIG="$(E2E_PLAYWRIGHT_CONFIG)" E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
 	@cd $(E2E_DIR) && \
-		E2E_BASE_URL="$(E2E_BASE_URL)" \
-		E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)" \
-		npx playwright test --config="$(E2E_PLAYWRIGHT_CONFIG)" --list && \
 		E2E_BASE_URL="$(E2E_BASE_URL)" \
 		E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)" \
 		xvfb-run -a npx playwright test --headed --config="$(E2E_PLAYWRIGHT_CONFIG)" tests/smoke.spec.js
 	@echo "✅ E2E Headed 冒烟检查通过"
+
+## 执行 E2E 冒烟检查（有界面 / XVFB / 系统 Chrome）
+e2e-smoke-headed-chrome:
+	@echo "🧪 执行 E2E 冒烟检查（Headed + Chrome）..."
+	@$(MAKE) e2e-smoke-headed E2E_PLAYWRIGHT_CONFIG=playwright.chrome.config.js E2E_BASE_URL="$(E2E_BASE_URL)" E2E_TENANT_AUTO_SYNC="$(E2E_TENANT_AUTO_SYNC)"
 
 ## 对正在运行的本地环境补齐数据库迁移（等待 postgres ready 后执行）
 local-db-migrate-up:
@@ -430,9 +444,12 @@ help:
 	@echo "  make dev-down       - 停止 dev 热更新环境"
 	@echo "  make dev-logs       - 查看 dev 热更新日志"
 	@echo "  make dev-test-smoke - 执行 dev 冒烟检查"
+	@echo "  make e2e-list [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 列出 Playwright E2E 用例"
+	@echo "  make e2e-list-chrome [E2E_BASE_URL=http://127.0.0.1:3000] - 使用系统 Chrome 列出 Playwright E2E 用例"
 	@echo "  make e2e-smoke [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 执行 Playwright E2E 冒烟检查"
 	@echo "  make e2e-smoke-chrome [E2E_BASE_URL=http://127.0.0.1:3000] - 使用系统 Chrome 执行 Playwright E2E 冒烟检查"
 	@echo "  make e2e-smoke-headed [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 通过 XVFB 执行有界面 Playwright E2E 冒烟检查"
+	@echo "  make e2e-smoke-headed-chrome [E2E_BASE_URL=http://127.0.0.1:3000] - 通过 XVFB + 系统 Chrome 执行有界面 Playwright E2E 冒烟检查"
 	@echo "  make api-register-smoke SMOKE_TENANT_ID=<uuid> [API_BASE_URL=http://localhost:8085] - 执行注册接口冒烟"
 	@echo "  make api-auth-storage-verify TEST_DB_DSN=<dsn> VERIFY_TENANT_ID=<uuid> VERIFY_USERNAME=<name> - 执行认证落库核验"
 	@echo "  make api-auth-chain-test [TEST_DB_DSN=<dsn>] [TEST_REGEX=<regex>] [KEEP_ENV=1] - 执行认证链路自动化测试（成功/失败）"
