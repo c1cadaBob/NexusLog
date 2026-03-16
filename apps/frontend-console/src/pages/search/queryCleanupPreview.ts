@@ -1,3 +1,5 @@
+import type { RealtimeQueryFilters, RealtimeQueryFilterValue } from './realtimeQueryFilterTypes';
+
 export type QueryCleanupPreviewFilter = {
   key: string;
   label: string;
@@ -17,9 +19,9 @@ export function formatQueryCleanupFilterLabel(key: string): string {
   }
 }
 
-export function formatQueryCleanupFilterValue(value: unknown): string {
+export function formatQueryCleanupFilterValue(value: RealtimeQueryFilterValue): string {
   if (Array.isArray(value)) {
-    return value.map((item) => String(item)).join(', ');
+    return value.map((item) => formatQueryCleanupFilterValue(item)).join(', ');
   }
   if (value && typeof value === 'object') {
     try {
@@ -28,10 +30,10 @@ export function formatQueryCleanupFilterValue(value: unknown): string {
       return String(value);
     }
   }
-  return String(value ?? '');
+  return String(value);
 }
 
-export function buildQueryCleanupPreviewFilters(filters: Record<string, unknown>): QueryCleanupPreviewFilter[] {
+export function buildQueryCleanupPreviewFilters(filters: RealtimeQueryFilters): QueryCleanupPreviewFilter[] {
   return Object.entries(filters)
     .filter(([, value]) => value != null && value !== '' && (!Array.isArray(value) || value.length > 0))
     .sort(([left], [right]) => left.localeCompare(right))

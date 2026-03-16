@@ -47,4 +47,21 @@ describe('normalizeRealtimePresetQuery', () => {
       filters: normalized.filters,
     })).toBe('error filters:{"level":"error","service":"vault"}');
   });
+
+  it('normalizes nested filter values before rebuilding a preset query', () => {
+    const normalized = normalizeRealtimePresetQuery(
+      'error filters:{"service":" vault ","scope":{"env":" prod ","blank":" "},"targets":[" api ",{"zone":" hz-a ","empty":" "}]}',
+    );
+
+    expect(normalized.filters).toEqual({
+      scope: { env: 'prod' },
+      service: 'vault',
+      targets: ['api', { zone: 'hz-a' }],
+    });
+
+    expect(buildRealtimePresetQuery({
+      queryText: normalized.queryText,
+      filters: normalized.filters,
+    })).toBe('error filters:{"scope":{"env":"prod"},"service":"vault","targets":["api",{"zone":"hz-a"}]}');
+  });
 });

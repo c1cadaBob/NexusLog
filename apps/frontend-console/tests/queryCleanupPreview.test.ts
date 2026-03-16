@@ -15,6 +15,7 @@ describe('query cleanup preview helpers', () => {
 
   it('formats array and object filter values into readable strings', () => {
     expect(formatQueryCleanupFilterValue(['error', 'warn'])).toBe('error, warn');
+    expect(formatQueryCleanupFilterValue([{ region: 'cn-hz', zone: 'a' }])).toBe('{"region":"cn-hz","zone":"a"}');
     expect(formatQueryCleanupFilterValue({ region: 'cn-hz', zone: 'a' })).toBe('{"region":"cn-hz","zone":"a"}');
     expect(formatQueryCleanupFilterValue('vault')).toBe('vault');
   });
