@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tabs, Tag, Button, Steps, Descriptions, Space, Card, Timeline, Empty, message, Spin, Modal, Input } from 'antd';
+import { Tabs, Tag, Button, Steps, Descriptions, Space, Card, Timeline, Empty, message, Modal, Input } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import type {
@@ -16,6 +16,7 @@ import {
   closeIncident,
   archiveIncident,
 } from '../../api/incident';
+import InlineLoadingState from '../../components/common/InlineLoadingState';
 
 // ============================================================================
 // 共享配置映射
@@ -130,7 +131,7 @@ const TimelineTab: React.FC<{ incidentId: string; events: TimelineEvent[]; loadi
   const isDark = useThemeStore((s) => s.isDark);
   const sorted = useMemo(() => [...events].sort((a, b) => a.timestamp - b.timestamp), [events]);
 
-  if (loading) return <Spin tip="加载时间线..." />;
+  if (loading) return <InlineLoadingState tip="加载时间线..." />;
   if (sorted.length === 0) return <Empty description="暂无时间线记录" />;
 
   return (
@@ -298,7 +299,7 @@ const IncidentDetail: React.FC = () => {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20">
-        <Spin size="large" tip="加载事件详情..." />
+        <InlineLoadingState size="large" tip="加载事件详情..." />
       </div>
     );
   }

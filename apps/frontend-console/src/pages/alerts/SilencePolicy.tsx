@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Input, Table, Tag, Button, Card, Space, Modal, Form, DatePicker, message, Spin, Empty } from 'antd';
+import { Input, Table, Tag, Button, Card, Space, Modal, Form, DatePicker, message, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
@@ -11,6 +11,7 @@ import {
   type AlertSilence,
 } from '../../api/alert';
 import dayjs from 'dayjs';
+import InlineLoadingState from '../../components/common/InlineLoadingState';
 
 // ============================================================================
 // 辅助
@@ -331,7 +332,7 @@ const SilencePolicy: React.FC = () => {
       <Card style={{ flex: 1, overflow: 'hidden' }} styles={{ body: { padding: 0, overflow: 'auto', height: '100%' } }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-            <Spin tip="加载中..." />
+            <InlineLoadingState tip="加载中..." />
           </div>
         ) : error ? (
           <Empty description={error} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 48 }} />
@@ -359,7 +360,7 @@ const SilencePolicy: React.FC = () => {
         cancelText="取消"
         width={640}
         confirmLoading={submitLoading}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="reason" label="原因/备注" rules={[{ required: true, message: '请输入原因或备注' }]}>

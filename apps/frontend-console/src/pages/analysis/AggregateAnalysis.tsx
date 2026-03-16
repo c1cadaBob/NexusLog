@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Card, Select, Button, Space, message, Spin, Empty } from 'antd';
+import { Card, Select, Button, Space, message, Empty } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import ChartWrapper from '../../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
 import { fetchAggregateStats, type FetchAggregateStatsParams, type AggregateBucket } from '../../api/query';
+import InlineLoadingState from '../../components/common/InlineLoadingState';
 
 // ============================================================================
 // 常量
@@ -209,7 +210,7 @@ const AggregateAnalysis: React.FC = () => {
       <Card title="详细数据">
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
-            <Spin tip="加载中..." />
+            <InlineLoadingState tip="加载中..." />
           </div>
         ) : error ? (
           <Empty description={error} image={Empty.PRESENTED_IMAGE_SIMPLE} />

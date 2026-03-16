@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Timeline, Card, Tag, Select, Button, Empty, Spin } from 'antd';
+import { Timeline, Card, Tag, Select, Button, Empty } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import type { TimelineEvent, TimelineEventType } from '../../types/incident';
 import { fetchIncidents, fetchIncidentTimeline } from '../../api/incident';
+import InlineLoadingState from '../../components/common/InlineLoadingState';
 import type { Incident } from '../../types/incident';
 
 // ============================================================================
@@ -127,7 +128,7 @@ const IncidentTimeline: React.FC = () => {
       {selectedIncident === 'all' ? (
         <Empty description="请从下拉框选择具体事件查看时间线" />
       ) : timelineLoading ? (
-        <Spin tip="加载时间线..." />
+        <InlineLoadingState tip="加载时间线..." />
       ) : filtered.length === 0 ? (
         <Empty description="暂无时间线记录" />
       ) : (

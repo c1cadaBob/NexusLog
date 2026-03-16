@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { Select, Spin, Empty, message } from 'antd';
+import { Select, Empty, message } from 'antd';
 import type { EChartsCoreOption } from 'echarts/core';
 import { useThemeStore } from '../../stores/themeStore';
 import { fetchServerMetrics } from '@/api/metrics';
@@ -7,6 +7,7 @@ import type { ServerMetricsData, TimeSeriesPoint } from '@/api/metrics';
 import { fetchPullSources, type PullSource } from '@/api/ingest';
 import ChartWrapper from '@/components/charts/ChartWrapper';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '@/theme/tokens';
+import InlineLoadingState from '@/components/common/InlineLoadingState';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d';
 
@@ -242,7 +243,7 @@ const PerformanceMonitoring: React.FC = () => {
             />
           ) : loading && !metrics ? (
             <div className="flex justify-center py-24">
-              <Spin tip="加载中..." size="large" />
+              <InlineLoadingState tip="加载中..." size="large" />
             </div>
           ) : !hasData ? (
             <Empty

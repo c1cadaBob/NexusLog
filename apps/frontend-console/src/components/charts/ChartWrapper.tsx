@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo } from 'react';
-import { Card, Spin, Empty } from 'antd';
+import { Card, Empty } from 'antd';
 import * as echarts from 'echarts/core';
 import {
   LineChart,
@@ -18,6 +18,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers';
 import { useThemeStore } from '../../stores/themeStore';
 import { getEChartsTheme } from '../../theme/echartsTheme';
+import InlineLoadingState from '../common/InlineLoadingState';
 
 // 注册 ECharts 组件
 echarts.use([
@@ -122,7 +123,7 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
   const renderContent = () => {
     const mask = (() => {
       if (loading) {
-        return <Spin tip="加载中..." />;
+        return <InlineLoadingState tip="加载中..." />;
       }
       if (error) {
         return <Empty description={error} image={Empty.PRESENTED_IMAGE_SIMPLE} />;

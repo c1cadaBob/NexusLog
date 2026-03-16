@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Alert, message, Spin, Empty, Modal, Form, Input, Select, Button, Pagination, Tooltip } from 'antd';
+import { Alert, message, Empty, Modal, Form, Input, Select, Button, Pagination, Tooltip } from 'antd';
 import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
 import {
@@ -10,6 +10,7 @@ import {
   type CreateExportJobParams,
 } from '../../api/export';
 import { resolveDownloadRecordsActionAccess } from './downloadRecordsAuthorization';
+import InlineLoadingState from '../../components/common/InlineLoadingState';
 
 const FORMAT_OPTIONS = [
   { value: 'csv', label: 'CSV' },
@@ -266,6 +267,8 @@ const DownloadRecords: React.FC = () => {
               search
             </span>
             <input
+              id="download-records-search"
+              name="download_records_search"
               className={`w-full h-10 pl-10 pr-4 ${inputBg} border-none rounded-lg text-sm ${textColor} focus:ring-2 focus:ring-primary placeholder-text-secondary shadow-sm`}
               placeholder="搜索任务 ID..."
               value={searchQuery}
@@ -275,6 +278,8 @@ const DownloadRecords: React.FC = () => {
           <div className={`h-6 w-px ${isDark ? 'bg-[#2d3748]' : 'bg-slate-300'}`}></div>
           <div className="relative min-w-[140px]">
             <select
+              id="download-records-format-filter"
+              name="download_records_format_filter"
               className={`w-full h-10 pl-3 pr-8 ${inputBg} border-none rounded-lg text-sm ${textColor} focus:ring-2 focus:ring-primary appearance-none cursor-pointer shadow-sm`}
               value={formatFilter}
               onChange={(e) => setFormatFilter(e.target.value)}
@@ -308,7 +313,7 @@ const DownloadRecords: React.FC = () => {
                 {loading ? (
                   <tr>
                     <td colSpan={6} className="py-16 text-center">
-                      <Spin tip="加载中..." />
+                      <InlineLoadingState tip="加载中..." />
                     </td>
                   </tr>
                 ) : error ? (
@@ -427,7 +432,7 @@ const DownloadRecords: React.FC = () => {
         open={showCreateModal}
         onCancel={() => setShowCreateModal(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" onFinish={handleCreateExport}>
           <Form.Item

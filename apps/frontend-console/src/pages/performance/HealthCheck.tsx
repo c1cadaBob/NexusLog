@@ -3,7 +3,6 @@ import {
   Table,
   Button,
   Space,
-  Spin,
   Empty,
   message,
   Modal,
@@ -24,6 +23,7 @@ import {
   type ResourceThreshold,
   type CreateResourceThresholdPayload,
 } from '@/api/metrics';
+import InlineLoadingState from '@/components/common/InlineLoadingState';
 
 const METRIC_OPTIONS = [
   { label: 'CPU 使用率', value: 'cpu_usage_pct' },
@@ -223,7 +223,7 @@ const HealthCheck: React.FC = () => {
         <div className={`${cardBg} rounded-xl border ${borderColor} overflow-hidden`}>
           {loading ? (
             <div className="flex justify-center py-24">
-              <Spin tip="加载中..." size="large" />
+              <InlineLoadingState tip="加载中..." size="large" />
             </div>
           ) : thresholds.length === 0 ? (
             <Empty
@@ -256,7 +256,7 @@ const HealthCheck: React.FC = () => {
         open={modalOpen}
         onOk={handleModalOk}
         onCancel={() => setModalOpen(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item

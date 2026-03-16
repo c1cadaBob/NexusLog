@@ -378,7 +378,7 @@ const NotificationConfig: React.FC = () => {
         onOk={handleSubmit}
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
         confirmLoading={submitting}
       >
         <Form

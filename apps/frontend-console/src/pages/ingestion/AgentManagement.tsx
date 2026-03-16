@@ -300,7 +300,7 @@ const AgentManagement: React.FC = () => {
         onCancel={() => setDetailModalOpen(false)}
         footer={null}
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         {selectedAgent && (
           <div style={{ marginTop: 16 }}>

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Button, Card, Table, Tag, Space, Modal, Form, Select, Input, message, Spin, Empty } from 'antd';
+import { Button, Card, Table, Tag, Space, Modal, Form, Select, Input, message, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
@@ -12,6 +12,7 @@ import {
   type BackupRepository,
   type BackupSnapshot,
 } from '../../api/export';
+import InlineLoadingState from '../../components/common/InlineLoadingState';
 
 const SNAPSHOT_STATE_MAP: Record<string, { color: string; label: string }> = {
   SUCCESS: { color: 'success', label: '成功' },
@@ -262,7 +263,7 @@ const BackupRecovery: React.FC = () => {
             <Empty description="请先选择仓库" style={{ padding: 48 }} />
           ) : loadingSnapshots ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-              <Spin tip="加载中..." />
+              <InlineLoadingState tip="加载中..." />
             </div>
           ) : error ? (
             <Empty description={error} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 48 }} />
@@ -284,7 +285,7 @@ const BackupRecovery: React.FC = () => {
         open={showCreateModal}
         onCancel={() => setShowCreateModal(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" onFinish={handleCreateSnapshot}>
           {!selectedRepo && (
@@ -320,7 +321,7 @@ const BackupRecovery: React.FC = () => {
         open={!!showRestoreModal}
         onCancel={() => setShowRestoreModal(null)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={restoreForm} layout="vertical" onFinish={handleRestore}>
           <Form.Item
