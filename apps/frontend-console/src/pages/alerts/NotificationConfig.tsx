@@ -62,11 +62,11 @@ const NotificationConfig: React.FC = () => {
   const [testingId, setTestingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const loadChannels = useCallback(async () => {
+  const loadChannels = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
     try {
-      const items = await fetchNotificationChannels();
+      const items = await fetchNotificationChannels({ force });
       setChannels(items);
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载通知渠道失败';
@@ -79,7 +79,7 @@ const NotificationConfig: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    loadChannels();
+    void loadChannels();
   }, [loadChannels]);
 
   const stats = useMemo(
@@ -239,7 +239,7 @@ const NotificationConfig: React.FC = () => {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 16 }}>
         <Empty description={error} />
-        <Button type="primary" onClick={loadChannels}>
+        <Button type="primary" onClick={() => void loadChannels(true)}>
           重试
         </Button>
       </div>

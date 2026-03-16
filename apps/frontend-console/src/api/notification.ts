@@ -8,6 +8,7 @@ import { getAuthStorageItem } from '../utils/authStorage';
 import type { NotificationChannel, NotificationChannelType } from '../types/alert';
 
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
+const NOTIFICATION_CHANNEL_CACHE_LIMIT = 24;
 
 interface RuntimeConfigWithTenant {
   apiBaseUrl: string;
@@ -35,6 +36,15 @@ interface BackendChannel {
   created_at: string;
   updated_at: string;
 }
+
+interface FetchNotificationChannelsParams {
+  page?: number;
+  page_size?: number;
+  force?: boolean;
+}
+
+const notificationChannelCache = new Map<string, NotificationChannel[]>();
+const notificationChannelInFlight = new Map<string, Promise<NotificationChannel[]>>();
 
 function normalizeApiBaseUrl(rawBaseUrl: string): string {
   const normalized = (rawBaseUrl || '/api/v1').trim();
@@ -126,28 +136,96 @@ function mapBackendChannelToFrontend(c: BackendChannel): NotificationChannel {
   };
 }
 
+function buildNotificationChannelCacheKey(params?: FetchNotificationChannelsParams): string {
+  return JSON.stringify({
+    page: params?.page ?? 1,
+    page_size: params?.page_size ?? 200,
+  });
+}
+
+function cloneNotificationChannels(items: NotificationChannel[]): NotificationChannel[] {
+  return items.map((item) => ({
+    ...item,
+    config: { ...(item.config ?? {}) },
+  }));
+}
+
+function touchNotificationChannelCache(key: string): NotificationChannel[] | undefined {
+  const cached = notificationChannelCache.get(key);
+  if (!cached) {
+    return undefined;
+  }
+  notificationChannelCache.delete(key);
+  notificationChannelCache.set(key, cached);
+  return cloneNotificationChannels(cached);
+}
+
+function setNotificationChannelCache(key: string, items: NotificationChannel[]): void {
+  if (notificationChannelCache.has(key)) {
+    notificationChannelCache.delete(key);
+  }
+  notificationChannelCache.set(key, cloneNotificationChannels(items));
+  while (notificationChannelCache.size > NOTIFICATION_CHANNEL_CACHE_LIMIT) {
+    const oldestKey = notificationChannelCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    notificationChannelCache.delete(oldestKey);
+  }
+}
+
+export function invalidateNotificationChannelCache(): void {
+  notificationChannelCache.clear();
+  notificationChannelInFlight.clear();
+}
+
 /** Fetch all notification channels */
-export async function fetchNotificationChannels(params?: {
-  page?: number;
-  page_size?: number;
-}): Promise<NotificationChannel[]> {
+export async function fetchNotificationChannels(params?: FetchNotificationChannelsParams): Promise<NotificationChannel[]> {
   const page = params?.page ?? 1;
   const pageSize = params?.page_size ?? 200;
+  const force = params?.force === true;
+  const cacheKey = buildNotificationChannelCacheKey({ page, page_size: pageSize });
 
-  const envelope = await requestNotificationApi<{ items: BackendChannel[] }>('', {
-    method: 'GET',
-    query: { page, page_size: pageSize },
-  });
+  if (!force) {
+    const cached = touchNotificationChannelCache(cacheKey);
+    if (cached) {
+      return cached;
+    }
 
-  const items = envelope.data?.items ?? [];
-  const total = Number(envelope.meta?.total ?? items.length);
-  const hasNext = Boolean(envelope.meta?.has_next ?? page * pageSize < total);
-
-  if (hasNext && items.length === pageSize) {
-    const next = await fetchNotificationChannels({ page: page + 1, page_size: pageSize });
-    return [...items.map(mapBackendChannelToFrontend), ...next];
+    const inFlight = notificationChannelInFlight.get(cacheKey);
+    if (inFlight) {
+      return inFlight.then((items) => cloneNotificationChannels(items));
+    }
   }
-  return items.map(mapBackendChannelToFrontend);
+
+  const requestPromise = (async () => {
+    const envelope = await requestNotificationApi<{ items: BackendChannel[] }>('', {
+      method: 'GET',
+      query: { page, page_size: pageSize },
+    });
+
+    const items = envelope.data?.items ?? [];
+    const total = Number(envelope.meta?.total ?? items.length);
+    const hasNext = Boolean(envelope.meta?.has_next ?? page * pageSize < total);
+
+    let mappedItems = items.map(mapBackendChannelToFrontend);
+    if (hasNext && items.length === pageSize) {
+      const next = await fetchNotificationChannels({ page: page + 1, page_size: pageSize, force });
+      mappedItems = [...mappedItems, ...next];
+    }
+
+    setNotificationChannelCache(cacheKey, mappedItems);
+    return cloneNotificationChannels(mappedItems);
+  })();
+
+  notificationChannelInFlight.set(cacheKey, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    if (notificationChannelInFlight.get(cacheKey) === requestPromise) {
+      notificationChannelInFlight.delete(cacheKey);
+    }
+  }
 }
 
 /** Create channel payload - config depends on type */
@@ -175,7 +253,8 @@ export async function createNotificationChannel(data: CreateNotificationChannelP
     throw new Error('创建成功但未返回渠道 ID');
   }
 
-  const all = await fetchNotificationChannels();
+  invalidateNotificationChannelCache();
+  const all = await fetchNotificationChannels({ force: true });
   const created = all.find((c) => c.id === id);
   if (!created) {
     throw new Error('创建成功但无法获取渠道详情');
@@ -200,7 +279,8 @@ export async function updateNotificationChannel(
     body: data,
   });
 
-  const all = await fetchNotificationChannels();
+  invalidateNotificationChannelCache();
+  const all = await fetchNotificationChannels({ force: true });
   const updated = all.find((c) => c.id === id);
   if (!updated) {
     throw new Error('更新成功但无法获取渠道详情');
@@ -213,6 +293,7 @@ export async function deleteNotificationChannel(id: string): Promise<void> {
   await requestNotificationApi<{ deleted: boolean }>(`/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
+  invalidateNotificationChannelCache();
 }
 
 /** Test a notification channel */
