@@ -3,7 +3,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from 'antd';
-import { render, waitFor, cleanup } from '@testing-library/react';
+import { render, waitFor, cleanup, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import RealtimeSearch from '../src/pages/search/RealtimeSearch';
 import {
@@ -253,5 +253,45 @@ describe('RealtimeSearch startup query behavior', () => {
     expect(queryRealtimeLogsMock).toHaveBeenCalledWith(
       expect.objectContaining({ keywords: 'service:vault', page: 1, pageSize: 20 }),
     );
+  });
+
+  it('normalizes history-style startup queries before auto run', async () => {
+    render(
+      <App>
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/search/realtime',
+              state: {
+                autoRun: true,
+                presetQuery: 'service:vault time:[2026-03-16T05:10:26.361Z,2026-03-16T05:25:26.361Z]',
+              },
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 260));
+
+    expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+    expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
+    expect(queryRealtimeLogsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ keywords: 'service:vault', page: 1, pageSize: 20 }),
+    );
+    expect(fetchAggregateStatsMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ keywords: 'service:vault' }),
+    );
+    expect((screen.getByPlaceholderText('输入查询语句，例如: level:error AND service:"payment-service"') as HTMLInputElement).value).toBe('service:vault');
   });
 });

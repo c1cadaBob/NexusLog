@@ -23,6 +23,7 @@ import {
   shouldRefreshRealtimeHistogram,
   type RealtimeHistogramRefreshMode,
 } from './realtimeRefreshPolicy';
+import { normalizeRealtimePresetQuery } from './realtimePresetQuery';
 
 // ============================================================================
 // 本地 UI 辅助数据
@@ -228,6 +229,7 @@ const RealtimeSearch: React.FC = () => {
   const pageSizeRef = useRef(pageSize);
   const currentPageRef = useRef(currentPage);
   const startupQueryTimerRef = useRef<number | null>(null);
+  const lastFilterStateRef = useRef(`${levelFilter}\u0000${sourceFilter}`);
 
   const clearLiveTimer = useCallback(() => {
     if (liveTimerRef.current != null) {
@@ -273,6 +275,8 @@ const RealtimeSearch: React.FC = () => {
     resetCursor?: boolean;
     liveWindowOverride?: LiveWindowOption;
     histogramRefreshMode?: RealtimeHistogramRefreshMode;
+    levelFilterOverride?: string;
+    sourceFilterOverride?: string;
   }): Promise<boolean> => {
     const requestID = latestQueryRequestRef.current + 1;
     latestQueryRequestRef.current = requestID;
@@ -282,6 +286,8 @@ const RealtimeSearch: React.FC = () => {
 
     const snapshotTo = options.snapshotTo?.trim() || new Date().toISOString();
     const effectiveLiveWindow = options.liveWindowOverride ?? liveWindow;
+    const effectiveLevelFilter = options.levelFilterOverride ?? levelFilter;
+    const effectiveSourceFilter = options.sourceFilterOverride ?? sourceFilter;
     const workingCursorMap = options.resetCursor
       ? new Map<number, RealtimePageCursor>()
       : cloneRealtimePageCursorMap(pageCursorMapRef.current);
@@ -300,15 +306,15 @@ const RealtimeSearch: React.FC = () => {
 
     try {
       const filters = buildRealtimeQueryFilters({
-        levelFilter,
-        sourceFilter,
+        levelFilter: effectiveLevelFilter,
+        sourceFilter: effectiveSourceFilter,
         queryText: options.queryText,
       });
       const realtimeTableTimeRange = buildRealtimeTableTimeRange(effectiveLiveWindow, snapshotTo);
       histogramRefreshKey = buildRealtimeHistogramRefreshKey({
         queryText: options.queryText,
-        levelFilter,
-        sourceFilter,
+        levelFilter: effectiveLevelFilter,
+        sourceFilter: effectiveSourceFilter,
       });
       shouldRefreshHistogram = shouldRefreshRealtimeHistogram({
         mode: options.histogramRefreshMode,
@@ -320,7 +326,7 @@ const RealtimeSearch: React.FC = () => {
 
       if (shouldRefreshHistogram) {
         totalHistogramController = registerAbortController(new AbortController());
-        if (!levelFilter) {
+        if (!effectiveLevelFilter) {
           errorHistogramController = registerAbortController(new AbortController());
         }
       }
@@ -341,9 +347,9 @@ const RealtimeSearch: React.FC = () => {
         })
         : Promise.resolve(null);
       void totalHistogramPromise.catch(() => undefined);
-      const errorHistogramPromise = !shouldRefreshHistogram || levelFilter === 'error'
+      const errorHistogramPromise = !shouldRefreshHistogram || effectiveLevelFilter === 'error'
         ? Promise.resolve(null)
-        : levelFilter
+        : effectiveLevelFilter
           ? Promise.resolve(null)
           : fetchAggregateStats({
             ...aggregateParams,
@@ -458,10 +464,10 @@ const RealtimeSearch: React.FC = () => {
         return isAbortError(result.reason);
       });
       const canUpdateHistogram = Boolean(resolvedTotalHistogram)
-        && (levelFilter === 'error' || Boolean(levelFilter) || Boolean(resolvedErrorHistogram));
+        && (effectiveLevelFilter === 'error' || Boolean(effectiveLevelFilter) || Boolean(resolvedErrorHistogram));
 
       if (canUpdateHistogram && resolvedTotalHistogram) {
-        const errorBuckets = levelFilter === 'error'
+        const errorBuckets = effectiveLevelFilter === 'error'
           ? resolvedTotalHistogram.buckets
           : resolvedErrorHistogram?.buckets ?? [];
         setHistogramData(buildRealtimeHistogramData(resolvedTotalHistogram.buckets, errorBuckets));
@@ -631,23 +637,28 @@ const RealtimeSearch: React.FC = () => {
     startupQueryTimerRef.current = window.setTimeout(() => {
       startupQueryTimerRef.current = null;
       initialQueryTriggeredRef.current = true;
+      const normalizedPresetQuery = normalizeRealtimePresetQuery(startupAutoRunPresetQuery);
+      lastFilterStateRef.current = `${normalizedPresetQuery.levelFilter}\u0000${normalizedPresetQuery.sourceFilter}`;
       clearPendingRealtimeStartupQuery();
-      setQuery(startupAutoRunPresetQuery);
-      setActiveQuery(startupAutoRunPresetQuery);
+      setLevelFilter(normalizedPresetQuery.levelFilter);
+      setSourceFilter(normalizedPresetQuery.sourceFilter);
+      setQuery(normalizedPresetQuery.queryText);
+      setActiveQuery(normalizedPresetQuery.queryText);
       void executeQueryRef.current({
-        queryText: startupAutoRunPresetQuery,
+        queryText: normalizedPresetQuery.queryText,
         page: 1,
         pageSize: pageSizeRef.current,
         silent: false,
         resetCursor: true,
         histogramRefreshMode: 'force',
+        levelFilterOverride: normalizedPresetQuery.levelFilter,
+        sourceFilterOverride: normalizedPresetQuery.sourceFilter,
       });
     }, STARTUP_QUERY_DELAY_MS);
     return clearStartupQueryTimer;
   }, [clearStartupQueryTimer, startupAutoRunPresetQuery]);
 
   // 筛选器变化时重新执行查询（仅在筛选值实际变化时触发，避免 StrictMode 首次挂载重复执行）
-  const lastFilterStateRef = useRef(`${levelFilter}\u0000${sourceFilter}`);
   useEffect(() => {
     const nextFilterState = `${levelFilter}\u0000${sourceFilter}`;
     if (lastFilterStateRef.current === nextFilterState) {
