@@ -8,6 +8,7 @@ import { COLORS } from '../../theme/tokens';
 import type { Incident, IncidentStatus, IncidentSeverity } from '../../types/incident';
 import { fetchIncidents, fetchSLASummary, createIncident } from '../../api/incident';
 import type { CreateIncidentPayload } from '../../api/incident';
+import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 
 // ============================================================================
 // 映射工具
@@ -79,6 +80,7 @@ const IncidentList: React.FC = () => {
     setPageSizeLocal(size);
     setStoredPageSize('incidentList', size);
   }, [setStoredPageSize]);
+  const incidentsTableRef = usePaginationQuickJumperAccessibility('incident-list');
 
   // 加载事件列表
   const loadIncidents = useCallback(async () => {
@@ -300,6 +302,8 @@ const IncidentList: React.FC = () => {
       {/* 筛选栏 */}
       <div className="flex items-center gap-3 flex-wrap">
         <Input.Search
+          id="incident-list-search"
+          name="incident-list-search"
           placeholder="按事件 ID、标题、来源搜索..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
@@ -340,30 +344,32 @@ const IncidentList: React.FC = () => {
       {error ? (
         <Empty description={error} />
       ) : (
-        <Table<Incident>
-          dataSource={search ? pagedData : filtered}
-          columns={columns}
-          rowKey="id"
-          size="small"
-          loading={loading}
-          pagination={{
-            current: currentPage,
-            pageSize,
-            total: search ? filtered.length : total,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (t, range) => `显示 ${range[0]}-${range[1]} 条，共 ${t} 条`,
-            pageSizeOptions: ['10', '20', '50'],
-            onChange: (page, size) => { setCurrentPage(page); setPageSize(size); },
-            position: ['bottomLeft'],
-          }}
-          onRow={(record) => ({
-            onClick: () => navigate(`/incidents/detail/${record.id}`),
-            style: { cursor: 'pointer' },
-          })}
-          scroll={{ x: 1000 }}
-          locale={{ emptyText: loading ? <Spin size="small" /> : <Empty description="暂无事件" /> }}
-        />
+        <div ref={incidentsTableRef}>
+          <Table<Incident>
+            dataSource={search ? pagedData : filtered}
+            columns={columns}
+            rowKey="id"
+            size="small"
+            loading={loading}
+            pagination={{
+              current: currentPage,
+              pageSize,
+              total: search ? filtered.length : total,
+              showSizeChanger: true,
+              showQuickJumper: true,
+              showTotal: (t, range) => `显示 ${range[0]}-${range[1]} 条，共 ${t} 条`,
+              pageSizeOptions: ['10', '20', '50'],
+              onChange: (page, size) => { setCurrentPage(page); setPageSize(size); },
+              position: ['bottomLeft'],
+            }}
+            onRow={(record) => ({
+              onClick: () => navigate(`/incidents/detail/${record.id}`),
+              style: { cursor: 'pointer' },
+            })}
+            scroll={{ x: 1000 }}
+            locale={{ emptyText: loading ? <Spin size="small" /> : <Empty description="暂无事件" /> }}
+          />
+        </div>
       )}
     </div>
   );

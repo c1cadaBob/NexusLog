@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import type { QueryHistory } from '../../types/log';
 import { createSavedQuery, deleteQueryHistory, fetchQueryHistory } from '../../api/query';
+import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 
 const SearchHistory: React.FC = () => {
   const { message } = App.useApp();
@@ -29,6 +30,7 @@ const SearchHistory: React.FC = () => {
     setPageSizeLocal(size);
     setStoredPageSize('searchHistory', size);
   }, [setStoredPageSize]);
+  const historyTableRef = usePaginationQuickJumperAccessibility('search-history');
 
   // 查询历史列表使用服务端分页，确保和后端真实数据一致。
   const loadHistory = useCallback(async () => {
@@ -350,35 +352,47 @@ const SearchHistory: React.FC = () => {
         />
       )}
 
-      <Table<QueryHistory>
-        dataSource={rows}
-        columns={columns}
-        rowKey="id"
-        rowSelection={{
-          selectedRowKeys,
-          onChange: setSelectedRowKeys,
-          preserveSelectedRowKeys: true,
-          getCheckboxProps: () => ({ disabled: batchDeleting }),
-        }}
-        size="small"
-        loading={loading || batchDeleting}
-        locale={{ emptyText: <Empty description="暂无查询历史" /> }}
-        pagination={{
-          current: currentPage,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          showQuickJumper: true,
-          showTotal: (count) => `共 ${count} 条`,
-          pageSizeOptions: ['10', '15', '20', '50', '100'],
-          position: ['bottomLeft'],
-          onChange: (page, size) => {
-            setSelectedRowKeys([]);
-            setCurrentPage(page);
-            setPageSize(size);
-          },
-        }}
-      />
+      <div ref={historyTableRef}>
+        <Table<QueryHistory>
+          dataSource={rows}
+          columns={columns}
+          rowKey="id"
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+            preserveSelectedRowKeys: true,
+            getTitleCheckboxProps: () => ({
+              id: 'search-history-select-all',
+              name: 'search-history-select-all',
+              'aria-label': '选择全部查询历史',
+            }),
+            getCheckboxProps: (record) => ({
+              disabled: batchDeleting,
+              id: `search-history-select-${record.id}`,
+              name: `search-history-select-${record.id}`,
+              'aria-label': `选择查询历史 ${record.id}`,
+            }),
+          }}
+          size="small"
+          loading={loading || batchDeleting}
+          locale={{ emptyText: <Empty description="暂无查询历史" /> }}
+          pagination={{
+            current: currentPage,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            showTotal: (count) => `共 ${count} 条`,
+            pageSizeOptions: ['10', '15', '20', '50', '100'],
+            position: ['bottomLeft'],
+            onChange: (page, size) => {
+              setSelectedRowKeys([]);
+              setCurrentPage(page);
+              setPageSize(size);
+            },
+          }}
+        />
+      </div>
     </div>
   );
 };

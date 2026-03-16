@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 import { App, Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, Select, Collapse } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -161,6 +162,7 @@ const RealtimeSearch: React.FC = () => {
   const latestQueryRequestRef = useRef(0);
   const initialQueryTriggeredRef = useRef(false);
   const pageCursorMapRef = useRef<Map<number, RealtimePageCursor>>(new Map());
+  const resultsTableRef = usePaginationQuickJumperAccessibility('realtime-search');
 
   const executeQuery = useCallback(async (options: {
     queryText: string;
@@ -712,7 +714,7 @@ const RealtimeSearch: React.FC = () => {
       />
 
       {/* 日志结果表格 */}
-      <div className="flex flex-col gap-2">
+      <div ref={resultsTableRef} className="flex flex-col gap-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <Button
