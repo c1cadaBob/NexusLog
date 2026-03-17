@@ -137,6 +137,14 @@ function installDomMocks() {
   });
 }
 
+function setViewport(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+}
+
 describe('RealtimeSearch regressions', () => {
   beforeEach(() => {
     queryRealtimeLogsMock.mockReset();
@@ -144,6 +152,7 @@ describe('RealtimeSearch regressions', () => {
     createSavedQueryMock.mockReset();
     setPageSizeMock.mockReset();
     installDomMocks();
+    setViewport(1280);
 
     queryRealtimeLogsMock.mockResolvedValue(createQueryResult());
     fetchAggregateStatsMock.mockResolvedValue({
@@ -155,6 +164,69 @@ describe('RealtimeSearch regressions', () => {
     cleanup();
     vi.useRealTimers();
     vi.clearAllMocks();
+  });
+
+  it('renders result cards on mobile and keeps drawer access available', async () => {
+    setViewport(390);
+    queryRealtimeLogsMock.mockResolvedValue(
+      createQueryResult({
+        hits: [
+          {
+            id: 'log-mobile-1',
+            timestamp: '2026-03-16T07:04:27.236Z',
+            level: 'error',
+            service: 'payment-service',
+            host: 'app-node-01',
+            hostIp: '10.0.0.11',
+            message: 'payment failed for order-1001',
+            rawLog: 'payment failed for order-1001',
+            fields: {},
+          },
+          {
+            id: 'log-mobile-2',
+            timestamp: '2026-03-16T07:03:27.236Z',
+            level: 'warn',
+            service: 'auth-service',
+            host: 'app-node-02',
+            hostIp: '10.0.0.12',
+            message: 'login latency increased',
+            rawLog: 'login latency increased',
+            fields: {},
+          },
+        ],
+        total: 2,
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('payment failed for order-1001')).toBeTruthy();
+      expect(screen.getByText('login latency increased')).toBeTruthy();
+    });
+
+    expect(document.querySelector('.ant-table')).toBeNull();
+    expect(screen.getByText(/当前页 2 条/)).toBeTruthy();
+    expect(screen.getByText('payment-service')).toBeTruthy();
+    expect(screen.getByText('app-node-01')).toBeTruthy();
+
+    const detailButtons = screen.getAllByRole('button', { name: /查看日志详情/ });
+    expect(detailButtons).toHaveLength(2);
+    fireEvent.click(detailButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('日志详情')).toBeTruthy();
+    });
   });
 
   it('uses the selected live window for manual search without explicit historical range', async () => {

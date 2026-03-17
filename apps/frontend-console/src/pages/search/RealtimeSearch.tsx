@@ -21,6 +21,7 @@ import {
   Select,
   Collapse,
   Empty,
+  Pagination,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useLocation } from "react-router-dom";
@@ -79,6 +80,7 @@ import {
 const MAX_PAGINATION_WINDOW_ROWS = 10_000;
 const LIVE_POLL_INTERVAL_MS = 5_000;
 const STARTUP_QUERY_DELAY_MS = 200;
+const MOBILE_BREAKPOINT = 768;
 
 type RealtimeExplicitTimeRange = {
   from?: string;
@@ -317,6 +319,23 @@ function formatRealtimeTotal(total: number, isLowerBound: boolean): string {
     Math.floor(normalizedTotal),
   ).toLocaleString();
   return isLowerBound ? `${displayTotal}+` : displayTotal;
+}
+
+function formatRealtimeTimestamp(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return toDisplayText(value);
+  }
+  return parsed.toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 }
 
 function toDisplayText(value: unknown, fallback = "—"): string {
@@ -650,6 +669,7 @@ const RealtimeSearch: React.FC = () => {
   );
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
+  const [isMobile, setIsMobile] = useState(false);
   const setPageSize = useCallback(
     (size: number) => {
       setPageSizeLocal(size);
@@ -657,6 +677,16 @@ const RealtimeSearch: React.FC = () => {
     },
     [setStoredPageSize],
   );
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
   const latestQueryRequestRef = useRef(0);
   const inFlightRequestIDRef = useRef<number | null>(null);
   const initialQueryTriggeredRef = useRef(false);
@@ -1633,6 +1663,111 @@ const RealtimeSearch: React.FC = () => {
     [activeQuery, hasCustomTimeRange, levelFilter, liveWindow, sourceFilter],
   );
 
+  const handleResultsPaginationChange = useCallback(
+    (page: number, size?: number) => {
+      const nextPageSize = size ?? pageSize;
+      const pageSizeChanged = nextPageSize !== pageSize;
+      const targetPage = pageSizeChanged ? 1 : page;
+      const previousPage = currentPage;
+      const previousPageSize = pageSize;
+
+      if (targetPage > 1 && isLiveRef.current) {
+        isLiveRef.current = false;
+        clearLiveTimer();
+        setIsLive(false);
+      }
+
+      const cachedCursor = cloneRealtimePageCursor(
+        pageCursorMapRef.current.get(targetPage),
+      );
+      if (
+        shouldBlockRealtimeDirectPageJump(
+          targetPage,
+          nextPageSize,
+          deepPaginationRestricted,
+          cachedCursor,
+        )
+      ) {
+        void message.warning(
+          "当前结果集超过 10,000 条，首 10,000 条内可直接跳页，更深页码需顺序翻页建立游标",
+        );
+        return;
+      }
+      if (
+        shouldResolveRealtimeDeepPageCursor(
+          targetPage,
+          nextPageSize,
+          cachedCursor,
+        )
+      ) {
+        void message.open({
+          key: "realtime-deep-pagination",
+          type: "loading",
+          content: `正在顺序定位第 ${targetPage} 页，请稍候...`,
+          duration: 0,
+        });
+      }
+
+      clearLiveTimer();
+      abortActiveRequests();
+
+      if (
+        shouldSuppressNextLiveTickAfterPaginationRefresh({
+          isLive: isLiveRef.current,
+          liveWindow,
+          explicitTimeRange: normalizedCustomTimeRange,
+          pageSizeChanged,
+          targetPage,
+        })
+      ) {
+        armSuppressedNextLiveTick();
+      }
+
+      if (pageSizeChanged) {
+        setPageSize(nextPageSize);
+      }
+      if (targetPage !== currentPage || pageSizeChanged) {
+        setCurrentPage(targetPage);
+      }
+      const requestCursor =
+        cachedCursor ??
+        (targetPage > 1
+          ? cloneRealtimePageCursor(pageCursorMapRef.current.get(1))
+          : undefined);
+      void executeQuery({
+        queryText: activeQueryRef.current,
+        page: targetPage,
+        pageSize: nextPageSize,
+        silent: false,
+        snapshotTo: tableSnapshotTo,
+        cursor: requestCursor,
+        resetCursor: pageSizeChanged,
+        histogramRefreshMode: "skip",
+      }).then((status) => {
+        void message.destroy("realtime-deep-pagination");
+        if (status === "failed") {
+          setCurrentPage(previousPage);
+          if (nextPageSize !== previousPageSize) {
+            setPageSize(previousPageSize);
+          }
+        }
+      });
+    },
+    [
+      abortActiveRequests,
+      clearLiveTimer,
+      currentPage,
+      deepPaginationRestricted,
+      executeQuery,
+      liveWindow,
+      message,
+      normalizedCustomTimeRange,
+      pageSize,
+      setPageSize,
+      tableSnapshotTo,
+    ],
+  );
+
   // 表格列定义
   const columns: ColumnsType<LogEntry> = useMemo(
     () => [
@@ -1643,16 +1778,7 @@ const RealtimeSearch: React.FC = () => {
         width: 180,
         render: (v: string) => (
           <span className="text-sm font-mono opacity-70">
-            {new Date(v).toLocaleString("zh-CN", {
-              timeZone: "Asia/Shanghai",
-              year: "numeric",
-              month: "2-digit",
-              day: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-              hour12: false,
-            })}
+            {formatRealtimeTimestamp(v)}
           </span>
         ),
       },
@@ -2158,128 +2284,130 @@ const RealtimeSearch: React.FC = () => {
           </Space>
         </div>
 
-        <Table<LogEntry>
-          dataSource={tableDataSource}
-          columns={columns}
-          rowKey="id"
-          loading={tableRefreshing}
-          locale={{
-            emptyText: tableRefreshing ? (
-              <span />
+        {isMobile ? (
+          <div className="flex flex-col gap-3">
+            <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3 text-xs opacity-70">
+              当前页 {tableDataSource.length} 条 · 共 {formatRealtimeTotal(total, totalIsLowerBound)} 条
+            </div>
+
+            {tableRefreshing && tableDataSource.length === 0 ? (
+              <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-8 text-center text-sm opacity-60">
+                {resolveSearchPageLoadingLabel(logs.length)}
+              </div>
+            ) : tableDataSource.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
+                <Empty
+                  description={realtimeEmptyDescription}
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+              </div>
             ) : (
-              <Empty
-                description={realtimeEmptyDescription}
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              />
-            ),
-          }}
-          size="small"
-          pagination={{
-            current: currentPage,
-            pageSize,
-            total,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (itemsTotal) =>
-              `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`,
-            pageSizeOptions: ["10", "20", "50", "100"],
-            onChange: (page, size) => {
-              const nextPageSize = size ?? pageSize;
-              const pageSizeChanged = nextPageSize !== pageSize;
-              const targetPage = pageSizeChanged ? 1 : page;
-              const previousPage = currentPage;
-              const previousPageSize = pageSize;
+              tableDataSource.map((record) => {
+                const levelConfig = LEVEL_CONFIG[record.level] || LEVEL_CONFIG.info;
+                const service = toDisplayText(record.service);
+                const host = toDisplayText(record.host);
+                const hostIp = toDisplayText(record.hostIp);
+                const messageText = toDisplayText(record.message);
 
-              if (targetPage > 1 && isLiveRef.current) {
-                isLiveRef.current = false;
-                clearLiveTimer();
-                setIsLive(false);
-              }
+                return (
+                  <div
+                    key={record.id}
+                    className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-4 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                        <Tag color={levelConfig.tagColor} style={{ margin: 0, fontSize: 12 }}>
+                          {record.level.toUpperCase()}
+                        </Tag>
+                        {record.aggregated && (
+                          <Tag color="blue" style={{ margin: 0, fontSize: 12 }}>
+                            聚合 {record.aggregated.count}
+                          </Tag>
+                        )}
+                        <span className="text-xs font-mono opacity-60">
+                          {formatRealtimeTimestamp(record.timestamp)}
+                        </span>
+                      </div>
+                      <Button
+                        size="small"
+                        onClick={() => handleRowClick(record)}
+                        aria-label={`查看日志详情 ${record.id}`}
+                      >
+                        查看详情
+                      </Button>
+                    </div>
 
-              const cachedCursor = cloneRealtimePageCursor(
-                pageCursorMapRef.current.get(targetPage),
-              );
-              if (
-                shouldBlockRealtimeDirectPageJump(
-                  targetPage,
-                  nextPageSize,
-                  deepPaginationRestricted,
-                  cachedCursor,
-                )
-              ) {
-                void message.warning(
-                  "当前结果集超过 10,000 条，首 10,000 条内可直接跳页，更深页码需顺序翻页建立游标",
+                    <div className="mt-3 break-all text-sm leading-6">{messageText}</div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                      <div className="min-w-0">
+                        <div className="opacity-50">服务</div>
+                        <div className="break-all font-medium">{service}</div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="opacity-50">主机</div>
+                        <div className="break-all font-mono">{host}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-xs opacity-60">
+                      主机IP：<span className="font-mono">{hostIp}</span>
+                    </div>
+                  </div>
                 );
-                return;
-              }
-              if (
-                shouldResolveRealtimeDeepPageCursor(
-                  targetPage,
-                  nextPageSize,
-                  cachedCursor,
-                )
-              ) {
-                void message.open({
-                  key: "realtime-deep-pagination",
-                  type: "loading",
-                  content: `正在顺序定位第 ${targetPage} 页，请稍候...`,
-                  duration: 0,
-                });
-              }
+              })
+            )}
 
-              clearLiveTimer();
-              abortActiveRequests();
-
-              if (
-                shouldSuppressNextLiveTickAfterPaginationRefresh({
-                  isLive: isLiveRef.current,
-                  liveWindow,
-                  explicitTimeRange: normalizedCustomTimeRange,
-                  pageSizeChanged,
-                  targetPage,
-                })
-              ) {
-                armSuppressedNextLiveTick();
+            <Pagination
+              current={currentPage}
+              pageSize={pageSize}
+              total={total}
+              size="small"
+              showSizeChanger
+              showQuickJumper={false}
+              showTotal={(itemsTotal) =>
+                `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`
               }
-
-              if (pageSizeChanged) {
-                setPageSize(nextPageSize);
-              }
-              if (targetPage !== currentPage || pageSizeChanged) {
-                setCurrentPage(targetPage);
-              }
-              const requestCursor =
-                cachedCursor ??
-                (targetPage > 1
-                  ? cloneRealtimePageCursor(pageCursorMapRef.current.get(1))
-                  : undefined);
-              void executeQuery({
-                queryText: activeQueryRef.current,
-                page: targetPage,
-                pageSize: nextPageSize,
-                silent: false,
-                snapshotTo: tableSnapshotTo,
-                cursor: requestCursor,
-                resetCursor: pageSizeChanged,
-                histogramRefreshMode: "skip",
-              }).then((status) => {
-                void message.destroy("realtime-deep-pagination");
-                if (status === "failed") {
-                  setCurrentPage(previousPage);
-                  if (nextPageSize !== previousPageSize) {
-                    setPageSize(previousPageSize);
-                  }
-                }
-              });
-            },
-            position: ["bottomLeft"],
-          }}
-          onRow={(record) => ({
-            onClick: () => handleRowClick(record),
-            style: { cursor: "pointer" },
-          })}
-          scroll={{ x: 980 }}
-        />
+              pageSizeOptions={["10", "20", "50", "100"]}
+              onChange={handleResultsPaginationChange}
+            />
+          </div>
+        ) : (
+          <Table<LogEntry>
+            dataSource={tableDataSource}
+            columns={columns}
+            rowKey="id"
+            loading={tableRefreshing}
+            locale={{
+              emptyText: tableRefreshing ? (
+                <span />
+              ) : (
+                <Empty
+                  description={realtimeEmptyDescription}
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+              ),
+            }}
+            size="small"
+            pagination={{
+              current: currentPage,
+              pageSize,
+              total,
+              showSizeChanger: true,
+              showQuickJumper: true,
+              showTotal: (itemsTotal) =>
+                `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`,
+              pageSizeOptions: ["10", "20", "50", "100"],
+              onChange: handleResultsPaginationChange,
+              position: ["bottomLeft"],
+            }}
+            onRow={(record) => ({
+              onClick: () => handleRowClick(record),
+              style: { cursor: "pointer" },
+            })}
+            scroll={{ x: 980 }}
+          />
+        )}
       </div>
 
       {/* 日志详情抽屉 */}
