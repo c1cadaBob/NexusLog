@@ -264,6 +264,8 @@ func writeServiceError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrMetadataNotConfigured),
 		errors.Is(err, repository.ErrMetadataStoreNotConfigured):
 		writeError(c, http.StatusServiceUnavailable, CodeQueryServiceUnavailable, "query metadata store is unavailable")
+	case errors.Is(err, repository.ErrSearchBackendUnavailable):
+		writeError(c, http.StatusServiceUnavailable, CodeQueryServiceUnavailable, "search backend is temporarily unavailable")
 	case errors.Is(err, repository.ErrNotFound):
 		writeError(c, http.StatusNotFound, CodeQueryNotFound, "resource not found")
 	case errors.Is(err, repository.ErrConflict):

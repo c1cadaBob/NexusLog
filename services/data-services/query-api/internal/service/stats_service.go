@@ -55,6 +55,11 @@ type aggregateCacheEntry struct {
 	expiresAt   time.Time
 }
 
+const (
+	overviewQueryTimeout  = 5 * time.Second
+	aggregateQueryTimeout = 7 * time.Second
+)
+
 // StatsService provides dashboard and aggregation stats.
 type StatsService struct {
 	esRepo                 *repository.ElasticsearchRepository
@@ -85,7 +90,7 @@ func NewStatsService(esRepo *repository.ElasticsearchRepository, db *sql.DB) *St
 
 // GetOverviewStats returns overview stats for a tenant.
 func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor) (*OverviewStats, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, overviewQueryTimeout)
 	defer cancel()
 
 	actor = normalizeActor(actor)
@@ -528,7 +533,7 @@ func resolveAggregateTimeRangeDuration(timeRange string) time.Duration {
 
 // Aggregate returns aggregated data based on group_by dimension.
 func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req AggregateRequest) (*AggregateResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, aggregateQueryTimeout)
 	defer cancel()
 
 	actor = normalizeActor(actor)

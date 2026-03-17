@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -22,6 +23,8 @@ const (
 	defaultRequestTimeout         = 15 * time.Second
 	defaultPITKeepAlive           = "5m"
 	defaultTrackTotalHitsLimit    = 10000
+	defaultSearchRetryBackoff     = 150 * time.Millisecond
+	defaultSearchRetryMinBudget   = 750 * time.Millisecond
 	totalRelationEqual            = "eq"
 	totalRelationGreaterThanEqual = "gte"
 )
@@ -121,7 +124,10 @@ func (r *ElasticsearchRepository) ensureReady() error {
 	return nil
 }
 
-var ErrTenantScopeRequired = errors.New("tenant scope is required")
+var (
+	ErrTenantScopeRequired      = errors.New("tenant scope is required")
+	ErrSearchBackendUnavailable = errors.New("search backend is temporarily unavailable")
+)
 
 // SearchLogs 调用 ES _search 执行检索。
 func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsInput) (SearchLogsResult, error) {
@@ -184,7 +190,7 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 		}
 	}
 	if err != nil {
-		return SearchLogsResult{}, err
+		return SearchLogsResult{}, wrapRetryableSearchError(err)
 	}
 
 	total, totalRelation := parseHitsTotal(parsed.Hits.Total)
@@ -213,34 +219,10 @@ func (r *ElasticsearchRepository) SearchWithBody(ctx context.Context, body map[s
 	if err := r.ensureReady(); err != nil {
 		return SearchLogsResult{}, err
 	}
-	payloadRaw, err := json.Marshal(body)
-	if err != nil {
-		return SearchLogsResult{}, fmt.Errorf("marshal es query: %w", err)
-	}
 	endpoint := fmt.Sprintf("%s/%s/_search", r.address, r.index)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadRaw))
+	parsed, err := r.executeSearchWithRetry(ctx, endpoint, body)
 	if err != nil {
-		return SearchLogsResult{}, fmt.Errorf("build es request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if r.username != "" {
-		req.SetBasicAuth(r.username, r.password)
-	}
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return SearchLogsResult{}, fmt.Errorf("execute es request: %w", err)
-	}
-	defer resp.Body.Close()
-	bodyRaw, err := sharedhttpguard.ReadLimitedBody(resp.Body, 0)
-	if err != nil {
-		return SearchLogsResult{}, fmt.Errorf("read es response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return SearchLogsResult{}, fmt.Errorf("es search failed: status=%d body=%s", resp.StatusCode, string(bodyRaw))
-	}
-	var parsed esSearchResponse
-	if err := json.Unmarshal(bodyRaw, &parsed); err != nil {
-		return SearchLogsResult{}, fmt.Errorf("decode es response: %w", err)
+		return SearchLogsResult{}, err
 	}
 	total, totalRelation := parseHitsTotal(parsed.Hits.Total)
 	result := SearchLogsResult{
@@ -333,6 +315,93 @@ func (r *ElasticsearchRepository) executeSearch(ctx context.Context, endpoint st
 		return esSearchResponse{}, fmt.Errorf("decode es response: %w", err)
 	}
 	return parsed, nil
+}
+
+func (r *ElasticsearchRepository) executeSearchWithRetry(ctx context.Context, endpoint string, queryPayload map[string]any) (esSearchResponse, error) {
+	parsed, err := r.executeSearch(ctx, endpoint, queryPayload)
+	if err == nil {
+		return parsed, nil
+	}
+	if !isRetryableSearchError(err) {
+		return esSearchResponse{}, err
+	}
+	if !hasRetryBudget(ctx, defaultSearchRetryMinBudget) {
+		return esSearchResponse{}, wrapRetryableSearchError(err)
+	}
+	if err := waitRetryBackoff(ctx, defaultSearchRetryBackoff); err != nil {
+		return esSearchResponse{}, wrapRetryableSearchError(err)
+	}
+	parsed, retryErr := r.executeSearch(ctx, endpoint, queryPayload)
+	if retryErr != nil {
+		return esSearchResponse{}, wrapRetryableSearchError(retryErr)
+	}
+	return parsed, nil
+}
+
+func wrapRetryableSearchError(err error) error {
+	if err == nil || !isRetryableSearchError(err) {
+		return err
+	}
+	if errors.Is(err, ErrSearchBackendUnavailable) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrSearchBackendUnavailable, err)
+}
+
+func isRetryableSearchError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var apiErr *esAPIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.Status {
+		case http.StatusTooManyRequests,
+			http.StatusInternalServerError,
+			http.StatusBadGateway,
+			http.StatusServiceUnavailable,
+			http.StatusGatewayTimeout:
+			return true
+		default:
+			return false
+		}
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "deadline exceeded") || strings.Contains(message, "timeout")
+}
+
+func hasRetryBudget(ctx context.Context, minBudget time.Duration) bool {
+	if ctx == nil {
+		return true
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return true
+	}
+	return time.Until(deadline) > minBudget
+}
+
+func waitRetryBackoff(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func shouldAutoOpenPIT(in SearchLogsInput) bool {

@@ -601,6 +601,69 @@ func TestSearchLogs_ReopensPITWhenExistingPITExpires(t *testing.T) {
 	}
 }
 
+func TestSearchWithBody_RetriesOnceOnTransientServerError(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if requestCount == 1 {
+			http.Error(w, `{"error":"es overloaded"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 4,
+			"timed_out": false,
+			"hits": {"total": {"value": 7}, "hits": []},
+			"aggregations": {
+				"by_dim": {"buckets": [{"key":"info","doc_count":7}]}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	result, err := repo.SearchWithBody(context.Background(), map[string]any{
+		"size": 0,
+	})
+	if err != nil {
+		t.Fatalf("SearchWithBody() error = %v", err)
+	}
+	if requestCount != 2 {
+		t.Fatalf("requestCount=%d, want 2", requestCount)
+	}
+	if result.Total != 7 {
+		t.Fatalf("result.Total=%d, want 7", result.Total)
+	}
+}
+
+func TestSearchWithBody_MapsRepeatedTransientFailuresToBackendUnavailable(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		http.Error(w, `{"error":"es overloaded"}`, http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	_, err := repo.SearchWithBody(context.Background(), map[string]any{
+		"size": 0,
+	})
+	if !errors.Is(err, ErrSearchBackendUnavailable) {
+		t.Fatalf("SearchWithBody() error = %v, want ErrSearchBackendUnavailable", err)
+	}
+	if requestCount != 2 {
+		t.Fatalf("requestCount=%d, want 2", requestCount)
+	}
+}
+
 func TestSearchLogs_RejectsMissingTenantScope(t *testing.T) {
 	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

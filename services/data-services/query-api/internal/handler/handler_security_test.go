@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/nexuslog/data-services/query-api/internal/repository"
 	"github.com/nexuslog/data-services/query-api/internal/service"
 )
 
@@ -47,6 +48,33 @@ func TestWriteServiceError_DoesNotLeakQueryWindowDetails(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 	if body.Message != "requested page exceeds supported result window; use cursor pagination" {
+		t.Fatalf("unexpected message: %q", body.Message)
+	}
+}
+
+func TestWriteServiceError_MapsSearchBackendUnavailableToServiceUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/query/stats/aggregate", nil)
+
+	writeServiceError(ctx, fmt.Errorf("aggregate failed: %w", repository.ErrSearchBackendUnavailable))
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var body struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body.Code != CodeQueryServiceUnavailable {
+		t.Fatalf("unexpected code: %q", body.Code)
+	}
+	if body.Message != "search backend is temporarily unavailable" {
 		t.Fatalf("unexpected message: %q", body.Message)
 	}
 }

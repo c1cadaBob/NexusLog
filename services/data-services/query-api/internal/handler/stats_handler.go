@@ -27,7 +27,7 @@ func (h *StatsHandler) GetOverviewStats(c *gin.Context) {
 
 	stats, err := h.svc.GetOverviewStats(c.Request.Context(), actor)
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, CodeQueryInternalError, "internal error")
+		writeServiceError(c, err)
 		return
 	}
 
@@ -50,7 +50,7 @@ func (h *StatsHandler) Aggregate(c *gin.Context) {
 
 	result, err := h.svc.Aggregate(c.Request.Context(), actor, req)
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, CodeQueryInternalError, "internal error")
+		writeServiceError(c, err)
 		return
 	}
 

@@ -209,8 +209,8 @@ func TestStatsServiceAggregate_FallsBackToStaleCacheOnESError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Aggregate() should fall back to stale cache, got %v", err)
 	}
-	if requestCount != 2 {
-		t.Fatalf("expected two ES requests, got %d", requestCount)
+	if requestCount != 3 {
+		t.Fatalf("expected three ES requests with one retry before stale fallback, got %d", requestCount)
 	}
 	if len(first.Buckets) != 1 || len(second.Buckets) != 1 || first.Buckets[0].Count != second.Buckets[0].Count {
 		t.Fatalf("unexpected fallback buckets: first=%+v second=%+v", first.Buckets, second.Buckets)
@@ -443,8 +443,8 @@ func TestStatsServiceGetOverviewStats_FallsBackToStaleCacheOnESError(t *testing.
 	if err != nil {
 		t.Fatalf("second GetOverviewStats() should fall back to stale cache, got %v", err)
 	}
-	if requestCount != 2 {
-		t.Fatalf("expected two ES requests, got %d", requestCount)
+	if requestCount != 3 {
+		t.Fatalf("expected three ES requests with one retry before stale fallback, got %d", requestCount)
 	}
 	if first.TotalLogs != 34 || second.TotalLogs != 34 {
 		t.Fatalf("unexpected fallback totals: first=%d second=%d", first.TotalLogs, second.TotalLogs)
