@@ -492,10 +492,13 @@ const SavedQueries: React.FC = () => {
 
   const renderSavedQueryActions = useCallback(
     (item: SavedQuery) => {
+      const actionButtonSize = isMobile ? "middle" : "small";
+      const actionButtonStyle = isMobile ? { minHeight: 36 } : undefined;
       const executeButton = (
         <Button
           type={isMobile ? "default" : "text"}
-          size="small"
+          size={actionButtonSize}
+          style={actionButtonStyle}
           icon={
             <span className="material-symbols-outlined text-sm">
               play_arrow
@@ -510,7 +513,8 @@ const SavedQueries: React.FC = () => {
       const editButton = (
         <Button
           type={isMobile ? "default" : "text"}
-          size="small"
+          size={actionButtonSize}
+          style={actionButtonStyle}
           icon={
             <span className="material-symbols-outlined text-sm">edit</span>
           }
@@ -523,7 +527,8 @@ const SavedQueries: React.FC = () => {
       const deleteButton = (
         <Button
           type={isMobile ? "default" : "text"}
-          size="small"
+          size={actionButtonSize}
+          style={actionButtonStyle}
           danger
           icon={
             <span className="material-symbols-outlined text-sm">delete</span>

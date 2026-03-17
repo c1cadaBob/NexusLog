@@ -222,6 +222,7 @@ describe('RealtimeSearch regressions', () => {
 
     const detailButtons = screen.getAllByRole('button', { name: /查看日志详情/ });
     expect(detailButtons).toHaveLength(2);
+    expect(detailButtons[0].className).not.toContain('ant-btn-sm');
     fireEvent.click(detailButtons[0]);
 
     await waitFor(() => {

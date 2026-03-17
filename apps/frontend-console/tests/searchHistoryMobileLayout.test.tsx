@@ -132,9 +132,17 @@ describe('SearchHistory mobile layout', () => {
 
     expect(document.querySelector('.ant-table')).toBeNull();
     expect(screen.getByText('当前页全选')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: /重新执行/ })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: /收藏/ })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: /删除/ }).length).toBeGreaterThanOrEqual(2);
+
+    const replayButtons = screen.getAllByRole('button', { name: /重新执行/ });
+    const bookmarkButtons = screen.getAllByRole('button', { name: /收藏/ });
+    const deleteButtons = screen.getAllByRole('button', { name: /删除/ });
+
+    expect(replayButtons).toHaveLength(2);
+    expect(bookmarkButtons).toHaveLength(2);
+    expect(deleteButtons.length).toBeGreaterThanOrEqual(2);
+    expect(replayButtons[0].className).not.toContain('ant-btn-sm');
+    expect(bookmarkButtons[0].className).not.toContain('ant-btn-sm');
+    expect(deleteButtons[0].className).not.toContain('ant-btn-sm');
 
     fireEvent.click(screen.getByLabelText('选择查询历史 history-mobile-1'));
 

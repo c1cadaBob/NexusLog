@@ -2263,7 +2263,8 @@ const RealtimeSearch: React.FC = () => {
           <Space size="small">
             <Tooltip title="列设置">
               <Button
-                size="small"
+                size={isMobile ? "middle" : "small"}
+                style={isMobile ? { minHeight: 36, minWidth: 36 } : undefined}
                 icon={
                   <span className="material-symbols-outlined text-sm">
                     view_column
@@ -2273,7 +2274,8 @@ const RealtimeSearch: React.FC = () => {
             </Tooltip>
             <Tooltip title="下载">
               <Button
-                size="small"
+                size={isMobile ? "middle" : "small"}
+                style={isMobile ? { minHeight: 36, minWidth: 36 } : undefined}
                 icon={
                   <span className="material-symbols-outlined text-sm">
                     download
@@ -2329,7 +2331,8 @@ const RealtimeSearch: React.FC = () => {
                         </span>
                       </div>
                       <Button
-                        size="small"
+                        size="middle"
+                        style={{ minHeight: 36 }}
                         onClick={() => handleRowClick(record)}
                         aria-label={`查看日志详情 ${record.id}`}
                       >

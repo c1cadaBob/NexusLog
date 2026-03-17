@@ -428,12 +428,15 @@ const SearchHistory: React.FC = () => {
   const renderActionButtons = useCallback(
     (record: QueryHistory, mode: "table" | "mobile" = "table") => {
       const compact = mode === "table";
+      const buttonSize = compact ? "small" : "middle";
+      const buttonStyle = compact ? undefined : { minHeight: 36 };
       return (
         <Space size="small" wrap>
           <Tooltip title="重新执行">
             <Button
               type={compact ? "link" : "default"}
-              size="small"
+              size={buttonSize}
+              style={buttonStyle}
               icon={
                 <span className="material-symbols-outlined text-sm">
                   replay
@@ -447,7 +450,8 @@ const SearchHistory: React.FC = () => {
           <Tooltip title="收藏">
             <Button
               type={compact ? "link" : "default"}
-              size="small"
+              size={buttonSize}
+              style={buttonStyle}
               icon={
                 <span className="material-symbols-outlined text-sm">
                   bookmark_add
@@ -469,7 +473,8 @@ const SearchHistory: React.FC = () => {
             <Tooltip title="删除">
               <Button
                 type={compact ? "link" : "default"}
-                size="small"
+                size={buttonSize}
+                style={buttonStyle}
                 danger
                 icon={
                   <span className="material-symbols-outlined text-sm">

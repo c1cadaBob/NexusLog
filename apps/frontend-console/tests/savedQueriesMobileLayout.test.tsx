@@ -131,9 +131,16 @@ describe('SavedQueries mobile layout', () => {
       expect(screen.getByText(longQuery)).toBeTruthy();
     });
 
-    expect(screen.getByRole('button', { name: /执行收藏查询/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /编辑收藏查询/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /删除收藏查询/ })).toBeTruthy();
+    const executeButton = screen.getByRole('button', { name: /执行收藏查询/ });
+    const editButton = screen.getByRole('button', { name: /编辑收藏查询/ });
+    const deleteButton = screen.getByRole('button', { name: /删除收藏查询/ });
+
+    expect(executeButton).toBeTruthy();
+    expect(editButton).toBeTruthy();
+    expect(deleteButton).toBeTruthy();
+    expect(executeButton.className).not.toContain('ant-btn-sm');
+    expect(editButton.className).not.toContain('ant-btn-sm');
+    expect(deleteButton.className).not.toContain('ant-btn-sm');
     expect(screen.getByText('共 18 个收藏')).toBeTruthy();
     expect(document.querySelector('.ant-pagination-options-quick-jumper')).toBeNull();
   });
