@@ -48,6 +48,8 @@ import {
 
 type ModalMode = "create" | "edit";
 
+const MOBILE_BREAKPOINT = 768;
+
 const SavedQueries: React.FC = () => {
   const { message: msg, modal } = App.useApp();
   const [form] = Form.useForm();
@@ -68,6 +70,7 @@ const SavedQueries: React.FC = () => {
   );
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
+  const [isMobile, setIsMobile] = useState(false);
   const [loadedPage, setLoadedPage] = useState(1);
   const [loadedPageSize, setLoadedPageSize] = useState(storedPageSize);
   const setPageSize = useCallback(
@@ -136,6 +139,15 @@ const SavedQueries: React.FC = () => {
     () => savedQueryDiagnostics.filter((entry) => entry.needsCleanup),
     [savedQueryDiagnostics],
   );
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   const modalQueryCleanupPreview = useMemo(() => {
     const rawQuery =
@@ -478,6 +490,89 @@ const SavedQueries: React.FC = () => {
     });
   }, [dirtySavedQueries, modal, performCleanupDirtyQueries]);
 
+  const renderSavedQueryActions = useCallback(
+    (item: SavedQuery) => {
+      const executeButton = (
+        <Button
+          type={isMobile ? "default" : "text"}
+          size="small"
+          icon={
+            <span className="material-symbols-outlined text-sm">
+              play_arrow
+            </span>
+          }
+          onClick={() => void handleExecute(item)}
+          aria-label={isMobile ? `执行收藏查询 ${item.name}` : undefined}
+        >
+          {isMobile ? "执行" : null}
+        </Button>
+      );
+      const editButton = (
+        <Button
+          type={isMobile ? "default" : "text"}
+          size="small"
+          icon={
+            <span className="material-symbols-outlined text-sm">edit</span>
+          }
+          onClick={() => openEditModal(item)}
+          aria-label={isMobile ? `编辑收藏查询 ${item.name}` : undefined}
+        >
+          {isMobile ? "编辑" : null}
+        </Button>
+      );
+      const deleteButton = (
+        <Button
+          type={isMobile ? "default" : "text"}
+          size="small"
+          danger
+          icon={
+            <span className="material-symbols-outlined text-sm">delete</span>
+          }
+          aria-label={isMobile ? `删除收藏查询 ${item.name}` : undefined}
+        >
+          {isMobile ? "删除" : null}
+        </Button>
+      );
+
+      if (isMobile) {
+        return (
+          <Space size="small" wrap>
+            {executeButton}
+            {editButton}
+            <Popconfirm
+              title="确认删除"
+              description={`确定要删除「${item.name}」吗？`}
+              onConfirm={() => void handleDelete(item.id)}
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+            >
+              {deleteButton}
+            </Popconfirm>
+          </Space>
+        );
+      }
+
+      return (
+        <Space size={0}>
+          <Tooltip title="执行">{executeButton}</Tooltip>
+          <Tooltip title="编辑">{editButton}</Tooltip>
+          <Popconfirm
+            title="确认删除"
+            description={`确定要删除「${item.name}」吗？`}
+            onConfirm={() => void handleDelete(item.id)}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Tooltip title="删除">{deleteButton}</Tooltip>
+          </Popconfirm>
+        </Space>
+      );
+    },
+    [handleDelete, handleExecute, isMobile, openEditModal],
+  );
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3 flex-wrap">
@@ -493,7 +588,7 @@ const SavedQueries: React.FC = () => {
             setAppliedSearch(value.trim());
           }}
           allowClear
-          style={{ width: 300 }}
+          style={{ width: isMobile ? "100%" : 300 }}
         />
         <div className="flex items-center gap-2 flex-wrap">
           <Tag
@@ -533,7 +628,9 @@ const SavedQueries: React.FC = () => {
         >
           重置
         </Button>
-        <span className="text-sm opacity-50 ml-auto">
+        <span
+          className={isMobile ? "w-full text-xs opacity-50" : "text-sm opacity-50 ml-auto"}
+        >
           {formatSearchPageSummary(total, "个收藏", visibleRange, "个")}
         </span>
         {loading && (
@@ -591,19 +688,19 @@ const SavedQueries: React.FC = () => {
                   <Card
                     hoverable
                     size="small"
-                    styles={{ body: { padding: 16 } }}
+                    styles={{ body: { padding: isMobile ? 14 : 16 } }}
                     loading={loading}
                   >
                     <div className="flex flex-col gap-3">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
                           <span
-                            className="material-symbols-outlined text-base"
+                            className="material-symbols-outlined text-base shrink-0"
                             style={{ color: COLORS.warning }}
                           >
                             bookmark
                           </span>
-                          <span className="text-sm font-medium">
+                          <span className="text-sm font-medium break-all">
                             {item.name}
                           </span>
                           {needsCleanup && (
@@ -617,62 +714,26 @@ const SavedQueries: React.FC = () => {
                             </Tag>
                           )}
                         </div>
-                        <Space size={0}>
-                          <Tooltip title="执行">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={
-                                <span className="material-symbols-outlined text-sm">
-                                  play_arrow
-                                </span>
-                              }
-                              onClick={() => void handleExecute(item)}
-                            />
-                          </Tooltip>
-                          <Tooltip title="编辑">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={
-                                <span className="material-symbols-outlined text-sm">
-                                  edit
-                                </span>
-                              }
-                              onClick={() => openEditModal(item)}
-                            />
-                          </Tooltip>
-                          <Popconfirm
-                            title="确认删除"
-                            description={`确定要删除「${item.name}」吗？`}
-                            onConfirm={() => void handleDelete(item.id)}
-                            okText="删除"
-                            cancelText="取消"
-                            okButtonProps={{ danger: true }}
-                          >
-                            <Tooltip title="删除">
-                              <Button
-                                type="text"
-                                size="small"
-                                danger
-                                icon={
-                                  <span className="material-symbols-outlined text-sm">
-                                    delete
-                                  </span>
-                                }
-                              />
-                            </Tooltip>
-                          </Popconfirm>
-                        </Space>
+                        {!isMobile && renderSavedQueryActions(item)}
                       </div>
 
                       <div
-                        className="font-mono text-sm p-2 rounded overflow-hidden text-ellipsis whitespace-nowrap"
+                        className={`font-mono text-sm p-2 rounded ${
+                          isMobile
+                            ? "break-all whitespace-pre-wrap leading-6"
+                            : "overflow-hidden text-ellipsis whitespace-nowrap"
+                        }`}
                         style={{ backgroundColor: "rgba(0,0,0,0.06)" }}
                         title={item.query}
                       >
                         {item.query}
                       </div>
+
+                      {isMobile && (
+                        <div className="flex justify-end">
+                          {renderSavedQueryActions(item)}
+                        </div>
+                      )}
 
                       {previewFilters.length > 0 && (
                         <div className="flex flex-col gap-1">
@@ -726,7 +787,7 @@ const SavedQueries: React.FC = () => {
               pageSize={pageSize}
               total={total}
               showSizeChanger
-              showQuickJumper
+              showQuickJumper={!isMobile}
               pageSizeOptions={["6", "12", "24", "48"]}
               showTotal={(count) => formatSearchPageTotal(count, "个收藏")}
               onChange={(page, size) => {
