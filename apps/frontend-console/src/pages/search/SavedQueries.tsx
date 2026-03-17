@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Card, Input, Tag, Button, Row, Col, Space, Empty, Tooltip, App, Modal, Form, Select, Popconfirm, Alert, Pagination } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { COLORS } from '../../theme/tokens';
@@ -35,6 +35,7 @@ const SavedQueries: React.FC = () => {
     setStoredPageSize('savedQueries', size);
   }, [setStoredPageSize]);
   const savedPaginationRef = usePaginationQuickJumperAccessibility('saved-queries');
+  const latestSavedRequestRef = useRef(0);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
@@ -73,6 +74,8 @@ const SavedQueries: React.FC = () => {
 
   // 收藏查询改为真实 API 数据源，页面仅做展示和交互。
   const loadSavedQueries = useCallback(async () => {
+    const requestId = latestSavedRequestRef.current + 1;
+    latestSavedRequestRef.current = requestId;
     setLoading(true);
     setErrorText('');
     try {
@@ -82,6 +85,9 @@ const SavedQueries: React.FC = () => {
         keyword: appliedSearch,
         tag: selectedTag ?? undefined,
       });
+      if (requestId !== latestSavedRequestRef.current) {
+        return;
+      }
       setSavedList(result.items);
       setTotal(result.total);
       setKnownTags((prev) => {
@@ -96,10 +102,15 @@ const SavedQueries: React.FC = () => {
         setPageSize(result.pageSize);
       }
     } catch (error) {
+      if (requestId !== latestSavedRequestRef.current) {
+        return;
+      }
       const readable = error instanceof Error ? error.message : '加载收藏查询失败';
       setErrorText(readable);
     } finally {
-      setLoading(false);
+      if (requestId === latestSavedRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, [appliedSearch, currentPage, pageSize, selectedTag]);
 

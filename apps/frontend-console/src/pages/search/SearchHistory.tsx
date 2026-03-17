@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Table, Input, Button, Tag, DatePicker, Space, Tooltip, App, Popconfirm, Alert, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
@@ -34,9 +34,12 @@ const SearchHistory: React.FC = () => {
     setStoredPageSize('searchHistory', size);
   }, [setStoredPageSize]);
   const historyTableRef = usePaginationQuickJumperAccessibility('search-history');
+  const latestHistoryRequestRef = useRef(0);
 
   // 查询历史列表使用服务端分页，确保和后端真实数据一致。
   const loadHistory = useCallback(async () => {
+    const requestId = latestHistoryRequestRef.current + 1;
+    latestHistoryRequestRef.current = requestId;
     setLoading(true);
     setErrorText('');
     try {
@@ -47,6 +50,9 @@ const SearchHistory: React.FC = () => {
         from: dateRange?.[0]?.toISOString(),
         to: dateRange?.[1]?.toISOString(),
       });
+      if (requestId !== latestHistoryRequestRef.current) {
+        return;
+      }
       setRows(result.items);
       setTotal(result.total);
       if (result.page !== currentPage) {
@@ -56,10 +62,15 @@ const SearchHistory: React.FC = () => {
         setPageSize(result.pageSize);
       }
     } catch (error) {
+      if (requestId !== latestHistoryRequestRef.current) {
+        return;
+      }
       const readable = error instanceof Error ? error.message : '查询历史加载失败';
       setErrorText(readable);
     } finally {
-      setLoading(false);
+      if (requestId === latestHistoryRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, [currentPage, pageSize, keyword, dateRange, setPageSize]);
 
