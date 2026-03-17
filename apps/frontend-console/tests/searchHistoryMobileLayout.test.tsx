@@ -133,6 +133,13 @@ describe('SearchHistory mobile layout', () => {
     expect(document.querySelector('.ant-table')).toBeNull();
     expect(screen.getByText('当前页全选')).toBeTruthy();
 
+    const searchButton = document.querySelector('.ant-input-search-button') as HTMLButtonElement | null;
+    const resetButton = screen.getByRole('button', { name: /重\s*置/ });
+    const batchDeleteButton = screen.getByRole('button', { name: /批量删除/ });
+    expect(searchButton?.className).toContain('ant-btn-lg');
+    expect(resetButton.className).toContain('ant-btn-lg');
+    expect(batchDeleteButton.className).toContain('ant-btn-lg');
+
     const replayButtons = screen.getAllByRole('button', { name: /重新执行/ });
     const bookmarkButtons = screen.getAllByRole('button', { name: /收藏/ });
     const deleteButtons = screen.getAllByRole('button', { name: /删除/ });

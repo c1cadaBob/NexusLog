@@ -131,9 +131,16 @@ describe('SavedQueries mobile layout', () => {
       expect(screen.getByText(longQuery)).toBeTruthy();
     });
 
+    const searchButton = document.querySelector('.ant-input-search-button') as HTMLButtonElement | null;
+    const createButton = screen.getByRole('button', { name: /新建收藏/ });
+    const resetButton = screen.getByRole('button', { name: /重\s*置/ });
     const executeButton = screen.getByRole('button', { name: /执行收藏查询/ });
     const editButton = screen.getByRole('button', { name: /编辑收藏查询/ });
     const deleteButton = screen.getByRole('button', { name: /删除收藏查询/ });
+
+    expect(searchButton?.className).toContain('ant-btn-lg');
+    expect(createButton.className).toContain('ant-btn-lg');
+    expect(resetButton.className).toContain('ant-btn-lg');
 
     expect(executeButton).toBeTruthy();
     expect(editButton).toBeTruthy();

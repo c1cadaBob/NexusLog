@@ -557,6 +557,7 @@ const SearchHistory: React.FC = () => {
           id="search-history-keyword"
           name="search-history-keyword"
           autoComplete="off"
+          size={isMobile ? "large" : "middle"}
           placeholder="搜索查询语句..."
           value={keywordInput}
           onChange={(e) => setKeywordInput(e.target.value)}
@@ -566,6 +567,7 @@ const SearchHistory: React.FC = () => {
         />
         <DatePicker.RangePicker
           id={{ start: "search-history-start", end: "search-history-end" }}
+          size={isMobile ? "large" : "middle"}
           value={dateRange}
           showTime={{ format: "HH:mm:ss" }}
           format="YYYY-MM-DD HH:mm:ss"
@@ -579,6 +581,7 @@ const SearchHistory: React.FC = () => {
         />
         <div className={isMobile ? "grid grid-cols-2 gap-2" : "contents"}>
           <Button
+            size={isMobile ? "large" : "middle"}
             onClick={() => {
               setSelectedRowKeys([]);
               setKeywordInput("");
@@ -601,6 +604,7 @@ const SearchHistory: React.FC = () => {
           >
             <span className={isMobile ? "w-full" : undefined}>
               <Button
+                size={isMobile ? "large" : "middle"}
                 danger
                 className={isMobile ? "w-full" : undefined}
                 disabled={selectedHistoryIDs.length === 0}

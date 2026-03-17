@@ -585,6 +585,7 @@ const SavedQueries: React.FC = () => {
           id="saved-query-search"
           name="saved-query-search"
           autoComplete="off"
+          size={isMobile ? "large" : "middle"}
           placeholder="搜索查询名称或语句..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
@@ -599,6 +600,7 @@ const SavedQueries: React.FC = () => {
           <Tag
             className="cursor-pointer"
             color={selectedTag === null ? "blue" : undefined}
+            style={isMobile ? { margin: 0, minHeight: 32, paddingInline: 12, display: "inline-flex", alignItems: "center" } : undefined}
             onClick={() => {
               setSelectedTag(null);
               setCurrentPage(1);
@@ -611,6 +613,7 @@ const SavedQueries: React.FC = () => {
               key={tag}
               className="cursor-pointer"
               color={selectedTag === tag ? "blue" : undefined}
+              style={isMobile ? { margin: 0, minHeight: 32, paddingInline: 12, display: "inline-flex", alignItems: "center" } : undefined}
               onClick={() => {
                 setSelectedTag(selectedTag === tag ? null : tag);
                 setCurrentPage(1);
@@ -620,10 +623,11 @@ const SavedQueries: React.FC = () => {
             </Tag>
           ))}
         </div>
-        <Button onClick={openCreateModal} type="primary">
+        <Button size={isMobile ? "large" : "middle"} onClick={openCreateModal} type="primary">
           新建收藏
         </Button>
         <Button
+          size={isMobile ? "large" : "middle"}
           onClick={() => {
             setSearchText("");
             setAppliedSearch("");

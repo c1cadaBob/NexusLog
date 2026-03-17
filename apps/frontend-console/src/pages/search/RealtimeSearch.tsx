@@ -2051,6 +2051,7 @@ const RealtimeSearch: React.FC = () => {
             id="realtime-query-input"
             name="realtime-query"
             autoComplete="off"
+            size={isMobile ? "large" : "middle"}
             placeholder='输入查询语句，例如: level:error AND service:"payment-service"'
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -2068,6 +2069,7 @@ const RealtimeSearch: React.FC = () => {
           />
           <Tooltip title="保存查询">
             <Button
+              size={isMobile ? "large" : "middle"}
               icon={
                 <span className="material-symbols-outlined text-sm">
                   bookmark_add
@@ -2076,7 +2078,11 @@ const RealtimeSearch: React.FC = () => {
               onClick={handleBookmarkCurrentQuery}
             />
           </Tooltip>
-          <Button type="link" size="small">
+          <Button
+            type="link"
+            size={isMobile ? "middle" : "small"}
+            style={isMobile ? { minHeight: 36 } : undefined}
+          >
             <span className="flex items-center gap-1 text-xs">
               <span className="material-symbols-outlined text-sm">
                 help_outline
@@ -2099,6 +2105,10 @@ const RealtimeSearch: React.FC = () => {
                 fontSize: 11,
                 margin: 0,
                 maxWidth: 320,
+                minHeight: isMobile ? 32 : undefined,
+                paddingInline: isMobile ? 12 : undefined,
+                display: isMobile ? "inline-flex" : undefined,
+                alignItems: isMobile ? "center" : undefined,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -2120,6 +2130,7 @@ const RealtimeSearch: React.FC = () => {
         {/* 级别 / 来源筛选 */}
         <Space wrap>
           <Select
+            size={isMobile ? "large" : "middle"}
             placeholder="级别"
             allowClear
             value={levelFilter || undefined}
@@ -2135,6 +2146,7 @@ const RealtimeSearch: React.FC = () => {
             ]}
           />
           <Select
+            size={isMobile ? "large" : "middle"}
             placeholder="来源/服务"
             allowClear
             showSearch
@@ -2198,7 +2210,7 @@ const RealtimeSearch: React.FC = () => {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <Button
-              size="small"
+              size={isMobile ? "large" : "small"}
               type={isLive ? "primary" : "default"}
               onClick={handleToggleLive}
               icon={
@@ -2210,7 +2222,7 @@ const RealtimeSearch: React.FC = () => {
               {isLive ? "实时" : "已暂停"}
             </Button>
             <Select
-              size="small"
+              size={isMobile ? "large" : "small"}
               value={liveWindow}
               onChange={handleLiveWindowChange}
               style={{ minWidth: 132 }}

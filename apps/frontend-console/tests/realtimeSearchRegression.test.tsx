@@ -220,6 +220,15 @@ describe('RealtimeSearch regressions', () => {
     expect(screen.getByText('payment-service')).toBeTruthy();
     expect(screen.getByText('app-node-01')).toBeTruthy();
 
+    const searchButton = document.querySelector('.ant-input-search-button') as HTMLButtonElement | null;
+    const bookmarkButton = screen.getByRole('button', { name: 'bookmark_add' });
+    const guideButton = screen.getByRole('button', { name: /语法指南/ });
+    const liveButton = screen.getByRole('button', { name: /实时/ });
+    expect(searchButton?.className).toContain('ant-btn-lg');
+    expect(bookmarkButton.className).toContain('ant-btn-lg');
+    expect(guideButton.className).not.toContain('ant-btn-sm');
+    expect(liveButton.className).toContain('ant-btn-lg');
+
     const detailButtons = screen.getAllByRole('button', { name: /查看日志详情/ });
     expect(detailButtons).toHaveLength(2);
     expect(detailButtons[0].className).not.toContain('ant-btn-sm');
