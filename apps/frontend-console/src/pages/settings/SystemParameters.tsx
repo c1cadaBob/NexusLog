@@ -44,6 +44,10 @@ const categories: { key: CategoryKey; label: string; icon: string }[] = [
   { key: 'notification', label: '通知设置', icon: 'notifications' },
 ];
 
+function buildSystemParameterFieldID(fieldKey: string): string {
+  return `system-parameter-${fieldKey}`;
+}
+
 const SystemParameters: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const [config, setConfig] = useState<SystemConfig>(defaultConfig);
@@ -108,24 +112,38 @@ const SystemParameters: React.FC = () => {
   );
 
   // 渲染数字输入框
-  const renderNumberInput = (value: number, onChange: (value: number) => void, label: string, unit?: string, hint?: string, helpText?: string) => (
-    <div className="flex flex-col gap-2">
-      <label className={`text-sm font-medium ${labelColor} flex items-center gap-2`}>
-        {label}
-        {helpText && <span className={`material-symbols-outlined text-[16px] ${textSecondary} cursor-help`} title={helpText}>help</span>}
-      </label>
-      <div className="relative">
-        <input
-          className={`w-full ${inputBg} border ${borderColor} rounded-lg px-4 py-2.5 ${textColor} focus:ring-1 focus:ring-[#135bec] focus:border-[#135bec] outline-none transition-all`}
-          type="number"
-          value={value}
-          onChange={(e) => onChange(parseInt(e.target.value) || 0)}
-        />
-        {unit && <span className={`absolute right-4 top-2.5 text-sm ${textSecondary}`}>{unit}</span>}
+  const renderNumberInput = (
+    fieldKey: keyof SystemConfig,
+    value: number,
+    onChange: (value: number) => void,
+    label: string,
+    unit?: string,
+    hint?: string,
+    helpText?: string,
+  ) => {
+    const inputID = buildSystemParameterFieldID(fieldKey);
+
+    return (
+      <div className="flex flex-col gap-2">
+        <label htmlFor={inputID} className={`text-sm font-medium ${labelColor} flex items-center gap-2`}>
+          {label}
+          {helpText && <span className={`material-symbols-outlined text-[16px] ${textSecondary} cursor-help`} title={helpText}>help</span>}
+        </label>
+        <div className="relative">
+          <input
+            id={inputID}
+            name={inputID}
+            className={`w-full ${inputBg} border ${borderColor} rounded-lg px-4 py-2.5 ${textColor} focus:ring-1 focus:ring-[#135bec] focus:border-[#135bec] outline-none transition-all`}
+            type="number"
+            value={value}
+            onChange={(e) => onChange(parseInt(e.target.value) || 0)}
+          />
+          {unit && <span className={`absolute right-4 top-2.5 text-sm ${textSecondary}`}>{unit}</span>}
+        </div>
+        {hint && <p className={`text-xs ${textSecondary}`}>{hint}</p>}
       </div>
-      {hint && <p className={`text-xs ${textSecondary}`}>{hint}</p>}
-    </div>
-  );
+    );
+  };
 
   // 渲染性能参数部分
   const renderPerformanceSection = () => (
@@ -137,8 +155,8 @@ const SystemParameters: React.FC = () => {
         </div>
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {renderNumberInput(config.maxSearchResults, (v) => updateConfig('maxSearchResults', v), '最大搜索结果数', '条', '建议值: 1000 - 5000', '单次查询返回的最大日志条数')}
-            {renderNumberInput(config.queryTimeout, (v) => updateConfig('queryTimeout', v), '查询超时时间', '秒')}
+            {renderNumberInput('maxSearchResults', config.maxSearchResults, (v) => updateConfig('maxSearchResults', v), '最大搜索结果数', '条', '建议值: 1000 - 5000', '单次查询返回的最大日志条数')}
+            {renderNumberInput('queryTimeout', config.queryTimeout, (v) => updateConfig('queryTimeout', v), '查询超时时间', '秒')}
           </div>
           {renderToggle(config.enableQueryCache, (v) => updateConfig('enableQueryCache', v), '启用查询缓存', '缓存常用查询结果以提高响应速度')}
         </div>
@@ -151,9 +169,11 @@ const SystemParameters: React.FC = () => {
         </div>
         <div className="p-6 space-y-6">
           <div className="flex flex-col gap-2">
-            <label className={`text-sm font-medium ${labelColor}`}>默认保留期限</label>
+            <label htmlFor={buildSystemParameterFieldID('retentionPeriod')} className={`text-sm font-medium ${labelColor}`}>默认保留期限</label>
             <div className="relative">
               <select
+                id={buildSystemParameterFieldID('retentionPeriod')}
+                name={buildSystemParameterFieldID('retentionPeriod')}
                 className={`w-full ${inputBg} border ${borderColor} rounded-lg px-4 py-2.5 ${textColor} focus:ring-1 focus:ring-[#135bec] focus:border-[#135bec] outline-none transition-all appearance-none cursor-pointer`}
                 value={config.retentionPeriod}
                 onChange={(e) => updateConfig('retentionPeriod', e.target.value)}
@@ -170,9 +190,11 @@ const SystemParameters: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="flex flex-col gap-2">
-              <label className={`text-sm font-medium ${labelColor}`}>最大存储空间限制</label>
+              <label htmlFor={buildSystemParameterFieldID('maxStorageLimit')} className={`text-sm font-medium ${labelColor}`}>最大存储空间限制</label>
               <div className="flex">
                 <input
+                  id={buildSystemParameterFieldID('maxStorageLimit')}
+                  name={buildSystemParameterFieldID('maxStorageLimit')}
                   className={`flex-1 ${inputBg} border border-r-0 ${borderColor} rounded-l-lg px-4 py-2.5 ${textColor} focus:ring-1 focus:ring-[#135bec] focus:border-[#135bec] outline-none transition-all`}
                   type="number"
                   value={config.maxStorageLimit}
@@ -181,7 +203,7 @@ const SystemParameters: React.FC = () => {
                 <div className={`${unitBg} border ${borderColor} px-4 flex items-center rounded-r-lg text-sm font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>GB</div>
               </div>
             </div>
-            {renderNumberInput(config.indexShards, (v) => updateConfig('indexShards', v), '索引分片数')}
+            {renderNumberInput('indexShards', config.indexShards, (v) => updateConfig('indexShards', v), '索引分片数')}
           </div>
           <div className={`border-t ${borderColor} my-4`}></div>
           {renderToggle(config.autoArchive, (v) => updateConfig('autoArchive', v), '自动归档旧数据', '超过保留期限的数据将自动转移到冷存储')}
@@ -195,17 +217,19 @@ const SystemParameters: React.FC = () => {
         </div>
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {renderNumberInput(config.workerThreads, (v) => updateConfig('workerThreads', v), '工作线程数 (Worker Threads)', undefined, '建议设置为 CPU 核心数的 2 倍')}
-            {renderNumberInput(config.batchSize, (v) => updateConfig('batchSize', v), '批处理大小 (Batch Size)')}
+            {renderNumberInput('workerThreads', config.workerThreads, (v) => updateConfig('workerThreads', v), '工作线程数 (Worker Threads)', undefined, '建议设置为 CPU 核心数的 2 倍')}
+            {renderNumberInput('batchSize', config.batchSize, (v) => updateConfig('batchSize', v), '批处理大小 (Batch Size)')}
           </div>
           <div className={`border-t ${borderColor} my-4`}></div>
           {renderToggle(config.enableRateLimit, (v) => updateConfig('enableRateLimit', v), 'API 速率限制 (Rate Limiting)', '防止 API 滥用导致系统过载')}
           {config.enableRateLimit && (
             <div className={`${inputBg} rounded-lg p-4 border ${borderColor}`}>
               <div className="flex flex-col gap-3">
-                <label className={`text-sm font-medium ${labelColor}`}>限制阈值</label>
+                <label htmlFor={buildSystemParameterFieldID('rateLimitThreshold')} className={`text-sm font-medium ${labelColor}`}>限制阈值</label>
                 <div className="flex items-center gap-3">
                   <input
+                    id={buildSystemParameterFieldID('rateLimitThreshold')}
+                    name={buildSystemParameterFieldID('rateLimitThreshold')}
                     className={`w-full h-2 ${unitBg} rounded-lg appearance-none cursor-pointer accent-[#135bec]`}
                     type="range" min="100" max="5000"
                     value={config.rateLimitThreshold}
@@ -234,9 +258,11 @@ const SystemParameters: React.FC = () => {
         </div>
         <div className="p-6 space-y-6">
           <div className="flex flex-col gap-2">
-            <label className={`text-sm font-medium ${labelColor}`}>日志级别</label>
+            <label htmlFor={buildSystemParameterFieldID('logLevel')} className={`text-sm font-medium ${labelColor}`}>日志级别</label>
             <div className="relative">
               <select
+                id={buildSystemParameterFieldID('logLevel')}
+                name={buildSystemParameterFieldID('logLevel')}
                 className={`w-full ${inputBg} border ${borderColor} rounded-lg px-4 py-2.5 ${textColor} focus:ring-1 focus:ring-[#135bec] focus:border-[#135bec] outline-none transition-all appearance-none cursor-pointer`}
                 value={config.logLevel}
                 onChange={(e) => updateConfig('logLevel', e.target.value)}
@@ -267,8 +293,8 @@ const SystemParameters: React.FC = () => {
         </div>
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {renderNumberInput(config.connectionTimeout, (v) => updateConfig('connectionTimeout', v), '连接超时时间', '秒', '建议值: 10 - 60')}
-            {renderNumberInput(config.maxConnections, (v) => updateConfig('maxConnections', v), '最大连接数', undefined, '建议值: 50 - 500')}
+            {renderNumberInput('connectionTimeout', config.connectionTimeout, (v) => updateConfig('connectionTimeout', v), '连接超时时间', '秒', '建议值: 10 - 60')}
+            {renderNumberInput('maxConnections', config.maxConnections, (v) => updateConfig('maxConnections', v), '最大连接数', undefined, '建议值: 50 - 500')}
           </div>
           <div className={`border-t ${borderColor} my-4`}></div>
           {renderToggle(config.enableCompression, (v) => updateConfig('enableCompression', v), '启用数据压缩', '压缩传输数据以减少带宽使用')}
@@ -287,8 +313,8 @@ const SystemParameters: React.FC = () => {
         </div>
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {renderNumberInput(config.sessionTimeout, (v) => updateConfig('sessionTimeout', v), '会话超时时间', '分钟', '用户无操作后自动登出的时间')}
-            {renderNumberInput(config.maxLoginAttempts, (v) => updateConfig('maxLoginAttempts', v), '最大登录尝试次数', '次', '超过后账户将被临时锁定')}
+            {renderNumberInput('sessionTimeout', config.sessionTimeout, (v) => updateConfig('sessionTimeout', v), '会话超时时间', '分钟', '用户无操作后自动登出的时间')}
+            {renderNumberInput('maxLoginAttempts', config.maxLoginAttempts, (v) => updateConfig('maxLoginAttempts', v), '最大登录尝试次数', '次', '超过后账户将被临时锁定')}
           </div>
           <div className={`border-t ${borderColor} my-4`}></div>
           {renderToggle(config.enableAuditLog, (v) => updateConfig('enableAuditLog', v), '启用审计日志', '记录所有用户操作以便安全审计')}
@@ -406,6 +432,8 @@ const SystemParameters: React.FC = () => {
         {/* Mobile Category Selector */}
         <div className={`md:hidden w-full px-6 py-4 border-b ${borderColor} ${sidebarBg}`}>
           <select
+            id="system-parameter-category"
+            name="system-parameter-category"
             value={activeCategory}
             onChange={(e) => setActiveCategory(e.target.value as CategoryKey)}
             className={`w-full ${inputBg} border ${borderColor} rounded-lg px-4 py-2.5 ${textColor} focus:ring-1 focus:ring-[#135bec] focus:border-[#135bec] outline-none`}
