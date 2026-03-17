@@ -60,6 +60,7 @@ const SearchHistory: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [errorText, setErrorText] = useState("");
+  const [retryingHistory, setRetryingHistory] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -421,12 +422,17 @@ const SearchHistory: React.FC = () => {
     [],
   );
 
-  const historyLoadingPlaceholderVisible = loading && rows.length === 0;
+  const historyLoadingPlaceholderVisible =
+    loading && rows.length === 0 && !retryingHistory;
   const showHistoryInlineErrorState =
-    Boolean(errorText) && rows.length === 0 && !historyLoadingPlaceholderVisible;
+    (Boolean(errorText) || retryingHistory) &&
+    rows.length === 0 &&
+    !historyLoadingPlaceholderVisible;
   const historySummaryText = historyLoadingPlaceholderVisible
     ? "正在加载查询历史..."
-    : formatSearchPageSummary(total, "条记录", visibleRange, "条");
+    : retryingHistory && rows.length === 0
+      ? "正在重试查询历史..."
+      : formatSearchPageSummary(total, "条记录", visibleRange, "条");
 
   const visibleRowsSelectedCount = useMemo(
     () => rows.filter((row) => selectedRowKeySet.has(row.id)).length,
@@ -653,7 +659,16 @@ const SearchHistory: React.FC = () => {
           message="查询历史加载失败"
           description={errorText}
           action={
-            <Button size="small" onClick={() => void loadHistory()}>
+            <Button
+              size="small"
+              loading={retryingHistory}
+              onClick={() => {
+                setRetryingHistory(true);
+                void loadHistory().finally(() => {
+                  setRetryingHistory(false);
+                });
+              }}
+            >
               重试
             </Button>
           }
@@ -691,9 +706,13 @@ const SearchHistory: React.FC = () => {
             <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
               <InlineErrorState
                 title="查询历史加载失败"
-                description={errorText}
+                description={errorText || "正在重新请求，请稍候..."}
+                actionLoading={retryingHistory}
                 onAction={() => {
-                  void loadHistory();
+                  setRetryingHistory(true);
+                  void loadHistory().finally(() => {
+                    setRetryingHistory(false);
+                  });
                 }}
               />
             </div>
@@ -797,9 +816,13 @@ const SearchHistory: React.FC = () => {
               emptyText: showHistoryInlineErrorState ? (
                 <InlineErrorState
                   title="查询历史加载失败"
-                  description={errorText}
+                  description={errorText || "正在重新请求，请稍候..."}
+                  actionLoading={retryingHistory}
                   onAction={() => {
-                    void loadHistory();
+                    setRetryingHistory(true);
+                    void loadHistory().finally(() => {
+                      setRetryingHistory(false);
+                    });
                   }}
                 />
               ) : (

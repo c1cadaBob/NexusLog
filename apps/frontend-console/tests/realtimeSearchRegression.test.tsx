@@ -279,18 +279,12 @@ describe('RealtimeSearch regressions', () => {
     });
   });
 
-  it('shows an inline retry state when the initial realtime request fails without stale data', async () => {
+  it('keeps the inline retry state visible with loading feedback while a realtime retry is pending', async () => {
     setViewport(390);
+    const deferred = createDeferred<ReturnType<typeof createQueryResult>>();
     queryRealtimeLogsMock
       .mockRejectedValueOnce(new Error('realtime load failed'))
-      .mockResolvedValueOnce(
-        createQueryResult({
-          hits: [],
-          total: 0,
-          page: 1,
-          pageSize: 20,
-        }),
-      );
+      .mockImplementationOnce(() => deferred.promise);
     fetchAggregateStatsMock.mockResolvedValue({ buckets: [] });
 
     render(
@@ -309,11 +303,83 @@ describe('RealtimeSearch regressions', () => {
     });
     expect(screen.queryByText('当前时间范围暂无日志')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
+    const retryButton = screen.getByRole('button', { name: /重\s*试/ });
+    fireEvent.click(retryButton);
 
     await waitFor(() => {
       expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(2);
+      expect(document.querySelector('.ant-btn-loading')).toBeTruthy();
+    });
+    expect(screen.queryByText('加载日志...')).toBeNull();
+
+    deferred.resolve(
+      createQueryResult({
+        hits: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+
+    await waitFor(() => {
       expect(screen.getByText('当前时间范围暂无日志')).toBeTruthy();
+    });
+  });
+
+  it('keeps stale realtime rows visible and shows a top retry alert after a refresh failure', async () => {
+    setViewport(390);
+    queryRealtimeLogsMock
+      .mockResolvedValueOnce(
+        createQueryResult({
+          hits: [
+            {
+              id: 'log-stale-1',
+              timestamp: '2026-03-16T07:04:27.236Z',
+              level: 'info',
+              service: 'vault',
+              host: 'dev-server-centos8',
+              hostIp: '192.168.0.202',
+              message: 'stale row is kept visible',
+              rawLog: 'stale row is kept visible',
+              fields: {},
+            },
+          ],
+          total: 1,
+          page: 1,
+          pageSize: 20,
+        }),
+      )
+      .mockRejectedValueOnce(new Error('realtime refresh failed'));
+    fetchAggregateStatsMock.mockResolvedValue({ buckets: [] });
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('stale row is kept visible')).toBeTruthy();
+    });
+
+    fireEvent.change(
+      screen.getByPlaceholderText('输入查询语句，例如: level:error AND service:"payment-service"'),
+      {
+        target: { value: 'service:vault' },
+      },
+    );
+    const searchButton = document.querySelector('.ant-input-search-button');
+    expect(searchButton).toBeTruthy();
+    fireEvent.click(searchButton as Element);
+
+    await waitFor(() => {
+      expect(screen.getByText('日志刷新失败，已保留上一版结果')).toBeTruthy();
+      expect(screen.getByText('realtime refresh failed')).toBeTruthy();
+      expect(screen.getByText('stale row is kept visible')).toBeTruthy();
     });
   });
 

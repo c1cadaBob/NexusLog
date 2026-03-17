@@ -84,10 +84,12 @@ function setViewport(width: number) {
 
 function createDeferred<T>() {
   let resolve: (value: T) => void = () => undefined;
-  const promise = new Promise<T>((innerResolve) => {
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
     resolve = innerResolve;
+    reject = innerReject;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe('SavedQueries mobile layout', () => {
@@ -151,17 +153,25 @@ describe('SavedQueries mobile layout', () => {
     });
   });
 
-  it('shows an inline retry state when the initial saved-query request fails', async () => {
+  it('keeps the inline retry state visible with loading feedback while a saved-query retry is pending', async () => {
+    const deferred = createDeferred<{
+      items: Array<{
+        id: string;
+        name: string;
+        query: string;
+        tags: string[];
+        createdAt: string;
+      }>;
+      total: number;
+      page: number;
+      pageSize: number;
+      hasNext: boolean;
+      availableTags: string[];
+    }>();
+
     fetchSavedQueriesMock
       .mockRejectedValueOnce(new Error('saved load failed'))
-      .mockResolvedValueOnce({
-        items: [],
-        total: 0,
-        page: 1,
-        pageSize: 12,
-        hasNext: false,
-        availableTags: [],
-      });
+      .mockImplementationOnce(() => deferred.promise);
 
     render(
       <App>
@@ -177,11 +187,73 @@ describe('SavedQueries mobile layout', () => {
     });
     expect(screen.queryByText('暂无收藏查询')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
+    const retryButton = screen.getByRole('button', { name: /重\s*试/ });
+    fireEvent.click(retryButton);
 
     await waitFor(() => {
       expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('正在重试收藏查询...')).toBeTruthy();
+      expect(document.querySelector('.ant-btn-loading')).toBeTruthy();
+    });
+    expect(screen.queryByText('加载收藏查询...')).toBeNull();
+
+    deferred.resolve({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 12,
+      hasNext: false,
+      availableTags: [],
+    });
+
+    await waitFor(() => {
       expect(screen.getByText('暂无收藏查询')).toBeTruthy();
+    });
+  });
+
+  it('keeps existing saved-query cards visible and shows a top retry alert after a refresh failure', async () => {
+    fetchSavedQueriesMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'saved-existing-1',
+            name: 'existing saved query',
+            query: 'service:vault',
+            tags: ['历史查询'],
+            createdAt: '2026-03-17T09:58:44.000Z',
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: ['历史查询'],
+      })
+      .mockRejectedValueOnce(new Error('saved refresh failed'));
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SavedQueries />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('existing saved query')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('搜索查询名称或语句...'), {
+      target: { value: 'vault' },
+    });
+    const searchButton = document.querySelector('.ant-input-search-button');
+    expect(searchButton).toBeTruthy();
+    fireEvent.click(searchButton as Element);
+
+    await waitFor(() => {
+      expect(screen.getByText('收藏查询加载失败')).toBeTruthy();
+      expect(screen.getByText('saved refresh failed')).toBeTruthy();
+      expect(screen.getByText('existing saved query')).toBeTruthy();
     });
   });
 

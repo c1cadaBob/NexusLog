@@ -23,6 +23,7 @@ import {
   Select,
   Collapse,
   Empty,
+  Alert,
   Pagination,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -653,9 +654,12 @@ const RealtimeSearch: React.FC = () => {
   const [tableRefreshing, setTableRefreshing] = useState(false);
   const [tableUsingStaleData, setTableUsingStaleData] = useState(false);
   const [tableErrorText, setTableErrorText] = useState("");
+  const [tableStaleErrorText, setTableStaleErrorText] = useState("");
+  const [retryingCurrentQuery, setRetryingCurrentQuery] = useState(false);
   const [histogramInitialLoading, setHistogramInitialLoading] = useState(true);
   const [histogramRefreshing, setHistogramRefreshing] = useState(false);
   const [histogramUsingStaleData, setHistogramUsingStaleData] = useState(false);
+  const [histogramErrorText, setHistogramErrorText] = useState("");
   const [histogramNoiseFilterRelaxed, setHistogramNoiseFilterRelaxed] =
     useState(false);
   const [histogramData, setHistogramData] = useState<RealtimeHistogramPoint[]>(
@@ -772,6 +776,8 @@ const RealtimeSearch: React.FC = () => {
 
       const snapshotTo = options.snapshotTo?.trim() || new Date().toISOString();
       setTableErrorText("");
+      setTableStaleErrorText("");
+      setHistogramErrorText("");
       const effectiveLiveWindow = options.liveWindowOverride ?? liveWindow;
       const effectiveLevelFilter = options.levelFilterOverride ?? levelFilter;
       const effectiveSourceFilter =
@@ -961,6 +967,7 @@ const RealtimeSearch: React.FC = () => {
           setTableSnapshotTo(snapshotTo);
           setTableUsingStaleData(false);
           setTableErrorText("");
+          setTableStaleErrorText("");
           if (result.timedOut && !options.silent) {
             message.warning("查询超时，结果可能不完整");
           }
@@ -977,6 +984,7 @@ const RealtimeSearch: React.FC = () => {
             error instanceof Error ? error.message : "查询失败，请稍后重试";
           setTableUsingStaleData(hasStaleTableData);
           setTableErrorText(hasStaleTableData ? "" : readableError);
+          setTableStaleErrorText(hasStaleTableData ? readableError : "");
           if (!options.silent) {
             if (hasStaleTableData) {
               message.warning("表格刷新失败，已保留上一版结果");
@@ -1064,12 +1072,15 @@ const RealtimeSearch: React.FC = () => {
             buildRealtimeHistogramData(totalBuckets, errorBuckets),
           );
           setHistogramUsingStaleData(false);
+          setHistogramErrorText("");
           setHistogramNoiseFilterRelaxed(shouldRelaxHistogramNoiseFilter);
           setHistogramInitialLoading(false);
           lastHistogramRefreshKeyRef.current = histogramRefreshKey;
           lastHistogramFetchedAtRef.current = Date.now();
         } else if (histogramFailed && !histogramAbortOnly) {
+          const readableHistogramError = "图表刷新失败，请稍后重试";
           setHistogramUsingStaleData(histogramData.length > 0);
+          setHistogramErrorText(readableHistogramError);
           if (histogramData.length === 0) {
             setHistogramNoiseFilterRelaxed(false);
           }
@@ -1078,7 +1089,7 @@ const RealtimeSearch: React.FC = () => {
             message.warning(
               histogramData.length > 0
                 ? "图表刷新失败，已保留上一版统计"
-                : "图表刷新失败",
+                : readableHistogramError,
             );
           }
         }
@@ -1669,11 +1680,11 @@ const RealtimeSearch: React.FC = () => {
     [activeQuery, hasCustomTimeRange, levelFilter, liveWindow, sourceFilter],
   );
   const realtimeLoadingPlaceholderVisible =
-    tableRefreshing && tableDataSource.length === 0;
+    tableRefreshing && tableDataSource.length === 0 && !retryingCurrentQuery;
   const realtimeLoadingStateVisible =
     initialLoading || realtimeLoadingPlaceholderVisible;
   const showRealtimeInlineErrorState =
-    Boolean(tableErrorText) &&
+    (Boolean(tableErrorText) || retryingCurrentQuery) &&
     !tableUsingStaleData &&
     tableDataSource.length === 0 &&
     !realtimeLoadingStateVisible;
@@ -1685,6 +1696,7 @@ const RealtimeSearch: React.FC = () => {
     : `当前页 ${tableDataSource.length} 条 · 共 ${formatRealtimeTotal(total, totalIsLowerBound)} 条`;
 
   const handleRetryCurrentQuery = useCallback(() => {
+    setRetryingCurrentQuery(true);
     void executeQueryRef.current({
       queryText: activeQueryRef.current,
       page: currentPageRef.current,
@@ -1692,6 +1704,8 @@ const RealtimeSearch: React.FC = () => {
       silent: false,
       resetCursor: currentPageRef.current === 1,
       histogramRefreshMode: 'force',
+    }).finally(() => {
+      setRetryingCurrentQuery(false);
     });
   }, []);
 
@@ -2329,6 +2343,42 @@ const RealtimeSearch: React.FC = () => {
           </Space>
         </div>
 
+        {tableUsingStaleData && tableStaleErrorText && (
+          <Alert
+            type="warning"
+            showIcon
+            message="日志刷新失败，已保留上一版结果"
+            description={tableStaleErrorText}
+            action={
+              <Button
+                size="small"
+                loading={retryingCurrentQuery}
+                onClick={handleRetryCurrentQuery}
+              >
+                重试
+              </Button>
+            }
+          />
+        )}
+
+        {histogramErrorText && (
+          <Alert
+            type={histogramUsingStaleData ? "warning" : "error"}
+            showIcon
+            message={histogramUsingStaleData ? "趋势图刷新失败，已保留上一版统计" : "趋势图加载失败"}
+            description={histogramErrorText}
+            action={
+              <Button
+                size="small"
+                loading={retryingCurrentQuery}
+                onClick={handleRetryCurrentQuery}
+              >
+                重试
+              </Button>
+            }
+          />
+        )}
+
         {isMobile ? (
           <div className="flex flex-col gap-3">
             <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3 text-xs opacity-70">
@@ -2343,7 +2393,8 @@ const RealtimeSearch: React.FC = () => {
               <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
                 <InlineErrorState
                   title="日志加载失败"
-                  description={tableErrorText}
+                  description={tableErrorText || "正在重新请求，请稍候..."}
+                  actionLoading={retryingCurrentQuery}
                   onAction={handleRetryCurrentQuery}
                 />
               </div>
@@ -2440,7 +2491,8 @@ const RealtimeSearch: React.FC = () => {
               ) : showRealtimeInlineErrorState ? (
                 <InlineErrorState
                   title="日志加载失败"
-                  description={tableErrorText}
+                  description={tableErrorText || "正在重新请求，请稍候..."}
+                  actionLoading={retryingCurrentQuery}
                   onAction={handleRetryCurrentQuery}
                 />
               ) : (

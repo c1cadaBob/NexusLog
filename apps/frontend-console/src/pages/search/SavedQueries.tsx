@@ -61,6 +61,7 @@ const SavedQueries: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [errorText, setErrorText] = useState("");
+  const [retryingSavedQueries, setRetryingSavedQueries] = useState(false);
 
   const [searchText, setSearchText] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
@@ -493,12 +494,17 @@ const SavedQueries: React.FC = () => {
     });
   }, [dirtySavedQueries, modal, performCleanupDirtyQueries]);
 
-  const savedLoadingPlaceholderVisible = loading && savedList.length === 0;
+  const savedLoadingPlaceholderVisible =
+    loading && savedList.length === 0 && !retryingSavedQueries;
   const showSavedInlineErrorState =
-    Boolean(errorText) && savedList.length === 0 && !savedLoadingPlaceholderVisible;
+    (Boolean(errorText) || retryingSavedQueries) &&
+    savedList.length === 0 &&
+    !savedLoadingPlaceholderVisible;
   const savedSummaryText = savedLoadingPlaceholderVisible
     ? "正在加载收藏查询..."
-    : formatSearchPageSummary(total, "个收藏", visibleRange, "个");
+    : retryingSavedQueries && savedList.length === 0
+      ? "正在重试收藏查询..."
+      : formatSearchPageSummary(total, "个收藏", visibleRange, "个");
 
   const renderSavedQueryActions = useCallback(
     (item: SavedQuery) => {
@@ -666,7 +672,16 @@ const SavedQueries: React.FC = () => {
           message="收藏查询加载失败"
           description={errorText}
           action={
-            <Button size="small" onClick={() => void loadSavedQueries()}>
+            <Button
+              size="small"
+              loading={retryingSavedQueries}
+              onClick={() => {
+                setRetryingSavedQueries(true);
+                void loadSavedQueries().finally(() => {
+                  setRetryingSavedQueries(false);
+                });
+              }}
+            >
               重试
             </Button>
           }
@@ -700,9 +715,13 @@ const SavedQueries: React.FC = () => {
         <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
           <InlineErrorState
             title="收藏查询加载失败"
-            description={errorText}
+            description={errorText || "正在重新请求，请稍候..."}
+            actionLoading={retryingSavedQueries}
             onAction={() => {
-              void loadSavedQueries();
+              setRetryingSavedQueries(true);
+              void loadSavedQueries().finally(() => {
+                setRetryingSavedQueries(false);
+              });
             }}
           />
         </div>

@@ -92,10 +92,12 @@ function buildHistoryItem(id: string, query: string, executedAt: string) {
 
 function createDeferred<T>() {
   let resolve: (value: T) => void = () => undefined;
-  const promise = new Promise<T>((innerResolve) => {
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
     resolve = innerResolve;
+    reject = innerReject;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe('SearchHistory mobile layout', () => {
@@ -150,16 +152,18 @@ describe('SearchHistory mobile layout', () => {
     });
   });
 
-  it('shows an inline retry state when the initial history request fails', async () => {
+  it('keeps the inline retry state visible with loading feedback while a history retry is pending', async () => {
+    const deferred = createDeferred<{
+      items: Array<ReturnType<typeof buildHistoryItem>>;
+      total: number;
+      page: number;
+      pageSize: number;
+      hasNext: boolean;
+    }>();
+
     fetchQueryHistoryMock
       .mockRejectedValueOnce(new Error('history load failed'))
-      .mockResolvedValueOnce({
-        items: [],
-        total: 0,
-        page: 1,
-        pageSize: 15,
-        hasNext: false,
-      });
+      .mockImplementationOnce(() => deferred.promise);
 
     render(
       <App>
@@ -175,11 +179,63 @@ describe('SearchHistory mobile layout', () => {
     });
     expect(screen.queryByText('暂无查询历史')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
+    const retryButton = screen.getByRole('button', { name: /重\s*试/ });
+    fireEvent.click(retryButton);
 
     await waitFor(() => {
       expect(fetchQueryHistoryMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('正在重试查询历史...')).toBeTruthy();
+      expect(document.querySelector('.ant-btn-loading')).toBeTruthy();
+    });
+    expect(screen.queryByText('加载查询历史...')).toBeNull();
+
+    deferred.resolve({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 15,
+      hasNext: false,
+    });
+
+    await waitFor(() => {
       expect(screen.getByText('暂无查询历史')).toBeTruthy();
+    });
+  });
+
+  it('keeps existing history cards visible and shows a top retry alert after a refresh failure', async () => {
+    fetchQueryHistoryMock
+      .mockResolvedValueOnce({
+        items: [buildHistoryItem('history-existing-1', 'service:vault', '2026-03-17T09:58:00.000Z')],
+        total: 1,
+        page: 1,
+        pageSize: 15,
+        hasNext: false,
+      })
+      .mockRejectedValueOnce(new Error('history refresh failed'));
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SearchHistory />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('service:vault')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('搜索查询语句...'), {
+      target: { value: 'vault' },
+    });
+    const searchButton = document.querySelector('.ant-input-search-button');
+    expect(searchButton).toBeTruthy();
+    fireEvent.click(searchButton as Element);
+
+    await waitFor(() => {
+      expect(screen.getByText('查询历史加载失败')).toBeTruthy();
+      expect(screen.getByText('history refresh failed')).toBeTruthy();
+      expect(screen.getByText('service:vault')).toBeTruthy();
     });
   });
 
