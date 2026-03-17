@@ -12,6 +12,11 @@ export function shouldApplyRealtimeNoiseFilter(params: BuildRealtimeQueryFilters
   return queryText === '' && sourceFilter === '';
 }
 
+export function shouldRelaxRealtimeHistogramNoiseFilter(params: BuildRealtimeQueryFiltersParams): boolean {
+  const queryText = params.queryText?.trim() ?? '';
+  return queryText === '' && shouldApplyRealtimeNoiseFilter(params);
+}
+
 export function buildRealtimeQueryFilters(params: BuildRealtimeQueryFiltersParams): Record<string, unknown> {
   const filters: Record<string, unknown> = {
     level: params.levelFilter?.trim() || undefined,
@@ -23,4 +28,14 @@ export function buildRealtimeQueryFilters(params: BuildRealtimeQueryFiltersParam
   }
 
   return filters;
+}
+
+export function buildRealtimeHistogramFilters(params: BuildRealtimeQueryFiltersParams): Record<string, unknown> {
+  const filters = buildRealtimeQueryFilters(params);
+  if (!shouldRelaxRealtimeHistogramNoiseFilter(params)) {
+    return filters;
+  }
+
+  const { [REALTIME_NOISE_FILTER_KEY]: _ignored, ...histogramFilters } = filters;
+  return histogramFilters;
 }

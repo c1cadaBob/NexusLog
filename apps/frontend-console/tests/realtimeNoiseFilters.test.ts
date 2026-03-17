@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   REALTIME_NOISE_FILTER_KEY,
+  buildRealtimeHistogramFilters,
   buildRealtimeQueryFilters,
   shouldApplyRealtimeNoiseFilter,
+  shouldRelaxRealtimeHistogramNoiseFilter,
 } from '../src/pages/search/realtimeNoiseFilters';
 
 describe('realtime noise filters', () => {
@@ -28,6 +30,20 @@ describe('realtime noise filters', () => {
   it('disables internal-noise exclusion when a service/source filter is selected', () => {
     const filters = buildRealtimeQueryFilters({ queryText: '', sourceFilter: 'query-api', levelFilter: '' });
     expect(filters.service).toBe('query-api');
+    expect(filters[REALTIME_NOISE_FILTER_KEY]).toBeUndefined();
+  });
+
+  it('relaxes histogram noise exclusion only for empty-query realtime trends', () => {
+    expect(shouldRelaxRealtimeHistogramNoiseFilter({ queryText: '', sourceFilter: '', levelFilter: '' })).toBe(true);
+
+    expect(buildRealtimeHistogramFilters({ queryText: '', sourceFilter: '', levelFilter: 'error' })).toMatchObject({
+      level: 'error',
+    });
+    expect(buildRealtimeHistogramFilters({ queryText: '', sourceFilter: '', levelFilter: 'error' })[REALTIME_NOISE_FILTER_KEY]).toBeUndefined();
+  });
+
+  it('keeps histogram filters aligned when the user narrows the query', () => {
+    const filters = buildRealtimeHistogramFilters({ queryText: 'service:query-api', sourceFilter: '', levelFilter: '' });
     expect(filters[REALTIME_NOISE_FILTER_KEY]).toBeUndefined();
   });
 });

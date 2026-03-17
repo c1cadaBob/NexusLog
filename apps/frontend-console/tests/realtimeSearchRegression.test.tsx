@@ -202,6 +202,32 @@ describe('RealtimeSearch regressions', () => {
     });
   });
 
+  it('drops internal-noise exclusion only for empty-query histogram requests', async () => {
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
+    });
+
+    expect(queryRealtimeLogsMock.mock.calls[0]?.[0]?.filters).toMatchObject({
+      exclude_internal_noise: true,
+    });
+    expect(fetchAggregateStatsMock.mock.calls[0]?.[0]?.filters?.exclude_internal_noise).toBeUndefined();
+    expect(fetchAggregateStatsMock.mock.calls[1]?.[0]?.filters?.exclude_internal_noise).toBeUndefined();
+    expect(fetchAggregateStatsMock.mock.calls[1]?.[0]?.filters).toMatchObject({
+      level: 'error',
+    });
+  });
+
   it('builds deep-page cursors by bridging from the max offset window', async () => {
     const queryLogs = vi.fn()
       .mockResolvedValueOnce(createQueryResult({

@@ -17,7 +17,11 @@ import {
   readPendingRealtimeStartupQuery,
 } from './realtimeStartupQuery';
 import { buildRealtimeHistogramData, type RealtimeHistogramPoint } from './realtimeHistogram';
-import { buildRealtimeQueryFilters } from './realtimeNoiseFilters';
+import {
+  buildRealtimeHistogramFilters,
+  buildRealtimeQueryFilters,
+  shouldRelaxRealtimeHistogramNoiseFilter,
+} from './realtimeNoiseFilters';
 import {
   buildRealtimeHistogramRefreshKey,
   shouldRefreshRealtimeHistogram,
@@ -448,6 +452,7 @@ const RealtimeSearch: React.FC = () => {
   const [histogramInitialLoading, setHistogramInitialLoading] = useState(true);
   const [histogramRefreshing, setHistogramRefreshing] = useState(false);
   const [histogramUsingStaleData, setHistogramUsingStaleData] = useState(false);
+  const [histogramNoiseFilterRelaxed, setHistogramNoiseFilterRelaxed] = useState(false);
   const [histogramData, setHistogramData] = useState<RealtimeHistogramPoint[]>([]);
   const [tableSnapshotTo, setTableSnapshotTo] = useState(() => new Date().toISOString());
 
@@ -558,6 +563,16 @@ const RealtimeSearch: React.FC = () => {
         sourceFilter: effectiveSourceFilter,
         queryText: options.queryText,
       });
+      const histogramFilters = buildRealtimeHistogramFilters({
+        levelFilter: effectiveLevelFilter,
+        sourceFilter: effectiveSourceFilter,
+        queryText: options.queryText,
+      });
+      const shouldRelaxHistogramNoiseFilter = shouldRelaxRealtimeHistogramNoiseFilter({
+        levelFilter: effectiveLevelFilter,
+        sourceFilter: effectiveSourceFilter,
+        queryText: options.queryText,
+      });
       const effectiveExplicitTimeRange = normalizeRealtimeExplicitTimeRange(options.timeRangeOverride ?? customTimeRange);
       const realtimeTableTimeRange = buildRealtimeTableTimeRange(
         effectiveLiveWindow,
@@ -589,6 +604,7 @@ const RealtimeSearch: React.FC = () => {
       } else if (histogramTimeRange == null) {
         setHistogramData([]);
         setHistogramUsingStaleData(false);
+        setHistogramNoiseFilterRelaxed(false);
         setHistogramInitialLoading(false);
       }
 
@@ -600,7 +616,7 @@ const RealtimeSearch: React.FC = () => {
           groupBy: 'minute' as const,
           timeRange: histogramTimeRange,
           keywords: options.queryText,
-          filters,
+          filters: histogramFilters,
         }
         : null;
       const totalHistogramPromise = shouldRefreshHistogram && totalHistogramController && aggregateParams
@@ -617,7 +633,7 @@ const RealtimeSearch: React.FC = () => {
           : fetchAggregateStats({
             ...aggregateParams,
             filters: {
-              ...filters,
+              ...histogramFilters,
               level: 'error',
             },
             signal: errorHistogramController?.signal,
@@ -772,11 +788,15 @@ const RealtimeSearch: React.FC = () => {
           );
         setHistogramData(buildRealtimeHistogramData(totalBuckets, errorBuckets));
         setHistogramUsingStaleData(false);
+        setHistogramNoiseFilterRelaxed(shouldRelaxHistogramNoiseFilter);
         setHistogramInitialLoading(false);
         lastHistogramRefreshKeyRef.current = histogramRefreshKey;
         lastHistogramFetchedAtRef.current = Date.now();
       } else if (histogramFailed && !histogramAbortOnly) {
         setHistogramUsingStaleData(histogramData.length > 0);
+        if (histogramData.length === 0) {
+          setHistogramNoiseFilterRelaxed(false);
+        }
         setHistogramInitialLoading(false);
         if (!options.silent) {
           message.warning(histogramData.length > 0 ? '图表刷新失败，已保留上一版统计' : '图表刷新失败');
@@ -1496,6 +1516,11 @@ const RealtimeSearch: React.FC = () => {
             {histogramDisabled && <Tag color="default" style={{ margin: 0 }}>{hasCustomTimeRange ? '精确时间范围' : '全部时间'}</Tag>}
             {histogramRefreshing && !histogramInitialLoading && <Tag color="processing" style={{ margin: 0 }}>刷新中</Tag>}
             {histogramUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次统计</Tag>}
+            {histogramNoiseFilterRelaxed && !histogramDisabled && (
+              <Tooltip title="空查询趋势图为避免后端聚合超时，未应用“排除系统噪声”过滤；日志列表仍保持原过滤口径。">
+                <Tag color="gold" style={{ margin: 0 }}>空查询未过滤系统噪声</Tag>
+              </Tooltip>
+            )}
           </Space>
         )}
         option={histogramOption}
