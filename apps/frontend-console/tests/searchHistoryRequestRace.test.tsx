@@ -215,6 +215,7 @@ describe('SearchHistory request race guard', () => {
 
     await waitFor(() => {
       expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('2');
+      expect(screen.getByText('刷新中')).toBeTruthy();
     });
 
     pageTwoRequest.reject(new Error('page 2 failed'));

@@ -407,6 +407,11 @@ const SearchHistory: React.FC = () => {
           共 {total.toLocaleString()} 条记录
           {total > 0 ? `（当前显示第 ${visibleRange.start}-${visibleRange.end} 条）` : ''}
         </span>
+        {loading && !batchDeleting && (
+          <Tag color="processing" style={{ margin: 0 }}>
+            {rows.length === 0 ? '加载中' : '刷新中'}
+          </Tag>
+        )}
         {selectedHistoryIDs.length > 0 && (
           <span className="text-xs text-blue-500">
             已选择 {selectedHistoryIDs.length} 项

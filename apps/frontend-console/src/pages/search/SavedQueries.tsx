@@ -388,6 +388,11 @@ const SavedQueries: React.FC = () => {
         <span className="text-sm opacity-50 ml-auto">
           共 {total.toLocaleString()} 个收藏
         </span>
+        {loading && (
+          <Tag color="processing" style={{ margin: 0 }}>
+            {savedList.length === 0 ? '加载中' : '刷新中'}
+          </Tag>
+        )}
       </div>
 
       {errorText && (
