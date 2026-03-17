@@ -224,7 +224,9 @@ const RolePermissions: React.FC = () => {
           </p>
         </div>
         <Input
+          id="role-search"
           name="role_search"
+          aria-label="搜索角色"
           prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: palette.textSecondary }}>search</span>}
           placeholder="搜索角色..."
           value={searchTerm}

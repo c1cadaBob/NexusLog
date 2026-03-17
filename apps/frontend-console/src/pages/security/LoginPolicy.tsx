@@ -150,6 +150,15 @@ function formatSavedAt(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
 }
 
+function toAccessibleDomId(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'item';
+}
+
 function validateSettings(settings: PolicySettings): string | null {
   const complexityEnabledCount = [
     settings.requireUppercase,
@@ -287,7 +296,9 @@ const LoginPolicy: React.FC = () => {
       key: 'note',
       render: (text: string, record) => (
         <Input
+          id={`ip-whitelist-note-${toAccessibleDomId(record.ip)}`}
           name={`ip_whitelist_note_${record.ip}`}
+          aria-label={`白名单规则 ${record.ip} 的备注`}
           size="small"
           value={text}
           placeholder="输入备注"
@@ -305,6 +316,7 @@ const LoginPolicy: React.FC = () => {
           type="text"
           size="small"
           danger
+          aria-label={`删除白名单规则 ${record.ip}`}
           onClick={() => handleRemoveIp(record.ip)}
           icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>}
         />
@@ -321,7 +333,13 @@ const LoginPolicy: React.FC = () => {
     </div>
   );
 
-  const toggleItem = (label: string, desc: string, checked: boolean, onChange: (value: boolean) => void) => (
+  const toggleItem = (
+    label: string,
+    desc: string,
+    checked: boolean,
+    onChange: (value: boolean) => void,
+    controlId: string,
+  ) => (
     <div
       style={{
         display: 'flex',
@@ -337,7 +355,7 @@ const LoginPolicy: React.FC = () => {
         <div style={{ fontWeight: 500, fontSize: 14 }}>{label}</div>
         <div style={{ fontSize: 12, color: palette.textSecondary, marginTop: 2 }}>{desc}</div>
       </div>
-      <Switch checked={checked} onChange={onChange} />
+      <Switch id={controlId} aria-label={label} checked={checked} onChange={onChange} />
     </div>
   );
 
@@ -437,8 +455,8 @@ const LoginPolicy: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <Card title={cardTitle('lock_person', '多因素认证 (MFA)', COLORS.primary)} style={{ background: palette.bgContainer, borderColor: palette.border }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {toggleItem('启用 TOTP 验证', '强制用户绑定 Google Authenticator 或类似应用', settings.totpEnabled, (value) => setSettings((previous) => ({ ...previous, totpEnabled: value })))}
-                {toggleItem('启用短信验证', '登录异常 IP 时发送短信验证码', settings.smsEnabled, (value) => setSettings((previous) => ({ ...previous, smsEnabled: value })))}
+                {toggleItem('启用 TOTP 验证', '强制用户绑定 Google Authenticator 或类似应用', settings.totpEnabled, (value) => setSettings((previous) => ({ ...previous, totpEnabled: value })), 'login-policy-totp-enabled')}
+                {toggleItem('启用短信验证', '登录异常 IP 时发送短信验证码', settings.smsEnabled, (value) => setSettings((previous) => ({ ...previous, smsEnabled: value })), 'login-policy-sms-enabled')}
                 <Alert showIcon type="info" message="启用 MFA 将显著提升账户安全性，建议管理员账户强制开启 TOTP。" />
               </div>
             </Card>
@@ -450,7 +468,9 @@ const LoginPolicy: React.FC = () => {
                     <div style={{ fontSize: 13, fontWeight: 500, color: palette.textSecondary, marginBottom: 8 }}>最小长度</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <InputNumber
+                        id="password-min-length"
                         name="password_min_length"
+                        aria-label="密码最小长度"
                         value={settings.minLength}
                         min={8}
                         max={32}
@@ -464,7 +484,9 @@ const LoginPolicy: React.FC = () => {
                     <div style={{ fontSize: 13, fontWeight: 500, color: palette.textSecondary, marginBottom: 8 }}>密码有效期</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <InputNumber
+                        id="password-expiry-days"
                         name="password_expiry_days"
+                        aria-label="密码有效期（天）"
                         value={settings.passwordExpiry}
                         min={0}
                         max={365}
@@ -511,6 +533,8 @@ const LoginPolicy: React.FC = () => {
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 500, color: palette.textSecondary, marginBottom: 8 }}>历史密码检查</div>
                   <Select
+                    id="password-history-check"
+                    aria-label="历史密码检查"
                     value={settings.historyCheck}
                     onChange={(value) => setSettings((previous) => ({ ...previous, historyCheck: value }))}
                     style={{ width: '100%' }}
@@ -534,8 +558,10 @@ const LoginPolicy: React.FC = () => {
                     <span style={{ fontSize: 13, fontWeight: 700 }}>{settings.idleTimeout} 分钟</span>
                   </div>
                   <input
+                    id="idle-timeout"
                     type="range"
                     name="idle_timeout"
+                    aria-label="空闲自动登出时间"
                     min={5}
                     max={120}
                     value={settings.idleTimeout}
@@ -551,7 +577,9 @@ const LoginPolicy: React.FC = () => {
                   <div style={{ fontSize: 13, fontWeight: 500, color: palette.textSecondary, marginBottom: 8 }}>最大并发登录数</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                     <InputNumber
+                      id="max-concurrent-sessions"
                       name="max_concurrent_sessions"
+                      aria-label="最大并发登录数"
                       value={settings.maxConcurrentSessions}
                       onChange={(value) => setSettings((previous) => ({ ...previous, maxConcurrentSessions: value || 1 }))}
                       min={1}
@@ -569,7 +597,9 @@ const LoginPolicy: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 13 }}>允许失败次数</span>
                       <InputNumber
+                        id="max-login-attempts"
                         name="max_login_attempts"
+                        aria-label="允许失败次数"
                         size="small"
                         value={settings.maxLoginAttempts}
                         onChange={(value) => setSettings((previous) => ({ ...previous, maxLoginAttempts: value || 5 }))}
@@ -581,7 +611,9 @@ const LoginPolicy: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 13 }}>锁定时间 (分钟)</span>
                       <InputNumber
+                        id="lockout-duration"
                         name="lockout_duration"
+                        aria-label="锁定时间（分钟）"
                         size="small"
                         value={settings.lockoutDuration}
                         onChange={(value) => setSettings((previous) => ({ ...previous, lockoutDuration: value || 30 }))}
@@ -599,7 +631,13 @@ const LoginPolicy: React.FC = () => {
               title={
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   {cardTitle('lan', 'IP 白名单', COLORS.purple)}
-                  <Switch size="small" checked={settings.ipWhitelistEnabled} onChange={(value) => setSettings((previous) => ({ ...previous, ipWhitelistEnabled: value }))} />
+                  <Switch
+                    id="ip-whitelist-enabled"
+                    size="small"
+                    aria-label="启用 IP 白名单"
+                    checked={settings.ipWhitelistEnabled}
+                    onChange={(value) => setSettings((previous) => ({ ...previous, ipWhitelistEnabled: value }))}
+                  />
                 </div>
               }
               style={{ background: palette.bgContainer, borderColor: palette.border }}
@@ -610,20 +648,24 @@ const LoginPolicy: React.FC = () => {
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr auto', gap: 8 }}>
                   <Input
+                    id="new-whitelist-ip"
                     name="new_whitelist_ip"
+                    aria-label="新增白名单 IP 或网段"
                     placeholder="输入 IP 地址或 CIDR，例如 192.168.1.0/24"
                     value={newIp}
                     onChange={(event) => setNewIp(event.target.value)}
                     onPressEnter={handleAddIp}
                   />
                   <Input
+                    id="new-whitelist-note"
                     name="new_whitelist_note"
+                    aria-label="新增白名单备注"
                     placeholder="备注（可选）"
                     value={newIpNote}
                     onChange={(event) => setNewIpNote(event.target.value)}
                     onPressEnter={handleAddIp}
                   />
-                  <Button onClick={handleAddIp}>添加</Button>
+                  <Button aria-label="添加 IP 白名单规则" onClick={handleAddIp}>添加</Button>
                 </div>
                 <Alert
                   showIcon
