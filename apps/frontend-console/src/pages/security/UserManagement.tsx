@@ -1031,6 +1031,7 @@ const UserManagement: React.FC = () => {
         cancelText="取消"
         width={520}
         destroyOnHidden
+        forceRender
         confirmLoading={actionLoading}
       >
         <Form form={createForm} layout="vertical" style={{ marginTop: 16 }}>
@@ -1043,7 +1044,7 @@ const UserManagement: React.FC = () => {
               { max: 32, message: '用户名最多 32 位' },
             ]}
           >
-            <Input id="username" name="create_username" placeholder="输入登录用户名" />
+            <Input id="create-user-username" name="create_username" placeholder="输入登录用户名" />
           </Form.Item>
           <Form.Item
             name="password"
@@ -1054,10 +1055,10 @@ const UserManagement: React.FC = () => {
               { min: 8, message: '密码至少 8 位' },
             ]}
           >
-            <Input.Password id="password" name="create_password" placeholder="输入密码" />
+            <Input.Password id="create-user-password" name="create_password" placeholder="输入密码" />
           </Form.Item>
           <Form.Item name="display_name" label="显示名称">
-            <Input id="display_name" name="create_display_name" placeholder="输入显示名称（可选）" />
+            <Input id="create-user-display-name" name="create_display_name" placeholder="输入显示名称（可选）" />
           </Form.Item>
           <Form.Item
             name="email"
@@ -1067,7 +1068,7 @@ const UserManagement: React.FC = () => {
               { type: 'email', message: '请输入有效的邮箱地址' },
             ]}
           >
-            <Input id="email" name="create_email" placeholder="输入邮箱地址" />
+            <Input id="create-user-email" name="create_email" placeholder="输入邮箱地址" />
           </Form.Item>
           <Form.Item
             name="role_id"
@@ -1075,7 +1076,7 @@ const UserManagement: React.FC = () => {
             extra={canAssignRoleDuringCreate ? undefined : '当前会话缺少角色授予权限，新建用户后也不会自动附带角色'}
           >
             <Select
-              id="role_id"
+              id="create-user-role-id"
               aria-label="初始角色"
               placeholder={
                 roleLoadError
@@ -1105,11 +1106,12 @@ const UserManagement: React.FC = () => {
         cancelText="取消"
         width={520}
         destroyOnHidden
+        forceRender
         confirmLoading={actionLoading}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}> 
-          <Input id="display_name" name="edit_display_name" disabled={!actionAccess.canUpdateUserProfile} />
+          <Input id="edit-user-display-name" name="edit_display_name" disabled={!actionAccess.canUpdateUserProfile} />
           </Form.Item>
           <Form.Item
             name="email"
@@ -1119,7 +1121,7 @@ const UserManagement: React.FC = () => {
               { type: 'email', message: '请输入有效的邮箱地址' },
             ]}
           >
-            <Input id="email" name="edit_email" disabled={!actionAccess.canUpdateUserProfile} />
+            <Input id="edit-user-email" name="edit_email" disabled={!actionAccess.canUpdateUserProfile} />
           </Form.Item>
           <Form.Item
             name="role_id"
@@ -1131,7 +1133,7 @@ const UserManagement: React.FC = () => {
             }
           >
             <Select
-              id="role_id"
+              id="edit-user-role-id"
               aria-label="角色"
               placeholder={
                 roleLoadError

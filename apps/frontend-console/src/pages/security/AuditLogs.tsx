@@ -13,6 +13,18 @@ import {
   resolveAuditLogsActionAccess,
 } from './auditLogsAuthorization';
 
+const visuallyHiddenLabelStyle: React.CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
+
 const AUDIT_ACTION_OPTIONS = [
   { value: 'auth.login', label: 'auth.login' },
   { value: 'auth.refresh', label: 'auth.refresh' },
@@ -487,6 +499,8 @@ const AuditLogs: React.FC = () => {
             </div>
             <div>
               <label htmlFor="audit_start_time" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>时间范围</label>
+              <label htmlFor="audit_start_time" style={visuallyHiddenLabelStyle}>开始时间</label>
+              <label htmlFor="audit_end_time" style={visuallyHiddenLabelStyle}>结束时间</label>
               <DatePicker.RangePicker
                 id={{ start: 'audit_start_time', end: 'audit_end_time' }}
                 value={dateRange}
