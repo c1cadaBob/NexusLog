@@ -114,8 +114,9 @@ type SavedQueryRecord struct {
 
 // ListSavedQueriesOutput 定义收藏查询列表输出。
 type ListSavedQueriesOutput struct {
-	Items []SavedQueryRecord
-	Total int64
+	Items         []SavedQueryRecord
+	Total         int64
+	AvailableTags []string
 }
 
 // QueryMetadataRepository 提供查询历史与收藏查询的 PG 持久化。
@@ -416,9 +417,15 @@ LIMIT $6
 		return ListSavedQueriesOutput{}, fmt.Errorf("iterate saved queries: %w", err)
 	}
 
+	availableTags, err := r.listAvailableSavedQueryTags(ctx, strings.TrimSpace(in.TenantID), strings.TrimSpace(in.UserID))
+	if err != nil {
+		return ListSavedQueriesOutput{}, err
+	}
+
 	return ListSavedQueriesOutput{
-		Items: items,
-		Total: total,
+		Items:         items,
+		Total:         total,
+		AvailableTags: availableTags,
 	}, nil
 }
 
@@ -660,6 +667,39 @@ ORDER BY tag ASC
 		tags = append(tags, tag)
 	}
 	return normalizeTags(tags)
+}
+
+func (r *QueryMetadataRepository) listAvailableSavedQueryTags(ctx context.Context, tenantID, userID string) ([]string, error) {
+	if !r.IsConfigured() {
+		return []string{}, ErrMetadataStoreNotConfigured
+	}
+	query := `
+SELECT DISTINCT sqt.tag
+FROM saved_query_tags sqt
+INNER JOIN saved_queries sq ON sq.id = sqt.saved_query_id
+WHERE sq.tenant_id = $1::uuid
+  AND sq.user_id = $2::uuid
+  AND sqt.tag <> ''
+ORDER BY sqt.tag ASC
+`
+	rows, err := r.db.QueryContext(ctx, query, strings.TrimSpace(tenantID), strings.TrimSpace(userID))
+	if err != nil {
+		return nil, fmt.Errorf("query available saved query tags: %w", err)
+	}
+	defer mustRowsClose(rows)
+
+	tags := make([]string, 0, 8)
+	for rows.Next() {
+		var tag string
+		if scanErr := rows.Scan(&tag); scanErr != nil {
+			return nil, fmt.Errorf("scan available saved query tag: %w", scanErr)
+		}
+		tags = append(tags, tag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate available saved query tags: %w", err)
+	}
+	return normalizeTags(tags), nil
 }
 
 func replaceSavedQueryTags(ctx context.Context, tx *sql.Tx, savedQueryID string, tags []string) error {

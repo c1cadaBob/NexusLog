@@ -168,10 +168,11 @@ type SavedQueryItem struct {
 
 // ListSavedQueriesResult 定义收藏查询列表返回。
 type ListSavedQueriesResult struct {
-	Items    []SavedQueryItem
-	Total    int64
-	Page     int
-	PageSize int
+	Items         []SavedQueryItem
+	Total         int64
+	Page          int
+	PageSize      int
+	AvailableTags []string
 }
 
 // QueryService 封装日志查询业务逻辑。
@@ -400,10 +401,11 @@ func (s *QueryService) ListSavedQueries(
 		})
 	}
 	return ListSavedQueriesResult{
-		Items:    items,
-		Total:    output.Total,
-		Page:     page,
-		PageSize: pageSize,
+		Items:         items,
+		Total:         output.Total,
+		Page:          page,
+		PageSize:      pageSize,
+		AvailableTags: output.AvailableTags,
 	}, nil
 }
 

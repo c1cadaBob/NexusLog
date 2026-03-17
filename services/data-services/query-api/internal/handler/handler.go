@@ -156,10 +156,11 @@ func (h *QueryHandler) ListSavedQueries(c *gin.Context) {
 	writeSuccess(c, http.StatusOK, gin.H{
 		"items": result.Items,
 	}, gin.H{
-		"page":      result.Page,
-		"page_size": result.PageSize,
-		"total":     result.Total,
-		"has_next":  int64(result.Page*result.PageSize) < result.Total,
+		"page":           result.Page,
+		"page_size":      result.PageSize,
+		"total":          result.Total,
+		"has_next":       int64(result.Page*result.PageSize) < result.Total,
+		"available_tags": result.AvailableTags,
 	})
 }
 
