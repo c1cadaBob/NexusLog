@@ -105,6 +105,30 @@ describe('SearchHistory mobile layout', () => {
     vi.clearAllMocks();
   });
 
+  it('hides mobile pagination when history results are empty', async () => {
+    fetchQueryHistoryMock.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 15,
+      hasNext: false,
+    });
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SearchHistory />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('暂无查询历史')).toBeTruthy();
+    });
+
+    expect(document.querySelector('.ant-pagination')).toBeNull();
+  });
+
   it('renders history entries as cards on mobile and keeps selection actions usable', async () => {
     fetchQueryHistoryMock.mockResolvedValue({
       items: [

@@ -239,6 +239,35 @@ describe('RealtimeSearch regressions', () => {
     });
   });
 
+  it('hides mobile pagination when realtime results are empty', async () => {
+    setViewport(390);
+    queryRealtimeLogsMock.mockResolvedValue(
+      createQueryResult({
+        hits: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+    fetchAggregateStatsMock.mockResolvedValue({ buckets: [] });
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('当前时间范围暂无日志')).toBeTruthy();
+    });
+
+    expect(document.querySelector('.ant-pagination')).toBeNull();
+  });
+
   it('uses the selected live window for manual search without explicit historical range', async () => {
     render(
       <App>

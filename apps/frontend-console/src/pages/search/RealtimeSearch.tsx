@@ -2373,19 +2373,21 @@ const RealtimeSearch: React.FC = () => {
               })
             )}
 
-            <Pagination
-              current={currentPage}
-              pageSize={pageSize}
-              total={total}
-              size="small"
-              showSizeChanger
-              showQuickJumper={false}
-              showTotal={(itemsTotal) =>
-                `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`
-              }
-              pageSizeOptions={["10", "20", "50", "100"]}
-              onChange={handleResultsPaginationChange}
-            />
+            {total > 0 && (
+              <Pagination
+                current={currentPage}
+                pageSize={pageSize}
+                total={total}
+                size="small"
+                showSizeChanger
+                showQuickJumper={false}
+                showTotal={(itemsTotal) =>
+                  `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`
+                }
+                pageSizeOptions={["10", "20", "50", "100"]}
+                onChange={handleResultsPaginationChange}
+              />
+            )}
           </div>
         ) : (
           <Table<LogEntry>

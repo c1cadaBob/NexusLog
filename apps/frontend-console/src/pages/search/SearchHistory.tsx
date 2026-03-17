@@ -720,29 +720,31 @@ const SearchHistory: React.FC = () => {
             ))
           )}
 
-          <Pagination
-            current={currentPage}
-            pageSize={pageSize}
-            total={total}
-            size="small"
-            showSizeChanger
-            showQuickJumper={false}
-            showTotal={(count) => formatSearchPageTotal(count, "条")}
-            pageSizeOptions={["10", "15", "20", "50", "100"]}
-            onChange={(page, size) => {
-              setSelectedRowKeys([]);
-              const nextPageSize = size ?? pageSize;
-              const targetPage = nextPageSize !== pageSize ? 1 : page;
-              pendingPaginationRef.current = {
-                targetPage,
-                targetPageSize: nextPageSize,
-                previousPage: currentPage,
-                previousPageSize: pageSize,
-              };
-              setCurrentPage(targetPage);
-              setPageSize(nextPageSize);
-            }}
-          />
+          {total > 0 && (
+            <Pagination
+              current={currentPage}
+              pageSize={pageSize}
+              total={total}
+              size="small"
+              showSizeChanger
+              showQuickJumper={false}
+              showTotal={(count) => formatSearchPageTotal(count, "条")}
+              pageSizeOptions={["10", "15", "20", "50", "100"]}
+              onChange={(page, size) => {
+                setSelectedRowKeys([]);
+                const nextPageSize = size ?? pageSize;
+                const targetPage = nextPageSize !== pageSize ? 1 : page;
+                pendingPaginationRef.current = {
+                  targetPage,
+                  targetPageSize: nextPageSize,
+                  previousPage: currentPage,
+                  previousPageSize: pageSize,
+                };
+                setCurrentPage(targetPage);
+                setPageSize(nextPageSize);
+              }}
+            />
+          )}
         </div>
       ) : (
         <div ref={historyTableRef}>
