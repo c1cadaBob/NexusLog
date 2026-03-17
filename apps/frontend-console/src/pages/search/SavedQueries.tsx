@@ -2,11 +2,13 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Card, Input, Tag, Button, Row, Col, Space, Empty, Tooltip, App, Modal, Form, Select, Popconfirm, Alert, Pagination } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { COLORS } from '../../theme/tokens';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import type { SavedQuery } from '../../types/log';
 import { createSavedQuery, deleteSavedQuery, fetchSavedQueries, updateSavedQuery } from '../../api/query';
 import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
 import { buildQueryCleanupState } from './queryCleanupState';
 import QueryCleanupPreviewContent from './queryCleanupPreviewContent';
+import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 
 type ModalMode = 'create' | 'edit';
 
@@ -25,7 +27,14 @@ const SavedQueries: React.FC = () => {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(12);
+  const storedPageSize = usePreferencesStore((s) => s.pageSizes.savedQueries ?? 12);
+  const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
+  const [pageSize, setPageSizeLocal] = useState(storedPageSize);
+  const setPageSize = useCallback((size: number) => {
+    setPageSizeLocal(size);
+    setStoredPageSize('savedQueries', size);
+  }, [setStoredPageSize]);
+  const savedPaginationRef = usePaginationQuickJumperAccessibility('saved-queries');
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
@@ -475,7 +484,7 @@ const SavedQueries: React.FC = () => {
             ))}
           </Row>
 
-          <div className="flex justify-start">
+          <div ref={savedPaginationRef} className="flex justify-start">
             <Pagination
               current={currentPage}
               pageSize={pageSize}
@@ -485,8 +494,10 @@ const SavedQueries: React.FC = () => {
               pageSizeOptions={['6', '12', '24', '48']}
               showTotal={(count) => `共 ${count} 条`}
               onChange={(page, size) => {
-                setCurrentPage(page);
-                setPageSize(size);
+                const nextPageSize = size ?? pageSize;
+                const targetPage = nextPageSize !== pageSize ? 1 : page;
+                setCurrentPage(targetPage);
+                setPageSize(nextPageSize);
               }}
             />
           </div>

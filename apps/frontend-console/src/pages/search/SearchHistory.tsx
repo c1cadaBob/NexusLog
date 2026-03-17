@@ -331,6 +331,7 @@ const SearchHistory: React.FC = () => {
         />
         <DatePicker.RangePicker
           id={{ start: 'search-history-start', end: 'search-history-end' }}
+          value={dateRange}
           showTime={{ format: 'HH:mm:ss' }}
           format="YYYY-MM-DD HH:mm:ss"
           onChange={(dates) => {
@@ -427,8 +428,10 @@ const SearchHistory: React.FC = () => {
             position: ['bottomLeft'],
             onChange: (page, size) => {
               setSelectedRowKeys([]);
-              setCurrentPage(page);
-              setPageSize(size);
+              const nextPageSize = size ?? pageSize;
+              const targetPage = nextPageSize !== pageSize ? 1 : page;
+              setCurrentPage(targetPage);
+              setPageSize(nextPageSize);
             },
           }}
         />

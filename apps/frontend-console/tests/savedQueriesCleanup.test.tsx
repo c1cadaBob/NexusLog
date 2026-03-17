@@ -11,6 +11,7 @@ const fetchSavedQueriesMock = vi.fn();
 const updateSavedQueryMock = vi.fn();
 const createSavedQueryMock = vi.fn();
 const deleteSavedQueryMock = vi.fn();
+const setPageSizeMock = vi.fn();
 
 vi.mock('../src/api/query', () => ({
   fetchSavedQueries: (...args: unknown[]) => fetchSavedQueriesMock(...args),
@@ -23,12 +24,23 @@ vi.mock('../src/pages/search/realtimeStartupQuery', () => ({
   persistPendingRealtimeStartupQuery: vi.fn(),
 }));
 
+vi.mock('../src/stores/preferencesStore', () => ({
+  usePreferencesStore: (
+    selector: (state: { pageSizes: Record<string, number>; setPageSize: typeof setPageSizeMock }) => unknown,
+  ) => selector({ pageSizes: { savedQueries: 12 }, setPageSize: setPageSizeMock }),
+}));
+
+vi.mock('../src/components/common/usePaginationQuickJumperAccessibility', () => ({
+  usePaginationQuickJumperAccessibility: () => null,
+}));
+
 describe('SavedQueries legacy cleanup', () => {
   beforeEach(() => {
     fetchSavedQueriesMock.mockReset();
     updateSavedQueryMock.mockReset();
     createSavedQueryMock.mockReset();
     deleteSavedQueryMock.mockReset();
+    setPageSizeMock.mockReset();
 
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
