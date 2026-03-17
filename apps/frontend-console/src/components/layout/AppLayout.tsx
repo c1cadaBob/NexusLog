@@ -11,6 +11,9 @@ const { Sider, Content } = Layout;
 const MOBILE_BREAKPOINT = 768;
 const SIDER_WIDTH = 256;
 const SIDER_COLLAPSED_WIDTH = 72;
+const MOBILE_BOTTOM_NAV_HEIGHT = 56;
+const MOBILE_FLOAT_BUTTON_OFFSET = MOBILE_BOTTOM_NAV_HEIGHT + 24;
+const MOBILE_CONTENT_BOTTOM_PADDING = MOBILE_FLOAT_BUTTON_OFFSET + 40 + 16;
 
 const AppLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
@@ -88,7 +91,9 @@ const AppLayout: React.FC = () => {
             maxWidth: 1800,
             width: '100%',
             margin: '0 auto',
-            paddingBottom: isMobile ? 72 : 24,
+            paddingBottom: isMobile
+              ? `calc(${MOBILE_CONTENT_BOTTOM_PADDING}px + env(safe-area-inset-bottom))`
+              : 24,
           }}
         >
           <Outlet />
@@ -102,7 +107,11 @@ const AppLayout: React.FC = () => {
       <FloatButton
         icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>support_agent</span>}
         tooltip="帮助"
-        style={{ bottom: isMobile ? 72 : 24 }}
+        style={{
+          bottom: isMobile
+            ? `calc(${MOBILE_FLOAT_BUTTON_OFFSET}px + env(safe-area-inset-bottom))`
+            : 24,
+        }}
       />
     </Layout>
   );
