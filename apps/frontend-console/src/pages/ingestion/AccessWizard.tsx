@@ -140,7 +140,7 @@ const AccessWizard: React.FC = () => {
             </Button>
           ))}
         </div>
-        <Input prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>}
+        <Input id="access-wizard-source-search" name="accessWizardSourceSearch" aria-label="搜索数据来源" prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>}
           placeholder="搜索数据来源 (e.g. Nginx, K8s)..." value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)} style={{ width: 280 }} allowClear />
       </div>
@@ -198,16 +198,16 @@ const AccessWizard: React.FC = () => {
 
       <Card title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="material-symbols-outlined" style={{ color: COLORS.primary }}>info</span>基本信息</span>}>
         <Form layout="vertical">
-          <Form.Item label="数据源名称" required validateStatus={errors.sourceName ? 'error' : ''} help={errors.sourceName}>
-            <Input placeholder="例如: Nginx-Access-Logs-Prod" value={sourceConfig.sourceName}
+          <Form.Item htmlFor="access-wizard-source-name" label="数据源名称" required validateStatus={errors.sourceName ? 'error' : ''} help={errors.sourceName}>
+            <Input id="access-wizard-source-name" name="sourceName" placeholder="例如: Nginx-Access-Logs-Prod" value={sourceConfig.sourceName}
               onChange={(e) => setSourceConfig(prev => ({ ...prev, sourceName: e.target.value }))} />
           </Form.Item>
-          <Form.Item label="目标索引" required validateStatus={errors.targetIndex ? 'error' : ''} help={errors.targetIndex || '索引名称必须以小写字母开头'}>
-            <Input placeholder="例如: idx_nginx_prod" value={sourceConfig.targetIndex}
+          <Form.Item htmlFor="access-wizard-target-index" label="目标索引" required validateStatus={errors.targetIndex ? 'error' : ''} help={errors.targetIndex || '索引名称必须以小写字母开头'}>
+            <Input id="access-wizard-target-index" name="targetIndex" placeholder="例如: idx_nginx_prod" value={sourceConfig.targetIndex}
               onChange={(e) => setSourceConfig(prev => ({ ...prev, targetIndex: e.target.value }))} />
           </Form.Item>
-          <Form.Item label="描述">
-            <Input.TextArea placeholder="可选：描述此数据源的用途" rows={2} value={sourceConfig.description}
+          <Form.Item htmlFor="access-wizard-description" label="描述">
+            <Input.TextArea id="access-wizard-description" name="description" placeholder="可选：描述此数据源的用途" rows={2} value={sourceConfig.description}
               onChange={(e) => setSourceConfig(prev => ({ ...prev, description: e.target.value }))} />
           </Form.Item>
         </Form>
@@ -215,27 +215,27 @@ const AccessWizard: React.FC = () => {
 
       <Card title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="material-symbols-outlined" style={{ color: COLORS.primary }}>dns</span>Agent 配置</span>}>
         <Form layout="vertical">
-          <Form.Item label="选择 Agent" required validateStatus={errors.agentId ? 'error' : ''} help={errors.agentId}>
-            <Select placeholder="选择一个 Agent" options={AGENT_OPTIONS} value={agentConfig.agentId || undefined}
+          <Form.Item htmlFor="access-wizard-agent-id" label="选择 Agent" required validateStatus={errors.agentId ? 'error' : ''} help={errors.agentId}>
+            <Select id="access-wizard-agent-id" aria-label="选择 Agent" placeholder="选择一个 Agent" options={AGENT_OPTIONS} value={agentConfig.agentId || undefined}
               onChange={(v) => setAgentConfig(prev => ({ ...prev, agentId: v }))} />
           </Form.Item>
-          <Form.Item label="日志路径" required validateStatus={errors.logPath ? 'error' : ''} help={errors.logPath || '支持通配符，如 /var/log/*.log'}>
-            <Input placeholder="例如: /var/log/nginx/access.log" value={agentConfig.logPath}
+          <Form.Item htmlFor="access-wizard-log-path" label="日志路径" required validateStatus={errors.logPath ? 'error' : ''} help={errors.logPath || '支持通配符，如 /var/log/*.log'}>
+            <Input id="access-wizard-log-path" name="logPath" placeholder="例如: /var/log/nginx/access.log" value={agentConfig.logPath}
               onChange={(e) => setAgentConfig(prev => ({ ...prev, logPath: e.target.value }))} />
           </Form.Item>
-          <Form.Item label="文件编码">
-            <Select options={ENCODING_OPTIONS} value={agentConfig.encoding}
+          <Form.Item htmlFor="access-wizard-encoding" label="文件编码">
+            <Select id="access-wizard-encoding" aria-label="文件编码" options={ENCODING_OPTIONS} value={agentConfig.encoding}
               onChange={(v) => setAgentConfig(prev => ({ ...prev, encoding: v }))} />
           </Form.Item>
           <Form.Item>
-            <Checkbox checked={agentConfig.multiline}
+            <Checkbox id="access-wizard-multiline" name="multiline" checked={agentConfig.multiline}
               onChange={(e) => setAgentConfig(prev => ({ ...prev, multiline: e.target.checked }))}>
               启用多行日志模式
             </Checkbox>
           </Form.Item>
           {agentConfig.multiline && (
-            <Form.Item label="多行匹配模式" validateStatus={errors.multilinePattern ? 'error' : ''} help={errors.multilinePattern || '用于识别新日志条目开始的正则表达式'}>
-              <Input placeholder={'例如: ^\\d{4}-\\d{2}-\\d{2}'} value={agentConfig.multilinePattern}
+            <Form.Item htmlFor="access-wizard-multiline-pattern" label="多行匹配模式" validateStatus={errors.multilinePattern ? 'error' : ''} help={errors.multilinePattern || '用于识别新日志条目开始的正则表达式'}>
+              <Input id="access-wizard-multiline-pattern" name="multilinePattern" placeholder={'例如: ^\\d{4}-\\d{2}-\\d{2}'} value={agentConfig.multilinePattern}
                 onChange={(e) => setAgentConfig(prev => ({ ...prev, multilinePattern: e.target.value }))} />
             </Form.Item>
           )}
@@ -249,14 +249,14 @@ const AccessWizard: React.FC = () => {
     <div style={{ maxWidth: 640, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
       <Card title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="material-symbols-outlined" style={{ color: COLORS.primary }}>code</span>解析配置</span>}>
         <Form layout="vertical">
-          <Form.Item label="解析器类型">
-            <Select options={PARSER_OPTIONS} value={parsingConfig.parserType}
+          <Form.Item htmlFor="access-wizard-parser-type" label="解析器类型">
+            <Select id="access-wizard-parser-type" aria-label="解析器类型" options={PARSER_OPTIONS} value={parsingConfig.parserType}
               onChange={(v) => setParsingConfig(prev => ({ ...prev, parserType: v }))} />
           </Form.Item>
           {(parsingConfig.parserType === 'regex' || parsingConfig.parserType === 'grok') && (
-            <Form.Item label={parsingConfig.parserType === 'regex' ? '正则表达式' : 'Grok 模式'} required
+            <Form.Item htmlFor="access-wizard-custom-pattern" label={parsingConfig.parserType === 'regex' ? '正则表达式' : 'Grok 模式'} required
               validateStatus={errors.customPattern ? 'error' : ''} help={errors.customPattern}>
-              <Input.TextArea rows={3} value={parsingConfig.customPattern}
+              <Input.TextArea id="access-wizard-custom-pattern" name="customPattern" rows={3} value={parsingConfig.customPattern}
                 placeholder={parsingConfig.parserType === 'regex'
                   ? '例如: ^(?<timestamp>\\S+) (?<level>\\w+) (?<message>.*)'
                   : '例如: %{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:level} %{GREEDYDATA:message}'}
@@ -264,12 +264,12 @@ const AccessWizard: React.FC = () => {
                 style={{ fontFamily: 'JetBrains Mono, monospace' }} />
             </Form.Item>
           )}
-          <Form.Item label="时间戳字段" extra="指定日志中的时间戳字段名">
-            <Input placeholder="@timestamp" value={parsingConfig.timestampField}
+          <Form.Item htmlFor="access-wizard-timestamp-field" label="时间戳字段" extra="指定日志中的时间戳字段名">
+            <Input id="access-wizard-timestamp-field" name="timestampField" placeholder="@timestamp" value={parsingConfig.timestampField}
               onChange={(e) => setParsingConfig(prev => ({ ...prev, timestampField: e.target.value }))} />
           </Form.Item>
-          <Form.Item label="时间戳格式" extra="例如: ISO8601, yyyy-MM-dd HH:mm:ss">
-            <Input placeholder="ISO8601" value={parsingConfig.timestampFormat}
+          <Form.Item htmlFor="access-wizard-timestamp-format" label="时间戳格式" extra="例如: ISO8601, yyyy-MM-dd HH:mm:ss">
+            <Input id="access-wizard-timestamp-format" name="timestampFormat" placeholder="ISO8601" value={parsingConfig.timestampFormat}
               onChange={(e) => setParsingConfig(prev => ({ ...prev, timestampFormat: e.target.value }))} />
           </Form.Item>
         </Form>

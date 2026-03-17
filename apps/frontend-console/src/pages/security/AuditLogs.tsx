@@ -443,9 +443,11 @@ const AuditLogs: React.FC = () => {
         <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16, alignItems: 'end' }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>用户</div>
+              <label htmlFor="audit-user-filter" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>用户</label>
               <Input
+                id="audit-user-filter"
                 name="audit_user_query"
+                aria-label="审计用户筛选"
                 prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: palette.textSecondary }}>person</span>}
                 placeholder="输入用户 / UID / AUID..."
                 value={userFilter}
@@ -454,8 +456,10 @@ const AuditLogs: React.FC = () => {
               />
             </div>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>操作类型</div>
+              <label htmlFor="audit-action-filter" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>操作类型</label>
               <Select
+                id="audit-action-filter"
+                aria-label="审计操作类型筛选"
                 placeholder="全部"
                 value={actionFilter}
                 onChange={setActionFilter}
@@ -467,8 +471,10 @@ const AuditLogs: React.FC = () => {
               />
             </div>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>资源类型</div>
+              <label htmlFor="audit-resource-type-filter" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>资源类型</label>
               <Select
+                id="audit-resource-type-filter"
+                aria-label="审计资源类型筛选"
                 placeholder="全部"
                 value={resourceTypeFilter}
                 onChange={setResourceTypeFilter}
@@ -480,7 +486,7 @@ const AuditLogs: React.FC = () => {
               />
             </div>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>时间范围</div>
+              <label htmlFor="audit_start_time" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: palette.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>时间范围</label>
               <DatePicker.RangePicker
                 id={{ start: 'audit_start_time', end: 'audit_end_time' }}
                 value={dateRange}

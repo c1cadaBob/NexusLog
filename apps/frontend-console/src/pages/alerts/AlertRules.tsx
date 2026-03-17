@@ -527,6 +527,9 @@ const AlertRules: React.FC = () => {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
             <Input
+              id="alert-rules-search"
+              name="alertRulesSearch"
+              aria-label="搜索告警规则"
               prefix={<span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>search</span>}
               placeholder="搜索规则名称或查询..."
               value={searchQuery}
@@ -535,6 +538,8 @@ const AlertRules: React.FC = () => {
               allowClear
             />
             <Select
+              id="alert-rules-status-filter"
+              aria-label="告警规则状态筛选"
               value={statusFilter}
               onChange={setStatusFilter}
               style={{ width: 120 }}
@@ -576,18 +581,21 @@ const AlertRules: React.FC = () => {
         okText={modalMode === 'create' ? '创建' : '保存'}
         cancelText="取消"
         width={640}
+        destroyOnHidden
         forceRender
         confirmLoading={submitting}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }} onValuesChange={(c) => c.ruleType && setRuleType(c.ruleType)}>
           <Form.Item name="name" label="规则名称" rules={[{ required: true, message: '请输入规则名称' }]}>
-            <Input placeholder="输入规则名称" />
+            <Input id="name" placeholder="输入规则名称" />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea placeholder="输入规则描述" rows={2} />
+            <Input.TextArea id="description" placeholder="输入规则描述" rows={2} />
           </Form.Item>
           <Form.Item name="ruleType" label="规则类型" initialValue="keyword">
             <Select
+              id="ruleType"
+              aria-label="规则类型"
               options={[
                 { value: 'keyword', label: '关键词 (keyword)' },
                 { value: 'level_count', label: '等级计数 (level_count)' },
@@ -599,33 +607,35 @@ const AlertRules: React.FC = () => {
           {ruleType === 'keyword' && (
             <>
               <Form.Item name="keywordField" label="字段" initialValue="message">
-                <Input placeholder="message" />
+                <Input id="keywordField" placeholder="message" />
               </Form.Item>
               <Form.Item name="keyword" label="关键词" rules={[{ required: true, message: '请输入关键词' }]}>
-                <Input placeholder="如: error, exception" />
+                <Input id="keyword" placeholder="如: error, exception" />
               </Form.Item>
             </>
           )}
           {ruleType === 'level_count' && (
             <>
               <Form.Item name="level" label="日志等级" initialValue="ERROR">
-                <Select options={[{ value: 'ERROR', label: 'ERROR' }, { value: 'WARN', label: 'WARN' }, { value: 'INFO', label: 'INFO' }]} />
+                <Select id="level" aria-label="日志等级" options={[{ value: 'ERROR', label: 'ERROR' }, { value: 'WARN', label: 'WARN' }, { value: 'INFO', label: 'INFO' }]} />
               </Form.Item>
               <Form.Item name="conditionThreshold" label="阈值" rules={[{ required: true }]}>
-                <Input type="number" placeholder="如: 10" />
+                <Input id="conditionThreshold" type="number" placeholder="如: 10" />
               </Form.Item>
               <Form.Item name="windowSeconds" label="时间窗口(秒)" initialValue={300}>
-                <Input type="number" placeholder="300" />
+                <Input id="windowSeconds" type="number" placeholder="300" />
               </Form.Item>
             </>
           )}
           {ruleType === 'threshold' && (
             <>
               <Form.Item name="conditionMetric" label="指标名称">
-                <Input placeholder="如: cpu_usage" />
+                <Input id="conditionMetric" placeholder="如: cpu_usage" />
               </Form.Item>
               <Form.Item name="conditionOperator" label="操作符" initialValue="gt">
                 <Select
+                  id="conditionOperator"
+                  aria-label="操作符"
                   options={[
                     { value: 'gt', label: '大于 (>)' },
                     { value: 'gte', label: '大于等于 (>=)' },
@@ -637,13 +647,15 @@ const AlertRules: React.FC = () => {
                 />
               </Form.Item>
               <Form.Item name="conditionThreshold" label="阈值">
-                <Input type="number" placeholder="如: 90" />
+                <Input id="conditionThreshold" type="number" placeholder="如: 90" />
               </Form.Item>
             </>
           )}
 
           <Form.Item name="severity" label="严重程度" initialValue="medium">
             <Select
+              id="severity"
+              aria-label="严重程度"
               options={[
                 { value: 'critical', label: '严重 (Critical)' },
                 { value: 'high', label: '高 (High)' },

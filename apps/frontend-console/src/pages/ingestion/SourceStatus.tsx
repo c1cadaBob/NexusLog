@@ -305,11 +305,11 @@ const SourceStatus: React.FC = () => {
       <Card style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' } }}>
         <div style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
-          <Input prefix={<span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>search</span>}
+          <Input id="source-status-search" name="sourceStatusSearch" aria-label="搜索数据源" prefix={<span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>search</span>}
             placeholder="搜索数据源名称或ID..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             style={{ maxWidth: 400 }} allowClear />
           <Space>
-            <Select value={typeFilter} onChange={setTypeFilter} style={{ width: 120 }}
+            <Select id="source-status-type-filter" aria-label="数据源类型筛选" value={typeFilter} onChange={setTypeFilter} style={{ width: 120 }}
               options={[{ value: 'all', label: '全部类型' }, { value: 'Kafka', label: 'Kafka' }, { value: 'HTTP', label: 'HTTP' }, { value: 'File', label: 'File' }, { value: 'Syslog', label: 'Syslog' }]} />
             <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={handleRefresh}>刷新</Button>
           </Space>
