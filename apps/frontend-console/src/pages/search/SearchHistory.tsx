@@ -29,6 +29,8 @@ const SearchHistory: React.FC = () => {
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['searchHistory'] ?? 15);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
+  const [loadedPage, setLoadedPage] = useState(1);
+  const [loadedPageSize, setLoadedPageSize] = useState(storedPageSize);
   const setPageSize = useCallback((size: number) => {
     setPageSizeLocal(size);
     setStoredPageSize('searchHistory', size);
@@ -61,6 +63,8 @@ const SearchHistory: React.FC = () => {
       }
       setRows(result.items);
       setTotal(result.total);
+      setLoadedPage(result.page);
+      setLoadedPageSize(result.pageSize);
       pendingPaginationRef.current = null;
       if (result.page !== currentPage) {
         setCurrentPage(result.page);
@@ -98,12 +102,12 @@ const SearchHistory: React.FC = () => {
     if (total === 0 || rows.length === 0) {
       return { start: 0, end: 0 };
     }
-    const start = (currentPage - 1) * pageSize + 1;
+    const start = (loadedPage - 1) * loadedPageSize + 1;
     return {
       start,
       end: start + rows.length - 1,
     };
-  }, [currentPage, pageSize, rows.length, total]);
+  }, [loadedPage, loadedPageSize, rows.length, total]);
   const historyEmptyDescription = useMemo(() => {
     const hasKeyword = keyword.trim().length > 0;
     const hasDateFilter = Boolean(dateRange?.[0] || dateRange?.[1]);
@@ -263,7 +267,7 @@ const SearchHistory: React.FC = () => {
       align: 'center',
       render: (_: unknown, __: QueryHistory, index: number) => (
         <span className="text-sm opacity-60">
-          {(currentPage - 1) * pageSize + index + 1}
+          {(loadedPage - 1) * loadedPageSize + index + 1}
         </span>
       ),
     },
@@ -344,7 +348,7 @@ const SearchHistory: React.FC = () => {
         </Space>
       ),
     },
-  ], [currentPage, handleBookmark, handleDelete, handleReplay, pageSize]);
+  ], [handleBookmark, handleDelete, handleReplay, loadedPage, loadedPageSize]);
 
   return (
     <div className="flex flex-col gap-4">
