@@ -2184,6 +2184,9 @@ const RealtimeSearch: React.FC = () => {
                 });
               }
 
+              clearLiveTimer();
+              abortActiveRequests();
+
               if (
                 shouldSuppressNextLiveTickAfterPaginationRefresh({
                   isLive: isLiveRef.current,
