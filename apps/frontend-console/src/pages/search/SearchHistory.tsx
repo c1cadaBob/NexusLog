@@ -17,6 +17,8 @@ import {
   Popconfirm,
   Alert,
   Empty,
+  Checkbox,
+  Pagination,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
@@ -40,6 +42,8 @@ import {
   resolveSearchPageVisibleRange,
 } from "./searchPagePresentation";
 
+const MOBILE_BREAKPOINT = 768;
+
 const SearchHistory: React.FC = () => {
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
@@ -55,6 +59,7 @@ const SearchHistory: React.FC = () => {
   const [errorText, setErrorText] = useState("");
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const storedPageSize = usePreferencesStore(
@@ -80,6 +85,15 @@ const SearchHistory: React.FC = () => {
     previousPage: number;
     previousPageSize: number;
   } | null>(null);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   // 查询历史列表使用服务端分页，确保和后端真实数据一致。
   const loadHistory = useCallback(async () => {
@@ -141,6 +155,10 @@ const SearchHistory: React.FC = () => {
 
   const selectedHistoryIDs = useMemo(
     () => selectedRowKeys.map((key) => String(key)),
+    [selectedRowKeys],
+  );
+  const selectedRowKeySet = useMemo(
+    () => new Set(selectedRowKeys),
     [selectedRowKeys],
   );
   const visibleRange = useMemo(
@@ -353,6 +371,122 @@ const SearchHistory: React.FC = () => {
     }
   }, [isMissingHistoryDeleteError, loadHistory, message, refreshAfterDelete, selectedHistoryIDs]);
 
+  const formatExecutedAt = useCallback(
+    (value: string) => new Date(value).toLocaleString("zh-CN"),
+    [],
+  );
+
+  const renderDurationTag = useCallback((value: number) => {
+    const color = value > 1000 ? "error" : value > 500 ? "warning" : "success";
+    return (
+      <Tag color={color} style={{ margin: 0, fontSize: 12 }}>
+        {value}ms
+      </Tag>
+    );
+  }, []);
+
+  const handleVisibleRowsSelectionChange = useCallback(
+    (checked: boolean) => {
+      setSelectedRowKeys((previousKeys) => {
+        const nextKeys = new Set(previousKeys);
+        rows.forEach((row) => {
+          if (checked) {
+            nextKeys.add(row.id);
+            return;
+          }
+          nextKeys.delete(row.id);
+        });
+        return Array.from(nextKeys);
+      });
+    },
+    [rows],
+  );
+
+  const handleRowSelectionChange = useCallback(
+    (rowID: string, checked: boolean) => {
+      setSelectedRowKeys((previousKeys) => {
+        const nextKeys = new Set(previousKeys);
+        if (checked) {
+          nextKeys.add(rowID);
+        } else {
+          nextKeys.delete(rowID);
+        }
+        return Array.from(nextKeys);
+      });
+    },
+    [],
+  );
+
+  const visibleRowsSelectedCount = useMemo(
+    () => rows.filter((row) => selectedRowKeySet.has(row.id)).length,
+    [rows, selectedRowKeySet],
+  );
+  const allVisibleRowsSelected = rows.length > 0 && visibleRowsSelectedCount === rows.length;
+  const someVisibleRowsSelected =
+    visibleRowsSelectedCount > 0 && visibleRowsSelectedCount < rows.length;
+
+  const renderActionButtons = useCallback(
+    (record: QueryHistory, mode: "table" | "mobile" = "table") => {
+      const compact = mode === "table";
+      return (
+        <Space size="small" wrap>
+          <Tooltip title="重新执行">
+            <Button
+              type={compact ? "link" : "default"}
+              size="small"
+              icon={
+                <span className="material-symbols-outlined text-sm">
+                  replay
+                </span>
+              }
+              onClick={() => void handleReplay(record)}
+            >
+              {compact ? null : "重新执行"}
+            </Button>
+          </Tooltip>
+          <Tooltip title="收藏">
+            <Button
+              type={compact ? "link" : "default"}
+              size="small"
+              icon={
+                <span className="material-symbols-outlined text-sm">
+                  bookmark_add
+                </span>
+              }
+              onClick={() => void handleBookmark(record)}
+            >
+              {compact ? null : "收藏"}
+            </Button>
+          </Tooltip>
+          <Popconfirm
+            title="确认删除"
+            description="删除后不可恢复，是否继续？"
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => void handleDelete(record.id)}
+          >
+            <Tooltip title="删除">
+              <Button
+                type={compact ? "link" : "default"}
+                size="small"
+                danger
+                icon={
+                  <span className="material-symbols-outlined text-sm">
+                    delete
+                  </span>
+                }
+              >
+                {compact ? null : "删除"}
+              </Button>
+            </Tooltip>
+          </Popconfirm>
+        </Space>
+      );
+    },
+    [handleBookmark, handleDelete, handleReplay],
+  );
+
   const columns: ColumnsType<QueryHistory> = useMemo(
     () => [
       {
@@ -381,9 +515,7 @@ const SearchHistory: React.FC = () => {
         key: "executedAt",
         width: 180,
         render: (v: string) => (
-          <span className="text-sm opacity-70">
-            {new Date(v).toLocaleString("zh-CN")}
-          </span>
+          <span className="text-sm opacity-70">{formatExecutedAt(v)}</span>
         ),
       },
       {
@@ -391,14 +523,7 @@ const SearchHistory: React.FC = () => {
         dataIndex: "duration",
         key: "duration",
         width: 100,
-        render: (v: number) => {
-          const color = v > 1000 ? "error" : v > 500 ? "warning" : "success";
-          return (
-            <Tag color={color} style={{ margin: 0, fontSize: 12 }}>
-              {v}ms
-            </Tag>
-          );
-        },
+        render: (v: number) => renderDurationTag(v),
       },
       {
         title: "结果数量",
@@ -413,58 +538,11 @@ const SearchHistory: React.FC = () => {
         title: "操作",
         key: "actions",
         width: 170,
-        render: (_: unknown, record: QueryHistory) => (
-          <Space size="small">
-            <Tooltip title="重新执行">
-              <Button
-                type="link"
-                size="small"
-                icon={
-                  <span className="material-symbols-outlined text-sm">
-                    replay
-                  </span>
-                }
-                onClick={() => void handleReplay(record)}
-              />
-            </Tooltip>
-            <Tooltip title="收藏">
-              <Button
-                type="link"
-                size="small"
-                icon={
-                  <span className="material-symbols-outlined text-sm">
-                    bookmark_add
-                  </span>
-                }
-                onClick={() => void handleBookmark(record)}
-              />
-            </Tooltip>
-            <Popconfirm
-              title="确认删除"
-              description="删除后不可恢复，是否继续？"
-              okText="删除"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => void handleDelete(record.id)}
-            >
-              <Tooltip title="删除">
-                <Button
-                  type="link"
-                  size="small"
-                  danger
-                  icon={
-                    <span className="material-symbols-outlined text-sm">
-                      delete
-                    </span>
-                  }
-                />
-              </Tooltip>
-            </Popconfirm>
-          </Space>
-        ),
+        render: (_: unknown, record: QueryHistory) =>
+          renderActionButtons(record, "table"),
       },
     ],
-    [handleBookmark, handleDelete, handleReplay, loadedPage, loadedPageSize],
+    [formatExecutedAt, loadedPage, loadedPageSize, renderActionButtons, renderDurationTag],
   );
 
   return (
@@ -557,42 +635,85 @@ const SearchHistory: React.FC = () => {
         />
       )}
 
-      <div ref={historyTableRef}>
-        <Table<QueryHistory>
-          dataSource={rows}
-          columns={columns}
-          rowKey="id"
-          rowSelection={{
-            selectedRowKeys,
-            onChange: setSelectedRowKeys,
-            preserveSelectedRowKeys: true,
-            getTitleCheckboxProps: () => ({
-              id: "search-history-select-all",
-              name: "search-history-select-all",
-              "aria-label": "选择全部查询历史",
-            }),
-            getCheckboxProps: (record) => ({
-              disabled: batchDeleting,
-              id: `search-history-select-${record.id}`,
-              name: `search-history-select-${record.id}`,
-              "aria-label": `选择查询历史 ${record.id}`,
-            }),
-          }}
-          size="small"
-          loading={loading || batchDeleting}
-          locale={{
-            emptyText: <Empty description={historyEmptyDescription} />,
-          }}
-          pagination={{
-            current: currentPage,
-            pageSize,
-            total,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (count) => formatSearchPageTotal(count, "条"),
-            pageSizeOptions: ["10", "15", "20", "50", "100"],
-            position: ["bottomLeft"],
-            onChange: (page, size) => {
+      {isMobile ? (
+        <div className="flex flex-col gap-3">
+          {rows.length > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3">
+              <Checkbox
+                id="search-history-mobile-select-all"
+                name="search-history-mobile-select-all"
+                checked={allVisibleRowsSelected}
+                indeterminate={someVisibleRowsSelected}
+                disabled={batchDeleting}
+                aria-label="选择当前页全部查询历史"
+                onChange={(event) =>
+                  handleVisibleRowsSelectionChange(event.target.checked)
+                }
+              >
+                当前页全选
+              </Checkbox>
+              <span className="text-xs opacity-60">
+                当前页 {rows.length} 条
+              </span>
+            </div>
+          )}
+
+          {rows.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
+              <Empty description={historyEmptyDescription} />
+            </div>
+          ) : (
+            rows.map((record, index) => (
+              <div
+                key={record.id}
+                className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-4 shadow-sm"
+              >
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id={`search-history-mobile-select-${record.id}`}
+                    name={`search-history-mobile-select-${record.id}`}
+                    checked={selectedRowKeySet.has(record.id)}
+                    disabled={batchDeleting}
+                    aria-label={`选择查询历史 ${record.id}`}
+                    onChange={(event) =>
+                      handleRowSelectionChange(record.id, event.target.checked)
+                    }
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Tag color="default" style={{ margin: 0, fontSize: 12 }}>
+                        #{(loadedPage - 1) * loadedPageSize + index + 1}
+                      </Tag>
+                      {renderDurationTag(record.duration)}
+                      <Tag color="blue" style={{ margin: 0, fontSize: 12 }}>
+                        {record.resultCount.toLocaleString()} 条结果
+                      </Tag>
+                    </div>
+                    <div className="mt-3 break-all font-mono text-sm leading-6">
+                      {record.query}
+                    </div>
+                    <div className="mt-3 text-xs opacity-70">
+                      执行时间：{formatExecutedAt(record.executedAt)}
+                    </div>
+                    <div className="mt-4">
+                      {renderActionButtons(record, "mobile")}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+
+          <Pagination
+            current={currentPage}
+            pageSize={pageSize}
+            total={total}
+            size="small"
+            showSizeChanger
+            showQuickJumper={false}
+            showTotal={(count) => formatSearchPageTotal(count, "条")}
+            pageSizeOptions={["10", "15", "20", "50", "100"]}
+            onChange={(page, size) => {
               setSelectedRowKeys([]);
               const nextPageSize = size ?? pageSize;
               const targetPage = nextPageSize !== pageSize ? 1 : page;
@@ -604,10 +725,62 @@ const SearchHistory: React.FC = () => {
               };
               setCurrentPage(targetPage);
               setPageSize(nextPageSize);
-            },
-          }}
-        />
-      </div>
+            }}
+          />
+        </div>
+      ) : (
+        <div ref={historyTableRef}>
+          <Table<QueryHistory>
+            dataSource={rows}
+            columns={columns}
+            rowKey="id"
+            rowSelection={{
+              selectedRowKeys,
+              onChange: setSelectedRowKeys,
+              preserveSelectedRowKeys: true,
+              getTitleCheckboxProps: () => ({
+                id: "search-history-select-all",
+                name: "search-history-select-all",
+                "aria-label": "选择全部查询历史",
+              }),
+              getCheckboxProps: (record) => ({
+                disabled: batchDeleting,
+                id: `search-history-select-${record.id}`,
+                name: `search-history-select-${record.id}`,
+                "aria-label": `选择查询历史 ${record.id}`,
+              }),
+            }}
+            size="small"
+            loading={loading || batchDeleting}
+            locale={{
+              emptyText: <Empty description={historyEmptyDescription} />,
+            }}
+            pagination={{
+              current: currentPage,
+              pageSize,
+              total,
+              showSizeChanger: true,
+              showQuickJumper: true,
+              showTotal: (count) => formatSearchPageTotal(count, "条"),
+              pageSizeOptions: ["10", "15", "20", "50", "100"],
+              position: ["bottomLeft"],
+              onChange: (page, size) => {
+                setSelectedRowKeys([]);
+                const nextPageSize = size ?? pageSize;
+                const targetPage = nextPageSize !== pageSize ? 1 : page;
+                pendingPaginationRef.current = {
+                  targetPage,
+                  targetPageSize: nextPageSize,
+                  previousPage: currentPage,
+                  previousPageSize: pageSize,
+                };
+                setCurrentPage(targetPage);
+                setPageSize(nextPageSize);
+              },
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 };
