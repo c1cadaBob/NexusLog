@@ -788,30 +788,14 @@ const RealtimeSearch: React.FC = () => {
               filters: histogramFilters,
             }
           : null;
-        const totalHistogramPromise =
-          shouldRefreshHistogram && totalHistogramController && aggregateParams
-            ? fetchAggregateStats({
-                ...aggregateParams,
-                signal: totalHistogramController.signal,
-              })
-            : Promise.resolve(null);
-        void totalHistogramPromise.catch(() => undefined);
-        const errorHistogramPromise =
-          !shouldRefreshHistogram ||
-          effectiveLevelFilter === "error" ||
-          !aggregateParams
-            ? Promise.resolve(null)
-            : effectiveLevelFilter
-              ? Promise.resolve(null)
-              : fetchAggregateStats({
-                  ...aggregateParams,
-                  filters: {
-                    ...histogramFilters,
-                    level: "error",
-                  },
-                  signal: errorHistogramController?.signal,
-                });
-        void errorHistogramPromise.catch(() => undefined);
+        let resolvedTotalHistogram: Awaited<
+          ReturnType<typeof fetchAggregateStats>
+        > | null = null;
+        let resolvedErrorHistogram: Awaited<
+          ReturnType<typeof fetchAggregateStats>
+        > | null = null;
+        let histogramFailed = false;
+        let histogramAbortOnly = true;
 
         try {
           if (
@@ -931,36 +915,51 @@ const RealtimeSearch: React.FC = () => {
           return tableSucceeded ? "success" : "failed";
         }
 
-        const [totalHistogramResult, errorHistogramResult] =
-          await Promise.allSettled([
-            totalHistogramPromise,
-            errorHistogramPromise,
-          ]);
+        if (aggregateParams && totalHistogramController) {
+          try {
+            resolvedTotalHistogram = await fetchAggregateStats({
+              ...aggregateParams,
+              signal: totalHistogramController.signal,
+            });
+          } catch (error) {
+            histogramFailed = true;
+            if (!isAbortError(error)) {
+              histogramAbortOnly = false;
+            }
+          }
+        }
 
         if (requestID !== latestQueryRequestRef.current) {
           return tableSucceeded ? "success" : "stale";
         }
 
-        const resolvedTotalHistogram =
-          totalHistogramResult.status === "fulfilled"
-            ? totalHistogramResult.value
-            : null;
-        const resolvedErrorHistogram =
-          errorHistogramResult.status === "fulfilled"
-            ? errorHistogramResult.value
-            : null;
-        const histogramFailed =
-          totalHistogramResult.status === "rejected" ||
-          errorHistogramResult.status === "rejected";
-        const histogramAbortOnly = [
-          totalHistogramResult,
-          errorHistogramResult,
-        ].every((result) => {
-          if (result.status === "fulfilled") {
-            return true;
+        if (
+          resolvedTotalHistogram &&
+          !effectiveLevelFilter &&
+          aggregateParams &&
+          errorHistogramController
+        ) {
+          try {
+            resolvedErrorHistogram = await fetchAggregateStats({
+              ...aggregateParams,
+              filters: {
+                ...histogramFilters,
+                level: "error",
+              },
+              signal: errorHistogramController.signal,
+            });
+          } catch (error) {
+            histogramFailed = true;
+            if (!isAbortError(error)) {
+              histogramAbortOnly = false;
+            }
           }
-          return isAbortError(result.reason);
-        });
+        }
+
+        if (requestID !== latestQueryRequestRef.current) {
+          return tableSucceeded ? "success" : "stale";
+        }
+
         const canUpdateHistogram = Boolean(resolvedTotalHistogram);
 
         if (canUpdateHistogram && resolvedTotalHistogram) {
