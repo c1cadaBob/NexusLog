@@ -226,6 +226,22 @@ export function buildRealtimeTableTimeRange(
   };
 }
 
+export function getRealtimeTableDataSourceForRender(params: {
+  logs: LogEntry[];
+  pageSize: number;
+  currentPage: number;
+  tableRefreshing: boolean;
+}): LogEntry[] {
+  if (
+    !params.tableRefreshing ||
+    params.currentPage !== 1 ||
+    params.logs.length <= params.pageSize
+  ) {
+    return params.logs;
+  }
+  return params.logs.slice(0, params.pageSize);
+}
+
 function resolveRealtimeHistogramRequestTimeRange(
   liveWindow: LiveWindowOption,
   explicitTimeRange?: RealtimeExplicitTimeRange | null,
@@ -1305,6 +1321,16 @@ const RealtimeSearch: React.FC = () => {
 
   // 直方图数据
   const displayLogs = useMemo(() => aggregateRealtimeDisplayLogs(logs), [logs]);
+  const tableDataSource = useMemo(
+    () =>
+      getRealtimeTableDataSourceForRender({
+        logs: displayLogs,
+        pageSize,
+        currentPage,
+        tableRefreshing,
+      }),
+    [currentPage, displayLogs, pageSize, tableRefreshing],
+  );
   const imageAggregationSummary = useMemo(
     () => summarizeImageAggregation(displayLogs),
     [displayLogs],
@@ -2116,7 +2142,7 @@ const RealtimeSearch: React.FC = () => {
         </div>
 
         <Table<LogEntry>
-          dataSource={displayLogs}
+          dataSource={tableDataSource}
           columns={columns}
           rowKey="id"
           loading={tableRefreshing}

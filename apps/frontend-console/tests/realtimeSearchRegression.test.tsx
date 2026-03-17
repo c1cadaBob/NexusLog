@@ -8,6 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import RealtimeSearch, {
   buildRealtimeTableTimeRange,
   ensureRealtimePageCursor,
+  getRealtimeTableDataSourceForRender,
   shouldBlockRealtimeDirectPageJump,
   shouldResolveRealtimeDeepPageCursor,
   shouldSuppressNextLiveTickAfterInteractiveRefresh,
@@ -532,6 +533,35 @@ describe('RealtimeSearch regressions', () => {
       pageSizeChanged: true,
       targetPage: 1,
     })).toBe(false);
+  });
+
+  it('trims stale first-page rows while a smaller page size is loading', () => {
+    const rows = Array.from({ length: 50 }, (_, index) => ({ id: `row-${index + 1}` })) as never[];
+
+    expect(getRealtimeTableDataSourceForRender({
+      logs: rows,
+      pageSize: 20,
+      currentPage: 1,
+      tableRefreshing: true,
+    })).toHaveLength(20);
+    expect(getRealtimeTableDataSourceForRender({
+      logs: rows,
+      pageSize: 50,
+      currentPage: 1,
+      tableRefreshing: true,
+    })).toHaveLength(50);
+    expect(getRealtimeTableDataSourceForRender({
+      logs: rows,
+      pageSize: 20,
+      currentPage: 2,
+      tableRefreshing: true,
+    })).toHaveLength(50);
+    expect(getRealtimeTableDataSourceForRender({
+      logs: rows,
+      pageSize: 20,
+      currentPage: 1,
+      tableRefreshing: false,
+    })).toHaveLength(50);
   });
 
   it('returns an unbounded from-range only for the all-time mode', () => {
