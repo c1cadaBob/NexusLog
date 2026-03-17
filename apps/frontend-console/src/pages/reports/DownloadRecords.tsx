@@ -456,10 +456,15 @@ const DownloadRecords: React.FC = () => {
               },
             ]}
           >
-            <Input.TextArea rows={4} placeholder='{"keywords": "", "time_range": {"from": "", "to": ""}}' />
+            <Input.TextArea
+              id="query_params"
+              name="downloadRecordsCreateQueryParams"
+              rows={4}
+              placeholder='{"keywords": "", "time_range": {"from": "", "to": ""}}'
+            />
           </Form.Item>
           <Form.Item name="format" label="导出格式" initialValue="csv">
-            <Select options={FORMAT_OPTIONS} />
+            <Select id="format" aria-label="导出格式" options={FORMAT_OPTIONS} />
           </Form.Item>
           <Form.Item>
             <div className="flex justify-end gap-2">

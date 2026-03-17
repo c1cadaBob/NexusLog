@@ -208,6 +208,8 @@ const FieldDictionary: React.FC = () => {
           allowClear
         />
         <Select
+          id="field-dictionary-type-filter"
+          aria-label="字段数据类型筛选"
           value={typeFilter}
           onChange={setTypeFilter}
           style={{ minWidth: 140 }}
@@ -217,6 +219,8 @@ const FieldDictionary: React.FC = () => {
           ]}
         />
         <Select
+          id="field-dictionary-status-filter"
+          aria-label="字段状态筛选"
           value={statusFilter}
           onChange={setStatusFilter}
           style={{ minWidth: 140 }}
@@ -269,14 +273,17 @@ const FieldDictionary: React.FC = () => {
         onOk={handleAdd}
         okText="创建"
         cancelText="取消"
+        destroyOnHidden
       >
         <Form form={addForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="字段名称" rules={[{ required: true, message: '请输入字段名称' }]}>
-            <Input placeholder="例如: client_ip" style={{ fontFamily: 'JetBrains Mono, monospace' }} />
+            <Input id="name" name="fieldDictionaryAddName" placeholder="例如: client_ip" style={{ fontFamily: 'JetBrains Mono, monospace' }} />
           </Form.Item>
           <Form.Item label="别名">
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <Input
+                id="field-dictionary-add-alias"
+                name="fieldDictionaryAddAlias"
                 value={aliasInput}
                 onChange={e => setAliasInput(e.target.value)}
                 onPressEnter={handleAddAlias}
@@ -292,10 +299,10 @@ const FieldDictionary: React.FC = () => {
             </Space>
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea placeholder="字段描述..." rows={3} />
+            <Input.TextArea id="description" name="fieldDictionaryAddDescription" placeholder="字段描述..." rows={3} />
           </Form.Item>
           <Form.Item name="type" label="数据类型" initialValue="String">
-            <Select options={DICTIONARY_FIELD_TYPES.map(t => ({ value: t.value, label: t.value }))} />
+            <Select id="type" aria-label="新增字段数据类型" options={DICTIONARY_FIELD_TYPES.map(t => ({ value: t.value, label: t.value }))} />
           </Form.Item>
         </Form>
       </Modal>
@@ -308,16 +315,17 @@ const FieldDictionary: React.FC = () => {
         onOk={handleSaveEdit}
         okText="保存"
         cancelText="取消"
+        destroyOnHidden
       >
         <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="字段名称" rules={[{ required: true, message: '请输入字段名称' }]}>
-            <Input style={{ fontFamily: 'JetBrains Mono, monospace' }} />
+            <Input id="name" name="fieldDictionaryEditName" style={{ fontFamily: 'JetBrains Mono, monospace' }} />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} />
+            <Input.TextArea id="description" name="fieldDictionaryEditDescription" rows={3} />
           </Form.Item>
           <Form.Item name="type" label="数据类型">
-            <Select options={DICTIONARY_FIELD_TYPES.map(t => ({ value: t.value, label: t.value }))} />
+            <Select id="type" aria-label="编辑字段数据类型" options={DICTIONARY_FIELD_TYPES.map(t => ({ value: t.value, label: t.value }))} />
           </Form.Item>
           <Form.Item name="verified" valuePropName="checked" label={null}>
             <label htmlFor="field-dictionary-verified" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

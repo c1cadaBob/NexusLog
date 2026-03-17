@@ -150,6 +150,8 @@ const FieldMapping: React.FC = () => {
           return (
             <Input
               size="small"
+              name="fieldMappingEditingTarget"
+              aria-label="目标字段编辑"
               value={editingTarget}
               onChange={e => setEditingTarget(e.target.value)}
               style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}
@@ -167,7 +169,7 @@ const FieldMapping: React.FC = () => {
       render: (type: FieldType, record) => {
         if (editingId === record.id) {
           return (
-            <Select size="small" value={editingType} onChange={setEditingType} style={{ width: 110 }}>
+            <Select size="small" aria-label="字段类型编辑" value={editingType} onChange={setEditingType} style={{ width: 110 }}>
               {FIELD_TYPES.map(t => <Select.Option key={t.value} value={t.value}>{t.value}</Select.Option>)}
             </Select>
           );
@@ -235,7 +237,7 @@ const FieldMapping: React.FC = () => {
           </p>
         </div>
         <Space>
-          <Select value={selectedIndex} onChange={setSelectedIndex} style={{ minWidth: 200 }}
+          <Select id="field-mapping-index-select" aria-label="索引选择" value={selectedIndex} onChange={setSelectedIndex} style={{ minWidth: 200 }}
             options={[
               { value: 'production-logs-2023', label: 'production-logs-2023' },
               { value: 'access-logs-web-01', label: 'access-logs-web-01' },
@@ -254,6 +256,8 @@ const FieldMapping: React.FC = () => {
       {/* 搜索过滤 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: 16, background: palette.bgContainer, borderRadius: 12, border: `1px solid ${palette.border}` }}>
         <Input
+          id="field-mapping-search"
+          name="fieldMappingSearch"
           prefix={<span className="material-symbols-outlined" style={{ fontSize: 20, color: palette.textSecondary }}>search</span>}
           placeholder="搜索字段名 (Search fields)..."
           value={searchTerm}
@@ -304,16 +308,17 @@ const FieldMapping: React.FC = () => {
         onOk={handleAdd}
         okText="添加"
         cancelText="取消"
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="sourceField" label="源字段名" rules={[{ required: true, message: '请输入源字段名' }]}>
-            <Input placeholder="例如: request_uri" />
+            <Input id="sourceField" name="fieldMappingAddSourceField" placeholder="例如: request_uri" />
           </Form.Item>
           <Form.Item name="targetField" label="目标字段名" rules={[{ required: true, message: '请输入目标字段名' }]}>
-            <Input placeholder="例如: url.path" />
+            <Input id="targetField" name="fieldMappingAddTargetField" placeholder="例如: url.path" />
           </Form.Item>
           <Form.Item name="fieldType" label="字段类型" initialValue="String">
-            <Select>
+            <Select id="fieldType" aria-label="新增映射字段类型">
               {FIELD_TYPES.map(t => <Select.Option key={t.value} value={t.value}>{t.value}</Select.Option>)}
             </Select>
           </Form.Item>

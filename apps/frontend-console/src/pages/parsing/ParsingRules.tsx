@@ -145,6 +145,8 @@ const ParsingRules: React.FC = () => {
         </div>
         <Space>
           <Input
+            id="parsing-rules-search"
+            name="parsingRulesSearch"
             prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: palette.textSecondary }}>search</span>}
             placeholder="搜索规则名称..."
             value={searchTerm}
@@ -237,6 +239,9 @@ const ParsingRules: React.FC = () => {
               <span style={{ fontSize: 12, color: palette.textSecondary }}>{selectedRule.name}</span>
             </div>
             <textarea
+              id="parsing-rules-pattern-editor"
+              name="parsingRulesPatternEditor"
+              aria-label="解析模式编辑器"
               value={editingPattern}
               onChange={e => setEditingPattern(e.target.value)}
               spellCheck={false}
@@ -259,6 +264,9 @@ const ParsingRules: React.FC = () => {
                 <button onClick={() => setInputLog('')} style={{ background: 'none', border: 'none', color: palette.textSecondary, fontSize: 10, cursor: 'pointer' }}>清空</button>
               </div>
               <textarea
+                id="parsing-rules-input-log"
+                name="parsingRulesInputLog"
+                aria-label="原始日志输入"
                 value={inputLog}
                 onChange={e => setInputLog(e.target.value)}
                 spellCheck={false}
@@ -308,16 +316,17 @@ const ParsingRules: React.FC = () => {
         okText="创建"
         cancelText="取消"
         width={520}
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="规则名称" rules={[{ required: true, message: '请输入规则名称' }]}>
-            <Input placeholder="例如: Apache Access Log" />
+            <Input id="name" name="parsingRulesAddName" placeholder="例如: Apache Access Log" />
           </Form.Item>
           <Form.Item name="source" label="数据源" rules={[{ required: true, message: '请输入数据源' }]}>
-            <Input placeholder="例如: apache_access" />
+            <Input id="source" name="parsingRulesAddSource" placeholder="例如: apache_access" />
           </Form.Item>
           <Form.Item name="parserType" label="解析器类型" initialValue="GROK">
-            <Select options={[
+            <Select id="parserType" aria-label="新增规则解析器类型" options={[
               { value: 'GROK', label: 'GROK' },
               { value: 'REGEX', label: 'REGEX' },
               { value: 'JSON', label: 'JSON' },
@@ -326,7 +335,7 @@ const ParsingRules: React.FC = () => {
             ]} />
           </Form.Item>
           <Form.Item name="pattern" label="解析模式" rules={[{ required: true, message: '请输入解析模式' }]}>
-            <Input.TextArea placeholder="输入解析模式..." rows={4} style={{ fontFamily: 'JetBrains Mono, monospace' }} />
+            <Input.TextArea id="pattern" name="parsingRulesAddPattern" placeholder="输入解析模式..." rows={4} style={{ fontFamily: 'JetBrains Mono, monospace' }} />
           </Form.Item>
         </Form>
       </Modal>
