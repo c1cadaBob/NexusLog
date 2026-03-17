@@ -113,6 +113,16 @@ function renderRoleTags(roles: RoleData[] | undefined, limit = 2) {
   );
 }
 
+function focusElementById(elementId: string): void {
+  if (typeof window === 'undefined') return;
+  window.setTimeout(() => {
+    const element = document.getElementById(elementId);
+    if (element instanceof HTMLElement) {
+      element.focus();
+    }
+  }, 80);
+}
+
 const UserManagement: React.FC = () => {
   const { message: messageApi } = App.useApp();
   const isDark = useThemeStore((state) => state.isDark);
@@ -1033,6 +1043,11 @@ const UserManagement: React.FC = () => {
         destroyOnHidden
         forceRender
         confirmLoading={actionLoading}
+        afterOpenChange={(open) => {
+          if (open) {
+            focusElementById('create-user-username');
+          }
+        }}
       >
         <Form form={createForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item
@@ -1044,7 +1059,7 @@ const UserManagement: React.FC = () => {
               { max: 32, message: '用户名最多 32 位' },
             ]}
           >
-            <Input id="create-user-username" name="create_username" placeholder="输入登录用户名" />
+            <Input id="create-user-username" name="create_username" aria-label="用户名" placeholder="输入登录用户名" />
           </Form.Item>
           <Form.Item
             name="password"
@@ -1055,10 +1070,10 @@ const UserManagement: React.FC = () => {
               { min: 8, message: '密码至少 8 位' },
             ]}
           >
-            <Input.Password id="create-user-password" name="create_password" placeholder="输入密码" />
+            <Input.Password id="create-user-password" name="create_password" aria-label="密码" placeholder="输入密码" />
           </Form.Item>
           <Form.Item name="display_name" label="显示名称">
-            <Input id="create-user-display-name" name="create_display_name" placeholder="输入显示名称（可选）" />
+            <Input id="create-user-display-name" name="create_display_name" aria-label="显示名称" placeholder="输入显示名称（可选）" />
           </Form.Item>
           <Form.Item
             name="email"
@@ -1068,7 +1083,7 @@ const UserManagement: React.FC = () => {
               { type: 'email', message: '请输入有效的邮箱地址' },
             ]}
           >
-            <Input id="create-user-email" name="create_email" placeholder="输入邮箱地址" />
+            <Input id="create-user-email" name="create_email" aria-label="邮箱" placeholder="输入邮箱地址" />
           </Form.Item>
           <Form.Item
             name="role_id"
@@ -1108,10 +1123,15 @@ const UserManagement: React.FC = () => {
         destroyOnHidden
         forceRender
         confirmLoading={actionLoading}
+        afterOpenChange={(open) => {
+          if (open) {
+            focusElementById('edit-user-display-name');
+          }
+        }}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}> 
-          <Input id="edit-user-display-name" name="edit_display_name" disabled={!actionAccess.canUpdateUserProfile} />
+          <Input id="edit-user-display-name" name="edit_display_name" aria-label="显示名称" disabled={!actionAccess.canUpdateUserProfile} />
           </Form.Item>
           <Form.Item
             name="email"
@@ -1121,7 +1141,7 @@ const UserManagement: React.FC = () => {
               { type: 'email', message: '请输入有效的邮箱地址' },
             ]}
           >
-            <Input id="edit-user-email" name="edit_email" disabled={!actionAccess.canUpdateUserProfile} />
+            <Input id="edit-user-email" name="edit_email" aria-label="邮箱" disabled={!actionAccess.canUpdateUserProfile} />
           </Form.Item>
           <Form.Item
             name="role_id"
@@ -1158,10 +1178,10 @@ const UserManagement: React.FC = () => {
         extra={
           detailUser ? (
             <Space>
-              <Button size="small" onClick={() => void handleCopyText(detailUser.id, '用户 ID 已复制')}>
+              <Button size="small" aria-label="复制用户 ID" onClick={() => void handleCopyText(detailUser.id, '用户 ID 已复制')}>
                 复制 ID
               </Button>
-              <Button size="small" onClick={() => void handleCopyText(detailUser.email, '邮箱已复制')}>
+              <Button size="small" aria-label="复制用户邮箱" onClick={() => void handleCopyText(detailUser.email, '邮箱已复制')}>
                 复制邮箱
               </Button>
             </Space>
