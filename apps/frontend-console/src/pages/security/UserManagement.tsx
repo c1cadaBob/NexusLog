@@ -852,7 +852,9 @@ const UserManagement: React.FC = () => {
         }}
       >
         <Input
+          id="user-search-filter"
           name="user_search"
+          aria-label="用户搜索"
           prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: palette.textSecondary }}>search</span>}
           placeholder="按显示名、用户名、邮箱搜索..."
           value={searchTerm}
@@ -867,6 +869,7 @@ const UserManagement: React.FC = () => {
         />
         <Select
           id="user-role-filter"
+          aria-label="用户角色筛选"
           placeholder="所有角色"
           value={roleFilter}
           onChange={(value) => {
@@ -881,6 +884,7 @@ const UserManagement: React.FC = () => {
         />
         <Select
           id="user-status-filter"
+          aria-label="用户状态筛选"
           placeholder="所有状态"
           value={statusFilter}
           onChange={(value) => {
@@ -1026,6 +1030,7 @@ const UserManagement: React.FC = () => {
         okText="创建"
         cancelText="取消"
         width={520}
+        destroyOnHidden
         confirmLoading={actionLoading}
       >
         <Form form={createForm} layout="vertical" style={{ marginTop: 16 }}>
@@ -1038,7 +1043,7 @@ const UserManagement: React.FC = () => {
               { max: 32, message: '用户名最多 32 位' },
             ]}
           >
-            <Input name="create_username" placeholder="输入登录用户名" />
+            <Input id="username" name="create_username" placeholder="输入登录用户名" />
           </Form.Item>
           <Form.Item
             name="password"
@@ -1049,10 +1054,10 @@ const UserManagement: React.FC = () => {
               { min: 8, message: '密码至少 8 位' },
             ]}
           >
-            <Input.Password name="create_password" placeholder="输入密码" />
+            <Input.Password id="password" name="create_password" placeholder="输入密码" />
           </Form.Item>
           <Form.Item name="display_name" label="显示名称">
-            <Input name="create_display_name" placeholder="输入显示名称（可选）" />
+            <Input id="display_name" name="create_display_name" placeholder="输入显示名称（可选）" />
           </Form.Item>
           <Form.Item
             name="email"
@@ -1062,7 +1067,7 @@ const UserManagement: React.FC = () => {
               { type: 'email', message: '请输入有效的邮箱地址' },
             ]}
           >
-            <Input name="create_email" placeholder="输入邮箱地址" />
+            <Input id="email" name="create_email" placeholder="输入邮箱地址" />
           </Form.Item>
           <Form.Item
             name="role_id"
@@ -1070,6 +1075,8 @@ const UserManagement: React.FC = () => {
             extra={canAssignRoleDuringCreate ? undefined : '当前会话缺少角色授予权限，新建用户后也不会自动附带角色'}
           >
             <Select
+              id="role_id"
+              aria-label="初始角色"
               placeholder={
                 roleLoadError
                   ? '角色加载失败，暂不可选'
@@ -1097,11 +1104,12 @@ const UserManagement: React.FC = () => {
         okText="保存"
         cancelText="取消"
         width={520}
+        destroyOnHidden
         confirmLoading={actionLoading}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}>
-            <Input name="edit_display_name" disabled={!actionAccess.canUpdateUserProfile} />
+          <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}> 
+          <Input id="display_name" name="edit_display_name" disabled={!actionAccess.canUpdateUserProfile} />
           </Form.Item>
           <Form.Item
             name="email"
@@ -1111,7 +1119,7 @@ const UserManagement: React.FC = () => {
               { type: 'email', message: '请输入有效的邮箱地址' },
             ]}
           >
-            <Input name="edit_email" disabled={!actionAccess.canUpdateUserProfile} />
+            <Input id="email" name="edit_email" disabled={!actionAccess.canUpdateUserProfile} />
           </Form.Item>
           <Form.Item
             name="role_id"
@@ -1123,6 +1131,8 @@ const UserManagement: React.FC = () => {
             }
           >
             <Select
+              id="role_id"
+              aria-label="角色"
               placeholder={
                 roleLoadError
                   ? '角色加载失败，暂不可选'
