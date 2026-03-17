@@ -6,6 +6,7 @@ import React, {
   useRef,
 } from "react";
 import { usePaginationQuickJumperAccessibility } from "../../components/common/usePaginationQuickJumperAccessibility";
+import InlineLoadingState from "../../components/common/InlineLoadingState";
 import {
   App,
   Input,
@@ -1662,6 +1663,13 @@ const RealtimeSearch: React.FC = () => {
       }),
     [activeQuery, hasCustomTimeRange, levelFilter, liveWindow, sourceFilter],
   );
+  const initialRealtimeLoading = initialLoading && logs.length === 0;
+  const realtimeResultsSummaryText = initialRealtimeLoading
+    ? "正在加载日志..."
+    : `共 ${formatRealtimeTotal(total, totalIsLowerBound)} 条结果 · 耗时 ${queryTimeMS}ms`;
+  const realtimeVisibleSummaryText = initialRealtimeLoading
+    ? "正在加载日志..."
+    : `当前页 ${tableDataSource.length} 条 · 共 ${formatRealtimeTotal(total, totalIsLowerBound)} 条`;
 
   const handleResultsPaginationChange = useCallback(
     (page: number, size?: number) => {
@@ -2229,8 +2237,7 @@ const RealtimeSearch: React.FC = () => {
               options={liveWindowOptions}
             />
             <span className="text-xs opacity-50">
-              共 {formatRealtimeTotal(total, totalIsLowerBound)} 条结果 · 耗时{" "}
-              {queryTimeMS}ms
+              {realtimeResultsSummaryText}
             </span>
             {hasCustomTimeRange && (
               <Tooltip title={customTimeRangeLabel}>
@@ -2301,10 +2308,14 @@ const RealtimeSearch: React.FC = () => {
         {isMobile ? (
           <div className="flex flex-col gap-3">
             <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3 text-xs opacity-70">
-              当前页 {tableDataSource.length} 条 · 共 {formatRealtimeTotal(total, totalIsLowerBound)} 条
+              {realtimeVisibleSummaryText}
             </div>
 
-            {tableRefreshing && tableDataSource.length === 0 ? (
+            {initialRealtimeLoading ? (
+              <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-8">
+                <InlineLoadingState size="large" tip="加载日志..." />
+              </div>
+            ) : tableRefreshing && tableDataSource.length === 0 ? (
               <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-8 text-center text-sm opacity-60">
                 {resolveSearchPageLoadingLabel(logs.length)}
               </div>
@@ -2394,9 +2405,9 @@ const RealtimeSearch: React.FC = () => {
             dataSource={tableDataSource}
             columns={columns}
             rowKey="id"
-            loading={tableRefreshing}
+            loading={initialRealtimeLoading || tableRefreshing}
             locale={{
-              emptyText: tableRefreshing ? (
+              emptyText: initialRealtimeLoading || tableRefreshing ? (
                 <span />
               ) : (
                 <Empty

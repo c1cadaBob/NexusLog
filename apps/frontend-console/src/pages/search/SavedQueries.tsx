@@ -57,7 +57,8 @@ const SavedQueries: React.FC = () => {
 
   const [savedList, setSavedList] = useState<SavedQuery[]>([]);
   const [knownTags, setKnownTags] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [errorText, setErrorText] = useState("");
 
   const [searchText, setSearchText] = useState("");
@@ -219,6 +220,7 @@ const SavedQueries: React.FC = () => {
       setErrorText(readable);
     } finally {
       if (requestId === latestSavedRequestRef.current) {
+        setHasLoadedOnce(true);
         setLoading(false);
       }
     }
@@ -490,6 +492,11 @@ const SavedQueries: React.FC = () => {
     });
   }, [dirtySavedQueries, modal, performCleanupDirtyQueries]);
 
+  const initialSavedLoading = loading && !hasLoadedOnce && savedList.length === 0;
+  const savedSummaryText = initialSavedLoading
+    ? "正在加载收藏查询..."
+    : formatSearchPageSummary(total, "个收藏", visibleRange, "个");
+
   const renderSavedQueryActions = useCallback(
     (item: SavedQuery) => {
       const actionButtonSize = isMobile ? "middle" : "small";
@@ -640,9 +647,9 @@ const SavedQueries: React.FC = () => {
         <span
           className={isMobile ? "w-full text-xs opacity-50" : "text-sm opacity-50 ml-auto"}
         >
-          {formatSearchPageSummary(total, "个收藏", visibleRange, "个")}
+          {savedSummaryText}
         </span>
-        {loading && (
+        {loading && hasLoadedOnce && (
           <Tag color="processing" style={{ margin: 0 }}>
             {resolveSearchPageLoadingLabel(savedList.length)}
           </Tag>
@@ -682,7 +689,7 @@ const SavedQueries: React.FC = () => {
         />
       )}
 
-      {loading && savedList.length === 0 ? (
+      {initialSavedLoading ? (
         <div className="py-8">
           <InlineLoadingState size="large" tip="加载收藏查询..." />
         </div>

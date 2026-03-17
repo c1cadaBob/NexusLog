@@ -90,6 +90,14 @@ function buildHistoryItem(id: string, query: string, executedAt: string) {
   };
 }
 
+function createDeferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('SearchHistory mobile layout', () => {
   beforeEach(() => {
     fetchQueryHistoryMock.mockReset();
@@ -103,6 +111,43 @@ describe('SearchHistory mobile layout', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it('shows a loading placeholder before the first history response resolves', async () => {
+    const deferred = createDeferred<{
+      items: Array<ReturnType<typeof buildHistoryItem>>;
+      total: number;
+      page: number;
+      pageSize: number;
+      hasNext: boolean;
+    }>();
+
+    fetchQueryHistoryMock.mockImplementation(() => deferred.promise);
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SearchHistory />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('加载查询历史...')).toBeTruthy();
+    });
+    expect(screen.queryByText('暂无查询历史')).toBeNull();
+
+    deferred.resolve({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 15,
+      hasNext: false,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('暂无查询历史')).toBeTruthy();
+    });
   });
 
   it('hides mobile pagination when history results are empty', async () => {

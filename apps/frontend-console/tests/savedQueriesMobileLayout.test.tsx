@@ -82,6 +82,14 @@ function setViewport(width: number) {
   });
 }
 
+function createDeferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('SavedQueries mobile layout', () => {
   beforeEach(() => {
     fetchSavedQueriesMock.mockReset();
@@ -96,6 +104,51 @@ describe('SavedQueries mobile layout', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it('shows a loading placeholder before the first saved-query response resolves', async () => {
+    const deferred = createDeferred<{
+      items: Array<{
+        id: string;
+        name: string;
+        query: string;
+        tags: string[];
+        createdAt: string;
+      }>;
+      total: number;
+      page: number;
+      pageSize: number;
+      hasNext: boolean;
+      availableTags: string[];
+    }>();
+
+    fetchSavedQueriesMock.mockImplementation(() => deferred.promise);
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SavedQueries />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('加载收藏查询...')).toBeTruthy();
+    });
+    expect(screen.queryByText('暂无收藏查询')).toBeNull();
+
+    deferred.resolve({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 12,
+      hasNext: false,
+      availableTags: [],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('暂无收藏查询')).toBeTruthy();
+    });
   });
 
   it('shows wrapped query text, mobile-friendly actions, and no quick jumper on mobile', async () => {

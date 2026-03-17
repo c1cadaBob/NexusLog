@@ -34,6 +34,7 @@ import { persistPendingRealtimeStartupQuery } from "./realtimeStartupQuery";
 import { buildQueryCleanupState } from "./queryCleanupState";
 import QueryCleanupPreviewContent from "./queryCleanupPreviewContent";
 import { usePaginationQuickJumperAccessibility } from "../../components/common/usePaginationQuickJumperAccessibility";
+import InlineLoadingState from "../../components/common/InlineLoadingState";
 import {
   formatSearchPageSummary,
   formatSearchPageTotal,
@@ -55,7 +56,8 @@ const SearchHistory: React.FC = () => {
   >(null);
   const [rows, setRows] = useState<QueryHistory[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
@@ -144,6 +146,7 @@ const SearchHistory: React.FC = () => {
       setErrorText(readable);
     } finally {
       if (requestId === latestHistoryRequestRef.current) {
+        setHasLoadedOnce(true);
         setLoading(false);
       }
     }
@@ -417,6 +420,11 @@ const SearchHistory: React.FC = () => {
     [],
   );
 
+  const initialHistoryLoading = loading && !hasLoadedOnce && rows.length === 0;
+  const historySummaryText = initialHistoryLoading
+    ? "正在加载查询历史..."
+    : formatSearchPageSummary(total, "条记录", visibleRange, "条");
+
   const visibleRowsSelectedCount = useMemo(
     () => rows.filter((row) => selectedRowKeySet.has(row.id)).length,
     [rows, selectedRowKeySet],
@@ -621,10 +629,8 @@ const SearchHistory: React.FC = () => {
           </Popconfirm>
         </div>
         <div className={isMobile ? "flex flex-wrap items-center gap-2 text-xs" : "flex flex-wrap items-center gap-3 text-xs"}>
-          <span className="opacity-50">
-            {formatSearchPageSummary(total, "条记录", visibleRange, "条")}
-          </span>
-          {loading && !batchDeleting && (
+          <span className="opacity-50">{historySummaryText}</span>
+          {loading && !batchDeleting && hasLoadedOnce && (
             <Tag color="processing" style={{ margin: 0 }}>
               {resolveSearchPageLoadingLabel(rows.length)}
             </Tag>
@@ -674,7 +680,11 @@ const SearchHistory: React.FC = () => {
             </div>
           )}
 
-          {rows.length === 0 ? (
+          {initialHistoryLoading ? (
+            <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
+              <InlineLoadingState size="large" tip="加载查询历史..." />
+            </div>
+          ) : rows.length === 0 ? (
             <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
               <Empty description={historyEmptyDescription} />
             </div>
