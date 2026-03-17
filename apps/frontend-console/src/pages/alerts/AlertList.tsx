@@ -526,6 +526,8 @@ const AlertList: React.FC = () => {
             allowClear
           />
           <Select
+            id="alert-list-severity-filter"
+            aria-label="告警等级筛选"
             value={severityFilter}
             onChange={setSeverityFilter}
             style={{ width: 140 }}
@@ -538,6 +540,8 @@ const AlertList: React.FC = () => {
             ]}
           />
           <Select
+            id="alert-list-status-filter"
+            aria-label="告警状态筛选"
             value={statusFilter}
             onChange={setStatusFilter}
             style={{ width: 160 }}
@@ -634,6 +638,7 @@ const AlertList: React.FC = () => {
         onOk={confirmBatchSilence}
         okText="确认静默"
         cancelText="取消"
+        destroyOnHidden
         confirmLoading={batchRunning}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -647,8 +652,10 @@ const AlertList: React.FC = () => {
             )}
           </p>
           <div>
-            <div style={{ marginBottom: 8, fontWeight: 500, fontSize: 14 }}>静默时长</div>
+            <label htmlFor="alert-list-silence-duration" style={{ display: 'block', marginBottom: 8, fontWeight: 500, fontSize: 14 }}>静默时长</label>
             <Select
+              id="alert-list-silence-duration"
+              aria-label="静默时长"
               value={silenceDuration}
               onChange={setSilenceDuration}
               style={{ width: '100%' }}
@@ -663,8 +670,11 @@ const AlertList: React.FC = () => {
             />
           </div>
           <div>
-            <div style={{ marginBottom: 8, fontWeight: 500, fontSize: 14 }}>备注（可选）</div>
+            <label htmlFor="alert-list-silence-reason" style={{ display: 'block', marginBottom: 8, fontWeight: 500, fontSize: 14 }}>备注（可选）</label>
             <Input.TextArea
+              id="alert-list-silence-reason"
+              name="alertListSilenceReason"
+              aria-label="静默备注"
               placeholder="请输入静默原因..."
               rows={3}
               value={silenceReason}
