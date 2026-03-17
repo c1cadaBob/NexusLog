@@ -420,8 +420,8 @@ const SearchHistory: React.FC = () => {
     [],
   );
 
-  const initialHistoryLoading = loading && !hasLoadedOnce && rows.length === 0;
-  const historySummaryText = initialHistoryLoading
+  const historyLoadingPlaceholderVisible = loading && rows.length === 0;
+  const historySummaryText = historyLoadingPlaceholderVisible
     ? "正在加载查询历史..."
     : formatSearchPageSummary(total, "条记录", visibleRange, "条");
 
@@ -630,7 +630,7 @@ const SearchHistory: React.FC = () => {
         </div>
         <div className={isMobile ? "flex flex-wrap items-center gap-2 text-xs" : "flex flex-wrap items-center gap-3 text-xs"}>
           <span className="opacity-50">{historySummaryText}</span>
-          {loading && !batchDeleting && hasLoadedOnce && (
+          {loading && !batchDeleting && hasLoadedOnce && rows.length > 0 && (
             <Tag color="processing" style={{ margin: 0 }}>
               {resolveSearchPageLoadingLabel(rows.length)}
             </Tag>
@@ -680,7 +680,7 @@ const SearchHistory: React.FC = () => {
             </div>
           )}
 
-          {initialHistoryLoading ? (
+          {historyLoadingPlaceholderVisible ? (
             <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
               <InlineLoadingState size="large" tip="加载查询历史..." />
             </div>

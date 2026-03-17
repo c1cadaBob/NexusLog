@@ -3,7 +3,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from 'antd';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import SavedQueries from '../src/pages/search/SavedQueries';
 
@@ -148,6 +148,71 @@ describe('SavedQueries mobile layout', () => {
 
     await waitFor(() => {
       expect(screen.getByText('暂无收藏查询')).toBeTruthy();
+    });
+  });
+
+  it('shows a loading placeholder again when a new empty saved-query request is pending', async () => {
+    const deferred = createDeferred<{
+      items: Array<{
+        id: string;
+        name: string;
+        query: string;
+        tags: string[];
+        createdAt: string;
+      }>;
+      total: number;
+      page: number;
+      pageSize: number;
+      hasNext: boolean;
+      availableTags: string[];
+    }>();
+
+    fetchSavedQueriesMock
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: [],
+      })
+      .mockImplementationOnce(() => deferred.promise);
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SavedQueries />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('暂无收藏查询')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('搜索查询名称或语句...'), {
+      target: { value: 'vault' },
+    });
+    const searchButton = document.querySelector('.ant-input-search-button');
+    expect(searchButton).toBeTruthy();
+    fireEvent.click(searchButton as Element);
+
+    await waitFor(() => {
+      expect(screen.getByText('加载收藏查询...')).toBeTruthy();
+    });
+    expect(screen.queryByText('没有匹配的收藏查询')).toBeNull();
+
+    deferred.resolve({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 12,
+      hasNext: false,
+      availableTags: [],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('没有匹配的收藏查询')).toBeTruthy();
     });
   });
 

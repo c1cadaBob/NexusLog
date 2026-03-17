@@ -150,6 +150,62 @@ describe('SearchHistory mobile layout', () => {
     });
   });
 
+  it('shows a loading placeholder again when a new empty history request is pending', async () => {
+    const deferred = createDeferred<{
+      items: Array<ReturnType<typeof buildHistoryItem>>;
+      total: number;
+      page: number;
+      pageSize: number;
+      hasNext: boolean;
+    }>();
+
+    fetchQueryHistoryMock
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 15,
+        hasNext: false,
+      })
+      .mockImplementationOnce(() => deferred.promise);
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SearchHistory />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('暂无查询历史')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('搜索查询语句...'), {
+      target: { value: 'vault' },
+    });
+    const searchButton = document.querySelector('.ant-input-search-button');
+    expect(searchButton).toBeTruthy();
+    fireEvent.click(searchButton as Element);
+
+    await waitFor(() => {
+      expect(screen.getByText('加载查询历史...')).toBeTruthy();
+    });
+    expect(screen.queryByText('没有匹配的查询历史')).toBeNull();
+
+    deferred.resolve({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 15,
+      hasNext: false,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('没有匹配的查询历史')).toBeTruthy();
+    });
+  });
+
   it('hides mobile pagination when history results are empty', async () => {
     fetchQueryHistoryMock.mockResolvedValue({
       items: [],

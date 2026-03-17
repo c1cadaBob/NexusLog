@@ -1663,11 +1663,14 @@ const RealtimeSearch: React.FC = () => {
       }),
     [activeQuery, hasCustomTimeRange, levelFilter, liveWindow, sourceFilter],
   );
-  const initialRealtimeLoading = initialLoading && logs.length === 0;
-  const realtimeResultsSummaryText = initialRealtimeLoading
+  const realtimeLoadingPlaceholderVisible =
+    tableRefreshing && tableDataSource.length === 0;
+  const realtimeLoadingStateVisible =
+    initialLoading || realtimeLoadingPlaceholderVisible;
+  const realtimeResultsSummaryText = realtimeLoadingStateVisible
     ? "正在加载日志..."
     : `共 ${formatRealtimeTotal(total, totalIsLowerBound)} 条结果 · 耗时 ${queryTimeMS}ms`;
-  const realtimeVisibleSummaryText = initialRealtimeLoading
+  const realtimeVisibleSummaryText = realtimeLoadingStateVisible
     ? "正在加载日志..."
     : `当前页 ${tableDataSource.length} 条 · 共 ${formatRealtimeTotal(total, totalIsLowerBound)} 条`;
 
@@ -2311,13 +2314,9 @@ const RealtimeSearch: React.FC = () => {
               {realtimeVisibleSummaryText}
             </div>
 
-            {initialRealtimeLoading ? (
+            {realtimeLoadingStateVisible ? (
               <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-8">
                 <InlineLoadingState size="large" tip="加载日志..." />
-              </div>
-            ) : tableRefreshing && tableDataSource.length === 0 ? (
-              <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-8 text-center text-sm opacity-60">
-                {resolveSearchPageLoadingLabel(logs.length)}
               </div>
             ) : tableDataSource.length === 0 ? (
               <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
@@ -2405,9 +2404,9 @@ const RealtimeSearch: React.FC = () => {
             dataSource={tableDataSource}
             columns={columns}
             rowKey="id"
-            loading={initialRealtimeLoading || tableRefreshing}
+            loading={tableRefreshing}
             locale={{
-              emptyText: initialRealtimeLoading || tableRefreshing ? (
+              emptyText: realtimeLoadingStateVisible ? (
                 <span />
               ) : (
                 <Empty

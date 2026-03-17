@@ -492,8 +492,8 @@ const SavedQueries: React.FC = () => {
     });
   }, [dirtySavedQueries, modal, performCleanupDirtyQueries]);
 
-  const initialSavedLoading = loading && !hasLoadedOnce && savedList.length === 0;
-  const savedSummaryText = initialSavedLoading
+  const savedLoadingPlaceholderVisible = loading && savedList.length === 0;
+  const savedSummaryText = savedLoadingPlaceholderVisible
     ? "正在加载收藏查询..."
     : formatSearchPageSummary(total, "个收藏", visibleRange, "个");
 
@@ -649,7 +649,7 @@ const SavedQueries: React.FC = () => {
         >
           {savedSummaryText}
         </span>
-        {loading && hasLoadedOnce && (
+        {loading && hasLoadedOnce && savedList.length > 0 && (
           <Tag color="processing" style={{ margin: 0 }}>
             {resolveSearchPageLoadingLabel(savedList.length)}
           </Tag>
@@ -689,7 +689,7 @@ const SavedQueries: React.FC = () => {
         />
       )}
 
-      {initialSavedLoading ? (
+      {savedLoadingPlaceholderVisible ? (
         <div className="py-8">
           <InlineLoadingState size="large" tip="加载收藏查询..." />
         </div>
@@ -705,7 +705,6 @@ const SavedQueries: React.FC = () => {
                     hoverable
                     size="small"
                     styles={{ body: { padding: isMobile ? 14 : 16 } }}
-                    loading={loading}
                   >
                     <div className="flex flex-col gap-3">
                       <div className="flex items-start justify-between gap-3">
