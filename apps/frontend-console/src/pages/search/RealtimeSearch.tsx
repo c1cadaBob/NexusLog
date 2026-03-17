@@ -1526,13 +1526,17 @@ const RealtimeSearch: React.FC = () => {
       {/* 事件量直方图 */}
       <ChartWrapper
         title="事件量分布"
-        loading={histogramInitialLoading && histogramRefreshing && histogramData.length === 0}
+        loading={histogramRefreshing && histogramData.length === 0}
         empty={histogramDisabled || (!histogramRefreshing && !histogramInitialLoading && histogramData.length === 0)}
         subtitle={histogramDisabled ? '全部时间或精确时间范围下不展示趋势图' : undefined}
         actions={(
           <Space size={8}>
             {histogramDisabled && <Tag color="default" style={{ margin: 0 }}>{hasCustomTimeRange ? '精确时间范围' : '全部时间'}</Tag>}
-            {histogramRefreshing && !histogramInitialLoading && <Tag color="processing" style={{ margin: 0 }}>刷新中</Tag>}
+            {histogramRefreshing && (
+              <Tag color="processing" style={{ margin: 0 }}>
+                {histogramData.length === 0 ? '加载中' : '刷新中'}
+              </Tag>
+            )}
             {histogramUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次统计</Tag>}
             {histogramNoiseFilterRelaxed && !histogramDisabled && (
               <Tooltip title="空查询趋势图为避免后端聚合超时，未应用“排除系统噪声”过滤；日志列表仍保持原过滤口径。">
@@ -1576,7 +1580,11 @@ const RealtimeSearch: React.FC = () => {
                 <Tag color="blue" style={{ margin: 0 }}>历史时间范围</Tag>
               </Tooltip>
             )}
-            {tableRefreshing && !initialLoading && <Tag color="processing" style={{ margin: 0 }}>刷新中</Tag>}
+            {tableRefreshing && (
+              <Tag color="processing" style={{ margin: 0 }}>
+                {logs.length === 0 ? '加载中' : '刷新中'}
+              </Tag>
+            )}
             {tableUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次结果</Tag>}
             {totalIsLowerBound && <Tag color="default" style={{ margin: 0 }}>总数按阈值统计</Tag>}
             {imageAggregationSummary.hiddenRows > 0 && (
@@ -1605,7 +1613,7 @@ const RealtimeSearch: React.FC = () => {
           dataSource={displayLogs}
           columns={columns}
           rowKey="id"
-          loading={initialLoading && tableRefreshing}
+          loading={tableRefreshing}
           locale={{
             emptyText: tableRefreshing ? <span /> : <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
           }}
@@ -1647,6 +1655,9 @@ const RealtimeSearch: React.FC = () => {
 
               if (pageSizeChanged) {
                 setPageSize(nextPageSize);
+              }
+              if (targetPage !== currentPage || pageSizeChanged) {
+                setCurrentPage(targetPage);
               }
               const requestCursor = cachedCursor ?? (targetPage > 1
                 ? cloneRealtimePageCursor(pageCursorMapRef.current.get(1))

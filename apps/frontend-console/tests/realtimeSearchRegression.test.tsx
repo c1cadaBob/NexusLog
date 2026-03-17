@@ -55,6 +55,16 @@ vi.mock('../src/pages/search/realtimeRecentQueries', () => ({
   recordRealtimeRecentQuery: (value: string) => [value],
 }));
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createQueryResult(overrides: Record<string, unknown> = {}) {
   return {
     hits: [
@@ -307,6 +317,105 @@ describe('RealtimeSearch regressions', () => {
 
     await waitFor(() => {
       expect(document.querySelector('.ant-pagination-options-quick-jumper input')).toBeTruthy();
+    });
+  });
+
+  it('updates the active page immediately while pagination requests are loading', async () => {
+    const deferred = createDeferred<ReturnType<typeof createQueryResult>>();
+    queryRealtimeLogsMock
+      .mockResolvedValueOnce(createQueryResult({
+        total: 200,
+        page: 1,
+        pageSize: 20,
+      }))
+      .mockReturnValueOnce(deferred.promise);
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+    });
+
+    const pageTwo = Array.from(document.querySelectorAll('.ant-pagination-item'))
+      .find((element) => element.textContent?.trim() === '2');
+    expect(pageTwo).toBeTruthy();
+    fireEvent.click(pageTwo as Element);
+
+    await waitFor(() => {
+      expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('2');
+      expect(document.querySelector('.ant-spin-spinning')).toBeTruthy();
+    });
+
+    deferred.resolve(createQueryResult({
+      total: 200,
+      page: 2,
+      pageSize: 20,
+      hits: [
+        {
+          id: 'log-2',
+          timestamp: '2026-03-16T07:05:27.236Z',
+          level: 'warn',
+          service: 'vault',
+          host: 'dev-server-centos8',
+          hostIp: '192.168.0.202',
+          message: 'page two result',
+          rawLog: 'page two result',
+          fields: {},
+        },
+      ],
+    }));
+
+    await waitFor(() => {
+      expect(screen.getByText('page two result')).toBeTruthy();
+      expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('2');
+    });
+  });
+
+  it('reverts the active page when a pagination request fails', async () => {
+    const deferred = createDeferred<ReturnType<typeof createQueryResult>>();
+    queryRealtimeLogsMock
+      .mockResolvedValueOnce(createQueryResult({
+        total: 200,
+        page: 1,
+        pageSize: 20,
+      }))
+      .mockReturnValueOnce(deferred.promise);
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+    });
+
+    const pageTwo = Array.from(document.querySelectorAll('.ant-pagination-item'))
+      .find((element) => element.textContent?.trim() === '2');
+    expect(pageTwo).toBeTruthy();
+    fireEvent.click(pageTwo as Element);
+
+    await waitFor(() => {
+      expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('2');
+    });
+
+    deferred.reject(new Error('page change failed'));
+
+    await waitFor(() => {
+      expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('1');
     });
   });
 
