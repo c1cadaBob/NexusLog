@@ -184,6 +184,208 @@ describe('SavedQueries delete flows', () => {
     });
   });
 
+  it('reloads the filtered list when the backend reports the saved query was already deleted', async () => {
+    fetchSavedQueriesMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'saved-billing',
+            name: 'Billing Query',
+            query: 'service:billing',
+            tags: ['billing'],
+            createdAt: '2026-03-17T04:00:00.000Z',
+          },
+          {
+            id: 'saved-ops',
+            name: 'Ops Query',
+            query: 'service:ops',
+            tags: ['ops'],
+            createdAt: '2026-03-17T03:00:00.000Z',
+          },
+        ],
+        total: 2,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: ['billing', 'ops'],
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'saved-ops',
+            name: 'Ops Query',
+            query: 'service:ops',
+            tags: ['ops'],
+            createdAt: '2026-03-17T03:00:00.000Z',
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: ['ops'],
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: [],
+      });
+
+    deleteSavedQueryMock.mockResolvedValue(false);
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SavedQueries />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Billing Query')).toBeTruthy();
+      expect(screen.getByText('Ops Query')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('搜索查询名称或语句...'), {
+      target: { value: 'ops' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'search' }));
+
+    await waitFor(() => {
+      expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('Ops Query')).toBeTruthy();
+      expect(screen.queryByText('Billing Query')).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('确认删除')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '删 除' }));
+
+    await waitFor(() => {
+      expect(deleteSavedQueryMock).toHaveBeenCalledWith('saved-ops');
+    });
+
+    await waitFor(() => {
+      expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(3);
+      expect(fetchSavedQueriesMock).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 12,
+        keyword: 'ops',
+        tag: undefined,
+      });
+      expect(screen.getByText('没有匹配的收藏查询')).toBeTruthy();
+    });
+  });
+
+  it('reloads the filtered list when delete returns a not-found error', async () => {
+    fetchSavedQueriesMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'saved-billing',
+            name: 'Billing Query',
+            query: 'service:billing',
+            tags: ['billing'],
+            createdAt: '2026-03-17T04:00:00.000Z',
+          },
+          {
+            id: 'saved-ops',
+            name: 'Ops Query',
+            query: 'service:ops',
+            tags: ['ops'],
+            createdAt: '2026-03-17T03:00:00.000Z',
+          },
+        ],
+        total: 2,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: ['billing', 'ops'],
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'saved-ops',
+            name: 'Ops Query',
+            query: 'service:ops',
+            tags: ['ops'],
+            createdAt: '2026-03-17T03:00:00.000Z',
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: ['ops'],
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: [],
+      });
+
+    deleteSavedQueryMock.mockRejectedValue(
+      Object.assign(new Error('saved query not found'), { status: 404 }),
+    );
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SavedQueries />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Billing Query')).toBeTruthy();
+      expect(screen.getByText('Ops Query')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('搜索查询名称或语句...'), {
+      target: { value: 'ops' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'search' }));
+
+    await waitFor(() => {
+      expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('Ops Query')).toBeTruthy();
+      expect(screen.queryByText('Billing Query')).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('确认删除')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '删 除' }));
+
+    await waitFor(() => {
+      expect(deleteSavedQueryMock).toHaveBeenCalledWith('saved-ops');
+    });
+
+    await waitFor(() => {
+      expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(3);
+      expect(fetchSavedQueriesMock).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 12,
+        keyword: 'ops',
+        tag: undefined,
+      });
+      expect(screen.getByText('没有匹配的收藏查询')).toBeTruthy();
+    });
+  });
+
   it('keeps the active search filter when reloading after delete', async () => {
     fetchSavedQueriesMock
       .mockResolvedValueOnce({

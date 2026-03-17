@@ -297,6 +297,11 @@ const SavedQueries: React.FC = () => {
         const deleted = await deleteSavedQuery(id);
         if (!deleted) {
           msg.warning("记录不存在或已被删除");
+          if (savedList.length === 1 && currentPage > 1) {
+            setCurrentPage(currentPage - 1);
+            return;
+          }
+          void loadSavedQueries();
           return;
         }
         msg.success("已删除");
@@ -306,6 +311,24 @@ const SavedQueries: React.FC = () => {
         }
         void loadSavedQueries();
       } catch (error) {
+        const missingSavedQuery =
+          (error instanceof Error &&
+            /saved query not found|query not found|not found|记录不存在|已被删除/i.test(
+              error.message,
+            )) ||
+          (typeof error === "object" &&
+            error !== null &&
+            "status" in error &&
+            Number((error as { status?: number }).status) === 404);
+        if (missingSavedQuery) {
+          msg.warning("记录不存在或已被删除");
+          if (savedList.length === 1 && currentPage > 1) {
+            setCurrentPage(currentPage - 1);
+            return;
+          }
+          void loadSavedQueries();
+          return;
+        }
         const readable = error instanceof Error ? error.message : "删除失败";
         msg.error(readable);
       }
