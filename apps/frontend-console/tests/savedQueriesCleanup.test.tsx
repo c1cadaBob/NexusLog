@@ -4,8 +4,9 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from 'antd';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import SavedQueries from '../src/pages/search/SavedQueries';
+import { persistPendingRealtimeStartupQuery } from '../src/pages/search/realtimeStartupQuery';
 
 const fetchSavedQueriesMock = vi.fn();
 const updateSavedQueryMock = vi.fn();
@@ -51,6 +52,14 @@ describe('SavedQueries legacy cleanup', () => {
     createSavedQueryMock.mockReset();
     deleteSavedQueryMock.mockReset();
     setPageSizeMock.mockReset();
+    vi.mocked(persistPendingRealtimeStartupQuery).mockReset();
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
 
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -145,6 +154,57 @@ describe('SavedQueries legacy cleanup', () => {
         tags: [],
       });
     });
+  });
+
+  it('navigates to realtime and keeps the execute toast accurate when clipboard sync fails', async () => {
+    fetchSavedQueriesMock.mockResolvedValue({
+      items: [
+        {
+          id: 'saved-1',
+          name: 'Vault Query',
+          query: 'service:api-service',
+          tags: ['历史查询'],
+          createdAt: '2026-03-17T08:00:00.000Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 12,
+      hasNext: false,
+    });
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error('clipboard unavailable')),
+      },
+    });
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/saved']}>
+          <Routes>
+            <Route path="/search/saved" element={<SavedQueries />} />
+            <Route path="/search/realtime" element={<div>Realtime Landing</div>} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('Vault Query')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /play_arrow/i }));
+
+    await waitFor(() => {
+      expect(vi.mocked(persistPendingRealtimeStartupQuery)).toHaveBeenCalledWith('service:api-service');
+      expect(screen.getByText('Realtime Landing')).toBeTruthy();
+      expect(screen.getByText('已跳转到实时检索并自动执行，但未能同步到剪贴板')).toBeTruthy();
+    });
+
+    expect(screen.queryByText(/请在实时检索页执行/)).toBeNull();
   });
 
   it('detects dirty saved queries and bulk normalizes them', async () => {

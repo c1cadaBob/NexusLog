@@ -320,11 +320,12 @@ const SavedQueries: React.FC = () => {
         msg.warning("收藏查询语句为空，无法执行");
         return;
       }
+      const executeMessage = "已跳转到实时检索并自动执行";
       try {
         await navigator.clipboard.writeText(presetQuery);
-        msg.success("已执行收藏查询并同步到剪贴板");
+        msg.success(`${executeMessage}，并同步到剪贴板`);
       } catch {
-        msg.info(`请在实时检索页执行: ${presetQuery}`);
+        msg.info(`${executeMessage}，但未能同步到剪贴板`);
       }
       persistPendingRealtimeStartupQuery(presetQuery);
       navigate("/search/realtime", {
