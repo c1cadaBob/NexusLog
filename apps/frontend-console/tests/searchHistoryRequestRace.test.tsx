@@ -159,4 +159,70 @@ describe('SearchHistory request race guard', () => {
       expect(screen.getByText('error')).toBeTruthy();
     });
   });
+
+  it('reverts the active page when a history pagination request fails', async () => {
+    const pageTwoRequest = createDeferred<any>();
+
+    fetchQueryHistoryMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'history-page-1',
+            query: 'page-one-query',
+            executedAt: '2026-03-17T04:00:00.000Z',
+            duration: 12,
+            resultCount: 3,
+          },
+        ],
+        total: 30,
+        page: 1,
+        pageSize: 15,
+        hasNext: true,
+      })
+      .mockReturnValueOnce(pageTwoRequest.promise)
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'history-page-1',
+            query: 'page-one-query',
+            executedAt: '2026-03-17T04:00:00.000Z',
+            duration: 12,
+            resultCount: 3,
+          },
+        ],
+        total: 30,
+        page: 1,
+        pageSize: 15,
+        hasNext: true,
+      });
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SearchHistory />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('page-one-query')).toBeTruthy();
+    });
+
+    const pageTwo = Array.from(document.querySelectorAll('.ant-pagination-item'))
+      .find((element) => element.textContent?.trim() === '2');
+    expect(pageTwo).toBeTruthy();
+    fireEvent.click(pageTwo as Element);
+
+    await waitFor(() => {
+      expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('2');
+    });
+
+    pageTwoRequest.reject(new Error('page 2 failed'));
+
+    await waitFor(() => {
+      expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('1');
+      expect(screen.getByText('page-one-query')).toBeTruthy();
+      expect(fetchQueryHistoryMock).toHaveBeenCalledTimes(3);
+    });
+  });
 });

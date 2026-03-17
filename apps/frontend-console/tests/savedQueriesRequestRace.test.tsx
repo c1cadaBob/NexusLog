@@ -157,4 +157,70 @@ describe('SavedQueries request race guard', () => {
       expect(screen.getByText('Vault Query')).toBeTruthy();
     });
   });
+
+  it('reverts the active page when a saved-query pagination request fails', async () => {
+    const pageTwoRequest = createDeferred<any>();
+
+    fetchSavedQueriesMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'saved-page-1',
+            name: 'Page One Query',
+            query: 'service:page-one',
+            tags: [],
+            createdAt: '2026-03-17T04:00:00.000Z',
+          },
+        ],
+        total: 24,
+        page: 1,
+        pageSize: 12,
+        hasNext: true,
+      })
+      .mockReturnValueOnce(pageTwoRequest.promise)
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'saved-page-1',
+            name: 'Page One Query',
+            query: 'service:page-one',
+            tags: [],
+            createdAt: '2026-03-17T04:00:00.000Z',
+          },
+        ],
+        total: 24,
+        page: 1,
+        pageSize: 12,
+        hasNext: true,
+      });
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SavedQueries />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Page One Query')).toBeTruthy();
+    });
+
+    const pageTwo = Array.from(document.querySelectorAll('.ant-pagination-item'))
+      .find((element) => element.textContent?.trim() === '2');
+    expect(pageTwo).toBeTruthy();
+    fireEvent.click(pageTwo as Element);
+
+    await waitFor(() => {
+      expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('2');
+    });
+
+    pageTwoRequest.reject(new Error('saved page 2 failed'));
+
+    await waitFor(() => {
+      expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('1');
+      expect(screen.getByText('Page One Query')).toBeTruthy();
+      expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(3);
+    });
+  });
 });

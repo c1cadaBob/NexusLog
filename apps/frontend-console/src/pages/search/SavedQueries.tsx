@@ -36,6 +36,12 @@ const SavedQueries: React.FC = () => {
   }, [setStoredPageSize]);
   const savedPaginationRef = usePaginationQuickJumperAccessibility('saved-queries');
   const latestSavedRequestRef = useRef(0);
+  const pendingPaginationRef = useRef<{
+    targetPage: number;
+    targetPageSize: number;
+    previousPage: number;
+    previousPageSize: number;
+  } | null>(null);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
@@ -90,6 +96,7 @@ const SavedQueries: React.FC = () => {
       }
       setSavedList(result.items);
       setTotal(result.total);
+      pendingPaginationRef.current = null;
       setKnownTags((prev) => {
         const merged = new Set(prev);
         result.items.forEach((item) => item.tags.forEach((tag) => merged.add(tag)));
@@ -106,6 +113,14 @@ const SavedQueries: React.FC = () => {
         return;
       }
       const readable = error instanceof Error ? error.message : '加载收藏查询失败';
+      const pendingPagination = pendingPaginationRef.current;
+      if (pendingPagination && pendingPagination.targetPage === currentPage && pendingPagination.targetPageSize === pageSize) {
+        pendingPaginationRef.current = null;
+        setCurrentPage(pendingPagination.previousPage);
+        setPageSize(pendingPagination.previousPageSize);
+        msg.warning('收藏查询分页加载失败，已回退到上一页');
+        return;
+      }
       setErrorText(readable);
     } finally {
       if (requestId === latestSavedRequestRef.current) {
@@ -512,6 +527,12 @@ const SavedQueries: React.FC = () => {
               onChange={(page, size) => {
                 const nextPageSize = size ?? pageSize;
                 const targetPage = nextPageSize !== pageSize ? 1 : page;
+                pendingPaginationRef.current = {
+                  targetPage,
+                  targetPageSize: nextPageSize,
+                  previousPage: currentPage,
+                  previousPageSize: pageSize,
+                };
                 setCurrentPage(targetPage);
                 setPageSize(nextPageSize);
               }}

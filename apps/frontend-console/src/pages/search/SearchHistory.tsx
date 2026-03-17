@@ -35,6 +35,12 @@ const SearchHistory: React.FC = () => {
   }, [setStoredPageSize]);
   const historyTableRef = usePaginationQuickJumperAccessibility('search-history');
   const latestHistoryRequestRef = useRef(0);
+  const pendingPaginationRef = useRef<{
+    targetPage: number;
+    targetPageSize: number;
+    previousPage: number;
+    previousPageSize: number;
+  } | null>(null);
 
   // 查询历史列表使用服务端分页，确保和后端真实数据一致。
   const loadHistory = useCallback(async () => {
@@ -55,6 +61,7 @@ const SearchHistory: React.FC = () => {
       }
       setRows(result.items);
       setTotal(result.total);
+      pendingPaginationRef.current = null;
       if (result.page !== currentPage) {
         setCurrentPage(result.page);
       }
@@ -66,6 +73,14 @@ const SearchHistory: React.FC = () => {
         return;
       }
       const readable = error instanceof Error ? error.message : '查询历史加载失败';
+      const pendingPagination = pendingPaginationRef.current;
+      if (pendingPagination && pendingPagination.targetPage === currentPage && pendingPagination.targetPageSize === pageSize) {
+        pendingPaginationRef.current = null;
+        setCurrentPage(pendingPagination.previousPage);
+        setPageSize(pendingPagination.previousPageSize);
+        message.warning('查询历史分页加载失败，已回退到上一页');
+        return;
+      }
       setErrorText(readable);
     } finally {
       if (requestId === latestHistoryRequestRef.current) {
@@ -446,6 +461,12 @@ const SearchHistory: React.FC = () => {
               setSelectedRowKeys([]);
               const nextPageSize = size ?? pageSize;
               const targetPage = nextPageSize !== pageSize ? 1 : page;
+              pendingPaginationRef.current = {
+                targetPage,
+                targetPageSize: nextPageSize,
+                previousPage: currentPage,
+                previousPageSize: pageSize,
+              };
               setCurrentPage(targetPage);
               setPageSize(nextPageSize);
             },
