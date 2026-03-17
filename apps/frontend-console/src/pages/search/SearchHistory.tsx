@@ -265,22 +265,41 @@ const SearchHistory: React.FC = () => {
     [message, modal],
   );
 
+  const isMissingHistoryDeleteError = useCallback((error: unknown) => {
+    return (
+      (error instanceof Error &&
+        /query history not found|history not found|query not found|not found|记录不存在|已被删除/i.test(
+          error.message,
+        )) ||
+      (typeof error === "object" &&
+        error !== null &&
+        "status" in error &&
+        Number((error as { status?: number }).status) === 404)
+    );
+  }, []);
+
   const handleDelete = useCallback(
     async (historyID: string) => {
       try {
         const deleted = await deleteQueryHistory(historyID);
         if (!deleted) {
           message.warning("记录不存在或已被删除");
+          refreshAfterDelete(1);
           return;
         }
         message.success("已删除");
         refreshAfterDelete(1);
       } catch (error) {
+        if (isMissingHistoryDeleteError(error)) {
+          message.warning("记录不存在或已被删除");
+          refreshAfterDelete(1);
+          return;
+        }
         const readable = error instanceof Error ? error.message : "删除失败";
         message.error(readable);
       }
     },
-    [message, refreshAfterDelete],
+    [isMissingHistoryDeleteError, message, refreshAfterDelete],
   );
 
   const handleBatchDelete = useCallback(async () => {
@@ -305,12 +324,19 @@ const SearchHistory: React.FC = () => {
           }
           return;
         }
+        if (isMissingHistoryDeleteError(result.reason)) {
+          missingCount += 1;
+          return;
+        }
         failedCount += 1;
       });
 
+      const affectedCount = deletedCount + missingCount;
       if (deletedCount > 0) {
         message.success(`已删除 ${deletedCount} 条记录`);
-        refreshAfterDelete(deletedCount);
+      }
+      if (affectedCount > 0) {
+        refreshAfterDelete(affectedCount);
       } else {
         setSelectedRowKeys([]);
         void loadHistory();
@@ -325,7 +351,7 @@ const SearchHistory: React.FC = () => {
     } finally {
       setBatchDeleting(false);
     }
-  }, [loadHistory, message, refreshAfterDelete, selectedHistoryIDs]);
+  }, [isMissingHistoryDeleteError, loadHistory, message, refreshAfterDelete, selectedHistoryIDs]);
 
   const columns: ColumnsType<QueryHistory> = useMemo(
     () => [
