@@ -278,19 +278,23 @@ describe('RealtimeSearch startup query behavior', () => {
 
     await waitFor(() => {
       expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
-      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
+      expect(fetchAggregateStatsMock).not.toHaveBeenCalled();
     });
 
     await new Promise((resolve) => window.setTimeout(resolve, 260));
 
     expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
-    expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
+    expect(fetchAggregateStatsMock).not.toHaveBeenCalled();
     expect(queryRealtimeLogsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ keywords: 'service:vault', page: 1, pageSize: 20 }),
-    );
-    expect(fetchAggregateStatsMock).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ keywords: 'service:vault' }),
+      expect.objectContaining({
+        keywords: 'service:vault',
+        page: 1,
+        pageSize: 20,
+        timeRange: {
+          from: '2026-03-16T05:10:26.361Z',
+          to: '2026-03-16T05:25:26.361Z',
+        },
+      }),
     );
     expect((screen.getByPlaceholderText('输入查询语句，例如: level:error AND service:"payment-service"') as HTMLInputElement).value).toBe('service:vault');
   });
@@ -324,15 +328,19 @@ describe('RealtimeSearch startup query behavior', () => {
 
     await waitFor(() => {
       expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
-      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
+      expect(fetchAggregateStatsMock).not.toHaveBeenCalled();
     });
 
     expect(queryRealtimeLogsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ keywords: 'service:vault', page: 1, pageSize: 20 }),
-    );
-    expect(fetchAggregateStatsMock).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ keywords: 'service:vault' }),
+      expect.objectContaining({
+        keywords: 'service:vault',
+        page: 1,
+        pageSize: 20,
+        timeRange: {
+          from: '2026-03-16T05:10:26.361Z',
+          to: '2026-03-16T05:25:26.361Z',
+        },
+      }),
     );
     expect((queryInput as HTMLInputElement).value).toBe('service:vault');
   });
