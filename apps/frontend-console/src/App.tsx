@@ -136,6 +136,7 @@ const App: React.FC = () => {
                 {/* 日志检索 */}
                 <Route path="/search/realtime" element={<RealtimeSearch />} />
                 <Route path="/search/history" element={<SearchHistory />} />
+                <Route path="/search/bookmark" element={<Navigate to="/search/saved" replace />} />
                 <Route path="/search/saved" element={<SavedQueries />} />
 
                 {/* 日志分析 */}

@@ -46,6 +46,31 @@ describe('route authorization registry', () => {
     ).toBe(true);
   });
 
+  it('keeps bookmark alias aligned with saved query authorization', () => {
+    expect(findRouteAuthorizationRule('/search/bookmark')?.path).toBe('/search/bookmark');
+
+    expect(
+      canAccessRoute('/search/bookmark', {
+        permissions: [],
+        capabilities: ['query.saved.read'],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/search/bookmark', {
+        permissions: ['logs:read'],
+        capabilities: [],
+      }),
+    ).toBe(true);
+
+    expect(
+      evaluateRouteAccess('/search/bookmark', {
+        permissions: [],
+        capabilities: ['query.saved.read'],
+      }),
+    ).toEqual({ allowed: true });
+  });
+
   it('does not let dashboards:read borrow access to report management', () => {
     expect(
       canAccessRoute('/reports/management', {

@@ -12,6 +12,12 @@ export const ROUTE_AUTHORIZATION_RULES: RouteAuthorizationRule[] = [
   { path: '/', requiredCapabilities: ['dashboard.read'], legacyPermissions: ['dashboards:read'] },
   { path: '/search/realtime', requiredCapabilities: ['log.query.read'], legacyPermissions: ['logs:read'] },
   { path: '/search/history', requiredCapabilities: ['query.history.read'], legacyPermissions: ['logs:read'] },
+  {
+    path: '/search/bookmark',
+    requiredCapabilities: ['query.saved.read'],
+    legacyPermissions: ['logs:read'],
+    fallbackPath: '/search/saved',
+  },
   { path: '/search/saved', requiredCapabilities: ['query.saved.read'], legacyPermissions: ['logs:read'] },
   { path: '/analysis/aggregate', requiredCapabilities: ['log.query.aggregate'], legacyPermissions: ['logs:read'] },
   { path: '/analysis/anomaly', requiredCapabilities: ['analysis.anomaly.read'], legacyPermissions: ['logs:read'] },
