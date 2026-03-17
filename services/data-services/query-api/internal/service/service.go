@@ -11,6 +11,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nexuslog/data-services/query-api/internal/repository"
@@ -22,7 +23,8 @@ const (
 	// MaxPageSize 定义最大分页大小，避免单次查询过重。
 	MaxPageSize = 200
 	// MaxSearchResultWindow 定义 ES from/size 允许的最大结果窗口。
-	MaxSearchResultWindow = 10000
+	MaxSearchResultWindow         = 10000
+	sourcePathServiceHintCacheTTL = 5 * time.Minute
 )
 
 var (
@@ -175,10 +177,18 @@ type ListSavedQueriesResult struct {
 	AvailableTags []string
 }
 
+type sourcePathServiceHintCacheEntry struct {
+	service   string
+	expiresAt time.Time
+}
+
 // QueryService 封装日志查询业务逻辑。
 type QueryService struct {
-	logRepo      *repository.ElasticsearchRepository
-	metadataRepo *repository.QueryMetadataRepository
+	logRepo                *repository.ElasticsearchRepository
+	metadataRepo           *repository.QueryMetadataRepository
+	sourcePathHintCacheTTL time.Duration
+	sourcePathHintCacheMu  sync.RWMutex
+	sourcePathHintCache    map[string]sourcePathServiceHintCacheEntry
 }
 
 // NewQueryService 创建查询服务实例。
@@ -187,8 +197,10 @@ func NewQueryService(
 	metadataRepo *repository.QueryMetadataRepository,
 ) *QueryService {
 	return &QueryService{
-		logRepo:      logRepo,
-		metadataRepo: metadataRepo,
+		logRepo:                logRepo,
+		metadataRepo:           metadataRepo,
+		sourcePathHintCacheTTL: sourcePathServiceHintCacheTTL,
+		sourcePathHintCache:    make(map[string]sourcePathServiceHintCacheEntry),
 	}
 }
 
@@ -244,7 +256,7 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 		return SearchLogsResult{}, err
 	}
 
-	serviceHints := s.lookupServiceHintsBySourcePath(ctx, repoResult.Hits)
+	serviceHints := s.lookupServiceHintsBySourcePath(ctx, actor, repoResult.Hits)
 	hits := make([]SearchLogHit, 0, len(repoResult.Hits))
 	for _, item := range repoResult.Hits {
 		hits = append(hits, mapRawHitWithServiceHint(item, serviceHints[displaySourcePathFromSource(item.Source)]))
@@ -892,11 +904,13 @@ func looksLikeDockerSourcePath(sourcePath string) bool {
 	return strings.HasPrefix(trimmed, "/var/lib/docker/containers/") || strings.HasPrefix(trimmed, "/host-docker-containers/")
 }
 
-func (s *QueryService) lookupServiceHintsBySourcePath(ctx context.Context, hits []repository.RawLogHit) map[string]string {
+func (s *QueryService) lookupServiceHintsBySourcePath(ctx context.Context, actor RequestActor, hits []repository.RawLogHit) map[string]string {
 	if s == nil || s.logRepo == nil || len(hits) == 0 {
 		return nil
 	}
 
+	now := time.Now().UTC()
+	hints := make(map[string]string)
 	targets := make([]string, 0)
 	seen := make(map[string]struct{})
 	for _, hit := range hits {
@@ -911,10 +925,17 @@ func (s *QueryService) lookupServiceHintsBySourcePath(ctx context.Context, hits 
 			continue
 		}
 		seen[sourcePath] = struct{}{}
+		if cached, ok := s.getSourcePathServiceHint(actor, sourcePath, now); ok {
+			hints[sourcePath] = cached
+			continue
+		}
 		targets = append(targets, sourcePath)
 	}
 	if len(targets) == 0 {
-		return nil
+		if len(hints) == 0 {
+			return nil
+		}
+		return hints
 	}
 
 	shouldClauses := make([]map[string]any, 0, len(targets)*2)
@@ -924,21 +945,77 @@ func (s *QueryService) lookupServiceHintsBySourcePath(ctx context.Context, hits 
 			map[string]any{"match_phrase": map[string]any{"log.file.path": sourcePath}},
 		)
 	}
+	filters := appendTenantFilter(nil, actor.TenantID, actor.CanReadAllLogs)
+	query := map[string]any{
+		"bool": map[string]any{
+			"should":               shouldClauses,
+			"minimum_should_match": 1,
+		},
+	}
+	if boolQuery, ok := query["bool"].(map[string]any); ok && len(filters) > 0 {
+		boolQuery["filter"] = filters
+	}
 
 	result, err := s.logRepo.SearchWithBody(ctx, map[string]any{
-		"size": minInt(len(targets)*8, 200),
-		"sort": []map[string]any{{"@timestamp": map[string]any{"order": "desc"}}},
-		"query": map[string]any{
-			"bool": map[string]any{
-				"should":               shouldClauses,
-				"minimum_should_match": 1,
-			},
-		},
+		"size":  minInt(len(targets)*8, 200),
+		"sort":  []map[string]any{{"@timestamp": map[string]any{"order": "desc"}}},
+		"query": query,
 	})
 	if err != nil {
+		if len(hints) == 0 {
+			return nil
+		}
+		return hints
+	}
+	resolvedHints := buildSourcePathServiceHints(result.Hits)
+	for sourcePath, serviceName := range resolvedHints {
+		hints[sourcePath] = serviceName
+		s.setSourcePathServiceHint(actor, sourcePath, serviceName, now)
+	}
+	if len(hints) == 0 {
 		return nil
 	}
-	return buildSourcePathServiceHints(result.Hits)
+	return hints
+}
+
+func (s *QueryService) getSourcePathServiceHint(actor RequestActor, sourcePath string, now time.Time) (string, bool) {
+	if s == nil || s.sourcePathHintCacheTTL <= 0 || strings.TrimSpace(sourcePath) == "" {
+		return "", false
+	}
+	cacheKey := sourcePathServiceHintCacheKey(actor, sourcePath)
+	s.sourcePathHintCacheMu.RLock()
+	entry, ok := s.sourcePathHintCache[cacheKey]
+	s.sourcePathHintCacheMu.RUnlock()
+	if !ok || now.After(entry.expiresAt) || strings.TrimSpace(entry.service) == "" {
+		return "", false
+	}
+	return entry.service, true
+}
+
+func (s *QueryService) setSourcePathServiceHint(actor RequestActor, sourcePath, serviceName string, now time.Time) {
+	if s == nil || s.sourcePathHintCacheTTL <= 0 {
+		return
+	}
+	sourcePath = strings.TrimSpace(sourcePath)
+	serviceName = strings.TrimSpace(serviceName)
+	if sourcePath == "" || serviceName == "" || serviceName == "unknown" {
+		return
+	}
+	cacheKey := sourcePathServiceHintCacheKey(actor, sourcePath)
+	s.sourcePathHintCacheMu.Lock()
+	s.sourcePathHintCache[cacheKey] = sourcePathServiceHintCacheEntry{
+		service:   serviceName,
+		expiresAt: now.Add(s.sourcePathHintCacheTTL),
+	}
+	s.sourcePathHintCacheMu.Unlock()
+}
+
+func sourcePathServiceHintCacheKey(actor RequestActor, sourcePath string) string {
+	tenantScope := strings.TrimSpace(actor.TenantID)
+	if actor.CanReadAllLogs {
+		tenantScope = "*"
+	}
+	return tenantScope + "\u0000" + strings.TrimSpace(sourcePath)
 }
 
 func buildSourcePathServiceHints(hits []repository.RawLogHit) map[string]string {

@@ -505,3 +505,109 @@ func TestBuildSourcePathServiceHints_UsesNewestValidService(t *testing.T) {
 		t.Fatalf("hints[%q]=%q, want query-api", sourcePath, got)
 	}
 }
+
+func TestSearchLogs_CachesServiceHintsAndScopesHintLookupByTenant(t *testing.T) {
+	containerID := strings.Repeat("d", 64)
+	sourcePath := filepath.Join("/var/lib/docker/containers", containerID, containerID+"-json.log")
+	mainSearchCount := 0
+	hintSearchCount := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if r.URL.Path != "/nexuslog-logs-read/_search" {
+			http.NotFound(w, r)
+			return
+		}
+
+		var captured map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request body failed: %v", err)
+		}
+		size, _ := captured["size"].(float64)
+		w.Header().Set("Content-Type", "application/json")
+		if int(size) == 8 {
+			hintSearchCount++
+			raw, err := json.Marshal(captured)
+			if err != nil {
+				t.Fatalf("marshal captured request failed: %v", err)
+			}
+			body := string(raw)
+			for _, fragment := range []string{
+				`"tenant_id":"tenant-a"`,
+				`"nexuslog.governance.tenant_id":"tenant-a"`,
+				`"source.path":"` + sourcePath + `"`,
+			} {
+				if !strings.Contains(body, fragment) {
+					t.Fatalf("expected hint lookup body to contain %s, got %s", fragment, body)
+				}
+			}
+			_, _ = w.Write([]byte(`{
+				"took": 3,
+				"timed_out": false,
+				"hits": {
+					"total": {"value": 1},
+					"hits": [
+						{
+							"_id": "hint-hit",
+							"_index": "nexuslog-logs-read",
+							"_source": {
+								"service": {"name": "api-service"},
+								"source": {"path": "` + sourcePath + `"}
+							}
+						}
+					]
+				}
+			}`))
+			return
+		}
+
+		mainSearchCount++
+		_, _ = w.Write([]byte(`{
+			"took": 4,
+			"timed_out": false,
+			"hits": {
+				"total": {"value": 1},
+				"hits": [
+					{
+						"_id": "main-hit",
+						"_index": "nexuslog-logs-read",
+						"sort": ["2026-03-13T08:00:00Z", 1],
+						"_source": {
+							"@timestamp": "2026-03-13T08:00:00Z",
+							"message": "container log",
+							"source": {"path": "` + sourcePath + `"}
+						}
+					}
+				]
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+	repo := repository.NewElasticsearchRepositoryFromEnv()
+	svc := NewQueryService(repo, nil)
+	actor := RequestActor{TenantID: "tenant-a"}
+
+	first, err := svc.SearchLogs(context.Background(), actor, SearchLogsRequest{Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("first SearchLogs() error = %v", err)
+	}
+	second, err := svc.SearchLogs(context.Background(), actor, SearchLogsRequest{Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("second SearchLogs() error = %v", err)
+	}
+	if mainSearchCount != 2 {
+		t.Fatalf("mainSearchCount=%d, want 2", mainSearchCount)
+	}
+	if hintSearchCount != 1 {
+		t.Fatalf("hintSearchCount=%d, want 1", hintSearchCount)
+	}
+	if len(first.Hits) != 1 || first.Hits[0].Service != "api-service" {
+		t.Fatalf("unexpected first hits: %+v", first.Hits)
+	}
+	if len(second.Hits) != 1 || second.Hits[0].Service != "api-service" {
+		t.Fatalf("unexpected second hits: %+v", second.Hits)
+	}
+}

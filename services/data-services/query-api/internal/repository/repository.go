@@ -177,7 +177,7 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 		endpoint = fmt.Sprintf("%s/_search", r.address)
 	}
 
-	parsed, err := r.executeSearch(ctx, endpoint, queryPayload)
+	parsed, err := r.executeSearchWithRetry(ctx, endpoint, queryPayload)
 	if err != nil && usePIT && isRetryablePITError(err) {
 		refreshedPIT, pitErr := r.openPointInTime(ctx, defaultPITKeepAlive)
 		if pitErr == nil {
@@ -186,7 +186,7 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 				"id":         pitID,
 				"keep_alive": defaultPITKeepAlive,
 			}
-			parsed, err = r.executeSearch(ctx, fmt.Sprintf("%s/_search", r.address), queryPayload)
+			parsed, err = r.executeSearchWithRetry(ctx, fmt.Sprintf("%s/_search", r.address), queryPayload)
 		}
 	}
 	if err != nil {

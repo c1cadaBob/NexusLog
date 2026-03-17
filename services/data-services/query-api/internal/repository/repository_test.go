@@ -664,6 +664,94 @@ func TestSearchWithBody_MapsRepeatedTransientFailuresToBackendUnavailable(t *tes
 	}
 }
 
+func TestSearchLogs_RetriesOnceOnTransientServerError(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if r.Method != http.MethodPost || r.URL.Path != "/nexuslog-logs-read/_search" {
+			http.NotFound(w, r)
+			return
+		}
+		requestCount++
+		if requestCount == 1 {
+			http.Error(w, `{"error":"es overloaded"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 5,
+			"timed_out": false,
+			"hits": {
+				"total": {"value": 1},
+				"hits": [
+					{
+						"_id": "log-1",
+						"_index": "nexuslog-logs-read",
+						"sort": ["2026-03-13T08:00:00Z", 99],
+						"_source": {"message": "recovered after retry"}
+					}
+				]
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	result, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		TenantID: "tenant-a",
+		Page:     1,
+		PageSize: 20,
+		Sort:     []SortField{{Field: "@timestamp", Order: "desc"}},
+	})
+	if err != nil {
+		t.Fatalf("SearchLogs() error = %v", err)
+	}
+	if requestCount != 2 {
+		t.Fatalf("requestCount=%d, want 2", requestCount)
+	}
+	if result.Total != 1 {
+		t.Fatalf("result.Total=%d, want 1", result.Total)
+	}
+	if len(result.Hits) != 1 || result.Hits[0].ID != "log-1" {
+		t.Fatalf("unexpected result hits: %+v", result.Hits)
+	}
+}
+
+func TestSearchLogs_MapsRepeatedTransientFailuresToBackendUnavailable(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if r.Method != http.MethodPost || r.URL.Path != "/nexuslog-logs-read/_search" {
+			http.NotFound(w, r)
+			return
+		}
+		requestCount++
+		http.Error(w, `{"error":"es overloaded"}`, http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	_, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		TenantID: "tenant-a",
+		Page:     1,
+		PageSize: 20,
+	})
+	if !errors.Is(err, ErrSearchBackendUnavailable) {
+		t.Fatalf("SearchLogs() error = %v, want ErrSearchBackendUnavailable", err)
+	}
+	if requestCount != 2 {
+		t.Fatalf("requestCount=%d, want 2", requestCount)
+	}
+}
+
 func TestSearchLogs_RejectsMissingTenantScope(t *testing.T) {
 	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
