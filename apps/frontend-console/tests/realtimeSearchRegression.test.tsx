@@ -3,7 +3,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from 'antd';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import RealtimeSearch, {
   buildRealtimeTableTimeRange,
@@ -150,6 +150,7 @@ describe('RealtimeSearch regressions', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -417,6 +418,52 @@ describe('RealtimeSearch regressions', () => {
     await waitFor(() => {
       expect(document.querySelector('.ant-pagination-item-active')?.textContent?.trim()).toBe('1');
     });
+  });
+
+  it('suppresses the next live auto-refresh after a manual execute', async () => {
+    vi.useFakeTimers();
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(screen.getByPlaceholderText('输入查询语句，例如: level:error AND service:"payment-service"'), {
+      target: { value: 'service:api-service' },
+    });
+
+    const searchButton = document.querySelector('.ant-input-search-button');
+    expect(searchButton).toBeTruthy();
+    fireEvent.click(searchButton as Element);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_100);
+    });
+
+    expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(3);
   });
 
   it('returns an unbounded from-range only for the all-time mode', () => {

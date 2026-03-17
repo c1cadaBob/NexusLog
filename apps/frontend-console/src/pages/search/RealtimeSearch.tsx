@@ -630,6 +630,7 @@ const RealtimeSearch: React.FC = () => {
   const currentPageRef = useRef(currentPage);
   const startupQueryTimerRef = useRef<number | null>(null);
   const lastFilterStateRef = useRef(`${levelFilter}\u0000${sourceFilter}`);
+  const suppressNextLiveTickRef = useRef(false);
 
   const clearLiveTimer = useCallback(() => {
     if (liveTimerRef.current != null) {
@@ -1097,6 +1098,11 @@ const RealtimeSearch: React.FC = () => {
           scheduleNextLiveTickRef.current(delay);
           return;
         }
+        if (suppressNextLiveTickRef.current) {
+          suppressNextLiveTickRef.current = false;
+          scheduleNextLiveTickRef.current(delay);
+          return;
+        }
         void executeQueryRef.current({
           queryText: activeQueryRef.current,
           page: currentPageRef.current,
@@ -1290,6 +1296,9 @@ const RealtimeSearch: React.FC = () => {
       }
 
       lastFilterStateRef.current = `${nextLevelFilter}\u0000${nextSourceFilter}`;
+      if (isLiveRef.current && !nextExplicitTimeRange) {
+        suppressNextLiveTickRef.current = true;
+      }
       setCurrentPage(1);
       if (normalizedQuery.extractedFilters) {
         setLevelFilter(nextLevelFilter);
