@@ -279,6 +279,44 @@ describe('RealtimeSearch regressions', () => {
     });
   });
 
+  it('shows an inline retry state when the initial realtime request fails without stale data', async () => {
+    setViewport(390);
+    queryRealtimeLogsMock
+      .mockRejectedValueOnce(new Error('realtime load failed'))
+      .mockResolvedValueOnce(
+        createQueryResult({
+          hits: [],
+          total: 0,
+          page: 1,
+          pageSize: 20,
+        }),
+      );
+    fetchAggregateStatsMock.mockResolvedValue({ buckets: [] });
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('日志加载失败')).toBeTruthy();
+      expect(screen.getByText('realtime load failed')).toBeTruthy();
+    });
+    expect(screen.queryByText('当前时间范围暂无日志')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('当前时间范围暂无日志')).toBeTruthy();
+    });
+  });
+
   it('shows a loading placeholder again when a new empty realtime request is pending', async () => {
     setViewport(390);
     const deferred = createDeferred<ReturnType<typeof createQueryResult>>();

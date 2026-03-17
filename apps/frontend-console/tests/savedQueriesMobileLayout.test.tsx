@@ -151,6 +151,40 @@ describe('SavedQueries mobile layout', () => {
     });
   });
 
+  it('shows an inline retry state when the initial saved-query request fails', async () => {
+    fetchSavedQueriesMock
+      .mockRejectedValueOnce(new Error('saved load failed'))
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: [],
+      });
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SavedQueries />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('收藏查询加载失败')).toBeTruthy();
+      expect(screen.getByText('saved load failed')).toBeTruthy();
+    });
+    expect(screen.queryByText('暂无收藏查询')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
+
+    await waitFor(() => {
+      expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('暂无收藏查询')).toBeTruthy();
+    });
+  });
+
   it('shows a loading placeholder again when a new empty saved-query request is pending', async () => {
     const deferred = createDeferred<{
       items: Array<{

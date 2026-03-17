@@ -150,6 +150,39 @@ describe('SearchHistory mobile layout', () => {
     });
   });
 
+  it('shows an inline retry state when the initial history request fails', async () => {
+    fetchQueryHistoryMock
+      .mockRejectedValueOnce(new Error('history load failed'))
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 15,
+        hasNext: false,
+      });
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SearchHistory />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('查询历史加载失败')).toBeTruthy();
+      expect(screen.getByText('history load failed')).toBeTruthy();
+    });
+    expect(screen.queryByText('暂无查询历史')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
+
+    await waitFor(() => {
+      expect(fetchQueryHistoryMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('暂无查询历史')).toBeTruthy();
+    });
+  });
+
   it('shows a loading placeholder again when a new empty history request is pending', async () => {
     const deferred = createDeferred<{
       items: Array<ReturnType<typeof buildHistoryItem>>;

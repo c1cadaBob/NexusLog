@@ -35,6 +35,7 @@ import { buildQueryCleanupState } from "./queryCleanupState";
 import QueryCleanupPreviewContent from "./queryCleanupPreviewContent";
 import { usePaginationQuickJumperAccessibility } from "../../components/common/usePaginationQuickJumperAccessibility";
 import InlineLoadingState from "../../components/common/InlineLoadingState";
+import InlineErrorState from "../../components/common/InlineErrorState";
 import {
   formatSearchPageSummary,
   formatSearchPageTotal,
@@ -421,6 +422,8 @@ const SearchHistory: React.FC = () => {
   );
 
   const historyLoadingPlaceholderVisible = loading && rows.length === 0;
+  const showHistoryInlineErrorState =
+    Boolean(errorText) && rows.length === 0 && !historyLoadingPlaceholderVisible;
   const historySummaryText = historyLoadingPlaceholderVisible
     ? "正在加载查询历史..."
     : formatSearchPageSummary(total, "条记录", visibleRange, "条");
@@ -643,7 +646,7 @@ const SearchHistory: React.FC = () => {
         </div>
       </div>
 
-      {errorText && (
+      {errorText && !showHistoryInlineErrorState && (
         <Alert
           type="error"
           showIcon
@@ -683,6 +686,16 @@ const SearchHistory: React.FC = () => {
           {historyLoadingPlaceholderVisible ? (
             <div className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
               <InlineLoadingState size="large" tip="加载查询历史..." />
+            </div>
+          ) : showHistoryInlineErrorState ? (
+            <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
+              <InlineErrorState
+                title="查询历史加载失败"
+                description={errorText}
+                onAction={() => {
+                  void loadHistory();
+                }}
+              />
             </div>
           ) : rows.length === 0 ? (
             <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
@@ -781,7 +794,17 @@ const SearchHistory: React.FC = () => {
             size="small"
             loading={loading || batchDeleting}
             locale={{
-              emptyText: <Empty description={historyEmptyDescription} />,
+              emptyText: showHistoryInlineErrorState ? (
+                <InlineErrorState
+                  title="查询历史加载失败"
+                  description={errorText}
+                  onAction={() => {
+                    void loadHistory();
+                  }}
+                />
+              ) : (
+                <Empty description={historyEmptyDescription} />
+              ),
             }}
             pagination={{
               current: currentPage,

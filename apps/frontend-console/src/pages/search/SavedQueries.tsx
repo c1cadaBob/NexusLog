@@ -38,6 +38,7 @@ import { buildQueryCleanupState } from "./queryCleanupState";
 import QueryCleanupPreviewContent from "./queryCleanupPreviewContent";
 import { usePaginationQuickJumperAccessibility } from "../../components/common/usePaginationQuickJumperAccessibility";
 import InlineLoadingState from "../../components/common/InlineLoadingState";
+import InlineErrorState from "../../components/common/InlineErrorState";
 import {
   formatSearchPageSummary,
   formatSearchPageTotal,
@@ -493,6 +494,8 @@ const SavedQueries: React.FC = () => {
   }, [dirtySavedQueries, modal, performCleanupDirtyQueries]);
 
   const savedLoadingPlaceholderVisible = loading && savedList.length === 0;
+  const showSavedInlineErrorState =
+    Boolean(errorText) && savedList.length === 0 && !savedLoadingPlaceholderVisible;
   const savedSummaryText = savedLoadingPlaceholderVisible
     ? "正在加载收藏查询..."
     : formatSearchPageSummary(total, "个收藏", visibleRange, "个");
@@ -656,7 +659,7 @@ const SavedQueries: React.FC = () => {
         )}
       </div>
 
-      {errorText && (
+      {errorText && !showSavedInlineErrorState && (
         <Alert
           type="error"
           showIcon
@@ -692,6 +695,16 @@ const SavedQueries: React.FC = () => {
       {savedLoadingPlaceholderVisible ? (
         <div className="py-8">
           <InlineLoadingState size="large" tip="加载收藏查询..." />
+        </div>
+      ) : showSavedInlineErrorState ? (
+        <div className="rounded-xl border border-dashed border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] p-6">
+          <InlineErrorState
+            title="收藏查询加载失败"
+            description={errorText}
+            onAction={() => {
+              void loadSavedQueries();
+            }}
+          />
         </div>
       ) : savedList.length === 0 ? (
         <Empty description={savedEmptyDescription} />
