@@ -34,6 +34,16 @@ vi.mock('../src/components/common/usePaginationQuickJumperAccessibility', () => 
   usePaginationQuickJumperAccessibility: () => null,
 }));
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('SavedQueries legacy cleanup', () => {
   beforeEach(() => {
     fetchSavedQueriesMock.mockReset();
@@ -220,6 +230,39 @@ describe('SavedQueries legacy cleanup', () => {
       expect(screen.getByText('筛选条件')).toBeTruthy();
       expect(screen.getByText('级别: error')).toBeTruthy();
       expect(screen.getByText('来源/服务: vault')).toBeTruthy();
+    });
+  });
+
+  it('shows a loading hint while the empty saved-query list is still loading', async () => {
+    const deferred = createDeferred<{
+      items: Array<{ id: string; name: string; query: string; tags: string[]; createdAt: string }>;
+      total: number;
+      page: number;
+      pageSize: number;
+      hasNext: boolean;
+    }>();
+    fetchSavedQueriesMock.mockReturnValueOnce(deferred.promise);
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SavedQueries />
+        </MemoryRouter>
+      </App>,
+    );
+
+    expect(await screen.findByText('加载收藏查询...')).toBeTruthy();
+
+    deferred.resolve({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 12,
+      hasNext: false,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('暂无收藏查询')).toBeTruthy();
     });
   });
 });

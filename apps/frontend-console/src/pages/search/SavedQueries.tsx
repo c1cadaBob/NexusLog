@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Card, Input, Tag, Button, Row, Col, Space, Empty, Tooltip, App, Modal, Form, Select, Popconfirm, Alert, Pagination } from 'antd';
+import { Card, Input, Tag, Button, Row, Col, Space, Empty, Tooltip, App, Modal, Form, Select, Popconfirm, Alert, Pagination, Spin } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { COLORS } from '../../theme/tokens';
 import { usePreferencesStore } from '../../stores/preferencesStore';
@@ -399,7 +399,12 @@ const SavedQueries: React.FC = () => {
         />
       )}
 
-      {savedList.length === 0 && !loading ? (
+      {loading && savedList.length === 0 ? (
+        <div className="py-8 flex flex-col items-center gap-3">
+          <Spin size="large" />
+          <span className="text-sm opacity-60">加载收藏查询...</span>
+        </div>
+      ) : savedList.length === 0 ? (
         <Empty description={appliedSearch || selectedTag ? '没有匹配的收藏查询' : '暂无收藏查询'} />
       ) : (
         <>

@@ -8,6 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import RealtimeSearch, {
   buildRealtimeTableTimeRange,
   ensureRealtimePageCursor,
+  shouldBlockRealtimeDirectPageJump,
   shouldResolveRealtimeDeepPageCursor,
 } from '../src/pages/search/RealtimeSearch';
 
@@ -278,6 +279,35 @@ describe('RealtimeSearch regressions', () => {
     expect(shouldResolveRealtimeDeepPageCursor(101, 100, { pitId: 'pit-root' })).toBe(true);
     expect(shouldResolveRealtimeDeepPageCursor(101, 100, { pitId: 'pit-root', searchAfter: ['cursor-100'] })).toBe(false);
     expect(shouldResolveRealtimeDeepPageCursor(100, 100, undefined)).toBe(false);
+  });
+
+  it('allows direct jumps up to the last page inside the max offset window', () => {
+    expect(shouldBlockRealtimeDirectPageJump(100, 100, true, undefined)).toBe(false);
+    expect(shouldBlockRealtimeDirectPageJump(500, 20, true, undefined)).toBe(false);
+    expect(shouldBlockRealtimeDirectPageJump(101, 100, true, undefined)).toBe(true);
+    expect(shouldBlockRealtimeDirectPageJump(101, 100, true, { pitId: 'pit-root' })).toBe(false);
+  });
+
+  it('keeps the quick jumper visible for large result sets', async () => {
+    queryRealtimeLogsMock.mockResolvedValueOnce(createQueryResult({
+      total: 20000,
+      page: 1,
+      pageSize: 20,
+    }));
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector('.ant-pagination-options-quick-jumper input')).toBeTruthy();
+    });
   });
 
   it('returns an unbounded from-range only for the all-time mode', () => {

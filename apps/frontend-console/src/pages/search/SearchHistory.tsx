@@ -89,6 +89,11 @@ const SearchHistory: React.FC = () => {
       end: start + rows.length - 1,
     };
   }, [currentPage, pageSize, rows.length, total]);
+  const historyEmptyDescription = useMemo(() => {
+    const hasKeyword = keyword.trim().length > 0;
+    const hasDateFilter = Boolean(dateRange?.[0] || dateRange?.[1]);
+    return hasKeyword || hasDateFilter ? '没有匹配的查询历史' : '暂无查询历史';
+  }, [dateRange, keyword]);
 
   const refreshAfterDelete = useCallback((deletedCount: number) => {
     setSelectedRowKeys([]);
@@ -427,7 +432,7 @@ const SearchHistory: React.FC = () => {
           }}
           size="small"
           loading={loading || batchDeleting}
-          locale={{ emptyText: <Empty description="暂无查询历史" /> }}
+          locale={{ emptyText: <Empty description={historyEmptyDescription} /> }}
           pagination={{
             current: currentPage,
             pageSize,

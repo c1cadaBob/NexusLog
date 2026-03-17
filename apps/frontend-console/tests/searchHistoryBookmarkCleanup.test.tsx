@@ -209,4 +209,37 @@ describe('SearchHistory bookmark cleanup', () => {
 
     expect(screen.queryByText('收藏前将清洗旧格式查询')).toBeNull();
   });
+
+  it('shows filter-aware empty text after a no-match search', async () => {
+    fetchQueryHistoryMock.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 15,
+      hasNext: false,
+    });
+
+    render(
+      <App>
+        <MemoryRouter>
+          <SearchHistory />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(fetchQueryHistoryMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('暂无查询历史')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('搜索查询语句...'), {
+      target: { value: 'nonexistent-service-zzzz-987654321' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'search' }));
+
+    await waitFor(() => {
+      expect(fetchQueryHistoryMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('没有匹配的查询历史')).toBeTruthy();
+    });
+  });
 });

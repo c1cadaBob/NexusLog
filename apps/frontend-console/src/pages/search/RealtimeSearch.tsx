@@ -168,6 +168,18 @@ function resolveMaxPaginationPage(pageSize: number): number {
   return Math.max(1, Math.floor(MAX_PAGINATION_WINDOW_ROWS / normalizedPageSize));
 }
 
+export function shouldBlockRealtimeDirectPageJump(
+  page: number,
+  pageSize: number,
+  deepPaginationRestricted: boolean,
+  cursor?: RealtimePageCursor,
+): boolean {
+  if (!deepPaginationRestricted) {
+    return false;
+  }
+  return page > resolveMaxPaginationPage(pageSize) && !cursor;
+}
+
 export function shouldResolveRealtimeDeepPageCursor(
   page: number,
   pageSize: number,
@@ -292,6 +304,8 @@ interface EnsureRealtimePageCursorOptions {
   unregisterAbortController?: (controller: AbortController | null) => void;
   queryLogs?: typeof queryRealtimeLogs;
 }
+
+type RealtimeExecuteQueryStatus = 'success' | 'failed' | 'stale';
 
 export async function ensureRealtimePageCursor(options: EnsureRealtimePageCursorOptions): Promise<{
   cursorMap: Map<number, RealtimePageCursor>;
@@ -530,7 +544,7 @@ const RealtimeSearch: React.FC = () => {
     histogramRefreshMode?: RealtimeHistogramRefreshMode;
     levelFilterOverride?: string;
     sourceFilterOverride?: string;
-  }): Promise<boolean> => {
+  }): Promise<RealtimeExecuteQueryStatus> => {
     const requestID = latestQueryRequestRef.current + 1;
     latestQueryRequestRef.current = requestID;
     inFlightRequestIDRef.current = requestID;
@@ -544,6 +558,9 @@ const RealtimeSearch: React.FC = () => {
     const workingCursorMap = options.resetCursor
       ? new Map<number, RealtimePageCursor>()
       : cloneRealtimePageCursorMap(pageCursorMapRef.current);
+    if (options.resetCursor) {
+      pageCursorMapRef.current = new Map();
+    }
     const requestedCursor = cloneRealtimePageCursor(options.cursor) ?? cloneRealtimePageCursor(workingCursorMap.get(options.page));
     const rootCursor = cloneRealtimePageCursor(workingCursorMap.get(1));
     let activeCursor = requestedCursor ?? (options.page > 1 && rootCursor?.pitId
@@ -654,7 +671,7 @@ const RealtimeSearch: React.FC = () => {
             unregisterAbortController,
           });
           if (requestID !== latestQueryRequestRef.current) {
-            return false;
+            return tableSucceeded ? 'success' : 'stale';
           }
           pageCursorMapRef.current = resolvedCursorMap;
           workingCursorMap.clear();
@@ -666,7 +683,7 @@ const RealtimeSearch: React.FC = () => {
             if (!options.silent) {
               message.warning('深分页游标定位失败，请稍后重试');
             }
-            return false;
+            return 'failed';
           }
         }
 
@@ -683,7 +700,7 @@ const RealtimeSearch: React.FC = () => {
         });
 
         if (requestID !== latestQueryRequestRef.current) {
-          return false;
+          return tableSucceeded ? 'success' : 'stale';
         }
 
         const effectivePitId = result.pitId?.trim() || activeCursor?.pitId?.trim() || '';
@@ -718,10 +735,10 @@ const RealtimeSearch: React.FC = () => {
         tableSucceeded = true;
       } catch (error) {
         if (requestID !== latestQueryRequestRef.current) {
-          return false;
+          return tableSucceeded ? 'success' : 'stale';
         }
         if (isAbortError(error)) {
-          return false;
+          return tableSucceeded ? 'success' : 'stale';
         }
         const hasStaleTableData = logs.length > 0;
         setTableUsingStaleData(hasStaleTableData);
@@ -741,11 +758,11 @@ const RealtimeSearch: React.FC = () => {
       }
 
       if (requestID !== latestQueryRequestRef.current) {
-        return tableSucceeded;
+        return tableSucceeded ? 'success' : 'stale';
       }
 
       if (!shouldRefreshHistogram) {
-        return tableSucceeded;
+        return tableSucceeded ? 'success' : 'failed';
       }
 
       const [totalHistogramResult, errorHistogramResult] = await Promise.allSettled([
@@ -754,7 +771,7 @@ const RealtimeSearch: React.FC = () => {
       ]);
 
       if (requestID !== latestQueryRequestRef.current) {
-        return tableSucceeded;
+        return tableSucceeded ? 'success' : 'stale';
       }
 
       const resolvedTotalHistogram = totalHistogramResult.status === 'fulfilled'
@@ -803,7 +820,7 @@ const RealtimeSearch: React.FC = () => {
         }
       }
 
-      return tableSucceeded;
+      return tableSucceeded ? 'success' : 'failed';
     } finally {
       unregisterAbortController(tableController);
       unregisterAbortController(totalHistogramController);
@@ -1009,6 +1026,7 @@ const RealtimeSearch: React.FC = () => {
       return;
     }
     lastFilterStateRef.current = nextFilterState;
+    setCurrentPage(1);
     void executeQueryRef.current({
       queryText: activeQueryRef.current,
       page: 1,
@@ -1569,7 +1587,7 @@ const RealtimeSearch: React.FC = () => {
             {queryTimedOut && <Tag color="warning" style={{ margin: 0 }}>查询超时</Tag>}
             {deepPaginationRestricted && (
               <Tag color="gold" style={{ margin: 0 }}>
-                超过前 {MAX_PAGINATION_WINDOW_ROWS.toLocaleString()} 条后，仅支持顺序翻页或返回已访问页
+                超过前 {MAX_PAGINATION_WINDOW_ROWS.toLocaleString()} 条后，首个窗口内仍可跳页，更深页码需顺序翻页建立游标
               </Tag>
             )}
           </div>
@@ -1597,7 +1615,7 @@ const RealtimeSearch: React.FC = () => {
             pageSize,
             total,
             showSizeChanger: true,
-            showQuickJumper: !deepPaginationRestricted,
+            showQuickJumper: true,
             showTotal: (itemsTotal) => `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`,
             pageSizeOptions: ['10', '20', '50', '100'],
             onChange: (page, size) => {
@@ -1614,9 +1632,8 @@ const RealtimeSearch: React.FC = () => {
               }
 
               const cachedCursor = cloneRealtimePageCursor(pageCursorMapRef.current.get(targetPage));
-              const maxPaginationPage = resolveMaxPaginationPage(nextPageSize);
-              if (deepPaginationRestricted && targetPage >= maxPaginationPage && !cachedCursor) {
-                void message.warning('当前结果集超过 10,000 条，仅支持顺序翻页或返回已访问页');
+              if (shouldBlockRealtimeDirectPageJump(targetPage, nextPageSize, deepPaginationRestricted, cachedCursor)) {
+                void message.warning('当前结果集超过 10,000 条，首 10,000 条内可直接跳页，更深页码需顺序翻页建立游标');
                 return;
               }
               if (shouldResolveRealtimeDeepPageCursor(targetPage, nextPageSize, cachedCursor)) {
@@ -1643,9 +1660,9 @@ const RealtimeSearch: React.FC = () => {
                 cursor: requestCursor,
                 resetCursor: pageSizeChanged,
                 histogramRefreshMode: 'skip',
-              }).then((success) => {
+              }).then((status) => {
                 void message.destroy('realtime-deep-pagination');
-                if (!success) {
+                if (status === 'failed') {
                   setCurrentPage(previousPage);
                   if (nextPageSize !== previousPageSize) {
                     setPageSize(previousPageSize);
