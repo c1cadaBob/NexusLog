@@ -260,6 +260,8 @@ const CostOverview: React.FC = () => {
             <div style={{ position: 'relative' }}>
               <span className="material-symbols-outlined" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: p.textSecondary }}>search</span>
               <input
+                id="cost-overview-search"
+                name="costOverviewSearch"
                 placeholder="搜索项目或索引..."
                 style={{
                   paddingLeft: 34, paddingRight: 12, paddingTop: 7, paddingBottom: 7,

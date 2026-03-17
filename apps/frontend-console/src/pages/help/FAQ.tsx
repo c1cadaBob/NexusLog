@@ -127,6 +127,8 @@ const FAQ: React.FC = () => {
                 <span className="material-symbols-outlined text-lg">search</span>
               </div>
               <input
+                id="faq-search"
+                name="faqSearch"
                 className={`block w-full rounded-xl border ${borderColor} ${inputBg} py-4 pl-12 pr-4 ${textColor} placeholder-[#94a3b8] shadow-lg ${isDark ? 'shadow-black/20' : 'shadow-slate-200/50'} focus:border-[#135bec] focus:outline-none focus:ring-1 focus:ring-[#135bec] transition-all`}
                 placeholder="如何帮助您？ (例如: 配置 Logstash, 邮件告警失效)"
                 type="text"

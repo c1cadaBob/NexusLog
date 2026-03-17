@@ -108,7 +108,7 @@ const AutoScaling: React.FC = () => {
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <span className={`material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 ${textSecondary} text-[18px]`}>search</span>
-                  <input className={`${inputBg} border-none ${textColor} text-sm rounded-lg pl-9 pr-4 py-1.5 focus:ring-1 focus:ring-[#135bec] w-48`} placeholder="搜索策略..." type="text" />
+                  <input id="auto-scaling-search" name="autoScalingSearch" className={`${inputBg} border-none ${textColor} text-sm rounded-lg pl-9 pr-4 py-1.5 focus:ring-1 focus:ring-[#135bec] w-48`} placeholder="搜索策略..." type="text" />
                 </div>
                 <button className={`p-1.5 ${textSecondary} rounded-lg ${hoverBg}`}>
                   <span className="material-symbols-outlined text-[20px]">filter_list</span>
@@ -150,7 +150,7 @@ const AutoScaling: React.FC = () => {
                     <td className="px-6 py-4"><span className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>1 小时</span></td>
                     <td className="px-6 py-4">
                       <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" defaultChecked />
+                        <input id="auto-scaling-policy-storage" name="autoScalingPolicyStorage" type="checkbox" className="sr-only peer" defaultChecked />
                         <div className={`w-9 h-5 ${switchBg} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#135bec]`}></div>
                         <span className="ml-2 text-xs font-medium text-emerald-400">已启用</span>
                       </label>
@@ -181,7 +181,7 @@ const AutoScaling: React.FC = () => {
                     <td className="px-6 py-4"><span className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>30 分钟</span></td>
                     <td className="px-6 py-4">
                       <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" />
+                        <input id="auto-scaling-policy-compute" name="autoScalingPolicyCompute" type="checkbox" className="sr-only peer" />
                         <div className={`w-9 h-5 ${switchBg} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#135bec]`}></div>
                         <span className={`ml-2 text-xs font-medium ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>已禁用</span>
                       </label>
@@ -212,7 +212,7 @@ const AutoScaling: React.FC = () => {
                     <td className="px-6 py-4"><span className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>2 小时</span></td>
                     <td className="px-6 py-4">
                       <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" defaultChecked />
+                        <input id="auto-scaling-policy-memory" name="autoScalingPolicyMemory" type="checkbox" className="sr-only peer" defaultChecked />
                         <div className={`w-9 h-5 ${switchBg} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#135bec]`}></div>
                         <span className="ml-2 text-xs font-medium text-emerald-400">已启用</span>
                       </label>
@@ -243,7 +243,7 @@ const AutoScaling: React.FC = () => {
                     <td className="px-6 py-4"><span className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>45 分钟</span></td>
                     <td className="px-6 py-4">
                       <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" defaultChecked />
+                        <input id="auto-scaling-policy-bandwidth" name="autoScalingPolicyBandwidth" type="checkbox" className="sr-only peer" defaultChecked />
                         <div className={`w-9 h-5 ${switchBg} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#135bec]`}></div>
                         <span className="ml-2 text-xs font-medium text-emerald-400">已启用</span>
                       </label>

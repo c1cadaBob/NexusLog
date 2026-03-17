@@ -102,6 +102,8 @@ const ServiceTopology: React.FC = () => {
           <div className="relative">
             <span className={`material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 ${textSecondary} text-[18px]`}>search</span>
             <input 
+              id="service-topology-search"
+              name="serviceTopologySearch"
               className={`${cardBg} border ${borderColor} ${textColor} text-sm rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary w-64 placeholder-text-secondary`} 
               placeholder="搜索服务..." 
               type="text"

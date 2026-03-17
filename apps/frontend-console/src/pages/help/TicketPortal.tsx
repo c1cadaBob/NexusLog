@@ -103,6 +103,8 @@ const TicketPortal: React.FC = () => {
           <div className="relative hidden sm:block">
             <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary} material-symbols-outlined text-lg`}>search</span>
             <input
+              id="ticket-portal-search"
+              name="ticketPortalSearch"
               className={`h-10 w-64 rounded-lg ${inputBg} border ${borderColor} pl-10 pr-4 text-sm ${textColor} placeholder-[#94a3b8] focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec] outline-none transition-all`}
               placeholder="搜索工单 ID 或标题..."
               type="text"
@@ -269,15 +271,15 @@ const TicketPortal: React.FC = () => {
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               <div>
-                <label className={`block text-sm font-medium ${textColor} mb-2`}>工单标题 <span className="text-[#ef4444]">*</span></label>
-                <input type="text" value={newTicket.title}
+                <label htmlFor="ticket-title" className={`block text-sm font-medium ${textColor} mb-2`}>工单标题 <span className="text-[#ef4444]">*</span></label>
+                <input id="ticket-title" name="ticketTitle" type="text" value={newTicket.title}
                   onChange={(e) => setNewTicket({ ...newTicket, title: e.target.value })}
                   className={`w-full h-10 rounded-lg ${inputBg} border ${borderColor} px-4 text-sm ${textColor} placeholder-[#94a3b8] focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec] outline-none transition-all`}
                   placeholder="简要描述您遇到的问题" />
               </div>
               <div>
-                <label className={`block text-sm font-medium ${textColor} mb-2`}>问题分类 <span className="text-[#ef4444]">*</span></label>
-                <select value={newTicket.category}
+                <label htmlFor="ticket-category" className={`block text-sm font-medium ${textColor} mb-2`}>问题分类 <span className="text-[#ef4444]">*</span></label>
+                <select id="ticket-category" name="ticketCategory" value={newTicket.category}
                   onChange={(e) => setNewTicket({ ...newTicket, category: e.target.value })}
                   className={`w-full h-10 rounded-lg ${inputBg} border ${borderColor} px-4 text-sm ${textColor} focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec] outline-none transition-all`}>
                   <option value="">请选择分类</option>
@@ -303,8 +305,8 @@ const TicketPortal: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className={`block text-sm font-medium ${textColor} mb-2`}>详细描述</label>
-                <textarea value={newTicket.description}
+                <label htmlFor="ticket-description" className={`block text-sm font-medium ${textColor} mb-2`}>详细描述</label>
+                <textarea id="ticket-description" name="ticketDescription" value={newTicket.description}
                   onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })}
                   rows={6}
                   className={`w-full rounded-lg ${inputBg} border ${borderColor} px-4 py-3 text-sm ${textColor} placeholder-[#94a3b8] focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec] outline-none transition-all resize-none`}

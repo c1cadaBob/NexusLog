@@ -143,6 +143,8 @@ const TraceSearch: React.FC = () => {
                 <span className={`material-symbols-outlined ${textSecondary}`}>search</span>
               </div>
               <input 
+                id="trace-search-query"
+                name="traceSearchQuery"
                 className={`block w-full pl-10 pr-3 py-2.5 ${inputBg} border ${borderColor} rounded-lg leading-5 ${textColor} ${isDark ? 'placeholder-slate-500' : 'placeholder-slate-400'} focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary sm:text-sm transition-shadow shadow-inner`} 
                 placeholder="输入 Trace ID, Span 属性, 或 Tags (e.g. error=true service=payment)..." 
                 type="text"

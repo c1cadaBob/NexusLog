@@ -243,6 +243,7 @@ const ReportManagement: React.FC = () => {
               <span className="material-symbols-outlined text-[20px]">search</span>
             </div>
             <input
+              id="report-management-search"
               name="report_management_search"
               className={`w-full rounded-lg border ${borderColor} ${inputBg} py-2.5 pl-10 pr-4 text-sm ${textColor} placeholder-text-secondary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary`}
               placeholder="搜索报表名称、ID或创建人..."
@@ -253,6 +254,7 @@ const ReportManagement: React.FC = () => {
           <div className="flex items-center gap-2">
             <div className="relative">
               <select
+                id="report-management-type-filter"
                 name="report_management_type_filter"
                 className={`h-10 appearance-none rounded-lg border ${borderColor} ${inputBg} pl-4 pr-10 text-sm font-medium ${textColor} focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer`}
                 value={typeFilter}
@@ -270,6 +272,7 @@ const ReportManagement: React.FC = () => {
             </div>
             <div className="relative">
               <select
+                id="report-management-sort"
                 name="report_management_sort"
                 className={`h-10 appearance-none rounded-lg border ${borderColor} ${inputBg} pl-4 pr-10 text-sm font-medium ${textColor} focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer`}
                 value={sortBy}
@@ -481,8 +484,9 @@ const ReportManagement: React.FC = () => {
             >
               <div className="p-6 space-y-4">
                 <div>
-                  <label className={`block text-sm font-medium ${textColor} mb-1`}>报表名称</label>
+                  <label htmlFor="report-management-form-name" className={`block text-sm font-medium ${textColor} mb-1`}>报表名称</label>
                   <input
+                    id="report-management-form-name"
                     name="name"
                     defaultValue={editingReport?.name || ''}
                     className={`w-full rounded-lg border ${borderColor} ${inputBg} py-2.5 px-4 text-sm ${textColor} focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary`}
@@ -491,8 +495,9 @@ const ReportManagement: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className={`block text-sm font-medium ${textColor} mb-1`}>描述</label>
+                  <label htmlFor="report-management-form-description" className={`block text-sm font-medium ${textColor} mb-1`}>描述</label>
                   <textarea
+                    id="report-management-form-description"
                     name="description"
                     defaultValue={editingReport?.description || ''}
                     className={`w-full rounded-lg border ${borderColor} ${inputBg} py-2.5 px-4 text-sm ${textColor} focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary resize-none`}
@@ -501,8 +506,9 @@ const ReportManagement: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className={`block text-sm font-medium ${textColor} mb-1`}>类型</label>
+                  <label htmlFor="report-management-form-type" className={`block text-sm font-medium ${textColor} mb-1`}>类型</label>
                   <select
+                    id="report-management-form-type"
                     name="type"
                     defaultValue={editingReport?.type || 'custom'}
                     className={`w-full rounded-lg border ${borderColor} ${inputBg} py-2.5 px-4 text-sm ${textColor} focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary`}

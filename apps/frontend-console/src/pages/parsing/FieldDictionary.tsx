@@ -198,6 +198,8 @@ const FieldDictionary: React.FC = () => {
       {/* 搜索与筛选 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: 16, background: palette.bgContainer, borderRadius: 12, border: `1px solid ${palette.border}` }}>
         <Input
+          id="field-dictionary-search"
+          name="fieldDictionarySearch"
           prefix={<span className="material-symbols-outlined" style={{ fontSize: 20, color: palette.textSecondary }}>search</span>}
           placeholder="搜索字段名、别名或描述..."
           value={searchTerm}
@@ -318,8 +320,10 @@ const FieldDictionary: React.FC = () => {
             <Select options={DICTIONARY_FIELD_TYPES.map(t => ({ value: t.value, label: t.value }))} />
           </Form.Item>
           <Form.Item name="verified" valuePropName="checked" label={null}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <label htmlFor="field-dictionary-verified" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
               <input
+                id="field-dictionary-verified"
+                name="fieldDictionaryVerified"
                 type="checkbox"
                 checked={editingField?.verified ?? false}
                 onChange={e => {

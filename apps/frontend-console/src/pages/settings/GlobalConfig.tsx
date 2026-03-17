@@ -102,8 +102,10 @@ const GlobalConfig: React.FC = () => {
           <div className={`${cardBg} p-6 rounded-xl border ${borderColor} space-y-6`}>
             {/* 系统名称 */}
             <div className="flex flex-col gap-2">
-              <label className={`${textColor} text-sm font-medium`}>系统名称 (System Name)</label>
+              <label htmlFor="global-config-system-name" className={`${textColor} text-sm font-medium`}>系统名称 (System Name)</label>
               <input
+                id="global-config-system-name"
+                name="globalConfigSystemName"
                 className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent transition-all placeholder:text-gray-600 max-w-md`}
                 type="text"
                 value={brandConfig.systemName}
@@ -116,7 +118,7 @@ const GlobalConfig: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Logo Upload */}
               <div className="flex flex-col gap-3">
-                <label className={`${textColor} text-sm font-medium`}>系统 Logo</label>
+                <label htmlFor="global-config-logo" className={`${textColor} text-sm font-medium`}>系统 Logo</label>
                 <div
                   className={`${uploadBg} border-2 border-dashed ${borderColor} rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer hover:border-[#135bec] transition-colors min-h-[160px]`}
                   onClick={() => logoInputRef.current?.click()}
@@ -136,7 +138,7 @@ const GlobalConfig: React.FC = () => {
                     </>
                   )}
                 </div>
-                <input ref={logoInputRef} type="file" accept="image/png,image/svg+xml,image/jpeg" className="hidden" onChange={handleLogoUpload} />
+                <input id="global-config-logo" name="globalConfigLogo" ref={logoInputRef} type="file" accept="image/png,image/svg+xml,image/jpeg" className="hidden" onChange={handleLogoUpload} />
                 {brandConfig.logoUrl && (
                   <button className={`text-xs ${textSecondary} hover:text-[#ef4444] transition-colors self-start`} onClick={() => setBrandConfig(prev => ({ ...prev, logoUrl: '' }))}>
                     移除 Logo
@@ -146,7 +148,7 @@ const GlobalConfig: React.FC = () => {
 
               {/* Favicon Upload */}
               <div className="flex flex-col gap-3">
-                <label className={`${textColor} text-sm font-medium`}>网站图标 (Favicon)</label>
+                <label htmlFor="global-config-favicon" className={`${textColor} text-sm font-medium`}>网站图标 (Favicon)</label>
                 <div
                   className={`${uploadBg} border-2 border-dashed ${borderColor} rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer hover:border-[#135bec] transition-colors min-h-[160px]`}
                   onClick={() => faviconInputRef.current?.click()}
@@ -166,7 +168,7 @@ const GlobalConfig: React.FC = () => {
                     </>
                   )}
                 </div>
-                <input ref={faviconInputRef} type="file" accept="image/x-icon,image/png,image/svg+xml" className="hidden" onChange={handleFaviconUpload} />
+                <input id="global-config-favicon" name="globalConfigFavicon" ref={faviconInputRef} type="file" accept="image/x-icon,image/png,image/svg+xml" className="hidden" onChange={handleFaviconUpload} />
                 {brandConfig.faviconUrl && (
                   <button className={`text-xs ${textSecondary} hover:text-[#ef4444] transition-colors self-start`} onClick={() => setBrandConfig(prev => ({ ...prev, faviconUrl: '' }))}>
                     移除 Favicon
@@ -212,14 +214,24 @@ const GlobalConfig: React.FC = () => {
                 { key: 'accentColor' as const, label: '强调色 (Accent)', desc: '成功状态、图标' },
               ].map(({ key, label, desc }) => (
                 <div key={key} className="flex flex-col gap-2">
-                  <label className={`${textColor} text-sm font-medium`}>{label}</label>
+                  <label htmlFor={`brand-color-${key}-value`} className={`${textColor} text-sm font-medium`}>{label}</label>
                   <div className="flex items-center gap-3">
-                    <input type="color" value={brandConfig[key]}
+                    <input
+                      id={`brand-color-${key}-picker`}
+                      name={`brandColor${key}Picker`}
+                      type="color"
+                      value={brandConfig[key]}
                       onChange={(e) => setBrandConfig(prev => ({ ...prev, [key]: e.target.value }))}
-                      className="w-12 h-12 rounded-lg cursor-pointer border-0 p-0" />
-                    <input type="text" value={brandConfig[key]}
+                      className="w-12 h-12 rounded-lg cursor-pointer border-0 p-0"
+                    />
+                    <input
+                      id={`brand-color-${key}-value`}
+                      name={`brandColor${key}Value`}
+                      type="text"
+                      value={brandConfig[key]}
                       onChange={(e) => setBrandConfig(prev => ({ ...prev, [key]: e.target.value }))}
-                      className={`flex-1 rounded-lg ${inputBg} border ${borderColor} ${textColor} px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#135bec] uppercase`} />
+                      className={`flex-1 rounded-lg ${inputBg} border ${borderColor} ${textColor} px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#135bec] uppercase`}
+                    />
                   </div>
                   <p className={`text-xs ${textSecondary}`}>{desc}</p>
                 </div>
@@ -252,9 +264,9 @@ const GlobalConfig: React.FC = () => {
           <div className={`${cardBg} p-6 rounded-xl border ${borderColor} space-y-6`}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="flex flex-col gap-2">
-                <label className={`${textColor} text-sm font-medium`}>默认语言 (Default Language)</label>
+                <label htmlFor="global-config-default-language" className={`${textColor} text-sm font-medium`}>默认语言 (Default Language)</label>
                 <div className="relative">
-                  <select className={`w-full appearance-none rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`}
+                  <select id="global-config-default-language" name="globalConfigDefaultLanguage" className={`w-full appearance-none rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`}
                     value={brandConfig.defaultLanguage} onChange={(e) => setBrandConfig(prev => ({ ...prev, defaultLanguage: e.target.value }))}>
                     <option value="zh-CN">简体中文</option>
                     <option value="zh-TW">繁體中文</option>
@@ -268,9 +280,9 @@ const GlobalConfig: React.FC = () => {
                 </div>
               </div>
               <div className="flex flex-col gap-2">
-                <label className={`${textColor} text-sm font-medium`}>默认时区 (Default Timezone)</label>
+                <label htmlFor="global-config-default-timezone" className={`${textColor} text-sm font-medium`}>默认时区 (Default Timezone)</label>
                 <div className="relative">
-                  <select className={`w-full appearance-none rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`}
+                  <select id="global-config-default-timezone" name="globalConfigDefaultTimezone" className={`w-full appearance-none rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`}
                     value={brandConfig.defaultTimezone} onChange={(e) => setBrandConfig(prev => ({ ...prev, defaultTimezone: e.target.value }))}>
                     <option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</option>
                     <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
@@ -299,9 +311,9 @@ const GlobalConfig: React.FC = () => {
           </div>
           <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${cardBg} p-6 rounded-xl border ${borderColor}`}>
             <div className="flex flex-col gap-2">
-              <label className={`${textColor} text-sm font-medium`}>集群 ID (Cluster ID)</label>
+              <label htmlFor="global-config-cluster-id" className={`${textColor} text-sm font-medium`}>集群 ID (Cluster ID)</label>
               <div className="flex gap-2">
-                <input className={`flex-1 rounded-lg ${inputBg} border ${borderColor} ${textSecondary} px-4 py-2.5 text-sm focus:outline-none cursor-not-allowed font-mono`} readOnly defaultValue="c-782j1-log-prod-v2" />
+                <input id="global-config-cluster-id" name="globalConfigClusterId" className={`flex-1 rounded-lg ${inputBg} border ${borderColor} ${textSecondary} px-4 py-2.5 text-sm focus:outline-none cursor-not-allowed font-mono`} readOnly defaultValue="c-782j1-log-prod-v2" />
                 <button className={`p-2.5 rounded-lg ${buttonBg} ${textSecondary} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'} transition-colors`} title="Copy ID">
                   <span className="material-symbols-outlined text-[20px]">content_copy</span>
                 </button>
@@ -309,8 +321,8 @@ const GlobalConfig: React.FC = () => {
               <p className={`text-xs ${textSecondary}`}>系统自动生成的唯一标识符，不可修改。</p>
             </div>
             <div className="flex flex-col gap-2">
-              <label className={`${textColor} text-sm font-medium`}>集群名称 (Cluster Name)</label>
-              <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent transition-all placeholder:text-gray-600`} type="text" defaultValue="Enterprise Log Center HK" />
+              <label htmlFor="global-config-cluster-name" className={`${textColor} text-sm font-medium`}>集群名称 (Cluster Name)</label>
+              <input id="global-config-cluster-name" name="globalConfigClusterName" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent transition-all placeholder:text-gray-600`} type="text" defaultValue="Enterprise Log Center HK" />
             </div>
           </div>
         </section>
@@ -334,9 +346,9 @@ const GlobalConfig: React.FC = () => {
           <div className={`${cardBg} p-6 rounded-xl border ${borderColor} space-y-6`}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="flex flex-col gap-2">
-                <label className={`${textColor} text-sm font-medium`}>存储类型 (Type)</label>
+                <label htmlFor="global-config-storage-type" className={`${textColor} text-sm font-medium`}>存储类型 (Type)</label>
                 <div className="relative">
-                  <select className={`w-full appearance-none rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`}>
+                  <select id="global-config-storage-type" name="globalConfigStorageType" className={`w-full appearance-none rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`}>
                     <option value="elasticsearch">ElasticSearch</option>
                     <option value="doris">Apache Doris</option>
                     <option value="clickhouse">ClickHouse</option>
@@ -347,23 +359,24 @@ const GlobalConfig: React.FC = () => {
                 </div>
               </div>
               <div className="flex flex-col gap-2 md:col-span-2">
-                <label className={`${textColor} text-sm font-medium`}>连接地址 (Endpoint)</label>
-                <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent font-mono`} type="text" defaultValue="http://es-cluster-01.internal:9200" />
+                <label htmlFor="global-config-storage-endpoint" className={`${textColor} text-sm font-medium`}>连接地址 (Endpoint)</label>
+                <input id="global-config-storage-endpoint" name="globalConfigStorageEndpoint" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent font-mono`} type="text" defaultValue="http://es-cluster-01.internal:9200" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="flex flex-col gap-2">
-                <label className={`${textColor} text-sm font-medium`}>用户名 (Username)</label>
-                <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`} placeholder="optional" type="text" />
+                <label htmlFor="global-config-storage-username" className={`${textColor} text-sm font-medium`}>用户名 (Username)</label>
+                <input id="global-config-storage-username" name="globalConfigStorageUsername" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`} placeholder="optional" type="text" />
               </div>
               <div className="flex flex-col gap-2">
-                <label className={`${textColor} text-sm font-medium`}>密码 (Password)</label>
-                <div className="relative">
-                  <input className={`w-full rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`} type="password" defaultValue="supersecretpassword" />
-                  <button className={`absolute inset-y-0 right-0 flex items-center px-3 ${textSecondary} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}>
+                <label htmlFor="global-config-storage-password" className={`${textColor} text-sm font-medium`}>密码 (Password)</label>
+                <form className="relative" onSubmit={(event) => event.preventDefault()}>
+                  <input type="text" name="globalConfigStorageFormUsername" autoComplete="username" className="hidden" tabIndex={-1} aria-hidden="true" />
+                  <input id="global-config-storage-password" name="globalConfigStoragePassword" autoComplete="new-password" className={`w-full rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`} type="password" defaultValue="supersecretpassword" />
+                  <button type="button" className={`absolute inset-y-0 right-0 flex items-center px-3 ${textSecondary} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}>
                     <span className="material-symbols-outlined text-[20px]">visibility_off</span>
                   </button>
-                </div>
+                </form>
               </div>
             </div>
             <div className="flex justify-end pt-2">
@@ -393,28 +406,31 @@ const GlobalConfig: React.FC = () => {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="flex flex-col gap-2 md:col-span-3">
-                <label className={`${textColor} text-sm font-medium`}>SMTP 主机 (Host)</label>
-                <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent font-mono`} placeholder="smtp.example.com" type="text" />
+                <label htmlFor="global-config-smtp-host" className={`${textColor} text-sm font-medium`}>SMTP 主机 (Host)</label>
+                <input id="global-config-smtp-host" name="globalConfigSmtpHost" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent font-mono`} placeholder="smtp.example.com" type="text" />
               </div>
               <div className="flex flex-col gap-2 md:col-span-1">
-                <label className={`${textColor} text-sm font-medium`}>端口 (Port)</label>
-                <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent font-mono`} placeholder="587" type="number" />
+                <label htmlFor="global-config-smtp-port" className={`${textColor} text-sm font-medium`}>端口 (Port)</label>
+                <input id="global-config-smtp-port" name="globalConfigSmtpPort" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent font-mono`} placeholder="587" type="number" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="flex flex-col gap-2">
-                <label className={`${textColor} text-sm font-medium`}>发件人地址 (Sender Email)</label>
-                <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`} placeholder="alerts@company.com" type="email" />
+                <label htmlFor="global-config-smtp-sender" className={`${textColor} text-sm font-medium`}>发件人地址 (Sender Email)</label>
+                <input id="global-config-smtp-sender" name="globalConfigSmtpSender" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-transparent`} placeholder="alerts@company.com" type="email" />
               </div>
               <div className="flex flex-col gap-2">
                 <label className={`${textColor} text-sm font-medium`}>加密方式 (Encryption)</label>
                 <div className="flex gap-4 pt-2">
-                  {['TLS', 'SSL', 'None'].map((enc, i) => (
-                    <label key={enc} className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="encryption" className={`text-[#135bec] ${inputBg} border-gray-600 focus:ring-[#135bec] focus:ring-2`} defaultChecked={i === 0} />
-                      <span className={`${textColor} text-sm`}>{enc}</span>
-                    </label>
-                  ))}
+                  {['TLS', 'SSL', 'None'].map((enc, i) => {
+                    const encryptionId = `global-config-smtp-encryption-${enc.toLowerCase()}`;
+                    return (
+                      <label key={enc} htmlFor={encryptionId} className="flex items-center gap-2 cursor-pointer">
+                        <input id={encryptionId} name="globalConfigSmtpEncryption" type="radio" className={`text-[#135bec] ${inputBg} border-gray-600 focus:ring-[#135bec] focus:ring-2`} defaultChecked={i === 0} />
+                        <span className={`${textColor} text-sm`}>{enc}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -455,20 +471,23 @@ const GlobalConfig: React.FC = () => {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 opacity-50 pointer-events-none select-none grayscale" aria-disabled="true">
                 <div className="flex flex-col gap-2 md:col-span-2">
-                  <label className={`${textColor} text-sm font-medium`}>LDAP 服务器地址 (Server URL)</label>
-                  <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm`} placeholder="ldap://dc1.company.local:389" type="text" />
+                  <label htmlFor="global-config-ldap-server-url" className={`${textColor} text-sm font-medium`}>LDAP 服务器地址 (Server URL)</label>
+                  <input id="global-config-ldap-server-url" name="globalConfigLdapServerUrl" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm`} placeholder="ldap://dc1.company.local:389" type="text" />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className={`${textColor} text-sm font-medium`}>Bind DN</label>
-                  <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm`} placeholder="cn=admin,dc=example,dc=org" type="text" />
+                  <label htmlFor="global-config-ldap-bind-dn" className={`${textColor} text-sm font-medium`}>Bind DN</label>
+                  <input id="global-config-ldap-bind-dn" name="globalConfigLdapBindDn" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm`} placeholder="cn=admin,dc=example,dc=org" type="text" />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className={`${textColor} text-sm font-medium`}>Bind Password</label>
-                  <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm`} placeholder="••••••••" type="password" />
+                  <label htmlFor="global-config-ldap-bind-password" className={`${textColor} text-sm font-medium`}>Bind Password</label>
+                  <form onSubmit={(event) => event.preventDefault()}>
+                    <input type="text" name="globalConfigLdapFormUsername" autoComplete="username" className="hidden" tabIndex={-1} aria-hidden="true" />
+                    <input id="global-config-ldap-bind-password" name="globalConfigLdapBindPassword" autoComplete="new-password" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm`} placeholder="••••••••" type="password" />
+                  </form>
                 </div>
                 <div className="flex flex-col gap-2 md:col-span-2">
-                  <label className={`${textColor} text-sm font-medium`}>用户搜索基准 (Base DN)</label>
-                  <input className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm`} placeholder="ou=users,dc=example,dc=org" type="text" />
+                  <label htmlFor="global-config-ldap-base-dn" className={`${textColor} text-sm font-medium`}>用户搜索基准 (Base DN)</label>
+                  <input id="global-config-ldap-base-dn" name="globalConfigLdapBaseDn" className={`rounded-lg ${inputBg} border ${borderColor} ${textColor} px-4 py-2.5 text-sm`} placeholder="ou=users,dc=example,dc=org" type="text" />
                 </div>
               </div>
             </div>

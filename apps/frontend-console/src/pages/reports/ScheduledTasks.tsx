@@ -263,6 +263,7 @@ const ScheduledTasks: React.FC = () => {
           <div className="relative">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary text-lg">search</span>
             <input
+              id="scheduled-task-search"
               name="scheduled_task_search"
               className={`h-9 w-64 rounded-lg ${inputBg} border ${borderColor} pl-10 pr-4 text-sm ${textColor} placeholder-text-secondary focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all`}
               placeholder="搜索任务名称..."
@@ -529,8 +530,9 @@ const ScheduledTasks: React.FC = () => {
             >
               <div className="p-6 space-y-4">
                 <div>
-                  <label className={`block text-sm font-medium ${textColor} mb-1`}>任务名称</label>
+                  <label htmlFor="scheduled-task-form-name" className={`block text-sm font-medium ${textColor} mb-1`}>任务名称</label>
                   <input
+                    id="scheduled-task-form-name"
                     name="name"
                     autoComplete="off"
                     defaultValue={editingTask?.name || ''}
@@ -540,8 +542,9 @@ const ScheduledTasks: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className={`block text-sm font-medium ${textColor} mb-1`}>关联报表</label>
+                  <label htmlFor="scheduled-task-form-report-name" className={`block text-sm font-medium ${textColor} mb-1`}>关联报表</label>
                   <input
+                    id="scheduled-task-form-report-name"
                     name="reportName"
                     autoComplete="off"
                     defaultValue={editingTask?.reportName || ''}
@@ -550,8 +553,9 @@ const ScheduledTasks: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className={`block text-sm font-medium ${textColor} mb-1`}>执行频率</label>
+                  <label htmlFor="scheduled-task-form-frequency" className={`block text-sm font-medium ${textColor} mb-1`}>执行频率</label>
                   <select
+                    id="scheduled-task-form-frequency"
                     name="frequency"
                     defaultValue={editingTask?.frequency || '每天 00:00'}
                     className={`w-full rounded-lg border ${borderColor} ${inputBg} py-2.5 px-4 text-sm ${textColor} focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary`}

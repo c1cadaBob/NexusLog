@@ -54,7 +54,7 @@ const ConfigVersions: React.FC = () => {
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           <div className="relative flex-1 max-w-lg">
             <span className={`material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`}>search</span>
-            <input className={`w-full ${inputBg} border ${borderColor} ${textColor} rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-[#135bec] placeholder-[#94a3b8] text-sm`} placeholder="搜索版本号、操作员或备注 (Search Version ID, Operator...)" type="text" />
+            <input id="config-versions-search" name="configVersionsSearch" className={`w-full ${inputBg} border ${borderColor} ${textColor} rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#135bec] focus:border-[#135bec] placeholder-[#94a3b8] text-sm`} placeholder="搜索版本号、操作员或备注 (Search Version ID, Operator...)" type="text" />
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2 md:pb-0">
             {[
@@ -63,7 +63,11 @@ const ConfigVersions: React.FC = () => {
               { options: ['状态: 全部', '激活 (Active)', '未激活 (Inactive)'], icon: 'filter_list' },
             ].map((filter, idx) => (
               <div key={idx} className="relative group">
-                <select className={`appearance-none ${inputBg} border ${borderColor} ${versionText} rounded-lg pl-3 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] cursor-pointer min-w-[140px]`}>
+                <select
+                  id={`config-versions-filter-${idx}`}
+                  name={`configVersionsFilter${idx}`}
+                  className={`appearance-none ${inputBg} border ${borderColor} ${versionText} rounded-lg pl-3 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#135bec] cursor-pointer min-w-[140px]`}
+                >
                   {filter.options.map(opt => <option key={opt}>{opt}</option>)}
                 </select>
                 <span className={`material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 ${textSecondary} pointer-events-none text-lg`}>{filter.icon}</span>
