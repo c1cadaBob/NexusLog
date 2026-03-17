@@ -1965,9 +1965,26 @@ const RealtimeSearch: React.FC = () => {
           {recentQueries.map((q) => (
             <Tag
               key={q}
+              role="button"
+              tabIndex={0}
+              aria-label={`执行最近查询 ${q}`}
               className="cursor-pointer"
-              style={{ fontSize: 11, margin: 0 }}
+              style={{
+                fontSize: 11,
+                margin: 0,
+                maxWidth: 320,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={q}
               onClick={() => runSearch(q, true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  runSearch(q, true);
+                }
+              }}
             >
               {q}
             </Tag>

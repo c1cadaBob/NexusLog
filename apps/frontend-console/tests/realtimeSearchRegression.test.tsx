@@ -217,6 +217,36 @@ describe('RealtimeSearch regressions', () => {
     });
   });
 
+  it('lets keyboard users trigger a recent query chip directly', async () => {
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+    });
+
+    const recentQueryChip = screen.getByRole('button', {
+      name: '执行最近查询 service:vault',
+    });
+    fireEvent.keyDown(recentQueryChip, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(2);
+    });
+
+    expect(queryRealtimeLogsMock.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      keywords: 'service:vault',
+      recordHistory: true,
+    }));
+  });
+
   it('drops internal-noise exclusion only for empty-query histogram requests', async () => {
     render(
       <App>
