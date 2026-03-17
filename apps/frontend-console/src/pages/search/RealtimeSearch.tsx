@@ -152,6 +152,20 @@ function resolveRealtimeWindowDurationMS(liveWindow: LiveWindowOption): number {
   }
 }
 
+export function shouldSuppressNextLiveTickAfterInteractiveRefresh(params: {
+  isLive: boolean;
+  liveWindow: LiveWindowOption;
+  explicitTimeRange?: RealtimeExplicitTimeRange | null;
+}): boolean {
+  if (!params.isLive) {
+    return false;
+  }
+  if (hasRealtimeExplicitTimeRange(params.explicitTimeRange)) {
+    return false;
+  }
+  return params.liveWindow !== "all" && params.liveWindow !== "custom";
+}
+
 function shouldUseUnboundedRealtimeQuery(
   liveWindow: LiveWindowOption,
   explicitTimeRange?: RealtimeExplicitTimeRange | null,
@@ -1244,6 +1258,15 @@ const RealtimeSearch: React.FC = () => {
       return;
     }
     lastFilterStateRef.current = nextFilterState;
+    if (
+      shouldSuppressNextLiveTickAfterInteractiveRefresh({
+        isLive: isLiveRef.current,
+        liveWindow,
+        explicitTimeRange: normalizedCustomTimeRange,
+      })
+    ) {
+      suppressNextLiveTickRef.current = true;
+    }
     setCurrentPage(1);
     void executeQueryRef.current({
       queryText: activeQueryRef.current,
@@ -1296,7 +1319,13 @@ const RealtimeSearch: React.FC = () => {
       }
 
       lastFilterStateRef.current = `${nextLevelFilter}\u0000${nextSourceFilter}`;
-      if (isLiveRef.current && !nextExplicitTimeRange) {
+      if (
+        shouldSuppressNextLiveTickAfterInteractiveRefresh({
+          isLive: isLiveRef.current,
+          liveWindow,
+          explicitTimeRange: nextExplicitTimeRange,
+        })
+      ) {
         suppressNextLiveTickRef.current = true;
       }
       setCurrentPage(1);
@@ -1352,6 +1381,14 @@ const RealtimeSearch: React.FC = () => {
         isLiveRef.current = false;
         clearLiveTimer();
         setIsLive(false);
+      } else if (
+        shouldSuppressNextLiveTickAfterInteractiveRefresh({
+          isLive: isLiveRef.current,
+          liveWindow: value,
+          explicitTimeRange: nextExplicitTimeRange,
+        })
+      ) {
+        suppressNextLiveTickRef.current = true;
       }
       setCurrentPage(1);
       void executeQuery({

@@ -10,6 +10,7 @@ import RealtimeSearch, {
   ensureRealtimePageCursor,
   shouldBlockRealtimeDirectPageJump,
   shouldResolveRealtimeDeepPageCursor,
+  shouldSuppressNextLiveTickAfterInteractiveRefresh,
 } from '../src/pages/search/RealtimeSearch';
 
 const queryRealtimeLogsMock = vi.fn();
@@ -464,6 +465,34 @@ describe('RealtimeSearch regressions', () => {
     });
 
     expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('suppresses interactive refreshes only for active bounded live mode', () => {
+    expect(shouldSuppressNextLiveTickAfterInteractiveRefresh({
+      isLive: true,
+      liveWindow: '15m',
+      explicitTimeRange: null,
+    })).toBe(true);
+    expect(shouldSuppressNextLiveTickAfterInteractiveRefresh({
+      isLive: true,
+      liveWindow: '5m',
+      explicitTimeRange: null,
+    })).toBe(true);
+    expect(shouldSuppressNextLiveTickAfterInteractiveRefresh({
+      isLive: false,
+      liveWindow: '15m',
+      explicitTimeRange: null,
+    })).toBe(false);
+    expect(shouldSuppressNextLiveTickAfterInteractiveRefresh({
+      isLive: true,
+      liveWindow: 'all',
+      explicitTimeRange: null,
+    })).toBe(false);
+    expect(shouldSuppressNextLiveTickAfterInteractiveRefresh({
+      isLive: true,
+      liveWindow: 'custom',
+      explicitTimeRange: { from: '2026-03-16T08:00:00.000Z' },
+    })).toBe(false);
   });
 
   it('returns an unbounded from-range only for the all-time mode', () => {
