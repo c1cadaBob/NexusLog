@@ -1,41 +1,78 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Input, Button, Tag, DatePicker, Space, Tooltip, App, Popconfirm, Alert, Empty } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
-import type { Dayjs } from 'dayjs';
-import { useNavigate } from 'react-router-dom';
-import { usePreferencesStore } from '../../stores/preferencesStore';
-import type { QueryHistory } from '../../types/log';
-import { createSavedQuery, deleteQueryHistory, fetchQueryHistory } from '../../api/query';
-import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
-import { buildQueryCleanupState } from './queryCleanupState';
-import QueryCleanupPreviewContent from './queryCleanupPreviewContent';
-import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
+import React, {
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
+import {
+  Table,
+  Input,
+  Button,
+  Tag,
+  DatePicker,
+  Space,
+  Tooltip,
+  App,
+  Popconfirm,
+  Alert,
+  Empty,
+} from "antd";
+import type { ColumnsType } from "antd/es/table";
+import type { Dayjs } from "dayjs";
+import { useNavigate } from "react-router-dom";
+import { usePreferencesStore } from "../../stores/preferencesStore";
+import type { QueryHistory } from "../../types/log";
+import {
+  createSavedQuery,
+  deleteQueryHistory,
+  fetchQueryHistory,
+} from "../../api/query";
+import { persistPendingRealtimeStartupQuery } from "./realtimeStartupQuery";
+import { buildQueryCleanupState } from "./queryCleanupState";
+import QueryCleanupPreviewContent from "./queryCleanupPreviewContent";
+import { usePaginationQuickJumperAccessibility } from "../../components/common/usePaginationQuickJumperAccessibility";
+import {
+  formatSearchPageSummary,
+  formatSearchPageTotal,
+  resolveSearchPageEmptyDescription,
+  resolveSearchPageLoadingLabel,
+  resolveSearchPageVisibleRange,
+} from "./searchPagePresentation";
 
 const SearchHistory: React.FC = () => {
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
 
-  const [keywordInput, setKeywordInput] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+  const [keywordInput, setKeywordInput] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [dateRange, setDateRange] = useState<
+    [Dayjs | null, Dayjs | null] | null
+  >(null);
   const [rows, setRows] = useState<QueryHistory[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [errorText, setErrorText] = useState('');
+  const [errorText, setErrorText] = useState("");
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const storedPageSize = usePreferencesStore((s) => s.pageSizes['searchHistory'] ?? 15);
+  const storedPageSize = usePreferencesStore(
+    (s) => s.pageSizes["searchHistory"] ?? 15,
+  );
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
   const [loadedPage, setLoadedPage] = useState(1);
   const [loadedPageSize, setLoadedPageSize] = useState(storedPageSize);
-  const setPageSize = useCallback((size: number) => {
-    setPageSizeLocal(size);
-    setStoredPageSize('searchHistory', size);
-  }, [setStoredPageSize]);
-  const historyTableRef = usePaginationQuickJumperAccessibility('search-history');
+  const setPageSize = useCallback(
+    (size: number) => {
+      setPageSizeLocal(size);
+      setStoredPageSize("searchHistory", size);
+    },
+    [setStoredPageSize],
+  );
+  const historyTableRef =
+    usePaginationQuickJumperAccessibility("search-history");
   const latestHistoryRequestRef = useRef(0);
   const pendingPaginationRef = useRef<{
     targetPage: number;
@@ -49,7 +86,7 @@ const SearchHistory: React.FC = () => {
     const requestId = latestHistoryRequestRef.current + 1;
     latestHistoryRequestRef.current = requestId;
     setLoading(true);
-    setErrorText('');
+    setErrorText("");
     try {
       const result = await fetchQueryHistory({
         page: currentPage,
@@ -76,13 +113,18 @@ const SearchHistory: React.FC = () => {
       if (requestId !== latestHistoryRequestRef.current) {
         return;
       }
-      const readable = error instanceof Error ? error.message : '查询历史加载失败';
+      const readable =
+        error instanceof Error ? error.message : "查询历史加载失败";
       const pendingPagination = pendingPaginationRef.current;
-      if (pendingPagination && pendingPagination.targetPage === currentPage && pendingPagination.targetPageSize === pageSize) {
+      if (
+        pendingPagination &&
+        pendingPagination.targetPage === currentPage &&
+        pendingPagination.targetPageSize === pageSize
+      ) {
         pendingPaginationRef.current = null;
         setCurrentPage(pendingPagination.previousPage);
         setPageSize(pendingPagination.previousPageSize);
-        message.warning('查询历史分页加载失败，已回退到上一页');
+        message.warning("查询历史分页加载失败，已回退到上一页");
         return;
       }
       setErrorText(readable);
@@ -97,38 +139,48 @@ const SearchHistory: React.FC = () => {
     void loadHistory();
   }, [loadHistory]);
 
-  const selectedHistoryIDs = useMemo(() => selectedRowKeys.map((key) => String(key)), [selectedRowKeys]);
-  const visibleRange = useMemo(() => {
-    if (total === 0 || rows.length === 0) {
-      return { start: 0, end: 0 };
-    }
-    const start = (loadedPage - 1) * loadedPageSize + 1;
-    return {
-      start,
-      end: start + rows.length - 1,
-    };
-  }, [loadedPage, loadedPageSize, rows.length, total]);
+  const selectedHistoryIDs = useMemo(
+    () => selectedRowKeys.map((key) => String(key)),
+    [selectedRowKeys],
+  );
+  const visibleRange = useMemo(
+    () =>
+      resolveSearchPageVisibleRange({
+        total,
+        page: loadedPage,
+        pageSize: loadedPageSize,
+        itemCount: rows.length,
+      }),
+    [loadedPage, loadedPageSize, rows.length, total],
+  );
   const historyEmptyDescription = useMemo(() => {
     const hasKeyword = keyword.trim().length > 0;
     const hasDateFilter = Boolean(dateRange?.[0] || dateRange?.[1]);
-    return hasKeyword || hasDateFilter ? '没有匹配的查询历史' : '暂无查询历史';
+    return resolveSearchPageEmptyDescription(
+      hasKeyword || hasDateFilter,
+      "没有匹配的查询历史",
+      "暂无查询历史",
+    );
   }, [dateRange, keyword]);
 
-  const refreshAfterDelete = useCallback((deletedCount: number) => {
-    setSelectedRowKeys([]);
-    if (deletedCount <= 0) {
+  const refreshAfterDelete = useCallback(
+    (deletedCount: number) => {
+      setSelectedRowKeys([]);
+      if (deletedCount <= 0) {
+        void loadHistory();
+        return;
+      }
+      const nextTotal = Math.max(0, total - deletedCount);
+      const maxPage = Math.max(1, Math.ceil(nextTotal / pageSize));
+      const nextPage = Math.min(currentPage, maxPage);
+      if (nextPage !== currentPage) {
+        setCurrentPage(nextPage);
+        return;
+      }
       void loadHistory();
-      return;
-    }
-    const nextTotal = Math.max(0, total - deletedCount);
-    const maxPage = Math.max(1, Math.ceil(nextTotal / pageSize));
-    const nextPage = Math.min(currentPage, maxPage);
-    if (nextPage !== currentPage) {
-      setCurrentPage(nextPage);
-      return;
-    }
-    void loadHistory();
-  }, [currentPage, loadHistory, pageSize, total]);
+    },
+    [currentPage, loadHistory, pageSize, total],
+  );
 
   const handleSearch = useCallback((value: string) => {
     setSelectedRowKeys([]);
@@ -136,86 +188,100 @@ const SearchHistory: React.FC = () => {
     setKeyword(value.trim());
   }, []);
 
-  const handleReplay = useCallback(async (record: QueryHistory) => {
-    const cleanupState = buildQueryCleanupState({ rawQuery: record.query });
-    const replayQuery = cleanupState.rawQuery.trim();
-    const hasHistoricalTimeRange = Boolean(
-      cleanupState.normalized.timeRange?.from?.trim() || cleanupState.normalized.timeRange?.to?.trim(),
-    );
-    const replayMessage = hasHistoricalTimeRange
-      ? '已跳转到实时检索并按原时间范围自动执行'
-      : '已跳转到实时检索并自动执行';
+  const handleReplay = useCallback(
+    async (record: QueryHistory) => {
+      const cleanupState = buildQueryCleanupState({ rawQuery: record.query });
+      const replayQuery = cleanupState.rawQuery.trim();
+      const hasHistoricalTimeRange = Boolean(
+        cleanupState.normalized.timeRange?.from?.trim() ||
+        cleanupState.normalized.timeRange?.to?.trim(),
+      );
+      const replayMessage = hasHistoricalTimeRange
+        ? "已跳转到实时检索并按原时间范围自动执行"
+        : "已跳转到实时检索并自动执行";
 
-    try {
-      await navigator.clipboard.writeText(replayQuery);
-      message.success(`${replayMessage}，并同步到剪贴板`);
-    } catch {
-      message.info(`${replayMessage}，但未能同步到剪贴板`);
-    }
-
-    persistPendingRealtimeStartupQuery(replayQuery);
-    navigate('/search/realtime', {
-      state: {
-        autoRun: true,
-        presetQuery: replayQuery,
-      },
-    });
-  }, [message, navigate]);
-
-  const handleBookmark = useCallback((record: QueryHistory) => {
-    const now = new Date();
-    const cleanupState = buildQueryCleanupState({ rawQuery: record.query });
-    const persistBookmark = async () => {
       try {
-        await createSavedQuery({
-          name: `历史查询 ${now.toLocaleString('zh-CN')}`,
-          query: cleanupState.cleanedQuery,
-          tags: ['历史查询'],
-        });
-        message.success(cleanupState.normalized.strippedTimeRange ? '已收藏查询语句，并自动移除历史时间范围' : '已收藏查询语句');
-      } catch (error) {
-        const readable = error instanceof Error ? error.message : '收藏失败';
-        message.error(readable);
+        await navigator.clipboard.writeText(replayQuery);
+        message.success(`${replayMessage}，并同步到剪贴板`);
+      } catch {
+        message.info(`${replayMessage}，但未能同步到剪贴板`);
       }
-    };
 
-    if (!cleanupState.needsCleanup) {
-      void persistBookmark();
-      return;
-    }
+      persistPendingRealtimeStartupQuery(replayQuery);
+      navigate("/search/realtime", {
+        state: {
+          autoRun: true,
+          presetQuery: replayQuery,
+        },
+      });
+    },
+    [message, navigate],
+  );
 
-    modal.confirm({
-      title: '收藏前将清洗旧格式查询',
-      okText: '收藏并清洗',
-      cancelText: '取消',
-      width: 720,
-      content: (
-        <QueryCleanupPreviewContent
-          cleanupState={cleanupState}
-          intro="该历史查询包含回放遗留的时间范围。为避免后续继续传播旧格式，收藏时将仅保留可复用的查询语义。"
-          sourceQuery={record.query}
-        />
-      ),
-      onOk: async () => {
-        await persistBookmark();
-      },
-    });
-  }, [message, modal]);
+  const handleBookmark = useCallback(
+    (record: QueryHistory) => {
+      const now = new Date();
+      const cleanupState = buildQueryCleanupState({ rawQuery: record.query });
+      const persistBookmark = async () => {
+        try {
+          await createSavedQuery({
+            name: `历史查询 ${now.toLocaleString("zh-CN")}`,
+            query: cleanupState.cleanedQuery,
+            tags: ["历史查询"],
+          });
+          message.success(
+            cleanupState.normalized.strippedTimeRange
+              ? "已收藏查询语句，并自动移除历史时间范围"
+              : "已收藏查询语句",
+          );
+        } catch (error) {
+          const readable = error instanceof Error ? error.message : "收藏失败";
+          message.error(readable);
+        }
+      };
 
-  const handleDelete = useCallback(async (historyID: string) => {
-    try {
-      const deleted = await deleteQueryHistory(historyID);
-      if (!deleted) {
-        message.warning('记录不存在或已被删除');
+      if (!cleanupState.needsCleanup) {
+        void persistBookmark();
         return;
       }
-      message.success('已删除');
-      refreshAfterDelete(1);
-    } catch (error) {
-      const readable = error instanceof Error ? error.message : '删除失败';
-      message.error(readable);
-    }
-  }, [message, refreshAfterDelete]);
+
+      modal.confirm({
+        title: "收藏前将清洗旧格式查询",
+        okText: "收藏并清洗",
+        cancelText: "取消",
+        width: 720,
+        content: (
+          <QueryCleanupPreviewContent
+            cleanupState={cleanupState}
+            intro="该历史查询包含回放遗留的时间范围。为避免后续继续传播旧格式，收藏时将仅保留可复用的查询语义。"
+            sourceQuery={record.query}
+          />
+        ),
+        onOk: async () => {
+          await persistBookmark();
+        },
+      });
+    },
+    [message, modal],
+  );
+
+  const handleDelete = useCallback(
+    async (historyID: string) => {
+      try {
+        const deleted = await deleteQueryHistory(historyID);
+        if (!deleted) {
+          message.warning("记录不存在或已被删除");
+          return;
+        }
+        message.success("已删除");
+        refreshAfterDelete(1);
+      } catch (error) {
+        const readable = error instanceof Error ? error.message : "删除失败";
+        message.error(readable);
+      }
+    },
+    [message, refreshAfterDelete],
+  );
 
   const handleBatchDelete = useCallback(async () => {
     if (selectedHistoryIDs.length === 0) {
@@ -223,13 +289,15 @@ const SearchHistory: React.FC = () => {
     }
     setBatchDeleting(true);
     try {
-      const results = await Promise.allSettled(selectedHistoryIDs.map((historyID) => deleteQueryHistory(historyID)));
+      const results = await Promise.allSettled(
+        selectedHistoryIDs.map((historyID) => deleteQueryHistory(historyID)),
+      );
       let deletedCount = 0;
       let missingCount = 0;
       let failedCount = 0;
 
       results.forEach((result) => {
-        if (result.status === 'fulfilled') {
+        if (result.status === "fulfilled") {
           if (result.value) {
             deletedCount += 1;
           } else {
@@ -259,96 +327,119 @@ const SearchHistory: React.FC = () => {
     }
   }, [loadHistory, message, refreshAfterDelete, selectedHistoryIDs]);
 
-  const columns: ColumnsType<QueryHistory> = useMemo(() => [
-    {
-      title: '序号',
-      key: 'index',
-      width: 80,
-      align: 'center',
-      render: (_: unknown, __: QueryHistory, index: number) => (
-        <span className="text-sm opacity-60">
-          {(loadedPage - 1) * loadedPageSize + index + 1}
-        </span>
-      ),
-    },
-    {
-      title: '查询语句',
-      dataIndex: 'query',
-      key: 'query',
-      ellipsis: true,
-      render: (v: string) => <span className="font-mono text-sm pl-2">{v}</span>,
-    },
-    {
-      title: '执行时间',
-      dataIndex: 'executedAt',
-      key: 'executedAt',
-      width: 180,
-      render: (v: string) => (
-        <span className="text-sm opacity-70">
-          {new Date(v).toLocaleString('zh-CN')}
-        </span>
-      ),
-    },
-    {
-      title: '耗时',
-      dataIndex: 'duration',
-      key: 'duration',
-      width: 100,
-      render: (v: number) => {
-        const color = v > 1000 ? 'error' : v > 500 ? 'warning' : 'success';
-        return <Tag color={color} style={{ margin: 0, fontSize: 12 }}>{v}ms</Tag>;
+  const columns: ColumnsType<QueryHistory> = useMemo(
+    () => [
+      {
+        title: "序号",
+        key: "index",
+        width: 80,
+        align: "center",
+        render: (_: unknown, __: QueryHistory, index: number) => (
+          <span className="text-sm opacity-60">
+            {(loadedPage - 1) * loadedPageSize + index + 1}
+          </span>
+        ),
       },
-    },
-    {
-      title: '结果数量',
-      dataIndex: 'resultCount',
-      key: 'resultCount',
-      width: 120,
-      render: (v: number) => <span className="text-sm">{v.toLocaleString()}</span>,
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 170,
-      render: (_: unknown, record: QueryHistory) => (
-        <Space size="small">
-          <Tooltip title="重新执行">
-            <Button
-              type="link"
-              size="small"
-              icon={<span className="material-symbols-outlined text-sm">replay</span>}
-              onClick={() => void handleReplay(record)}
-            />
-          </Tooltip>
-          <Tooltip title="收藏">
-            <Button
-              type="link"
-              size="small"
-              icon={<span className="material-symbols-outlined text-sm">bookmark_add</span>}
-              onClick={() => void handleBookmark(record)}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="确认删除"
-            description="删除后不可恢复，是否继续？"
-            okText="删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-            onConfirm={() => void handleDelete(record.id)}
-          >
-            <Tooltip title="删除">
+      {
+        title: "查询语句",
+        dataIndex: "query",
+        key: "query",
+        ellipsis: true,
+        render: (v: string) => (
+          <span className="font-mono text-sm pl-2">{v}</span>
+        ),
+      },
+      {
+        title: "执行时间",
+        dataIndex: "executedAt",
+        key: "executedAt",
+        width: 180,
+        render: (v: string) => (
+          <span className="text-sm opacity-70">
+            {new Date(v).toLocaleString("zh-CN")}
+          </span>
+        ),
+      },
+      {
+        title: "耗时",
+        dataIndex: "duration",
+        key: "duration",
+        width: 100,
+        render: (v: number) => {
+          const color = v > 1000 ? "error" : v > 500 ? "warning" : "success";
+          return (
+            <Tag color={color} style={{ margin: 0, fontSize: 12 }}>
+              {v}ms
+            </Tag>
+          );
+        },
+      },
+      {
+        title: "结果数量",
+        dataIndex: "resultCount",
+        key: "resultCount",
+        width: 120,
+        render: (v: number) => (
+          <span className="text-sm">{v.toLocaleString()}</span>
+        ),
+      },
+      {
+        title: "操作",
+        key: "actions",
+        width: 170,
+        render: (_: unknown, record: QueryHistory) => (
+          <Space size="small">
+            <Tooltip title="重新执行">
               <Button
                 type="link"
                 size="small"
-                danger
-                icon={<span className="material-symbols-outlined text-sm">delete</span>}
+                icon={
+                  <span className="material-symbols-outlined text-sm">
+                    replay
+                  </span>
+                }
+                onClick={() => void handleReplay(record)}
               />
             </Tooltip>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ], [handleBookmark, handleDelete, handleReplay, loadedPage, loadedPageSize]);
+            <Tooltip title="收藏">
+              <Button
+                type="link"
+                size="small"
+                icon={
+                  <span className="material-symbols-outlined text-sm">
+                    bookmark_add
+                  </span>
+                }
+                onClick={() => void handleBookmark(record)}
+              />
+            </Tooltip>
+            <Popconfirm
+              title="确认删除"
+              description="删除后不可恢复，是否继续？"
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void handleDelete(record.id)}
+            >
+              <Tooltip title="删除">
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  icon={
+                    <span className="material-symbols-outlined text-sm">
+                      delete
+                    </span>
+                  }
+                />
+              </Tooltip>
+            </Popconfirm>
+          </Space>
+        ),
+      },
+    ],
+    [handleBookmark, handleDelete, handleReplay, loadedPage, loadedPageSize],
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -365,22 +456,22 @@ const SearchHistory: React.FC = () => {
           style={{ width: 300 }}
         />
         <DatePicker.RangePicker
-          id={{ start: 'search-history-start', end: 'search-history-end' }}
+          id={{ start: "search-history-start", end: "search-history-end" }}
           value={dateRange}
-          showTime={{ format: 'HH:mm:ss' }}
+          showTime={{ format: "HH:mm:ss" }}
           format="YYYY-MM-DD HH:mm:ss"
           onChange={(dates) => {
             setSelectedRowKeys([]);
             setCurrentPage(1);
             setDateRange(dates as [Dayjs | null, Dayjs | null] | null);
           }}
-          placeholder={['开始时间', '结束时间']}
+          placeholder={["开始时间", "结束时间"]}
         />
         <Button
           onClick={() => {
             setSelectedRowKeys([]);
-            setKeywordInput('');
-            setKeyword('');
+            setKeywordInput("");
+            setKeyword("");
             setDateRange(null);
             setCurrentPage(1);
           }}
@@ -401,19 +492,22 @@ const SearchHistory: React.FC = () => {
               danger
               disabled={selectedHistoryIDs.length === 0}
               loading={batchDeleting}
-              icon={<span className="material-symbols-outlined text-sm">delete_sweep</span>}
+              icon={
+                <span className="material-symbols-outlined text-sm">
+                  delete_sweep
+                </span>
+              }
             >
               批量删除
             </Button>
           </span>
         </Popconfirm>
         <span className="text-xs opacity-50">
-          共 {total.toLocaleString()} 条记录
-          {total > 0 ? `（当前显示第 ${visibleRange.start}-${visibleRange.end} 条）` : ''}
+          {formatSearchPageSummary(total, "条记录", visibleRange, "条")}
         </span>
         {loading && !batchDeleting && (
           <Tag color="processing" style={{ margin: 0 }}>
-            {rows.length === 0 ? '加载中' : '刷新中'}
+            {resolveSearchPageLoadingLabel(rows.length)}
           </Tag>
         )}
         {selectedHistoryIDs.length > 0 && (
@@ -429,7 +523,11 @@ const SearchHistory: React.FC = () => {
           showIcon
           message="查询历史加载失败"
           description={errorText}
-          action={<Button size="small" onClick={() => void loadHistory()}>重试</Button>}
+          action={
+            <Button size="small" onClick={() => void loadHistory()}>
+              重试
+            </Button>
+          }
         />
       )}
 
@@ -443,29 +541,31 @@ const SearchHistory: React.FC = () => {
             onChange: setSelectedRowKeys,
             preserveSelectedRowKeys: true,
             getTitleCheckboxProps: () => ({
-              id: 'search-history-select-all',
-              name: 'search-history-select-all',
-              'aria-label': '选择全部查询历史',
+              id: "search-history-select-all",
+              name: "search-history-select-all",
+              "aria-label": "选择全部查询历史",
             }),
             getCheckboxProps: (record) => ({
               disabled: batchDeleting,
               id: `search-history-select-${record.id}`,
               name: `search-history-select-${record.id}`,
-              'aria-label': `选择查询历史 ${record.id}`,
+              "aria-label": `选择查询历史 ${record.id}`,
             }),
           }}
           size="small"
           loading={loading || batchDeleting}
-          locale={{ emptyText: <Empty description={historyEmptyDescription} /> }}
+          locale={{
+            emptyText: <Empty description={historyEmptyDescription} />,
+          }}
           pagination={{
             current: currentPage,
             pageSize,
             total,
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (count) => `共 ${count} 条`,
-            pageSizeOptions: ['10', '15', '20', '50', '100'],
-            position: ['bottomLeft'],
+            showTotal: (count) => formatSearchPageTotal(count, "条"),
+            pageSizeOptions: ["10", "15", "20", "50", "100"],
+            position: ["bottomLeft"],
             onChange: (page, size) => {
               setSelectedRowKeys([]);
               const nextPageSize = size ?? pageSize;

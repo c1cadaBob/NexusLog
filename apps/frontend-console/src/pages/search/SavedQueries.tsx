@@ -1,16 +1,52 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Card, Input, Tag, Button, Row, Col, Space, Empty, Tooltip, App, Modal, Form, Select, Popconfirm, Alert, Pagination, Spin } from 'antd';
-import { useNavigate } from 'react-router-dom';
-import { COLORS } from '../../theme/tokens';
-import { usePreferencesStore } from '../../stores/preferencesStore';
-import type { SavedQuery } from '../../types/log';
-import { createSavedQuery, deleteSavedQuery, fetchSavedQueries, updateSavedQuery } from '../../api/query';
-import { persistPendingRealtimeStartupQuery } from './realtimeStartupQuery';
-import { buildQueryCleanupState } from './queryCleanupState';
-import QueryCleanupPreviewContent from './queryCleanupPreviewContent';
-import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
+import React, {
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
+import {
+  Card,
+  Input,
+  Tag,
+  Button,
+  Row,
+  Col,
+  Space,
+  Empty,
+  Tooltip,
+  App,
+  Modal,
+  Form,
+  Select,
+  Popconfirm,
+  Alert,
+  Pagination,
+} from "antd";
+import { useNavigate } from "react-router-dom";
+import { COLORS } from "../../theme/tokens";
+import { usePreferencesStore } from "../../stores/preferencesStore";
+import type { SavedQuery } from "../../types/log";
+import {
+  createSavedQuery,
+  deleteSavedQuery,
+  fetchSavedQueries,
+  updateSavedQuery,
+} from "../../api/query";
+import { persistPendingRealtimeStartupQuery } from "./realtimeStartupQuery";
+import { buildQueryCleanupState } from "./queryCleanupState";
+import QueryCleanupPreviewContent from "./queryCleanupPreviewContent";
+import { usePaginationQuickJumperAccessibility } from "../../components/common/usePaginationQuickJumperAccessibility";
+import InlineLoadingState from "../../components/common/InlineLoadingState";
+import {
+  formatSearchPageSummary,
+  formatSearchPageTotal,
+  resolveSearchPageEmptyDescription,
+  resolveSearchPageLoadingLabel,
+  resolveSearchPageVisibleRange,
+} from "./searchPagePresentation";
 
-type ModalMode = 'create' | 'edit';
+type ModalMode = "create" | "edit";
 
 const SavedQueries: React.FC = () => {
   const { message: msg, modal } = App.useApp();
@@ -20,21 +56,29 @@ const SavedQueries: React.FC = () => {
   const [savedList, setSavedList] = useState<SavedQuery[]>([]);
   const [knownTags, setKnownTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [errorText, setErrorText] = useState('');
+  const [errorText, setErrorText] = useState("");
 
-  const [searchText, setSearchText] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
+  const [searchText, setSearchText] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const storedPageSize = usePreferencesStore((s) => s.pageSizes.savedQueries ?? 12);
+  const storedPageSize = usePreferencesStore(
+    (s) => s.pageSizes.savedQueries ?? 12,
+  );
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
-  const setPageSize = useCallback((size: number) => {
-    setPageSizeLocal(size);
-    setStoredPageSize('savedQueries', size);
-  }, [setStoredPageSize]);
-  const savedPaginationRef = usePaginationQuickJumperAccessibility('saved-queries');
+  const [loadedPage, setLoadedPage] = useState(1);
+  const [loadedPageSize, setLoadedPageSize] = useState(storedPageSize);
+  const setPageSize = useCallback(
+    (size: number) => {
+      setPageSizeLocal(size);
+      setStoredPageSize("savedQueries", size);
+    },
+    [setStoredPageSize],
+  );
+  const savedPaginationRef =
+    usePaginationQuickJumperAccessibility("saved-queries");
   const latestSavedRequestRef = useRef(0);
   const pendingPaginationRef = useRef<{
     targetPage: number;
@@ -44,10 +88,31 @@ const SavedQueries: React.FC = () => {
   } | null>(null);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<ModalMode>('create');
+  const [modalMode, setModalMode] = useState<ModalMode>("create");
   const [editingItem, setEditingItem] = useState<SavedQuery | null>(null);
   const [cleanupSubmitting, setCleanupSubmitting] = useState(false);
-  const watchedModalQuery = Form.useWatch('query', form);
+  const watchedModalQuery = Form.useWatch("query", form);
+
+  const visibleRange = useMemo(
+    () =>
+      resolveSearchPageVisibleRange({
+        total,
+        page: loadedPage,
+        pageSize: loadedPageSize,
+        itemCount: savedList.length,
+      }),
+    [loadedPage, loadedPageSize, savedList.length, total],
+  );
+
+  const savedEmptyDescription = useMemo(
+    () =>
+      resolveSearchPageEmptyDescription(
+        Boolean(appliedSearch || selectedTag),
+        "没有匹配的收藏查询",
+        "暂无收藏查询",
+      ),
+    [appliedSearch, selectedTag],
+  );
 
   const mergedTags = useMemo(() => {
     const values = new Set<string>(knownTags);
@@ -55,13 +120,17 @@ const SavedQueries: React.FC = () => {
     if (selectedTag) {
       values.add(selectedTag);
     }
-    return Array.from(values).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    return Array.from(values).sort((a, b) => a.localeCompare(b, "zh-CN"));
   }, [knownTags, savedList, selectedTag]);
 
-  const savedQueryDiagnostics = useMemo(() => savedList.map((item) => ({
-    item,
-    ...buildQueryCleanupState({ rawQuery: item.query }),
-  })), [savedList]);
+  const savedQueryDiagnostics = useMemo(
+    () =>
+      savedList.map((item) => ({
+        item,
+        ...buildQueryCleanupState({ rawQuery: item.query }),
+      })),
+    [savedList],
+  );
 
   const dirtySavedQueries = useMemo(
     () => savedQueryDiagnostics.filter((entry) => entry.needsCleanup),
@@ -69,7 +138,8 @@ const SavedQueries: React.FC = () => {
   );
 
   const modalQueryCleanupPreview = useMemo(() => {
-    const rawQuery = typeof watchedModalQuery === 'string' ? watchedModalQuery.trim() : '';
+    const rawQuery =
+      typeof watchedModalQuery === "string" ? watchedModalQuery.trim() : "";
     if (!rawQuery) {
       return null;
     }
@@ -83,7 +153,7 @@ const SavedQueries: React.FC = () => {
     const requestId = latestSavedRequestRef.current + 1;
     latestSavedRequestRef.current = requestId;
     setLoading(true);
-    setErrorText('');
+    setErrorText("");
     try {
       const result = await fetchSavedQueries({
         page: currentPage,
@@ -96,14 +166,18 @@ const SavedQueries: React.FC = () => {
       }
       setSavedList(result.items);
       setTotal(result.total);
+      setLoadedPage(result.page);
+      setLoadedPageSize(result.pageSize);
       pendingPaginationRef.current = null;
       if (Array.isArray(result.availableTags)) {
         setKnownTags(result.availableTags);
       } else {
         setKnownTags((prev) => {
           const merged = new Set(prev);
-          result.items.forEach((item) => item.tags.forEach((tag) => merged.add(tag)));
-          return Array.from(merged).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+          result.items.forEach((item) =>
+            item.tags.forEach((tag) => merged.add(tag)),
+          );
+          return Array.from(merged).sort((a, b) => a.localeCompare(b, "zh-CN"));
         });
       }
       if (result.page !== currentPage) {
@@ -116,13 +190,18 @@ const SavedQueries: React.FC = () => {
       if (requestId !== latestSavedRequestRef.current) {
         return;
       }
-      const readable = error instanceof Error ? error.message : '加载收藏查询失败';
+      const readable =
+        error instanceof Error ? error.message : "加载收藏查询失败";
       const pendingPagination = pendingPaginationRef.current;
-      if (pendingPagination && pendingPagination.targetPage === currentPage && pendingPagination.targetPageSize === pageSize) {
+      if (
+        pendingPagination &&
+        pendingPagination.targetPage === currentPage &&
+        pendingPagination.targetPageSize === pageSize
+      ) {
         pendingPaginationRef.current = null;
         setCurrentPage(pendingPagination.previousPage);
         setPageSize(pendingPagination.previousPageSize);
-        msg.warning('收藏查询分页加载失败，已回退到上一页');
+        msg.warning("收藏查询分页加载失败，已回退到上一页");
         return;
       }
       setErrorText(readable);
@@ -138,106 +217,125 @@ const SavedQueries: React.FC = () => {
   }, [loadSavedQueries]);
 
   const openCreateModal = useCallback(() => {
-    setModalMode('create');
+    setModalMode("create");
     setEditingItem(null);
     form.resetFields();
     form.setFieldsValue({ tags: [] });
     setEditModalOpen(true);
   }, [form]);
 
-  const openEditModal = useCallback((item: SavedQuery) => {
-    setModalMode('edit');
-    setEditingItem(item);
-    form.setFieldsValue({
-      name: item.name,
-      query: item.query,
-      tags: item.tags,
-    });
-    setEditModalOpen(true);
-  }, [form]);
+  const openEditModal = useCallback(
+    (item: SavedQuery) => {
+      setModalMode("edit");
+      setEditingItem(item);
+      form.setFieldsValue({
+        name: item.name,
+        query: item.query,
+        tags: item.tags,
+      });
+      setEditModalOpen(true);
+    },
+    [form],
+  );
 
   const handleSave = useCallback(async () => {
     try {
       const values = await form.validateFields();
-      const rawQuery = String(values.query ?? '').trim();
+      const rawQuery = String(values.query ?? "").trim();
       const cleanupState = buildQueryCleanupState({ rawQuery });
       const cleanedQuery = cleanupState.cleanedQuery;
       const payload = {
-        name: String(values.name ?? '').trim(),
+        name: String(values.name ?? "").trim(),
         query: cleanedQuery,
         tags: Array.isArray(values.tags)
-          ? values.tags.map((tag: unknown) => String(tag).trim()).filter(Boolean)
+          ? values.tags
+              .map((tag: unknown) => String(tag).trim())
+              .filter(Boolean)
           : [],
       };
       if (!payload.name || !payload.query) {
-        msg.warning('请填写完整查询名称和语句');
+        msg.warning("请填写完整查询名称和语句");
         return;
       }
 
       const normalizedChangedQuery = cleanupState.needsCleanup;
-      if (modalMode === 'create') {
+      if (modalMode === "create") {
         await createSavedQuery(payload);
-        msg.success(normalizedChangedQuery ? '已创建收藏查询，并自动清洗旧格式时间范围' : '已创建收藏查询');
+        msg.success(
+          normalizedChangedQuery
+            ? "已创建收藏查询，并自动清洗旧格式时间范围"
+            : "已创建收藏查询",
+        );
       } else if (editingItem) {
         await updateSavedQuery(editingItem.id, payload);
-        msg.success(normalizedChangedQuery ? '已保存修改，并自动清洗旧格式时间范围' : '已保存修改');
+        msg.success(
+          normalizedChangedQuery
+            ? "已保存修改，并自动清洗旧格式时间范围"
+            : "已保存修改",
+        );
       }
 
       setEditModalOpen(false);
       setEditingItem(null);
-      if (currentPage !== 1 && modalMode === 'create') {
+      if (currentPage !== 1 && modalMode === "create") {
         setCurrentPage(1);
         return;
       }
       void loadSavedQueries();
     } catch (error) {
-      if (error instanceof Error && error.message.includes('required')) {
+      if (error instanceof Error && error.message.includes("required")) {
         return;
       }
-      const readable = error instanceof Error ? error.message : '保存失败';
+      const readable = error instanceof Error ? error.message : "保存失败";
       msg.error(readable);
     }
   }, [currentPage, editingItem, form, loadSavedQueries, modalMode, msg]);
 
-  const handleDelete = useCallback(async (id: string) => {
-    try {
-      const deleted = await deleteSavedQuery(id);
-      if (!deleted) {
-        msg.warning('记录不存在或已被删除');
-        return;
+  const handleDelete = useCallback(
+    async (id: string) => {
+      try {
+        const deleted = await deleteSavedQuery(id);
+        if (!deleted) {
+          msg.warning("记录不存在或已被删除");
+          return;
+        }
+        msg.success("已删除");
+        if (savedList.length === 1 && currentPage > 1) {
+          setCurrentPage(currentPage - 1);
+          return;
+        }
+        void loadSavedQueries();
+      } catch (error) {
+        const readable = error instanceof Error ? error.message : "删除失败";
+        msg.error(readable);
       }
-      msg.success('已删除');
-      if (savedList.length === 1 && currentPage > 1) {
-        setCurrentPage(currentPage - 1);
-        return;
-      }
-      void loadSavedQueries();
-    } catch (error) {
-      const readable = error instanceof Error ? error.message : '删除失败';
-      msg.error(readable);
-    }
-  }, [currentPage, loadSavedQueries, msg, savedList.length]);
+    },
+    [currentPage, loadSavedQueries, msg, savedList.length],
+  );
 
-  const handleExecute = useCallback(async (item: SavedQuery) => {
-    const presetQuery = item.query.trim();
-    if (!presetQuery) {
-      msg.warning('收藏查询语句为空，无法执行');
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(presetQuery);
-      msg.success('已执行收藏查询并同步到剪贴板');
-    } catch {
-      msg.info(`请在实时检索页执行: ${presetQuery}`);
-    }
-    persistPendingRealtimeStartupQuery(presetQuery);
-    navigate('/search/realtime', {
-      state: {
-        autoRun: true,
-        presetQuery,
-      },
-    });
-  }, [msg, navigate]);
+  const handleExecute = useCallback(
+    async (item: SavedQuery) => {
+      const presetQuery = item.query.trim();
+      if (!presetQuery) {
+        msg.warning("收藏查询语句为空，无法执行");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(presetQuery);
+        msg.success("已执行收藏查询并同步到剪贴板");
+      } catch {
+        msg.info(`请在实时检索页执行: ${presetQuery}`);
+      }
+      persistPendingRealtimeStartupQuery(presetQuery);
+      navigate("/search/realtime", {
+        state: {
+          autoRun: true,
+          presetQuery,
+        },
+      });
+    },
+    [msg, navigate],
+  );
 
   const performCleanupDirtyQueries = useCallback(async () => {
     if (dirtySavedQueries.length === 0) {
@@ -245,15 +343,19 @@ const SavedQueries: React.FC = () => {
     }
     setCleanupSubmitting(true);
     try {
-      const results = await Promise.allSettled(dirtySavedQueries.map(({ item, cleanedQuery }) => updateSavedQuery(item.id, {
-        name: item.name,
-        query: cleanedQuery,
-        tags: item.tags,
-      })));
+      const results = await Promise.allSettled(
+        dirtySavedQueries.map(({ item, cleanedQuery }) =>
+          updateSavedQuery(item.id, {
+            name: item.name,
+            query: cleanedQuery,
+            tags: item.tags,
+          }),
+        ),
+      );
       let successCount = 0;
       let failedCount = 0;
       results.forEach((result) => {
-        if (result.status === 'fulfilled') {
+        if (result.status === "fulfilled") {
           successCount += 1;
           return;
         }
@@ -278,9 +380,9 @@ const SavedQueries: React.FC = () => {
     }
 
     modal.confirm({
-      title: '批量清洗旧格式收藏查询',
-      okText: '确认清洗',
-      cancelText: '取消',
+      title: "批量清洗旧格式收藏查询",
+      okText: "确认清洗",
+      cancelText: "取消",
       width: 760,
       content: (
         <div className="flex flex-col gap-3">
@@ -288,15 +390,23 @@ const SavedQueries: React.FC = () => {
             以下收藏查询仍包含历史时间范围。确认后会批量移除旧格式时间范围，仅保留可复用的查询语义与筛选条件。
           </div>
           <div className="flex gap-2 flex-wrap">
-            <Tag color="warning" style={{ margin: 0 }}>待清洗 {dirtySavedQueries.length} 条收藏</Tag>
+            <Tag color="warning" style={{ margin: 0 }}>
+              待清洗 {dirtySavedQueries.length} 条收藏
+            </Tag>
           </div>
           <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
             {dirtySavedQueries.map(({ item, cleanedQuery, previewFilters }) => (
-              <div key={item.id} className="rounded border p-3 flex flex-col gap-2" style={{ borderColor: 'rgba(245, 158, 11, 0.28)' }}>
+              <div
+                key={item.id}
+                className="rounded border p-3 flex flex-col gap-2"
+                style={{ borderColor: "rgba(245, 158, 11, 0.28)" }}
+              >
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="text-sm font-medium">{item.name}</div>
                   {previewFilters.length > 0 && (
-                    <Tag color="blue" style={{ margin: 0 }}>保留 {previewFilters.length} 个筛选条件</Tag>
+                    <Tag color="blue" style={{ margin: 0 }}>
+                      保留 {previewFilters.length} 个筛选条件
+                    </Tag>
                   )}
                 </div>
                 {previewFilters.length > 0 && (
@@ -304,7 +414,11 @@ const SavedQueries: React.FC = () => {
                     <div className="text-xs opacity-60">保留筛选</div>
                     <div className="flex gap-2 flex-wrap">
                       {previewFilters.map((filter) => (
-                        <Tag key={`${item.id}-${filter.key}`} color="blue" style={{ margin: 0 }}>
+                        <Tag
+                          key={`${item.id}-${filter.key}`}
+                          color="blue"
+                          style={{ margin: 0 }}
+                        >
                           {filter.label}: {filter.value}
                         </Tag>
                       ))}
@@ -313,13 +427,19 @@ const SavedQueries: React.FC = () => {
                 )}
                 <div className="flex flex-col gap-1">
                   <div className="text-xs opacity-60">当前收藏</div>
-                  <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.04)' }}>
+                  <div
+                    className="font-mono text-sm p-2 rounded break-all"
+                    style={{ backgroundColor: "rgba(0,0,0,0.04)" }}
+                  >
                     {item.query}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
                   <div className="text-xs opacity-60">清洗后写入</div>
-                  <div className="font-mono text-sm p-2 rounded break-all" style={{ backgroundColor: 'rgba(0,0,0,0.06)' }}>
+                  <div
+                    className="font-mono text-sm p-2 rounded break-all"
+                    style={{ backgroundColor: "rgba(0,0,0,0.06)" }}
+                  >
                     {cleanedQuery}
                   </div>
                 </div>
@@ -354,7 +474,7 @@ const SavedQueries: React.FC = () => {
         <div className="flex items-center gap-2 flex-wrap">
           <Tag
             className="cursor-pointer"
-            color={selectedTag === null ? 'blue' : undefined}
+            color={selectedTag === null ? "blue" : undefined}
             onClick={() => {
               setSelectedTag(null);
               setCurrentPage(1);
@@ -366,7 +486,7 @@ const SavedQueries: React.FC = () => {
             <Tag
               key={tag}
               className="cursor-pointer"
-              color={selectedTag === tag ? 'blue' : undefined}
+              color={selectedTag === tag ? "blue" : undefined}
               onClick={() => {
                 setSelectedTag(selectedTag === tag ? null : tag);
                 setCurrentPage(1);
@@ -381,8 +501,8 @@ const SavedQueries: React.FC = () => {
         </Button>
         <Button
           onClick={() => {
-            setSearchText('');
-            setAppliedSearch('');
+            setSearchText("");
+            setAppliedSearch("");
             setSelectedTag(null);
             setCurrentPage(1);
           }}
@@ -390,11 +510,11 @@ const SavedQueries: React.FC = () => {
           重置
         </Button>
         <span className="text-sm opacity-50 ml-auto">
-          共 {total.toLocaleString()} 个收藏
+          {formatSearchPageSummary(total, "个收藏", visibleRange, "个")}
         </span>
         {loading && (
           <Tag color="processing" style={{ margin: 0 }}>
-            {savedList.length === 0 ? '加载中' : '刷新中'}
+            {resolveSearchPageLoadingLabel(savedList.length)}
           </Tag>
         )}
       </div>
@@ -405,7 +525,11 @@ const SavedQueries: React.FC = () => {
           showIcon
           message="收藏查询加载失败"
           description={errorText}
-          action={<Button size="small" onClick={() => void loadSavedQueries()}>重试</Button>}
+          action={
+            <Button size="small" onClick={() => void loadSavedQueries()}>
+              重试
+            </Button>
+          }
         />
       )}
 
@@ -415,113 +539,161 @@ const SavedQueries: React.FC = () => {
           showIcon
           message={`检测到 ${dirtySavedQueries.length} 条旧格式收藏查询`}
           description="这些查询仍包含历史回放遗留的时间范围，执行时虽然已兼容，但建议一键清洗，避免后续继续传播旧格式。"
-          action={(
-            <Button size="small" type="primary" loading={cleanupSubmitting} onClick={() => void handleCleanupDirtyQueries()}>
+          action={
+            <Button
+              size="small"
+              type="primary"
+              loading={cleanupSubmitting}
+              onClick={() => void handleCleanupDirtyQueries()}
+            >
               一键清洗
             </Button>
-          )}
+          }
         />
       )}
 
       {loading && savedList.length === 0 ? (
-        <div className="py-8 flex flex-col items-center gap-3">
-          <Spin size="large" />
-          <span className="text-sm opacity-60">加载收藏查询...</span>
+        <div className="py-8">
+          <InlineLoadingState size="large" tip="加载收藏查询..." />
         </div>
       ) : savedList.length === 0 ? (
-        <Empty description={appliedSearch || selectedTag ? '没有匹配的收藏查询' : '暂无收藏查询'} />
+        <Empty description={savedEmptyDescription} />
       ) : (
         <>
           <Row gutter={[16, 16]}>
-            {savedQueryDiagnostics.map(({ item, normalized, needsCleanup, previewFilters }) => (
-              <Col key={item.id} xs={24} md={12} xl={8}>
-                <Card hoverable size="small" styles={{ body: { padding: 16 } }} loading={loading}>
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="material-symbols-outlined text-base" style={{ color: COLORS.warning }}>
-                          bookmark
-                        </span>
-                        <span className="text-sm font-medium">{item.name}</span>
-                        {needsCleanup && <Tag color="warning" style={{ margin: 0 }}>旧格式</Tag>}
-                        {Object.keys(normalized.filters).length > 0 && <Tag color="blue" style={{ margin: 0 }}>含筛选</Tag>}
-                      </div>
-                      <Space size={0}>
-                        <Tooltip title="执行">
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<span className="material-symbols-outlined text-sm">play_arrow</span>}
-                            onClick={() => void handleExecute(item)}
-                          />
-                        </Tooltip>
-                        <Tooltip title="编辑">
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<span className="material-symbols-outlined text-sm">edit</span>}
-                            onClick={() => openEditModal(item)}
-                          />
-                        </Tooltip>
-                        <Popconfirm
-                          title="确认删除"
-                          description={`确定要删除「${item.name}」吗？`}
-                          onConfirm={() => void handleDelete(item.id)}
-                          okText="删除"
-                          cancelText="取消"
-                          okButtonProps={{ danger: true }}
-                        >
-                          <Tooltip title="删除">
+            {savedQueryDiagnostics.map(
+              ({ item, normalized, needsCleanup, previewFilters }) => (
+                <Col key={item.id} xs={24} md={12} xl={8}>
+                  <Card
+                    hoverable
+                    size="small"
+                    styles={{ body: { padding: 16 } }}
+                    loading={loading}
+                  >
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className="material-symbols-outlined text-base"
+                            style={{ color: COLORS.warning }}
+                          >
+                            bookmark
+                          </span>
+                          <span className="text-sm font-medium">
+                            {item.name}
+                          </span>
+                          {needsCleanup && (
+                            <Tag color="warning" style={{ margin: 0 }}>
+                              旧格式
+                            </Tag>
+                          )}
+                          {Object.keys(normalized.filters).length > 0 && (
+                            <Tag color="blue" style={{ margin: 0 }}>
+                              含筛选
+                            </Tag>
+                          )}
+                        </div>
+                        <Space size={0}>
+                          <Tooltip title="执行">
                             <Button
                               type="text"
                               size="small"
-                              danger
-                              icon={<span className="material-symbols-outlined text-sm">delete</span>}
+                              icon={
+                                <span className="material-symbols-outlined text-sm">
+                                  play_arrow
+                                </span>
+                              }
+                              onClick={() => void handleExecute(item)}
                             />
                           </Tooltip>
-                        </Popconfirm>
-                      </Space>
-                    </div>
+                          <Tooltip title="编辑">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={
+                                <span className="material-symbols-outlined text-sm">
+                                  edit
+                                </span>
+                              }
+                              onClick={() => openEditModal(item)}
+                            />
+                          </Tooltip>
+                          <Popconfirm
+                            title="确认删除"
+                            description={`确定要删除「${item.name}」吗？`}
+                            onConfirm={() => void handleDelete(item.id)}
+                            okText="删除"
+                            cancelText="取消"
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Tooltip title="删除">
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={
+                                  <span className="material-symbols-outlined text-sm">
+                                    delete
+                                  </span>
+                                }
+                              />
+                            </Tooltip>
+                          </Popconfirm>
+                        </Space>
+                      </div>
 
-                    <div
-                      className="font-mono text-sm p-2 rounded overflow-hidden text-ellipsis whitespace-nowrap"
-                      style={{ backgroundColor: 'rgba(0,0,0,0.06)' }}
-                      title={item.query}
-                    >
-                      {item.query}
-                    </div>
+                      <div
+                        className="font-mono text-sm p-2 rounded overflow-hidden text-ellipsis whitespace-nowrap"
+                        style={{ backgroundColor: "rgba(0,0,0,0.06)" }}
+                        title={item.query}
+                      >
+                        {item.query}
+                      </div>
 
-                    {previewFilters.length > 0 && (
-                      <div className="flex flex-col gap-1">
-                        <div className="text-xs opacity-50">
-                          {needsCleanup ? '清洗后保留筛选' : '筛选条件'}
+                      {previewFilters.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                          <div className="text-xs opacity-50">
+                            {needsCleanup ? "清洗后保留筛选" : "筛选条件"}
+                          </div>
+                          <div className="flex gap-2 flex-wrap">
+                            {previewFilters.map((filter) => (
+                              <Tag
+                                key={`${item.id}-${filter.key}`}
+                                color="blue"
+                                style={{ margin: 0 }}
+                              >
+                                {filter.label}: {filter.value}
+                              </Tag>
+                            ))}
+                          </div>
                         </div>
-                        <div className="flex gap-2 flex-wrap">
-                          {previewFilters.map((filter) => (
-                            <Tag key={`${item.id}-${filter.key}`} color="blue" style={{ margin: 0 }}>
-                              {filter.label}: {filter.value}
+                      )}
+
+                      <div className="flex items-center justify-between">
+                        <div className="flex gap-1 flex-wrap">
+                          {item.tags.map((tag) => (
+                            <Tag
+                              key={tag}
+                              style={{
+                                fontSize: 12,
+                                margin: 0,
+                                lineHeight: "18px",
+                                padding: "0 6px",
+                              }}
+                            >
+                              {tag}
                             </Tag>
                           ))}
                         </div>
+                        <span className="text-xs opacity-40 shrink-0">
+                          {new Date(item.createdAt).toLocaleDateString("zh-CN")}
+                        </span>
                       </div>
-                    )}
-
-                    <div className="flex items-center justify-between">
-                      <div className="flex gap-1 flex-wrap">
-                        {item.tags.map((tag) => (
-                          <Tag key={tag} style={{ fontSize: 12, margin: 0, lineHeight: '18px', padding: '0 6px' }}>
-                            {tag}
-                          </Tag>
-                        ))}
-                      </div>
-                      <span className="text-xs opacity-40 shrink-0">
-                        {new Date(item.createdAt).toLocaleDateString('zh-CN')}
-                      </span>
                     </div>
-                  </div>
-                </Card>
-              </Col>
-            ))}
+                  </Card>
+                </Col>
+              ),
+            )}
           </Row>
 
           <div ref={savedPaginationRef} className="flex justify-start">
@@ -531,8 +703,8 @@ const SavedQueries: React.FC = () => {
               total={total}
               showSizeChanger
               showQuickJumper
-              pageSizeOptions={['6', '12', '24', '48']}
-              showTotal={(count) => `共 ${count} 条`}
+              pageSizeOptions={["6", "12", "24", "48"]}
+              showTotal={(count) => formatSearchPageTotal(count, "个收藏")}
               onChange={(page, size) => {
                 const nextPageSize = size ?? pageSize;
                 const targetPage = nextPageSize !== pageSize ? 1 : page;
@@ -551,31 +723,44 @@ const SavedQueries: React.FC = () => {
       )}
 
       <Modal
-        title={modalMode === 'create' ? '新建收藏查询' : '编辑收藏查询'}
+        title={modalMode === "create" ? "新建收藏查询" : "编辑收藏查询"}
         open={editModalOpen}
         onOk={() => void handleSave()}
         onCancel={() => {
           setEditModalOpen(false);
           setEditingItem(null);
         }}
-        okText={modalMode === 'create' ? '创建' : '保存'}
+        okText={modalMode === "create" ? "创建" : "保存"}
         cancelText="取消"
         forceRender
         destroyOnHidden
       >
         <Form form={form} layout="vertical" className="mt-4">
-          <Form.Item name="name" label="查询名称" rules={[{ required: true, message: '请输入查询名称' }]}>
+          <Form.Item
+            name="name"
+            label="查询名称"
+            rules={[{ required: true, message: "请输入查询名称" }]}
+          >
             <Input autoComplete="off" placeholder="例如：支付服务错误" />
           </Form.Item>
-          <Form.Item name="query" label="查询语句" rules={[{ required: true, message: '请输入查询语句' }]}>
-            <Input.TextArea autoComplete="off" rows={3} placeholder='例如: level:error AND service:"payment-service"' className="font-mono" />
+          <Form.Item
+            name="query"
+            label="查询语句"
+            rules={[{ required: true, message: "请输入查询语句" }]}
+          >
+            <Input.TextArea
+              autoComplete="off"
+              rows={3}
+              placeholder='例如: level:error AND service:"payment-service"'
+              className="font-mono"
+            />
           </Form.Item>
           {modalQueryCleanupPreview && (
             <Alert
               type="warning"
               showIcon
               message="检测到旧格式查询语句"
-              description={(
+              description={
                 <QueryCleanupPreviewContent
                   cleanupState={modalQueryCleanupPreview}
                   rootClassName="flex flex-col gap-2"
@@ -584,7 +769,7 @@ const SavedQueries: React.FC = () => {
                   showSourceQuery={false}
                   cleanedQueryLabel="保存后将自动清洗为以下查询语句："
                 />
-              )}
+              }
             />
           )}
           <Form.Item name="tags" label="标签">

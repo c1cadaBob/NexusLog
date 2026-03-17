@@ -1,35 +1,76 @@
-import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
-import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
-import { App, Input, Button, Tag, Table, Drawer, Space, Tooltip, Descriptions, Divider, Typography, Select, Collapse, Empty } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
-import { useLocation } from 'react-router-dom';
-import { useThemeStore } from '../../stores/themeStore';
-import { usePreferencesStore } from '../../stores/preferencesStore';
-import { COLORS } from '../../theme/tokens';
-import ChartWrapper from '../../components/charts/ChartWrapper';
-import type { EChartsCoreOption } from 'echarts/core';
-import type { LogEntry } from '../../types/log';
-import { createSavedQuery, fetchAggregateStats, queryRealtimeLogs } from '../../api/query';
-import { aggregateRealtimeDisplayLogs, summarizeImageAggregation } from './realtimeLogAggregation';
-import { readRealtimeRecentQueries, recordRealtimeRecentQuery } from './realtimeRecentQueries';
+import React, {
+  useEffect,
+  useMemo,
+  useCallback,
+  useState,
+  useRef,
+} from "react";
+import { usePaginationQuickJumperAccessibility } from "../../components/common/usePaginationQuickJumperAccessibility";
+import {
+  App,
+  Input,
+  Button,
+  Tag,
+  Table,
+  Drawer,
+  Space,
+  Tooltip,
+  Descriptions,
+  Divider,
+  Typography,
+  Select,
+  Collapse,
+  Empty,
+} from "antd";
+import type { ColumnsType } from "antd/es/table";
+import { useLocation } from "react-router-dom";
+import { useThemeStore } from "../../stores/themeStore";
+import { usePreferencesStore } from "../../stores/preferencesStore";
+import { COLORS } from "../../theme/tokens";
+import ChartWrapper from "../../components/charts/ChartWrapper";
+import type { EChartsCoreOption } from "echarts/core";
+import type { LogEntry } from "../../types/log";
+import {
+  createSavedQuery,
+  fetchAggregateStats,
+  queryRealtimeLogs,
+} from "../../api/query";
+import {
+  aggregateRealtimeDisplayLogs,
+  summarizeImageAggregation,
+} from "./realtimeLogAggregation";
+import {
+  readRealtimeRecentQueries,
+  recordRealtimeRecentQuery,
+} from "./realtimeRecentQueries";
 import {
   clearPendingRealtimeStartupQuery,
   readPendingRealtimeStartupQuery,
-} from './realtimeStartupQuery';
-import { buildRealtimeHistogramData, type RealtimeHistogramPoint } from './realtimeHistogram';
+} from "./realtimeStartupQuery";
+import {
+  buildRealtimeHistogramData,
+  type RealtimeHistogramPoint,
+} from "./realtimeHistogram";
 import {
   buildRealtimeHistogramFilters,
   buildRealtimeQueryFilters,
   shouldRelaxRealtimeHistogramNoiseFilter,
-} from './realtimeNoiseFilters';
+} from "./realtimeNoiseFilters";
 import {
   buildRealtimeHistogramRefreshKey,
   shouldRefreshRealtimeHistogram,
   type RealtimeHistogramRefreshMode,
-} from './realtimeRefreshPolicy';
-import { normalizeRealtimePresetQuery } from './realtimePresetQuery';
-import { buildQueryCleanupFallbackFilters, buildQueryCleanupState } from './queryCleanupState';
-import QueryCleanupPreviewContent from './queryCleanupPreviewContent';
+} from "./realtimeRefreshPolicy";
+import { normalizeRealtimePresetQuery } from "./realtimePresetQuery";
+import {
+  buildQueryCleanupFallbackFilters,
+  buildQueryCleanupState,
+} from "./queryCleanupState";
+import QueryCleanupPreviewContent from "./queryCleanupPreviewContent";
+import {
+  resolveRealtimeLogsEmptyDescription,
+  resolveSearchPageLoadingLabel,
+} from "./searchPagePresentation";
 
 // ============================================================================
 // 本地 UI 辅助数据
@@ -44,23 +85,28 @@ type RealtimeExplicitTimeRange = {
   to?: string;
 };
 
-type LiveWindowOption = '5m' | '15m' | '30m' | '1h' | 'all' | 'custom';
+type LiveWindowOption = "5m" | "15m" | "30m" | "1h" | "all" | "custom";
 
-const DEFAULT_LIVE_WINDOW: LiveWindowOption = '15m';
-const BASE_LIVE_WINDOW_OPTIONS: Array<{ value: Exclude<LiveWindowOption, 'custom'>; label: string }> = [
-  { value: '5m', label: '最近 5 分钟' },
-  { value: '15m', label: '最近 15 分钟' },
-  { value: '30m', label: '最近 30 分钟' },
-  { value: '1h', label: '最近 1 小时' },
-  { value: 'all', label: '全部时间' },
+const DEFAULT_LIVE_WINDOW: LiveWindowOption = "15m";
+const BASE_LIVE_WINDOW_OPTIONS: Array<{
+  value: Exclude<LiveWindowOption, "custom">;
+  label: string;
+}> = [
+  { value: "5m", label: "最近 5 分钟" },
+  { value: "15m", label: "最近 15 分钟" },
+  { value: "30m", label: "最近 30 分钟" },
+  { value: "1h", label: "最近 1 小时" },
+  { value: "all", label: "全部时间" },
 ];
 
-function normalizeRealtimeExplicitTimeRange(timeRange?: RealtimeExplicitTimeRange | null): RealtimeExplicitTimeRange | null {
+function normalizeRealtimeExplicitTimeRange(
+  timeRange?: RealtimeExplicitTimeRange | null,
+): RealtimeExplicitTimeRange | null {
   if (!timeRange) {
     return null;
   }
-  const from = timeRange.from?.trim() ?? '';
-  const to = timeRange.to?.trim() ?? '';
+  const from = timeRange.from?.trim() ?? "";
+  const to = timeRange.to?.trim() ?? "";
   if (!from && !to) {
     return null;
   }
@@ -70,29 +116,37 @@ function normalizeRealtimeExplicitTimeRange(timeRange?: RealtimeExplicitTimeRang
   };
 }
 
-function hasRealtimeExplicitTimeRange(timeRange?: RealtimeExplicitTimeRange | null): boolean {
+function hasRealtimeExplicitTimeRange(
+  timeRange?: RealtimeExplicitTimeRange | null,
+): boolean {
   return Boolean(timeRange?.from?.trim() || timeRange?.to?.trim());
 }
 
-function formatRealtimeExplicitTimeRange(timeRange?: RealtimeExplicitTimeRange | null): string {
+function formatRealtimeExplicitTimeRange(
+  timeRange?: RealtimeExplicitTimeRange | null,
+): string {
   const normalized = normalizeRealtimeExplicitTimeRange(timeRange);
   if (!normalized) {
-    return '';
+    return "";
   }
-  const fromText = normalized.from ? new Date(normalized.from).toLocaleString('zh-CN') : '起始未限制';
-  const toText = normalized.to ? new Date(normalized.to).toLocaleString('zh-CN') : '结束未限制';
+  const fromText = normalized.from
+    ? new Date(normalized.from).toLocaleString("zh-CN")
+    : "起始未限制";
+  const toText = normalized.to
+    ? new Date(normalized.to).toLocaleString("zh-CN")
+    : "结束未限制";
   return `${fromText} ~ ${toText}`;
 }
 
 function resolveRealtimeWindowDurationMS(liveWindow: LiveWindowOption): number {
   switch (liveWindow) {
-    case '5m':
+    case "5m":
       return 5 * 60 * 1000;
-    case '30m':
+    case "30m":
       return 30 * 60 * 1000;
-    case '1h':
+    case "1h":
       return 60 * 60 * 1000;
-    case '15m':
+    case "15m":
     default:
       return 15 * 60 * 1000;
   }
@@ -102,7 +156,9 @@ function shouldUseUnboundedRealtimeQuery(
   liveWindow: LiveWindowOption,
   explicitTimeRange?: RealtimeExplicitTimeRange | null,
 ): boolean {
-  return liveWindow === 'all' && !hasRealtimeExplicitTimeRange(explicitTimeRange);
+  return (
+    liveWindow === "all" && !hasRealtimeExplicitTimeRange(explicitTimeRange)
+  );
 }
 
 export function buildRealtimeTableTimeRange(
@@ -111,22 +167,30 @@ export function buildRealtimeTableTimeRange(
   explicitTimeRange?: RealtimeExplicitTimeRange | null,
 ) {
   const snapshot = snapshotTo?.trim() ? new Date(snapshotTo) : new Date();
-  const normalizedSnapshot = Number.isNaN(snapshot.getTime()) ? new Date() : snapshot;
-  const normalizedExplicitTimeRange = normalizeRealtimeExplicitTimeRange(explicitTimeRange);
+  const normalizedSnapshot = Number.isNaN(snapshot.getTime())
+    ? new Date()
+    : snapshot;
+  const normalizedExplicitTimeRange =
+    normalizeRealtimeExplicitTimeRange(explicitTimeRange);
   if (normalizedExplicitTimeRange) {
     return {
-      from: normalizedExplicitTimeRange.from ?? '',
+      from: normalizedExplicitTimeRange.from ?? "",
       to: normalizedExplicitTimeRange.to ?? normalizedSnapshot.toISOString(),
     };
   }
-  if (shouldUseUnboundedRealtimeQuery(liveWindow, normalizedExplicitTimeRange)) {
+  if (
+    shouldUseUnboundedRealtimeQuery(liveWindow, normalizedExplicitTimeRange)
+  ) {
     return {
-      from: '',
+      from: "",
       to: normalizedSnapshot.toISOString(),
     };
   }
   return {
-    from: new Date(normalizedSnapshot.getTime() - resolveRealtimeWindowDurationMS(liveWindow)).toISOString(),
+    from: new Date(
+      normalizedSnapshot.getTime() -
+        resolveRealtimeWindowDurationMS(liveWindow),
+    ).toISOString(),
     to: normalizedSnapshot.toISOString(),
   };
 }
@@ -134,25 +198,30 @@ export function buildRealtimeTableTimeRange(
 function resolveRealtimeHistogramRequestTimeRange(
   liveWindow: LiveWindowOption,
   explicitTimeRange?: RealtimeExplicitTimeRange | null,
-): '30m' | '1h' | null {
-  if (hasRealtimeExplicitTimeRange(explicitTimeRange) || liveWindow === 'all' || liveWindow === 'custom') {
+): "30m" | "1h" | null {
+  if (
+    hasRealtimeExplicitTimeRange(explicitTimeRange) ||
+    liveWindow === "all" ||
+    liveWindow === "custom"
+  ) {
     return null;
   }
-  return liveWindow === '1h' ? '1h' : '30m';
+  return liveWindow === "1h" ? "1h" : "30m";
 }
 
-function filterRealtimeHistogramBucketsByLiveWindow<T extends { key: string; count: number }>(
-  buckets: T[],
-  liveWindow: LiveWindowOption,
-  snapshotTo?: string,
-): T[] {
-  if (liveWindow === '30m' || liveWindow === '1h') {
+function filterRealtimeHistogramBucketsByLiveWindow<
+  T extends { key: string; count: number },
+>(buckets: T[], liveWindow: LiveWindowOption, snapshotTo?: string): T[] {
+  if (liveWindow === "30m" || liveWindow === "1h") {
     return buckets;
   }
 
   const snapshot = snapshotTo?.trim() ? new Date(snapshotTo) : new Date();
-  const normalizedSnapshotMS = Number.isNaN(snapshot.getTime()) ? Date.now() : snapshot.getTime();
-  const fromMS = normalizedSnapshotMS - resolveRealtimeWindowDurationMS(liveWindow);
+  const normalizedSnapshotMS = Number.isNaN(snapshot.getTime())
+    ? Date.now()
+    : snapshot.getTime();
+  const fromMS =
+    normalizedSnapshotMS - resolveRealtimeWindowDurationMS(liveWindow);
 
   return buckets.filter((bucket) => {
     const bucketTimeMS = new Date(bucket.key).getTime();
@@ -165,7 +234,10 @@ function filterRealtimeHistogramBucketsByLiveWindow<T extends { key: string; cou
 
 function resolveMaxPaginationPage(pageSize: number): number {
   const normalizedPageSize = Math.max(1, Math.floor(pageSize || 1));
-  return Math.max(1, Math.floor(MAX_PAGINATION_WINDOW_ROWS / normalizedPageSize));
+  return Math.max(
+    1,
+    Math.floor(MAX_PAGINATION_WINDOW_ROWS / normalizedPageSize),
+  );
 }
 
 export function shouldBlockRealtimeDirectPageJump(
@@ -193,26 +265,29 @@ export function shouldResolveRealtimeDeepPageCursor(
 
 function formatRealtimeTotal(total: number, isLowerBound: boolean): string {
   const normalizedTotal = Number.isFinite(total) ? total : 0;
-  const displayTotal = Math.max(0, Math.floor(normalizedTotal)).toLocaleString();
+  const displayTotal = Math.max(
+    0,
+    Math.floor(normalizedTotal),
+  ).toLocaleString();
   return isLowerBound ? `${displayTotal}+` : displayTotal;
 }
 
-function toDisplayText(value: unknown, fallback = '—'): string {
+function toDisplayText(value: unknown, fallback = "—"): string {
   if (value == null) {
     return fallback;
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const normalized = value.trim();
     return normalized || fallback;
   }
   return String(value);
 }
 
-function formatDetailValue(value: unknown, fallback = '—'): string {
-  if (value == null || value === '') {
+function formatDetailValue(value: unknown, fallback = "—"): string {
+  if (value == null || value === "") {
     return fallback;
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const normalized = value.trim();
     return normalized || fallback;
   }
@@ -223,15 +298,14 @@ function formatDetailValue(value: unknown, fallback = '—'): string {
   }
 }
 
-
 // ============================================================================
 // 级别颜色映射
 // ============================================================================
 const LEVEL_CONFIG: Record<string, { color: string; tagColor: string }> = {
-  error: { color: COLORS.danger, tagColor: 'error' },
-  warn: { color: COLORS.warning, tagColor: 'warning' },
-  info: { color: COLORS.info, tagColor: 'processing' },
-  debug: { color: COLORS.purple, tagColor: 'purple' },
+  error: { color: COLORS.danger, tagColor: "error" },
+  warn: { color: COLORS.warning, tagColor: "warning" },
+  info: { color: COLORS.info, tagColor: "processing" },
+  debug: { color: COLORS.purple, tagColor: "purple" },
 };
 
 interface RealtimeNavigationState {
@@ -246,10 +320,15 @@ export interface RealtimePageCursor {
 }
 
 function cloneSearchAfter(searchAfter?: unknown[]): unknown[] | undefined {
-  return Array.isArray(searchAfter) && searchAfter.length > 0 ? [...searchAfter] : undefined;
+  return Array.isArray(searchAfter) && searchAfter.length > 0
+    ? [...searchAfter]
+    : undefined;
 }
 
-function buildRealtimePageCursor(pitId?: string, searchAfter?: unknown[]): RealtimePageCursor | undefined {
+function buildRealtimePageCursor(
+  pitId?: string,
+  searchAfter?: unknown[],
+): RealtimePageCursor | undefined {
   const normalizedPitId = pitId?.trim() || undefined;
   const normalizedSearchAfter = cloneSearchAfter(searchAfter);
   if (!normalizedPitId && !normalizedSearchAfter) {
@@ -261,14 +340,18 @@ function buildRealtimePageCursor(pitId?: string, searchAfter?: unknown[]): Realt
   };
 }
 
-function cloneRealtimePageCursor(cursor?: RealtimePageCursor): RealtimePageCursor | undefined {
+function cloneRealtimePageCursor(
+  cursor?: RealtimePageCursor,
+): RealtimePageCursor | undefined {
   if (!cursor) {
     return undefined;
   }
   return buildRealtimePageCursor(cursor.pitId, cursor.searchAfter);
 }
 
-function cloneRealtimePageCursorMap(source: Map<number, RealtimePageCursor>): Map<number, RealtimePageCursor> {
+function cloneRealtimePageCursorMap(
+  source: Map<number, RealtimePageCursor>,
+): Map<number, RealtimePageCursor> {
   const next = new Map<number, RealtimePageCursor>();
   source.forEach((cursor, page) => {
     const cloned = cloneRealtimePageCursor(cursor);
@@ -279,7 +362,10 @@ function cloneRealtimePageCursorMap(source: Map<number, RealtimePageCursor>): Ma
   return next;
 }
 
-function refreshCursorMapPitID(cursorMap: Map<number, RealtimePageCursor>, pitId: string): void {
+function refreshCursorMapPitID(
+  cursorMap: Map<number, RealtimePageCursor>,
+  pitId: string,
+): void {
   const normalizedPitId = pitId.trim();
   if (!normalizedPitId) {
     return;
@@ -305,9 +391,11 @@ interface EnsureRealtimePageCursorOptions {
   queryLogs?: typeof queryRealtimeLogs;
 }
 
-type RealtimeExecuteQueryStatus = 'success' | 'failed' | 'stale';
+type RealtimeExecuteQueryStatus = "success" | "failed" | "stale";
 
-export async function ensureRealtimePageCursor(options: EnsureRealtimePageCursorOptions): Promise<{
+export async function ensureRealtimePageCursor(
+  options: EnsureRealtimePageCursorOptions,
+): Promise<{
   cursorMap: Map<number, RealtimePageCursor>;
   cursor?: RealtimePageCursor;
 }> {
@@ -324,9 +412,18 @@ export async function ensureRealtimePageCursor(options: EnsureRealtimePageCursor
   const queryLogs = options.queryLogs ?? queryRealtimeLogs;
   const nextCursorMap = cloneRealtimePageCursorMap(options.cursorMap);
   const maxPaginationPage = resolveMaxPaginationPage(pageSize);
-  const cachedTargetCursor = cloneRealtimePageCursor(nextCursorMap.get(targetPage));
+  const cachedTargetCursor = cloneRealtimePageCursor(
+    nextCursorMap.get(targetPage),
+  );
 
-  if (targetPage <= maxPaginationPage || !shouldResolveRealtimeDeepPageCursor(targetPage, pageSize, cachedTargetCursor)) {
+  if (
+    targetPage <= maxPaginationPage ||
+    !shouldResolveRealtimeDeepPageCursor(
+      targetPage,
+      pageSize,
+      cachedTargetCursor,
+    )
+  ) {
     return { cursorMap: nextCursorMap, cursor: cachedTargetCursor };
   }
 
@@ -334,17 +431,22 @@ export async function ensureRealtimePageCursor(options: EnsureRealtimePageCursor
   let currentPage = 0;
   nextCursorMap.forEach((cursor, page) => {
     if (
-      page <= targetPage
-      && page > currentPage
-      && Array.isArray(cursor.searchAfter)
-      && cursor.searchAfter.length > 0
+      page <= targetPage &&
+      page > currentPage &&
+      Array.isArray(cursor.searchAfter) &&
+      cursor.searchAfter.length > 0
     ) {
       currentPage = page;
     }
   });
-  let currentCursor = currentPage > 0 ? cloneRealtimePageCursor(nextCursorMap.get(currentPage)) : undefined;
+  let currentCursor =
+    currentPage > 0
+      ? cloneRealtimePageCursor(nextCursorMap.get(currentPage))
+      : undefined;
 
-  const runCursorQuery = async (payload: Parameters<typeof queryRealtimeLogs>[0]) => {
+  const runCursorQuery = async (
+    payload: Parameters<typeof queryRealtimeLogs>[0],
+  ) => {
     const controller = registerAbortController?.(new AbortController()) ?? null;
     try {
       return await queryLogs({
@@ -370,13 +472,16 @@ export async function ensureRealtimePageCursor(options: EnsureRealtimePageCursor
     if (isRequestStale?.()) {
       return { cursorMap: nextCursorMap };
     }
-    const bridgePitId = bridgeResult.pitId?.trim() || '';
+    const bridgePitId = bridgeResult.pitId?.trim() || "";
     if (bridgePitId) {
       refreshCursorMapPitID(nextCursorMap, bridgePitId);
       nextCursorMap.set(1, { pitId: bridgePitId });
     }
     currentPage = bridgePage + 1;
-    currentCursor = buildRealtimePageCursor(bridgePitId, bridgeResult.nextSearchAfter);
+    currentCursor = buildRealtimePageCursor(
+      bridgePitId,
+      bridgeResult.nextSearchAfter,
+    );
     if (currentCursor) {
       nextCursorMap.set(currentPage, currentCursor);
     }
@@ -395,12 +500,16 @@ export async function ensureRealtimePageCursor(options: EnsureRealtimePageCursor
     if (isRequestStale?.()) {
       return { cursorMap: nextCursorMap };
     }
-    const nextPitId = stepResult.pitId?.trim() || currentCursor.pitId?.trim() || '';
+    const nextPitId =
+      stepResult.pitId?.trim() || currentCursor.pitId?.trim() || "";
     if (nextPitId) {
       refreshCursorMapPitID(nextCursorMap, nextPitId);
     }
     currentPage += 1;
-    currentCursor = buildRealtimePageCursor(nextPitId, stepResult.nextSearchAfter);
+    currentCursor = buildRealtimePageCursor(
+      nextPitId,
+      stepResult.nextSearchAfter,
+    );
     if (currentCursor) {
       nextCursorMap.set(currentPage, currentCursor);
     }
@@ -413,7 +522,7 @@ export async function ensureRealtimePageCursor(options: EnsureRealtimePageCursor
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
+  return error instanceof Error && error.name === "AbortError";
 }
 
 // ============================================================================
@@ -425,28 +534,40 @@ const RealtimeSearch: React.FC = () => {
   const { message, modal } = App.useApp();
 
   // 查询状态
-  const [query, setQuery] = useState('');
-  const [activeQuery, setActiveQuery] = useState('');
+  const [query, setQuery] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
   const [isLive, setIsLive] = useState(true);
-  const [liveWindow, setLiveWindow] = useState<LiveWindowOption>(DEFAULT_LIVE_WINDOW);
-  const [customTimeRange, setCustomTimeRange] = useState<RealtimeExplicitTimeRange | null>(null);
-  const [recentQueries, setRecentQueries] = useState<string[]>(() => readRealtimeRecentQueries());
+  const [liveWindow, setLiveWindow] =
+    useState<LiveWindowOption>(DEFAULT_LIVE_WINDOW);
+  const [customTimeRange, setCustomTimeRange] =
+    useState<RealtimeExplicitTimeRange | null>(null);
+  const [recentQueries, setRecentQueries] = useState<string[]>(() =>
+    readRealtimeRecentQueries(),
+  );
 
   // 筛选器
-  const [levelFilter, setLevelFilter] = useState<string>('');
-  const [sourceFilter, setSourceFilter] = useState<string>('');
-  const normalizedCustomTimeRange = useMemo(() => normalizeRealtimeExplicitTimeRange(customTimeRange), [customTimeRange]);
-  const hasCustomTimeRange = hasRealtimeExplicitTimeRange(normalizedCustomTimeRange);
-  const customTimeRangeLabel = useMemo(() => formatRealtimeExplicitTimeRange(normalizedCustomTimeRange), [normalizedCustomTimeRange]);
-  const livePollingDisabled = hasCustomTimeRange || liveWindow === 'all';
-  const histogramDisabled = hasCustomTimeRange || liveWindow === 'all';
+  const [levelFilter, setLevelFilter] = useState<string>("");
+  const [sourceFilter, setSourceFilter] = useState<string>("");
+  const normalizedCustomTimeRange = useMemo(
+    () => normalizeRealtimeExplicitTimeRange(customTimeRange),
+    [customTimeRange],
+  );
+  const hasCustomTimeRange = hasRealtimeExplicitTimeRange(
+    normalizedCustomTimeRange,
+  );
+  const customTimeRangeLabel = useMemo(
+    () => formatRealtimeExplicitTimeRange(normalizedCustomTimeRange),
+    [normalizedCustomTimeRange],
+  );
+  const livePollingDisabled = hasCustomTimeRange || liveWindow === "all";
+  const histogramDisabled = hasCustomTimeRange || liveWindow === "all";
   const liveWindowOptions = useMemo(() => {
     if (!hasCustomTimeRange) {
       return BASE_LIVE_WINDOW_OPTIONS;
     }
     return [
       ...BASE_LIVE_WINDOW_OPTIONS,
-      { value: 'custom' as const, label: '历史时间范围' },
+      { value: "custom" as const, label: "历史时间范围" },
     ];
   }, [hasCustomTimeRange]);
 
@@ -466,30 +587,43 @@ const RealtimeSearch: React.FC = () => {
   const [histogramInitialLoading, setHistogramInitialLoading] = useState(true);
   const [histogramRefreshing, setHistogramRefreshing] = useState(false);
   const [histogramUsingStaleData, setHistogramUsingStaleData] = useState(false);
-  const [histogramNoiseFilterRelaxed, setHistogramNoiseFilterRelaxed] = useState(false);
-  const [histogramData, setHistogramData] = useState<RealtimeHistogramPoint[]>([]);
-  const [tableSnapshotTo, setTableSnapshotTo] = useState(() => new Date().toISOString());
+  const [histogramNoiseFilterRelaxed, setHistogramNoiseFilterRelaxed] =
+    useState(false);
+  const [histogramData, setHistogramData] = useState<RealtimeHistogramPoint[]>(
+    [],
+  );
+  const [tableSnapshotTo, setTableSnapshotTo] = useState(() =>
+    new Date().toISOString(),
+  );
 
   // 分页（pageSize 持久化）
   const [currentPage, setCurrentPage] = useState(1);
-  const storedPageSize = usePreferencesStore((s) => s.pageSizes['realtimeSearch'] ?? 20);
+  const storedPageSize = usePreferencesStore(
+    (s) => s.pageSizes["realtimeSearch"] ?? 20,
+  );
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
-  const setPageSize = useCallback((size: number) => {
-    setPageSizeLocal(size);
-    setStoredPageSize('realtimeSearch', size);
-  }, [setStoredPageSize]);
+  const setPageSize = useCallback(
+    (size: number) => {
+      setPageSizeLocal(size);
+      setStoredPageSize("realtimeSearch", size);
+    },
+    [setStoredPageSize],
+  );
   const latestQueryRequestRef = useRef(0);
   const inFlightRequestIDRef = useRef<number | null>(null);
   const initialQueryTriggeredRef = useRef(false);
   const pageCursorMapRef = useRef<Map<number, RealtimePageCursor>>(new Map());
-  const resultsTableRef = usePaginationQuickJumperAccessibility('realtime-search');
+  const resultsTableRef =
+    usePaginationQuickJumperAccessibility("realtime-search");
   const activeAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const liveTimerRef = useRef<number | null>(null);
   const isLiveRef = useRef(isLive);
   const isUnmountedRef = useRef(false);
-  const scheduleNextLiveTickRef = useRef<(delay?: number) => void>(() => undefined);
-  const lastHistogramRefreshKeyRef = useRef('');
+  const scheduleNextLiveTickRef = useRef<(delay?: number) => void>(
+    () => undefined,
+  );
+  const lastHistogramRefreshKeyRef = useRef("");
   const lastHistogramFetchedAtRef = useRef(0);
   const activeQueryRef = useRef(activeQuery);
   const pageSizeRef = useRef(pageSize);
@@ -523,334 +657,397 @@ const RealtimeSearch: React.FC = () => {
     return controller;
   }, []);
 
-  const unregisterAbortController = useCallback((controller: AbortController | null) => {
-    if (!controller) {
-      return;
-    }
-    activeAbortControllersRef.current.delete(controller);
-  }, []);
-
-  const executeQuery = useCallback(async (options: {
-    queryText: string;
-    page: number;
-    pageSize: number;
-    silent?: boolean;
-    recordHistory?: boolean;
-    snapshotTo?: string;
-    cursor?: RealtimePageCursor;
-    resetCursor?: boolean;
-    liveWindowOverride?: LiveWindowOption;
-    timeRangeOverride?: RealtimeExplicitTimeRange | null;
-    histogramRefreshMode?: RealtimeHistogramRefreshMode;
-    levelFilterOverride?: string;
-    sourceFilterOverride?: string;
-  }): Promise<RealtimeExecuteQueryStatus> => {
-    const requestID = latestQueryRequestRef.current + 1;
-    latestQueryRequestRef.current = requestID;
-    inFlightRequestIDRef.current = requestID;
-    clearLiveTimer();
-    abortActiveRequests();
-
-    const snapshotTo = options.snapshotTo?.trim() || new Date().toISOString();
-    const effectiveLiveWindow = options.liveWindowOverride ?? liveWindow;
-    const effectiveLevelFilter = options.levelFilterOverride ?? levelFilter;
-    const effectiveSourceFilter = options.sourceFilterOverride ?? sourceFilter;
-    const workingCursorMap = options.resetCursor
-      ? new Map<number, RealtimePageCursor>()
-      : cloneRealtimePageCursorMap(pageCursorMapRef.current);
-    if (options.resetCursor) {
-      pageCursorMapRef.current = new Map();
-    }
-    const requestedCursor = cloneRealtimePageCursor(options.cursor) ?? cloneRealtimePageCursor(workingCursorMap.get(options.page));
-    const rootCursor = cloneRealtimePageCursor(workingCursorMap.get(1));
-    let activeCursor = requestedCursor ?? (options.page > 1 && rootCursor?.pitId
-      ? { pitId: rootCursor.pitId }
-      : undefined);
-
-    let tableSucceeded = false;
-    let shouldRefreshHistogram = false;
-    let histogramRefreshKey = '';
-    const tableController = registerAbortController(new AbortController());
-    let totalHistogramController: AbortController | null = null;
-    let errorHistogramController: AbortController | null = null;
-
-    try {
-      const filters = buildRealtimeQueryFilters({
-        levelFilter: effectiveLevelFilter,
-        sourceFilter: effectiveSourceFilter,
-        queryText: options.queryText,
-      });
-      const histogramFilters = buildRealtimeHistogramFilters({
-        levelFilter: effectiveLevelFilter,
-        sourceFilter: effectiveSourceFilter,
-        queryText: options.queryText,
-      });
-      const shouldRelaxHistogramNoiseFilter = shouldRelaxRealtimeHistogramNoiseFilter({
-        levelFilter: effectiveLevelFilter,
-        sourceFilter: effectiveSourceFilter,
-        queryText: options.queryText,
-      });
-      const effectiveExplicitTimeRange = normalizeRealtimeExplicitTimeRange(options.timeRangeOverride ?? customTimeRange);
-      const realtimeTableTimeRange = buildRealtimeTableTimeRange(
-        effectiveLiveWindow,
-        snapshotTo,
-        effectiveExplicitTimeRange,
-      );
-      const histogramTimeRange = resolveRealtimeHistogramRequestTimeRange(
-        effectiveLiveWindow,
-        effectiveExplicitTimeRange,
-      );
-      histogramRefreshKey = buildRealtimeHistogramRefreshKey({
-        queryText: options.queryText,
-        levelFilter: effectiveLevelFilter,
-        sourceFilter: effectiveSourceFilter,
-      });
-      shouldRefreshHistogram = histogramTimeRange != null && shouldRefreshRealtimeHistogram({
-        mode: options.histogramRefreshMode,
-        nextRequestKey: histogramRefreshKey,
-        lastRequestKey: lastHistogramRefreshKeyRef.current,
-        lastFetchedAt: lastHistogramFetchedAtRef.current,
-        hasHistogramData: histogramData.length > 0,
-      });
-
-      if (shouldRefreshHistogram) {
-        totalHistogramController = registerAbortController(new AbortController());
-        if (!effectiveLevelFilter) {
-          errorHistogramController = registerAbortController(new AbortController());
-        }
-      } else if (histogramTimeRange == null) {
-        setHistogramData([]);
-        setHistogramUsingStaleData(false);
-        setHistogramNoiseFilterRelaxed(false);
-        setHistogramInitialLoading(false);
+  const unregisterAbortController = useCallback(
+    (controller: AbortController | null) => {
+      if (!controller) {
+        return;
       }
+      activeAbortControllersRef.current.delete(controller);
+    },
+    [],
+  );
 
-      setTableRefreshing(true);
-      setHistogramRefreshing(shouldRefreshHistogram);
+  const executeQuery = useCallback(
+    async (options: {
+      queryText: string;
+      page: number;
+      pageSize: number;
+      silent?: boolean;
+      recordHistory?: boolean;
+      snapshotTo?: string;
+      cursor?: RealtimePageCursor;
+      resetCursor?: boolean;
+      liveWindowOverride?: LiveWindowOption;
+      timeRangeOverride?: RealtimeExplicitTimeRange | null;
+      histogramRefreshMode?: RealtimeHistogramRefreshMode;
+      levelFilterOverride?: string;
+      sourceFilterOverride?: string;
+    }): Promise<RealtimeExecuteQueryStatus> => {
+      const requestID = latestQueryRequestRef.current + 1;
+      latestQueryRequestRef.current = requestID;
+      inFlightRequestIDRef.current = requestID;
+      clearLiveTimer();
+      abortActiveRequests();
 
-      const aggregateParams = histogramTimeRange
-        ? {
-          groupBy: 'minute' as const,
-          timeRange: histogramTimeRange,
-          keywords: options.queryText,
-          filters: histogramFilters,
-        }
-        : null;
-      const totalHistogramPromise = shouldRefreshHistogram && totalHistogramController && aggregateParams
-        ? fetchAggregateStats({
-          ...aggregateParams,
-          signal: totalHistogramController.signal,
-        })
-        : Promise.resolve(null);
-      void totalHistogramPromise.catch(() => undefined);
-      const errorHistogramPromise = !shouldRefreshHistogram || effectiveLevelFilter === 'error' || !aggregateParams
-        ? Promise.resolve(null)
-        : effectiveLevelFilter
-          ? Promise.resolve(null)
-          : fetchAggregateStats({
-            ...aggregateParams,
-            filters: {
-              ...histogramFilters,
-              level: 'error',
-            },
-            signal: errorHistogramController?.signal,
-          });
-      void errorHistogramPromise.catch(() => undefined);
+      const snapshotTo = options.snapshotTo?.trim() || new Date().toISOString();
+      const effectiveLiveWindow = options.liveWindowOverride ?? liveWindow;
+      const effectiveLevelFilter = options.levelFilterOverride ?? levelFilter;
+      const effectiveSourceFilter =
+        options.sourceFilterOverride ?? sourceFilter;
+      const workingCursorMap = options.resetCursor
+        ? new Map<number, RealtimePageCursor>()
+        : cloneRealtimePageCursorMap(pageCursorMapRef.current);
+      if (options.resetCursor) {
+        pageCursorMapRef.current = new Map();
+      }
+      const requestedCursor =
+        cloneRealtimePageCursor(options.cursor) ??
+        cloneRealtimePageCursor(workingCursorMap.get(options.page));
+      const rootCursor = cloneRealtimePageCursor(workingCursorMap.get(1));
+      let activeCursor =
+        requestedCursor ??
+        (options.page > 1 && rootCursor?.pitId
+          ? { pitId: rootCursor.pitId }
+          : undefined);
+
+      let tableSucceeded = false;
+      let shouldRefreshHistogram = false;
+      let histogramRefreshKey = "";
+      const tableController = registerAbortController(new AbortController());
+      let totalHistogramController: AbortController | null = null;
+      let errorHistogramController: AbortController | null = null;
 
       try {
-        if (shouldResolveRealtimeDeepPageCursor(options.page, options.pageSize, activeCursor)) {
-          const { cursorMap: resolvedCursorMap, cursor: resolvedCursor } = await ensureRealtimePageCursor({
-            targetPage: options.page,
-            pageSize: options.pageSize,
-            queryText: options.queryText,
-            filters,
-            timeRange: realtimeTableTimeRange,
-            cursorMap: workingCursorMap,
-            isRequestStale: () => requestID !== latestQueryRequestRef.current,
-            registerAbortController,
-            unregisterAbortController,
-          });
-          if (requestID !== latestQueryRequestRef.current) {
-            return tableSucceeded ? 'success' : 'stale';
-          }
-          pageCursorMapRef.current = resolvedCursorMap;
-          workingCursorMap.clear();
-          resolvedCursorMap.forEach((cursor, page) => {
-            workingCursorMap.set(page, cursor);
-          });
-          activeCursor = cloneRealtimePageCursor(resolvedCursor);
-          if (!activeCursor) {
-            if (!options.silent) {
-              message.warning('深分页游标定位失败，请稍后重试');
-            }
-            return 'failed';
-          }
-        }
-
-        const result = await queryRealtimeLogs({
-          keywords: options.queryText,
-          page: options.page,
-          pageSize: options.pageSize,
-          filters,
-          timeRange: realtimeTableTimeRange,
-          pitId: activeCursor?.pitId,
-          searchAfter: activeCursor?.searchAfter,
-          signal: tableController.signal,
-          recordHistory: options.recordHistory,
+        const filters = buildRealtimeQueryFilters({
+          levelFilter: effectiveLevelFilter,
+          sourceFilter: effectiveSourceFilter,
+          queryText: options.queryText,
         });
-
-        if (requestID !== latestQueryRequestRef.current) {
-          return tableSucceeded ? 'success' : 'stale';
-        }
-
-        const effectivePitId = result.pitId?.trim() || activeCursor?.pitId?.trim() || '';
-        if (effectivePitId) {
-          refreshCursorMapPitID(workingCursorMap, effectivePitId);
-          workingCursorMap.set(1, { pitId: effectivePitId });
-          const currentPageCursor = workingCursorMap.get(result.page);
-          workingCursorMap.set(result.page, {
-            pitId: effectivePitId,
-            searchAfter: cloneSearchAfter(currentPageCursor?.searchAfter),
+        const histogramFilters = buildRealtimeHistogramFilters({
+          levelFilter: effectiveLevelFilter,
+          sourceFilter: effectiveSourceFilter,
+          queryText: options.queryText,
+        });
+        const shouldRelaxHistogramNoiseFilter =
+          shouldRelaxRealtimeHistogramNoiseFilter({
+            levelFilter: effectiveLevelFilter,
+            sourceFilter: effectiveSourceFilter,
+            queryText: options.queryText,
           });
-          workingCursorMap.delete(result.page + 1);
-          if (result.nextSearchAfter && result.nextSearchAfter.length > 0) {
-            workingCursorMap.set(result.page + 1, {
-              pitId: effectivePitId,
-              searchAfter: cloneSearchAfter(result.nextSearchAfter),
-            });
-          }
-        }
-        pageCursorMapRef.current = workingCursorMap;
-        setLogs(result.hits);
-        setTotal(result.total);
-        setTotalIsLowerBound(result.totalIsLowerBound);
-        setCurrentPage(result.page);
-        setQueryTimeMS(result.queryTimeMS);
-        setQueryTimedOut(result.timedOut);
-        setTableSnapshotTo(snapshotTo);
-        setTableUsingStaleData(false);
-        if (result.timedOut && !options.silent) {
-          message.warning('查询超时，结果可能不完整');
-        }
-        tableSucceeded = true;
-      } catch (error) {
-        if (requestID !== latestQueryRequestRef.current) {
-          return tableSucceeded ? 'success' : 'stale';
-        }
-        if (isAbortError(error)) {
-          return tableSucceeded ? 'success' : 'stale';
-        }
-        const hasStaleTableData = logs.length > 0;
-        setTableUsingStaleData(hasStaleTableData);
-        if (!options.silent) {
-          if (hasStaleTableData) {
-            message.warning('表格刷新失败，已保留上一版结果');
-          } else {
-            const readableError = error instanceof Error ? error.message : '查询失败，请稍后重试';
-            message.error(readableError);
-          }
-        }
-      } finally {
-        if (requestID === latestQueryRequestRef.current) {
-          setInitialLoading(false);
-          setTableRefreshing(false);
-        }
-      }
-
-      if (requestID !== latestQueryRequestRef.current) {
-        return tableSucceeded ? 'success' : 'stale';
-      }
-
-      if (!shouldRefreshHistogram) {
-        return tableSucceeded ? 'success' : 'failed';
-      }
-
-      const [totalHistogramResult, errorHistogramResult] = await Promise.allSettled([
-        totalHistogramPromise,
-        errorHistogramPromise,
-      ]);
-
-      if (requestID !== latestQueryRequestRef.current) {
-        return tableSucceeded ? 'success' : 'stale';
-      }
-
-      const resolvedTotalHistogram = totalHistogramResult.status === 'fulfilled'
-        ? totalHistogramResult.value
-        : null;
-      const resolvedErrorHistogram = errorHistogramResult.status === 'fulfilled'
-        ? errorHistogramResult.value
-        : null;
-      const histogramFailed = totalHistogramResult.status === 'rejected'
-        || errorHistogramResult.status === 'rejected';
-      const histogramAbortOnly = [totalHistogramResult, errorHistogramResult].every((result) => {
-        if (result.status === 'fulfilled') {
-          return true;
-        }
-        return isAbortError(result.reason);
-      });
-      const canUpdateHistogram = Boolean(resolvedTotalHistogram);
-
-      if (canUpdateHistogram && resolvedTotalHistogram) {
-        const totalBuckets = filterRealtimeHistogramBucketsByLiveWindow(
-          resolvedTotalHistogram.buckets,
+        const effectiveExplicitTimeRange = normalizeRealtimeExplicitTimeRange(
+          options.timeRangeOverride ?? customTimeRange,
+        );
+        const realtimeTableTimeRange = buildRealtimeTableTimeRange(
           effectiveLiveWindow,
           snapshotTo,
+          effectiveExplicitTimeRange,
         );
-        const errorBuckets = effectiveLevelFilter === 'error'
-          ? totalBuckets
-          : filterRealtimeHistogramBucketsByLiveWindow(
-            resolvedErrorHistogram?.buckets ?? [],
+        const histogramTimeRange = resolveRealtimeHistogramRequestTimeRange(
+          effectiveLiveWindow,
+          effectiveExplicitTimeRange,
+        );
+        histogramRefreshKey = buildRealtimeHistogramRefreshKey({
+          queryText: options.queryText,
+          levelFilter: effectiveLevelFilter,
+          sourceFilter: effectiveSourceFilter,
+        });
+        shouldRefreshHistogram =
+          histogramTimeRange != null &&
+          shouldRefreshRealtimeHistogram({
+            mode: options.histogramRefreshMode,
+            nextRequestKey: histogramRefreshKey,
+            lastRequestKey: lastHistogramRefreshKeyRef.current,
+            lastFetchedAt: lastHistogramFetchedAtRef.current,
+            hasHistogramData: histogramData.length > 0,
+          });
+
+        if (shouldRefreshHistogram) {
+          totalHistogramController = registerAbortController(
+            new AbortController(),
+          );
+          if (!effectiveLevelFilter) {
+            errorHistogramController = registerAbortController(
+              new AbortController(),
+            );
+          }
+        } else if (histogramTimeRange == null) {
+          setHistogramData([]);
+          setHistogramUsingStaleData(false);
+          setHistogramNoiseFilterRelaxed(false);
+          setHistogramInitialLoading(false);
+        }
+
+        setTableRefreshing(true);
+        setHistogramRefreshing(shouldRefreshHistogram);
+
+        const aggregateParams = histogramTimeRange
+          ? {
+              groupBy: "minute" as const,
+              timeRange: histogramTimeRange,
+              keywords: options.queryText,
+              filters: histogramFilters,
+            }
+          : null;
+        const totalHistogramPromise =
+          shouldRefreshHistogram && totalHistogramController && aggregateParams
+            ? fetchAggregateStats({
+                ...aggregateParams,
+                signal: totalHistogramController.signal,
+              })
+            : Promise.resolve(null);
+        void totalHistogramPromise.catch(() => undefined);
+        const errorHistogramPromise =
+          !shouldRefreshHistogram ||
+          effectiveLevelFilter === "error" ||
+          !aggregateParams
+            ? Promise.resolve(null)
+            : effectiveLevelFilter
+              ? Promise.resolve(null)
+              : fetchAggregateStats({
+                  ...aggregateParams,
+                  filters: {
+                    ...histogramFilters,
+                    level: "error",
+                  },
+                  signal: errorHistogramController?.signal,
+                });
+        void errorHistogramPromise.catch(() => undefined);
+
+        try {
+          if (
+            shouldResolveRealtimeDeepPageCursor(
+              options.page,
+              options.pageSize,
+              activeCursor,
+            )
+          ) {
+            const { cursorMap: resolvedCursorMap, cursor: resolvedCursor } =
+              await ensureRealtimePageCursor({
+                targetPage: options.page,
+                pageSize: options.pageSize,
+                queryText: options.queryText,
+                filters,
+                timeRange: realtimeTableTimeRange,
+                cursorMap: workingCursorMap,
+                isRequestStale: () =>
+                  requestID !== latestQueryRequestRef.current,
+                registerAbortController,
+                unregisterAbortController,
+              });
+            if (requestID !== latestQueryRequestRef.current) {
+              return tableSucceeded ? "success" : "stale";
+            }
+            pageCursorMapRef.current = resolvedCursorMap;
+            workingCursorMap.clear();
+            resolvedCursorMap.forEach((cursor, page) => {
+              workingCursorMap.set(page, cursor);
+            });
+            activeCursor = cloneRealtimePageCursor(resolvedCursor);
+            if (!activeCursor) {
+              if (!options.silent) {
+                message.warning("深分页游标定位失败，请稍后重试");
+              }
+              return "failed";
+            }
+          }
+
+          const result = await queryRealtimeLogs({
+            keywords: options.queryText,
+            page: options.page,
+            pageSize: options.pageSize,
+            filters,
+            timeRange: realtimeTableTimeRange,
+            pitId: activeCursor?.pitId,
+            searchAfter: activeCursor?.searchAfter,
+            signal: tableController.signal,
+            recordHistory: options.recordHistory,
+          });
+
+          if (requestID !== latestQueryRequestRef.current) {
+            return tableSucceeded ? "success" : "stale";
+          }
+
+          const effectivePitId =
+            result.pitId?.trim() || activeCursor?.pitId?.trim() || "";
+          if (effectivePitId) {
+            refreshCursorMapPitID(workingCursorMap, effectivePitId);
+            workingCursorMap.set(1, { pitId: effectivePitId });
+            const currentPageCursor = workingCursorMap.get(result.page);
+            workingCursorMap.set(result.page, {
+              pitId: effectivePitId,
+              searchAfter: cloneSearchAfter(currentPageCursor?.searchAfter),
+            });
+            workingCursorMap.delete(result.page + 1);
+            if (result.nextSearchAfter && result.nextSearchAfter.length > 0) {
+              workingCursorMap.set(result.page + 1, {
+                pitId: effectivePitId,
+                searchAfter: cloneSearchAfter(result.nextSearchAfter),
+              });
+            }
+          }
+          pageCursorMapRef.current = workingCursorMap;
+          setLogs(result.hits);
+          setTotal(result.total);
+          setTotalIsLowerBound(result.totalIsLowerBound);
+          setCurrentPage(result.page);
+          setQueryTimeMS(result.queryTimeMS);
+          setQueryTimedOut(result.timedOut);
+          setTableSnapshotTo(snapshotTo);
+          setTableUsingStaleData(false);
+          if (result.timedOut && !options.silent) {
+            message.warning("查询超时，结果可能不完整");
+          }
+          tableSucceeded = true;
+        } catch (error) {
+          if (requestID !== latestQueryRequestRef.current) {
+            return tableSucceeded ? "success" : "stale";
+          }
+          if (isAbortError(error)) {
+            return tableSucceeded ? "success" : "stale";
+          }
+          const hasStaleTableData = logs.length > 0;
+          setTableUsingStaleData(hasStaleTableData);
+          if (!options.silent) {
+            if (hasStaleTableData) {
+              message.warning("表格刷新失败，已保留上一版结果");
+            } else {
+              const readableError =
+                error instanceof Error ? error.message : "查询失败，请稍后重试";
+              message.error(readableError);
+            }
+          }
+        } finally {
+          if (requestID === latestQueryRequestRef.current) {
+            setInitialLoading(false);
+            setTableRefreshing(false);
+          }
+        }
+
+        if (requestID !== latestQueryRequestRef.current) {
+          return tableSucceeded ? "success" : "stale";
+        }
+
+        if (!shouldRefreshHistogram) {
+          return tableSucceeded ? "success" : "failed";
+        }
+
+        const [totalHistogramResult, errorHistogramResult] =
+          await Promise.allSettled([
+            totalHistogramPromise,
+            errorHistogramPromise,
+          ]);
+
+        if (requestID !== latestQueryRequestRef.current) {
+          return tableSucceeded ? "success" : "stale";
+        }
+
+        const resolvedTotalHistogram =
+          totalHistogramResult.status === "fulfilled"
+            ? totalHistogramResult.value
+            : null;
+        const resolvedErrorHistogram =
+          errorHistogramResult.status === "fulfilled"
+            ? errorHistogramResult.value
+            : null;
+        const histogramFailed =
+          totalHistogramResult.status === "rejected" ||
+          errorHistogramResult.status === "rejected";
+        const histogramAbortOnly = [
+          totalHistogramResult,
+          errorHistogramResult,
+        ].every((result) => {
+          if (result.status === "fulfilled") {
+            return true;
+          }
+          return isAbortError(result.reason);
+        });
+        const canUpdateHistogram = Boolean(resolvedTotalHistogram);
+
+        if (canUpdateHistogram && resolvedTotalHistogram) {
+          const totalBuckets = filterRealtimeHistogramBucketsByLiveWindow(
+            resolvedTotalHistogram.buckets,
             effectiveLiveWindow,
             snapshotTo,
           );
-        setHistogramData(buildRealtimeHistogramData(totalBuckets, errorBuckets));
-        setHistogramUsingStaleData(false);
-        setHistogramNoiseFilterRelaxed(shouldRelaxHistogramNoiseFilter);
-        setHistogramInitialLoading(false);
-        lastHistogramRefreshKeyRef.current = histogramRefreshKey;
-        lastHistogramFetchedAtRef.current = Date.now();
-      } else if (histogramFailed && !histogramAbortOnly) {
-        setHistogramUsingStaleData(histogramData.length > 0);
-        if (histogramData.length === 0) {
-          setHistogramNoiseFilterRelaxed(false);
+          const errorBuckets =
+            effectiveLevelFilter === "error"
+              ? totalBuckets
+              : filterRealtimeHistogramBucketsByLiveWindow(
+                  resolvedErrorHistogram?.buckets ?? [],
+                  effectiveLiveWindow,
+                  snapshotTo,
+                );
+          setHistogramData(
+            buildRealtimeHistogramData(totalBuckets, errorBuckets),
+          );
+          setHistogramUsingStaleData(false);
+          setHistogramNoiseFilterRelaxed(shouldRelaxHistogramNoiseFilter);
+          setHistogramInitialLoading(false);
+          lastHistogramRefreshKeyRef.current = histogramRefreshKey;
+          lastHistogramFetchedAtRef.current = Date.now();
+        } else if (histogramFailed && !histogramAbortOnly) {
+          setHistogramUsingStaleData(histogramData.length > 0);
+          if (histogramData.length === 0) {
+            setHistogramNoiseFilterRelaxed(false);
+          }
+          setHistogramInitialLoading(false);
+          if (!options.silent) {
+            message.warning(
+              histogramData.length > 0
+                ? "图表刷新失败，已保留上一版统计"
+                : "图表刷新失败",
+            );
+          }
         }
-        setHistogramInitialLoading(false);
-        if (!options.silent) {
-          message.warning(histogramData.length > 0 ? '图表刷新失败，已保留上一版统计' : '图表刷新失败');
-        }
-      }
 
-      return tableSucceeded ? 'success' : 'failed';
-    } finally {
-      unregisterAbortController(tableController);
-      unregisterAbortController(totalHistogramController);
-      unregisterAbortController(errorHistogramController);
-      if (inFlightRequestIDRef.current === requestID) {
-        inFlightRequestIDRef.current = null;
-      }
-      if (requestID === latestQueryRequestRef.current) {
-        setInitialLoading(false);
-        setTableRefreshing(false);
-        setHistogramRefreshing(false);
-        setHistogramInitialLoading(false);
-        if (isLiveRef.current && !isUnmountedRef.current) {
-          scheduleNextLiveTickRef.current();
+        return tableSucceeded ? "success" : "failed";
+      } finally {
+        unregisterAbortController(tableController);
+        unregisterAbortController(totalHistogramController);
+        unregisterAbortController(errorHistogramController);
+        if (inFlightRequestIDRef.current === requestID) {
+          inFlightRequestIDRef.current = null;
+        }
+        if (requestID === latestQueryRequestRef.current) {
+          setInitialLoading(false);
+          setTableRefreshing(false);
+          setHistogramRefreshing(false);
+          setHistogramInitialLoading(false);
+          if (isLiveRef.current && !isUnmountedRef.current) {
+            scheduleNextLiveTickRef.current();
+          }
         }
       }
-    }
-  }, [abortActiveRequests, clearLiveTimer, customTimeRange, histogramData.length, levelFilter, liveWindow, logs.length, message, registerAbortController, sourceFilter, unregisterAbortController]);
+    },
+    [
+      abortActiveRequests,
+      clearLiveTimer,
+      customTimeRange,
+      histogramData.length,
+      levelFilter,
+      liveWindow,
+      logs.length,
+      message,
+      registerAbortController,
+      sourceFilter,
+      unregisterAbortController,
+    ],
+  );
 
   const executeQueryRef = useRef(executeQuery);
   const startupAutoRunState = useMemo(() => {
     const searchParams = new URLSearchParams(location.search);
-    const queryPreset = searchParams.get('presetQuery')?.trim() ?? '';
-    const queryAutoRun = searchParams.get('autoRun')?.trim() ?? '';
-    if ((queryAutoRun === '1' || queryAutoRun.toLowerCase() === 'true') && queryPreset) {
+    const queryPreset = searchParams.get("presetQuery")?.trim() ?? "";
+    const queryAutoRun = searchParams.get("autoRun")?.trim() ?? "";
+    if (
+      (queryAutoRun === "1" || queryAutoRun.toLowerCase() === "true") &&
+      queryPreset
+    ) {
       return { presetQuery: queryPreset, timeRange: null };
     }
 
     const state = (location.state as RealtimeNavigationState | null) ?? null;
-    const presetQuery = state?.presetQuery?.trim() ?? '';
+    const presetQuery = state?.presetQuery?.trim() ?? "";
     if (state?.autoRun && presetQuery) {
       return {
         presetQuery,
@@ -881,30 +1078,38 @@ const RealtimeSearch: React.FC = () => {
     currentPageRef.current = currentPage;
   }, [currentPage]);
 
-  const scheduleNextLiveTick = useCallback((delay = LIVE_POLL_INTERVAL_MS) => {
-    clearLiveTimer();
-    if (!isLiveRef.current || isUnmountedRef.current || document.hidden || livePollingDisabled) {
-      return;
-    }
-    liveTimerRef.current = window.setTimeout(() => {
-      liveTimerRef.current = null;
-      if (!isLiveRef.current || isUnmountedRef.current || document.hidden) {
+  const scheduleNextLiveTick = useCallback(
+    (delay = LIVE_POLL_INTERVAL_MS) => {
+      clearLiveTimer();
+      if (
+        !isLiveRef.current ||
+        isUnmountedRef.current ||
+        document.hidden ||
+        livePollingDisabled
+      ) {
         return;
       }
-      if (inFlightRequestIDRef.current != null) {
-        scheduleNextLiveTickRef.current(delay);
-        return;
-      }
-      void executeQueryRef.current({
-        queryText: activeQueryRef.current,
-        page: currentPageRef.current,
-        pageSize: pageSizeRef.current,
-        silent: true,
-        resetCursor: currentPageRef.current === 1,
-        histogramRefreshMode: 'auto',
-      });
-    }, delay);
-  }, [clearLiveTimer, livePollingDisabled]);
+      liveTimerRef.current = window.setTimeout(() => {
+        liveTimerRef.current = null;
+        if (!isLiveRef.current || isUnmountedRef.current || document.hidden) {
+          return;
+        }
+        if (inFlightRequestIDRef.current != null) {
+          scheduleNextLiveTickRef.current(delay);
+          return;
+        }
+        void executeQueryRef.current({
+          queryText: activeQueryRef.current,
+          page: currentPageRef.current,
+          pageSize: pageSizeRef.current,
+          silent: true,
+          resetCursor: currentPageRef.current === 1,
+          histogramRefreshMode: "auto",
+        });
+      }, delay);
+    },
+    [clearLiveTimer, livePollingDisabled],
+  );
 
   useEffect(() => {
     scheduleNextLiveTickRef.current = scheduleNextLiveTick;
@@ -947,20 +1152,24 @@ const RealtimeSearch: React.FC = () => {
         pageSize: pageSizeRef.current,
         silent: true,
         resetCursor: currentPageRef.current === 1,
-        histogramRefreshMode: 'auto',
+        histogramRefreshMode: "auto",
       });
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [clearLiveTimer, livePollingDisabled]);
 
-  useEffect(() => () => {
-    isUnmountedRef.current = true;
-    clearLiveTimer();
-    clearStartupQueryTimer();
-    abortActiveRequests();
-  }, [abortActiveRequests, clearLiveTimer, clearStartupQueryTimer]);
+  useEffect(
+    () => () => {
+      isUnmountedRef.current = true;
+      clearLiveTimer();
+      clearStartupQueryTimer();
+      abortActiveRequests();
+    },
+    [abortActiveRequests, clearLiveTimer, clearStartupQueryTimer],
+  );
 
   useEffect(() => {
     if (initialQueryTriggeredRef.current || startupAutoRunState?.presetQuery) {
@@ -971,7 +1180,7 @@ const RealtimeSearch: React.FC = () => {
       startupQueryTimerRef.current = null;
       initialQueryTriggeredRef.current = true;
       void executeQueryRef.current({
-        queryText: '',
+        queryText: "",
         page: 1,
         pageSize: pageSizeRef.current,
         silent: true,
@@ -989,8 +1198,12 @@ const RealtimeSearch: React.FC = () => {
     startupQueryTimerRef.current = window.setTimeout(() => {
       startupQueryTimerRef.current = null;
       initialQueryTriggeredRef.current = true;
-      const normalizedPresetQuery = normalizeRealtimePresetQuery(startupAutoRunState.presetQuery);
-      const startupTimeRange = normalizeRealtimeExplicitTimeRange(startupAutoRunState.timeRange ?? normalizedPresetQuery.timeRange);
+      const normalizedPresetQuery = normalizeRealtimePresetQuery(
+        startupAutoRunState.presetQuery,
+      );
+      const startupTimeRange = normalizeRealtimeExplicitTimeRange(
+        startupAutoRunState.timeRange ?? normalizedPresetQuery.timeRange,
+      );
       lastFilterStateRef.current = `${normalizedPresetQuery.levelFilter}\u0000${normalizedPresetQuery.sourceFilter}`;
       clearPendingRealtimeStartupQuery();
       setLevelFilter(normalizedPresetQuery.levelFilter);
@@ -1001,7 +1214,7 @@ const RealtimeSearch: React.FC = () => {
       if (startupTimeRange) {
         isLiveRef.current = false;
         setIsLive(false);
-        setLiveWindow('custom');
+        setLiveWindow("custom");
       }
       void executeQueryRef.current({
         queryText: normalizedPresetQuery.queryText,
@@ -1010,8 +1223,8 @@ const RealtimeSearch: React.FC = () => {
         silent: false,
         resetCursor: true,
         timeRangeOverride: startupTimeRange,
-        liveWindowOverride: startupTimeRange ? 'custom' : undefined,
-        histogramRefreshMode: 'force',
+        liveWindowOverride: startupTimeRange ? "custom" : undefined,
+        histogramRefreshMode: "force",
         levelFilterOverride: normalizedPresetQuery.levelFilter,
         sourceFilterOverride: normalizedPresetQuery.sourceFilter,
       });
@@ -1033,13 +1246,16 @@ const RealtimeSearch: React.FC = () => {
       pageSize: pageSizeRef.current,
       silent: true,
       resetCursor: true,
-      histogramRefreshMode: 'force',
+      histogramRefreshMode: "force",
     });
   }, [levelFilter, sourceFilter]);
 
   // 直方图数据
   const displayLogs = useMemo(() => aggregateRealtimeDisplayLogs(logs), [logs]);
-  const imageAggregationSummary = useMemo(() => summarizeImageAggregation(displayLogs), [displayLogs]);
+  const imageAggregationSummary = useMemo(
+    () => summarizeImageAggregation(displayLogs),
+    [displayLogs],
+  );
   const uniqueSources = useMemo(() => {
     const seen = new Set<string>();
     logs.forEach((log) => {
@@ -1055,78 +1271,104 @@ const RealtimeSearch: React.FC = () => {
     setDrawerOpen(true);
   }, []);
 
-  const runSearch = useCallback((value: string, recordHistory: boolean) => {
-    const normalizedQuery = normalizeRealtimePresetQuery(value);
-    const keyword = normalizedQuery.queryText;
-    const nextLevelFilter = normalizedQuery.extractedFilters ? normalizedQuery.levelFilter : levelFilter;
-    const nextSourceFilter = normalizedQuery.extractedFilters ? normalizedQuery.sourceFilter : sourceFilter;
-    const nextExplicitTimeRange = normalizeRealtimeExplicitTimeRange(normalizedQuery.timeRange);
-    const shouldRecordHistory = recordHistory && keyword !== '';
+  const runSearch = useCallback(
+    (value: string, recordHistory: boolean) => {
+      const normalizedQuery = normalizeRealtimePresetQuery(value);
+      const keyword = normalizedQuery.queryText;
+      const nextLevelFilter = normalizedQuery.extractedFilters
+        ? normalizedQuery.levelFilter
+        : levelFilter;
+      const nextSourceFilter = normalizedQuery.extractedFilters
+        ? normalizedQuery.sourceFilter
+        : sourceFilter;
+      const nextExplicitTimeRange = normalizeRealtimeExplicitTimeRange(
+        normalizedQuery.timeRange,
+      );
+      const shouldRecordHistory = recordHistory && keyword !== "";
 
-    if (shouldRecordHistory) {
-      setRecentQueries(recordRealtimeRecentQuery(keyword));
-    }
+      if (shouldRecordHistory) {
+        setRecentQueries(recordRealtimeRecentQuery(keyword));
+      }
 
-    lastFilterStateRef.current = `${nextLevelFilter}\u0000${nextSourceFilter}`;
-    setCurrentPage(1);
-    if (normalizedQuery.extractedFilters) {
-      setLevelFilter(nextLevelFilter);
-      setSourceFilter(nextSourceFilter);
-    }
-    if (nextExplicitTimeRange) {
-      isLiveRef.current = false;
-      clearLiveTimer();
-      setIsLive(false);
-      setCustomTimeRange(nextExplicitTimeRange);
-      setLiveWindow('custom');
-    }
-    setQuery(keyword);
-    setActiveQuery(keyword);
-    void executeQuery({
-      queryText: keyword,
-      page: 1,
+      lastFilterStateRef.current = `${nextLevelFilter}\u0000${nextSourceFilter}`;
+      setCurrentPage(1);
+      if (normalizedQuery.extractedFilters) {
+        setLevelFilter(nextLevelFilter);
+        setSourceFilter(nextSourceFilter);
+      }
+      if (nextExplicitTimeRange) {
+        isLiveRef.current = false;
+        clearLiveTimer();
+        setIsLive(false);
+        setCustomTimeRange(nextExplicitTimeRange);
+        setLiveWindow("custom");
+      }
+      setQuery(keyword);
+      setActiveQuery(keyword);
+      void executeQuery({
+        queryText: keyword,
+        page: 1,
+        pageSize,
+        silent: false,
+        recordHistory: shouldRecordHistory,
+        resetCursor: true,
+        timeRangeOverride: nextExplicitTimeRange ?? normalizedCustomTimeRange,
+        liveWindowOverride: nextExplicitTimeRange ? "custom" : undefined,
+        histogramRefreshMode: "force",
+        levelFilterOverride: nextLevelFilter,
+        sourceFilterOverride: nextSourceFilter,
+      });
+    },
+    [
+      clearLiveTimer,
+      executeQuery,
+      levelFilter,
+      normalizedCustomTimeRange,
       pageSize,
-      silent: false,
-      recordHistory: shouldRecordHistory,
-      resetCursor: true,
-      timeRangeOverride: nextExplicitTimeRange ?? normalizedCustomTimeRange,
-      liveWindowOverride: nextExplicitTimeRange ? 'custom' : undefined,
-      histogramRefreshMode: 'force',
-      levelFilterOverride: nextLevelFilter,
-      sourceFilterOverride: nextSourceFilter,
-    });
-  }, [clearLiveTimer, executeQuery, levelFilter, normalizedCustomTimeRange, pageSize, sourceFilter]);
+      sourceFilter,
+    ],
+  );
 
-  const handleLiveWindowChange = useCallback((value: LiveWindowOption) => {
-    if (value === liveWindow && !(value === 'custom' && hasCustomTimeRange)) {
-      return;
-    }
-    const nextExplicitTimeRange = value === 'custom' ? normalizedCustomTimeRange : null;
-    setLiveWindow(value);
-    if (value !== 'custom') {
-      setCustomTimeRange(null);
-    }
-    if (value === 'all' || value === 'custom') {
-      isLiveRef.current = false;
-      clearLiveTimer();
-      setIsLive(false);
-    }
-    setCurrentPage(1);
-    void executeQuery({
-      queryText: activeQueryRef.current,
-      page: 1,
-      pageSize: pageSizeRef.current,
-      silent: true,
-      resetCursor: true,
-      timeRangeOverride: nextExplicitTimeRange,
-      liveWindowOverride: value,
-      histogramRefreshMode: 'force',
-    });
-  }, [clearLiveTimer, executeQuery, hasCustomTimeRange, liveWindow, normalizedCustomTimeRange]);
+  const handleLiveWindowChange = useCallback(
+    (value: LiveWindowOption) => {
+      if (value === liveWindow && !(value === "custom" && hasCustomTimeRange)) {
+        return;
+      }
+      const nextExplicitTimeRange =
+        value === "custom" ? normalizedCustomTimeRange : null;
+      setLiveWindow(value);
+      if (value !== "custom") {
+        setCustomTimeRange(null);
+      }
+      if (value === "all" || value === "custom") {
+        isLiveRef.current = false;
+        clearLiveTimer();
+        setIsLive(false);
+      }
+      setCurrentPage(1);
+      void executeQuery({
+        queryText: activeQueryRef.current,
+        page: 1,
+        pageSize: pageSizeRef.current,
+        silent: true,
+        resetCursor: true,
+        timeRangeOverride: nextExplicitTimeRange,
+        liveWindowOverride: value,
+        histogramRefreshMode: "force",
+      });
+    },
+    [
+      clearLiveTimer,
+      executeQuery,
+      hasCustomTimeRange,
+      liveWindow,
+      normalizedCustomTimeRange,
+    ],
+  );
 
   const handleToggleLive = useCallback(() => {
     if (livePollingDisabled) {
-      message.info('全部时间或历史时间范围下不支持实时轮询');
+      message.info("全部时间或历史时间范围下不支持实时轮询");
       return;
     }
     if (isLive) {
@@ -1145,10 +1387,19 @@ const RealtimeSearch: React.FC = () => {
         pageSize,
         silent: true,
         resetCursor: true,
-        histogramRefreshMode: 'skip',
+        histogramRefreshMode: "skip",
       });
     }
-  }, [activeQuery, clearLiveTimer, currentPage, executeQuery, isLive, livePollingDisabled, message, pageSize]);
+  }, [
+    activeQuery,
+    clearLiveTimer,
+    currentPage,
+    executeQuery,
+    isLive,
+    livePollingDisabled,
+    message,
+    pageSize,
+  ]);
 
   const handleBookmarkCurrentQuery = useCallback(() => {
     const now = new Date();
@@ -1163,28 +1414,28 @@ const RealtimeSearch: React.FC = () => {
     });
 
     if (!cleanupState.cleanedQuery) {
-      message.warning('请先输入查询语句或选择筛选条件');
+      message.warning("请先输入查询语句或选择筛选条件");
       return;
     }
 
     const persistBookmark = async () => {
       try {
         await createSavedQuery({
-          name: `实时查询 ${now.toLocaleString('zh-CN')}`,
+          name: `实时查询 ${now.toLocaleString("zh-CN")}`,
           query: cleanupState.cleanedQuery,
           tags: [],
         });
         if (cleanupState.normalized.strippedTimeRange) {
-          message.success('已收藏当前查询，并自动移除旧格式时间范围');
+          message.success("已收藏当前查询，并自动移除旧格式时间范围");
           return;
         }
         if (cleanupState.needsCleanup) {
-          message.success('已收藏当前查询，并自动规范旧格式查询');
+          message.success("已收藏当前查询，并自动规范旧格式查询");
           return;
         }
-        message.success('已收藏当前查询');
+        message.success("已收藏当前查询");
       } catch (error) {
-        const readable = error instanceof Error ? error.message : '收藏失败';
+        const readable = error instanceof Error ? error.message : "收藏失败";
         message.error(readable);
       }
     };
@@ -1195,9 +1446,9 @@ const RealtimeSearch: React.FC = () => {
     }
 
     modal.confirm({
-      title: '收藏前将清洗旧格式查询',
-      okText: '收藏并清洗',
-      cancelText: '取消',
+      title: "收藏前将清洗旧格式查询",
+      okText: "收藏并清洗",
+      cancelText: "取消",
       width: 720,
       content: (
         <QueryCleanupPreviewContent
@@ -1213,197 +1464,275 @@ const RealtimeSearch: React.FC = () => {
   }, [levelFilter, message, modal, query, sourceFilter]);
 
   // 执行检索（仅手动点击执行/回车时写入历史）
-  const handleSearch = useCallback((value: string) => {
-    runSearch(value, true);
-  }, [runSearch]);
+  const handleSearch = useCallback(
+    (value: string) => {
+      runSearch(value, true);
+    },
+    [runSearch],
+  );
 
   // 直方图 ECharts 配置
-  const histogramOption: EChartsCoreOption = useMemo(() => ({
-    grid: { top: 24, right: 16, bottom: 24, left: 48 },
-    legend: {
-      show: true,
-      top: 0,
-      right: 0,
-      textStyle: { fontSize: 10, color: isDark ? '#94a3b8' : '#475569' },
-      itemWidth: 10,
-      itemHeight: 10,
-    },
-    xAxis: {
-      type: 'category',
-      data: histogramData.map((d) => d.time),
-      axisLabel: { fontSize: 10 },
-    },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' } },
-    },
-    series: [
-      {
-        name: '正常',
-        type: 'bar',
-        stack: 'total',
-        data: histogramData.map((d) => d.normal),
-        itemStyle: { color: COLORS.primary, borderRadius: [0, 0, 0, 0] },
-        barMaxWidth: 20,
+  const histogramOption: EChartsCoreOption = useMemo(
+    () => ({
+      grid: { top: 24, right: 16, bottom: 24, left: 48 },
+      legend: {
+        show: true,
+        top: 0,
+        right: 0,
+        textStyle: { fontSize: 10, color: isDark ? "#94a3b8" : "#475569" },
+        itemWidth: 10,
+        itemHeight: 10,
       },
-      {
-        name: '错误',
-        type: 'bar',
-        stack: 'total',
-        data: histogramData.map((d) => d.error),
-        itemStyle: { color: COLORS.danger, borderRadius: [2, 2, 0, 0] },
-        barMaxWidth: 20,
+      xAxis: {
+        type: "category",
+        data: histogramData.map((d) => d.time),
+        axisLabel: { fontSize: 10 },
       },
-    ],
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-    },
-  }), [histogramData, isDark]);
+      yAxis: {
+        type: "value",
+        splitLine: {
+          lineStyle: {
+            color: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
+          },
+        },
+      },
+      series: [
+        {
+          name: "正常",
+          type: "bar",
+          stack: "total",
+          data: histogramData.map((d) => d.normal),
+          itemStyle: { color: COLORS.primary, borderRadius: [0, 0, 0, 0] },
+          barMaxWidth: 20,
+        },
+        {
+          name: "错误",
+          type: "bar",
+          stack: "total",
+          data: histogramData.map((d) => d.error),
+          itemStyle: { color: COLORS.danger, borderRadius: [2, 2, 0, 0] },
+          barMaxWidth: 20,
+        },
+      ],
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+      },
+    }),
+    [histogramData, isDark],
+  );
 
-  const deepPaginationRestricted = total > MAX_PAGINATION_WINDOW_ROWS || (totalIsLowerBound && total >= MAX_PAGINATION_WINDOW_ROWS);
+  const deepPaginationRestricted =
+    total > MAX_PAGINATION_WINDOW_ROWS ||
+    (totalIsLowerBound && total >= MAX_PAGINATION_WINDOW_ROWS);
+  const realtimeEmptyDescription = useMemo(
+    () =>
+      resolveRealtimeLogsEmptyDescription({
+        queryText: activeQuery,
+        levelFilter,
+        sourceFilter,
+        hasCustomTimeRange,
+        liveWindow,
+      }),
+    [activeQuery, hasCustomTimeRange, levelFilter, liveWindow, sourceFilter],
+  );
 
   // 表格列定义
-  const columns: ColumnsType<LogEntry> = useMemo(() => [
-    {
-      title: '时间',
-      dataIndex: 'timestamp',
-      key: 'timestamp',
-      width: 180,
-      render: (v: string) => (
-        <span className="text-sm font-mono opacity-70">
-          {new Date(v).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
-        </span>
-      ),
-    },
-    {
-      title: '级别',
-      dataIndex: 'level',
-      key: 'level',
-      width: 80,
-      render: (v: string) => {
-        const cfg = LEVEL_CONFIG[v] || LEVEL_CONFIG.info;
-        return <Tag color={cfg.tagColor} style={{ margin: 0, fontSize: 12 }}>{v.toUpperCase()}</Tag>;
+  const columns: ColumnsType<LogEntry> = useMemo(
+    () => [
+      {
+        title: "时间",
+        dataIndex: "timestamp",
+        key: "timestamp",
+        width: 180,
+        render: (v: string) => (
+          <span className="text-sm font-mono opacity-70">
+            {new Date(v).toLocaleString("zh-CN", {
+              timeZone: "Asia/Shanghai",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
+            })}
+          </span>
+        ),
       },
-    },
-    {
-      title: '服务',
-      dataIndex: 'service',
-      key: 'service',
-      width: 150,
-      render: (v: string) => <span className="text-sm font-medium">{v}</span>,
-    },
-    {
-      title: '主机',
-      dataIndex: 'host',
-      key: 'host',
-      width: 180,
-      ellipsis: true,
-      render: (v: string) => {
-        const displayValue = toDisplayText(v);
-        if (displayValue === '—') {
-          return <span className="text-sm opacity-50">—</span>;
-        }
-        return (
-          <Tooltip title={displayValue}>
-            <span className="text-sm font-mono">{displayValue}</span>
-          </Tooltip>
-        );
+      {
+        title: "级别",
+        dataIndex: "level",
+        key: "level",
+        width: 80,
+        render: (v: string) => {
+          const cfg = LEVEL_CONFIG[v] || LEVEL_CONFIG.info;
+          return (
+            <Tag color={cfg.tagColor} style={{ margin: 0, fontSize: 12 }}>
+              {v.toUpperCase()}
+            </Tag>
+          );
+        },
       },
-    },
-    {
-      title: '主机IP',
-      dataIndex: 'hostIp',
-      key: 'hostIp',
-      width: 160,
-      ellipsis: true,
-      render: (v: string) => {
-        const displayValue = toDisplayText(v);
-        if (displayValue === '—') {
-          return <span className="text-sm opacity-50">—</span>;
-        }
-        return (
-          <Tooltip title={displayValue}>
-            <span className="text-sm font-mono">{displayValue}</span>
-          </Tooltip>
-        );
+      {
+        title: "服务",
+        dataIndex: "service",
+        key: "service",
+        width: 150,
+        render: (v: string) => <span className="text-sm font-medium">{v}</span>,
       },
-    },
-    {
-      title: '消息',
-      dataIndex: 'message',
-      key: 'message',
-      ellipsis: true,
-      render: (v: string, record) => {
-        if (!record.aggregated) {
-          return <span className="text-sm">{v}</span>;
-        }
-        return (
-          <div className="flex items-center gap-2 min-w-0">
-            <Tag color="blue" style={{ margin: 0 }}>聚合 {record.aggregated.count}</Tag>
-            <Tooltip title={record.aggregated.samplePaths.join('\n') || v}>
-              <span className="text-sm truncate">{v}</span>
+      {
+        title: "主机",
+        dataIndex: "host",
+        key: "host",
+        width: 180,
+        ellipsis: true,
+        render: (v: string) => {
+          const displayValue = toDisplayText(v);
+          if (displayValue === "—") {
+            return <span className="text-sm opacity-50">—</span>;
+          }
+          return (
+            <Tooltip title={displayValue}>
+              <span className="text-sm font-mono">{displayValue}</span>
             </Tooltip>
-          </div>
-        );
+          );
+        },
       },
-    },
-  ], []);
+      {
+        title: "主机IP",
+        dataIndex: "hostIp",
+        key: "hostIp",
+        width: 160,
+        ellipsis: true,
+        render: (v: string) => {
+          const displayValue = toDisplayText(v);
+          if (displayValue === "—") {
+            return <span className="text-sm opacity-50">—</span>;
+          }
+          return (
+            <Tooltip title={displayValue}>
+              <span className="text-sm font-mono">{displayValue}</span>
+            </Tooltip>
+          );
+        },
+      },
+      {
+        title: "消息",
+        dataIndex: "message",
+        key: "message",
+        ellipsis: true,
+        render: (v: string, record) => {
+          if (!record.aggregated) {
+            return <span className="text-sm">{v}</span>;
+          }
+          return (
+            <div className="flex items-center gap-2 min-w-0">
+              <Tag color="blue" style={{ margin: 0 }}>
+                聚合 {record.aggregated.count}
+              </Tag>
+              <Tooltip title={record.aggregated.samplePaths.join("\n") || v}>
+                <span className="text-sm truncate">{v}</span>
+              </Tooltip>
+            </div>
+          );
+        },
+      },
+    ],
+    [],
+  );
 
-  const copyToClipboard = useCallback(async (content: string, successText: string) => {
-    const normalized = content.trim();
-    if (!normalized || normalized === '—') {
-      message.warning('没有可复制的内容');
-      return;
-    }
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(normalized);
-      } else if (typeof document !== 'undefined') {
-        const textarea = document.createElement('textarea');
-        textarea.value = normalized;
-        textarea.setAttribute('readonly', 'true');
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
+  const copyToClipboard = useCallback(
+    async (content: string, successText: string) => {
+      const normalized = content.trim();
+      if (!normalized || normalized === "—") {
+        message.warning("没有可复制的内容");
+        return;
       }
-      message.success(successText);
-    } catch {
-      message.error('复制失败，请检查浏览器权限');
-    }
-  }, []);
+      try {
+        if (
+          typeof navigator !== "undefined" &&
+          navigator.clipboard?.writeText
+        ) {
+          await navigator.clipboard.writeText(normalized);
+        } else if (typeof document !== "undefined") {
+          const textarea = document.createElement("textarea");
+          textarea.value = normalized;
+          textarea.setAttribute("readonly", "true");
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          document.body.removeChild(textarea);
+        }
+        message.success(successText);
+      } catch {
+        message.error("复制失败，请检查浏览器权限");
+      }
+    },
+    [],
+  );
 
   const selectedFields = selectedLog?.fields;
   const selectedAggregation = selectedLog?.aggregated;
-  const drawerEventID = toDisplayText(selectedFields?.event_id ?? selectedLog?.id);
-  const drawerLevel = toDisplayText(selectedFields?.level ?? selectedLog?.level);
-  const drawerTimestamp = toDisplayText(selectedFields?.timestamp ?? selectedLog?.timestamp ?? selectedFields?.collect_time);
-  const drawerMessage = toDisplayText(selectedLog?.message ?? selectedFields?.message);
-  const drawerSource = toDisplayText(selectedFields?.source ?? selectedFields?.source_path ?? selectedFields?.source_internal);
-  const drawerService = toDisplayText(selectedLog?.service ?? selectedFields?.service_name ?? selectedFields?.service);
-  const drawerHost = toDisplayText(selectedLog?.host ?? selectedFields?.host ?? selectedFields?.server_id);
-  const drawerHostIP = toDisplayText(selectedLog?.hostIp ?? selectedFields?.host_ip, '—');
-  const drawerRawLog = selectedLog?.rawLog ?? selectedFields?.raw_message ?? selectedFields?.raw_log ?? drawerMessage;
-  const drawerTraceId = toDisplayText(selectedFields?.traceId, '—');
-  const drawerSpanId = toDisplayText(selectedFields?.spanId, '—');
-  const drawerMethod = toDisplayText(selectedFields?.method, '—');
-  const drawerStatusCode = toDisplayText(selectedFields?.statusCode, '—');
-  const drawerUserAgent = toDisplayText(selectedFields?.userAgent, '—');
+  const drawerEventID = toDisplayText(
+    selectedFields?.event_id ?? selectedLog?.id,
+  );
+  const drawerLevel = toDisplayText(
+    selectedFields?.level ?? selectedLog?.level,
+  );
+  const drawerTimestamp = toDisplayText(
+    selectedFields?.timestamp ??
+      selectedLog?.timestamp ??
+      selectedFields?.collect_time,
+  );
+  const drawerMessage = toDisplayText(
+    selectedLog?.message ?? selectedFields?.message,
+  );
+  const drawerSource = toDisplayText(
+    selectedFields?.source ??
+      selectedFields?.source_path ??
+      selectedFields?.source_internal,
+  );
+  const drawerService = toDisplayText(
+    selectedLog?.service ??
+      selectedFields?.service_name ??
+      selectedFields?.service,
+  );
+  const drawerHost = toDisplayText(
+    selectedLog?.host ?? selectedFields?.host ?? selectedFields?.server_id,
+  );
+  const drawerHostIP = toDisplayText(
+    selectedLog?.hostIp ?? selectedFields?.host_ip,
+    "—",
+  );
+  const drawerRawLog =
+    selectedLog?.rawLog ??
+    selectedFields?.raw_message ??
+    selectedFields?.raw_log ??
+    drawerMessage;
+  const drawerTraceId = toDisplayText(selectedFields?.traceId, "—");
+  const drawerSpanId = toDisplayText(selectedFields?.spanId, "—");
+  const drawerMethod = toDisplayText(selectedFields?.method, "—");
+  const drawerStatusCode = toDisplayText(selectedFields?.statusCode, "—");
+  const drawerUserAgent = toDisplayText(selectedFields?.userAgent, "—");
   const drawerRawContent = formatDetailValue(drawerRawLog);
   const drawerFieldsJson = useMemo(() => {
     if (!selectedFields) {
-      return '—';
+      return "—";
     }
     return formatDetailValue(
-      Object.fromEntries(Object.entries(selectedFields).sort(([left], [right]) => left.localeCompare(right))),
+      Object.fromEntries(
+        Object.entries(selectedFields).sort(([left], [right]) =>
+          left.localeCompare(right),
+        ),
+      ),
     );
   }, [selectedFields]);
   const drawerPayloadJson = useMemo(() => {
     if (!selectedLog) {
-      return '—';
+      return "—";
     }
     return formatDetailValue({
       id: selectedLog.id,
@@ -1420,25 +1749,76 @@ const RealtimeSearch: React.FC = () => {
   }, [selectedAggregation, selectedFields, selectedLog]);
   const drawerSummaryItems = useMemo(() => {
     const items = [
-      { key: 'event-id', label: '事件 ID', value: drawerEventID, mono: true, copyable: true },
-      { key: 'timestamp', label: '时间', value: drawerTimestamp, mono: true, copyable: true },
-      { key: 'service', label: '服务', value: drawerService, mono: false, copyable: false },
-      { key: 'host', label: '主机', value: drawerHost, mono: true, copyable: true },
-      { key: 'host-ip', label: '主机 IP', value: drawerHostIP, mono: true, copyable: drawerHostIP !== '—' },
-      { key: 'source', label: '来源', value: drawerSource, mono: true, copyable: true },
-      { key: 'trace', label: 'Trace ID', value: drawerTraceId, mono: true, copyable: drawerTraceId !== '—' },
+      {
+        key: "event-id",
+        label: "事件 ID",
+        value: drawerEventID,
+        mono: true,
+        copyable: true,
+      },
+      {
+        key: "timestamp",
+        label: "时间",
+        value: drawerTimestamp,
+        mono: true,
+        copyable: true,
+      },
+      {
+        key: "service",
+        label: "服务",
+        value: drawerService,
+        mono: false,
+        copyable: false,
+      },
+      {
+        key: "host",
+        label: "主机",
+        value: drawerHost,
+        mono: true,
+        copyable: true,
+      },
+      {
+        key: "host-ip",
+        label: "主机 IP",
+        value: drawerHostIP,
+        mono: true,
+        copyable: drawerHostIP !== "—",
+      },
+      {
+        key: "source",
+        label: "来源",
+        value: drawerSource,
+        mono: true,
+        copyable: true,
+      },
+      {
+        key: "trace",
+        label: "Trace ID",
+        value: drawerTraceId,
+        mono: true,
+        copyable: drawerTraceId !== "—",
+      },
     ];
     if (selectedAggregation) {
       items.push({
-        key: 'aggregation',
-        label: '图片聚合',
+        key: "aggregation",
+        label: "图片聚合",
         value: `${selectedAggregation.count} 条已折叠`,
         mono: false,
         copyable: false,
       });
     }
     return items;
-  }, [drawerEventID, drawerHost, drawerHostIP, drawerService, drawerSource, drawerTimestamp, drawerTraceId, selectedAggregation]);
+  }, [
+    drawerEventID,
+    drawerHost,
+    drawerHostIP,
+    drawerService,
+    drawerSource,
+    drawerTimestamp,
+    drawerTraceId,
+    selectedAggregation,
+  ]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -1454,7 +1834,9 @@ const RealtimeSearch: React.FC = () => {
             onChange={(e) => setQuery(e.target.value)}
             enterButton={
               <span className="flex items-center gap-1">
-                <span className="material-symbols-outlined text-sm">play_arrow</span>
+                <span className="material-symbols-outlined text-sm">
+                  play_arrow
+                </span>
                 执行
               </span>
             }
@@ -1464,13 +1846,19 @@ const RealtimeSearch: React.FC = () => {
           />
           <Tooltip title="保存查询">
             <Button
-              icon={<span className="material-symbols-outlined text-sm">bookmark_add</span>}
+              icon={
+                <span className="material-symbols-outlined text-sm">
+                  bookmark_add
+                </span>
+              }
               onClick={handleBookmarkCurrentQuery}
             />
           </Tooltip>
           <Button type="link" size="small">
             <span className="flex items-center gap-1 text-xs">
-              <span className="material-symbols-outlined text-sm">help_outline</span>
+              <span className="material-symbols-outlined text-sm">
+                help_outline
+              </span>
               语法指南
             </span>
           </Button>
@@ -1496,15 +1884,15 @@ const RealtimeSearch: React.FC = () => {
             placeholder="级别"
             allowClear
             value={levelFilter || undefined}
-            onChange={(v) => setLevelFilter(v ?? '')}
+            onChange={(v) => setLevelFilter(v ?? "")}
             style={{ minWidth: 120 }}
             options={[
-              { value: '', label: 'ALL' },
-              { value: 'debug', label: 'DEBUG' },
-              { value: 'info', label: 'INFO' },
-              { value: 'warn', label: 'WARN' },
-              { value: 'error', label: 'ERROR' },
-              { value: 'fatal', label: 'FATAL' },
+              { value: "", label: "ALL" },
+              { value: "debug", label: "DEBUG" },
+              { value: "info", label: "INFO" },
+              { value: "warn", label: "WARN" },
+              { value: "error", label: "ERROR" },
+              { value: "fatal", label: "FATAL" },
             ]}
           />
           <Select
@@ -1512,11 +1900,11 @@ const RealtimeSearch: React.FC = () => {
             allowClear
             showSearch
             value={sourceFilter || undefined}
-            onChange={(v) => setSourceFilter(v ?? '')}
+            onChange={(v) => setSourceFilter(v ?? "")}
             style={{ minWidth: 180 }}
             optionFilterProp="label"
             options={[
-              { value: '', label: 'ALL' },
+              { value: "", label: "ALL" },
               ...uniqueSources.map((s) => ({ value: s, label: s })),
             ]}
           />
@@ -1527,24 +1915,41 @@ const RealtimeSearch: React.FC = () => {
       <ChartWrapper
         title="事件量分布"
         loading={histogramRefreshing && histogramData.length === 0}
-        empty={histogramDisabled || (!histogramRefreshing && !histogramInitialLoading && histogramData.length === 0)}
-        subtitle={histogramDisabled ? '全部时间或精确时间范围下不展示趋势图' : undefined}
-        actions={(
+        empty={
+          histogramDisabled ||
+          (!histogramRefreshing &&
+            !histogramInitialLoading &&
+            histogramData.length === 0)
+        }
+        subtitle={
+          histogramDisabled ? "全部时间或精确时间范围下不展示趋势图" : undefined
+        }
+        actions={
           <Space size={8}>
-            {histogramDisabled && <Tag color="default" style={{ margin: 0 }}>{hasCustomTimeRange ? '精确时间范围' : '全部时间'}</Tag>}
-            {histogramRefreshing && (
-              <Tag color="processing" style={{ margin: 0 }}>
-                {histogramData.length === 0 ? '加载中' : '刷新中'}
+            {histogramDisabled && (
+              <Tag color="default" style={{ margin: 0 }}>
+                {hasCustomTimeRange ? "精确时间范围" : "全部时间"}
               </Tag>
             )}
-            {histogramUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次统计</Tag>}
+            {histogramRefreshing && (
+              <Tag color="processing" style={{ margin: 0 }}>
+                {resolveSearchPageLoadingLabel(histogramData.length)}
+              </Tag>
+            )}
+            {histogramUsingStaleData && (
+              <Tag color="warning" style={{ margin: 0 }}>
+                使用上次统计
+              </Tag>
+            )}
             {histogramNoiseFilterRelaxed && !histogramDisabled && (
               <Tooltip title="空查询趋势图为避免后端聚合超时，未应用“排除系统噪声”过滤；日志列表仍保持原过滤口径。">
-                <Tag color="gold" style={{ margin: 0 }}>空查询未过滤系统噪声</Tag>
+                <Tag color="gold" style={{ margin: 0 }}>
+                  空查询未过滤系统噪声
+                </Tag>
               </Tooltip>
             )}
           </Space>
-        )}
+        }
         option={histogramOption}
         height={160}
       />
@@ -1555,15 +1960,15 @@ const RealtimeSearch: React.FC = () => {
           <div className="flex items-center gap-3">
             <Button
               size="small"
-              type={isLive ? 'primary' : 'default'}
+              type={isLive ? "primary" : "default"}
               onClick={handleToggleLive}
               icon={
                 <span className="material-symbols-outlined text-sm">
-                  {isLive ? 'pause' : 'play_arrow'}
+                  {isLive ? "pause" : "play_arrow"}
                 </span>
               }
             >
-              {isLive ? '实时' : '已暂停'}
+              {isLive ? "实时" : "已暂停"}
             </Button>
             <Select
               size="small"
@@ -1573,38 +1978,69 @@ const RealtimeSearch: React.FC = () => {
               options={liveWindowOptions}
             />
             <span className="text-xs opacity-50">
-              共 {formatRealtimeTotal(total, totalIsLowerBound)} 条结果 · 耗时 {queryTimeMS}ms
+              共 {formatRealtimeTotal(total, totalIsLowerBound)} 条结果 · 耗时{" "}
+              {queryTimeMS}ms
             </span>
             {hasCustomTimeRange && (
               <Tooltip title={customTimeRangeLabel}>
-                <Tag color="blue" style={{ margin: 0 }}>历史时间范围</Tag>
+                <Tag color="blue" style={{ margin: 0 }}>
+                  历史时间范围
+                </Tag>
               </Tooltip>
             )}
             {tableRefreshing && (
               <Tag color="processing" style={{ margin: 0 }}>
-                {logs.length === 0 ? '加载中' : '刷新中'}
+                {resolveSearchPageLoadingLabel(logs.length)}
               </Tag>
             )}
-            {tableUsingStaleData && <Tag color="warning" style={{ margin: 0 }}>使用上次结果</Tag>}
-            {totalIsLowerBound && <Tag color="default" style={{ margin: 0 }}>总数按阈值统计</Tag>}
+            {tableUsingStaleData && (
+              <Tag color="warning" style={{ margin: 0 }}>
+                使用上次结果
+              </Tag>
+            )}
+            {totalIsLowerBound && (
+              <Tag color="default" style={{ margin: 0 }}>
+                总数按阈值统计
+              </Tag>
+            )}
             {imageAggregationSummary.hiddenRows > 0 && (
               <Tag color="blue" style={{ margin: 0 }}>
-                本页已聚合 {imageAggregationSummary.groupedRows} 组图片日志，折叠 {imageAggregationSummary.hiddenRows} 条
+                本页已聚合 {imageAggregationSummary.groupedRows}{" "}
+                组图片日志，折叠 {imageAggregationSummary.hiddenRows} 条
               </Tag>
             )}
-            {queryTimedOut && <Tag color="warning" style={{ margin: 0 }}>查询超时</Tag>}
+            {queryTimedOut && (
+              <Tag color="warning" style={{ margin: 0 }}>
+                查询超时
+              </Tag>
+            )}
             {deepPaginationRestricted && (
               <Tag color="gold" style={{ margin: 0 }}>
-                超过前 {MAX_PAGINATION_WINDOW_ROWS.toLocaleString()} 条后，首个窗口内仍可跳页，更深页码需顺序翻页建立游标
+                超过前 {MAX_PAGINATION_WINDOW_ROWS.toLocaleString()}{" "}
+                条后，首个窗口内仍可跳页，更深页码需顺序翻页建立游标
               </Tag>
             )}
           </div>
           <Space size="small">
             <Tooltip title="列设置">
-              <Button size="small" icon={<span className="material-symbols-outlined text-sm">view_column</span>} />
+              <Button
+                size="small"
+                icon={
+                  <span className="material-symbols-outlined text-sm">
+                    view_column
+                  </span>
+                }
+              />
             </Tooltip>
             <Tooltip title="下载">
-              <Button size="small" icon={<span className="material-symbols-outlined text-sm">download</span>} />
+              <Button
+                size="small"
+                icon={
+                  <span className="material-symbols-outlined text-sm">
+                    download
+                  </span>
+                }
+              />
             </Tooltip>
           </Space>
         </div>
@@ -1615,7 +2051,14 @@ const RealtimeSearch: React.FC = () => {
           rowKey="id"
           loading={tableRefreshing}
           locale={{
-            emptyText: tableRefreshing ? <span /> : <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
+            emptyText: tableRefreshing ? (
+              <span />
+            ) : (
+              <Empty
+                description={realtimeEmptyDescription}
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+              />
+            ),
           }}
           size="small"
           pagination={{
@@ -1624,8 +2067,9 @@ const RealtimeSearch: React.FC = () => {
             total,
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (itemsTotal) => `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`,
-            pageSizeOptions: ['10', '20', '50', '100'],
+            showTotal: (itemsTotal) =>
+              `共 ${formatRealtimeTotal(itemsTotal, totalIsLowerBound)} 条`,
+            pageSizeOptions: ["10", "20", "50", "100"],
             onChange: (page, size) => {
               const nextPageSize = size ?? pageSize;
               const pageSizeChanged = nextPageSize !== pageSize;
@@ -1639,15 +2083,32 @@ const RealtimeSearch: React.FC = () => {
                 setIsLive(false);
               }
 
-              const cachedCursor = cloneRealtimePageCursor(pageCursorMapRef.current.get(targetPage));
-              if (shouldBlockRealtimeDirectPageJump(targetPage, nextPageSize, deepPaginationRestricted, cachedCursor)) {
-                void message.warning('当前结果集超过 10,000 条，首 10,000 条内可直接跳页，更深页码需顺序翻页建立游标');
+              const cachedCursor = cloneRealtimePageCursor(
+                pageCursorMapRef.current.get(targetPage),
+              );
+              if (
+                shouldBlockRealtimeDirectPageJump(
+                  targetPage,
+                  nextPageSize,
+                  deepPaginationRestricted,
+                  cachedCursor,
+                )
+              ) {
+                void message.warning(
+                  "当前结果集超过 10,000 条，首 10,000 条内可直接跳页，更深页码需顺序翻页建立游标",
+                );
                 return;
               }
-              if (shouldResolveRealtimeDeepPageCursor(targetPage, nextPageSize, cachedCursor)) {
+              if (
+                shouldResolveRealtimeDeepPageCursor(
+                  targetPage,
+                  nextPageSize,
+                  cachedCursor,
+                )
+              ) {
                 void message.open({
-                  key: 'realtime-deep-pagination',
-                  type: 'loading',
+                  key: "realtime-deep-pagination",
+                  type: "loading",
                   content: `正在顺序定位第 ${targetPage} 页，请稍候...`,
                   duration: 0,
                 });
@@ -1659,9 +2120,11 @@ const RealtimeSearch: React.FC = () => {
               if (targetPage !== currentPage || pageSizeChanged) {
                 setCurrentPage(targetPage);
               }
-              const requestCursor = cachedCursor ?? (targetPage > 1
-                ? cloneRealtimePageCursor(pageCursorMapRef.current.get(1))
-                : undefined);
+              const requestCursor =
+                cachedCursor ??
+                (targetPage > 1
+                  ? cloneRealtimePageCursor(pageCursorMapRef.current.get(1))
+                  : undefined);
               void executeQuery({
                 queryText: activeQueryRef.current,
                 page: targetPage,
@@ -1670,10 +2133,10 @@ const RealtimeSearch: React.FC = () => {
                 snapshotTo: tableSnapshotTo,
                 cursor: requestCursor,
                 resetCursor: pageSizeChanged,
-                histogramRefreshMode: 'skip',
+                histogramRefreshMode: "skip",
               }).then((status) => {
-                void message.destroy('realtime-deep-pagination');
-                if (status === 'failed') {
+                void message.destroy("realtime-deep-pagination");
+                if (status === "failed") {
                   setCurrentPage(previousPage);
                   if (nextPageSize !== previousPageSize) {
                     setPageSize(previousPageSize);
@@ -1681,11 +2144,11 @@ const RealtimeSearch: React.FC = () => {
                 }
               });
             },
-            position: ['bottomLeft'],
+            position: ["bottomLeft"],
           }}
           onRow={(record) => ({
             onClick: () => handleRowClick(record),
-            style: { cursor: 'pointer' },
+            style: { cursor: "pointer" },
           })}
           scroll={{ x: 980 }}
         />
@@ -1696,38 +2159,64 @@ const RealtimeSearch: React.FC = () => {
         title={
           selectedLog ? (
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-base" style={{ color: LEVEL_CONFIG[selectedLog.level]?.color }}>
-                {selectedLog.level === 'error' ? 'error' : selectedLog.level === 'warn' ? 'warning' : 'info'}
+              <span
+                className="material-symbols-outlined text-base"
+                style={{ color: LEVEL_CONFIG[selectedLog.level]?.color }}
+              >
+                {selectedLog.level === "error"
+                  ? "error"
+                  : selectedLog.level === "warn"
+                    ? "warning"
+                    : "info"}
               </span>
               <span>日志详情</span>
-              <Tag color={LEVEL_CONFIG[selectedLog.level]?.tagColor || 'default'} style={{ margin: 0 }}>
+              <Tag
+                color={LEVEL_CONFIG[selectedLog.level]?.tagColor || "default"}
+                style={{ margin: 0 }}
+              >
                 {selectedLog.level.toUpperCase()}
               </Tag>
             </div>
-          ) : '日志详情'
+          ) : (
+            "日志详情"
+          )
         }
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         width={760}
         styles={{ body: { paddingTop: 12, paddingBottom: 12 } }}
-        footer={selectedLog ? (
-          <div className="flex items-center justify-end gap-2 flex-wrap">
-            <Button
-              icon={<span className="material-symbols-outlined text-sm">data_object</span>}
-              onClick={() => void copyToClipboard(drawerFieldsJson, '已复制字段 JSON')}
-            >
-              字段 JSON
-            </Button>
-            <Button
-              type="primary"
-              ghost
-              icon={<span className="material-symbols-outlined text-sm">content_copy</span>}
-              onClick={() => void copyToClipboard(drawerPayloadJson, '已复制完整载荷')}
-            >
-              完整载荷
-            </Button>
-          </div>
-        ) : null}
+        footer={
+          selectedLog ? (
+            <div className="flex items-center justify-end gap-2 flex-wrap">
+              <Button
+                icon={
+                  <span className="material-symbols-outlined text-sm">
+                    data_object
+                  </span>
+                }
+                onClick={() =>
+                  void copyToClipboard(drawerFieldsJson, "已复制字段 JSON")
+                }
+              >
+                字段 JSON
+              </Button>
+              <Button
+                type="primary"
+                ghost
+                icon={
+                  <span className="material-symbols-outlined text-sm">
+                    content_copy
+                  </span>
+                }
+                onClick={() =>
+                  void copyToClipboard(drawerPayloadJson, "已复制完整载荷")
+                }
+              >
+                完整载荷
+              </Button>
+            </div>
+          ) : null
+        }
       >
         {selectedLog && (
           <div className="flex flex-col gap-4">
@@ -1737,19 +2226,25 @@ const RealtimeSearch: React.FC = () => {
                   key={item.key}
                   className="rounded-lg p-3"
                   style={{
-                    backgroundColor: isDark ? 'rgba(15,23,42,0.65)' : 'rgba(248,250,252,0.95)',
-                    border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                    backgroundColor: isDark
+                      ? "rgba(15,23,42,0.65)"
+                      : "rgba(248,250,252,0.95)",
+                    border: `1px solid ${isDark ? "#334155" : "#e2e8f0"}`,
                   }}
                 >
-                  <div className="text-[11px] uppercase tracking-wide opacity-50 mb-1">{item.label}</div>
+                  <div className="text-[11px] uppercase tracking-wide opacity-50 mb-1">
+                    {item.label}
+                  </div>
                   <Typography.Text
                     copyable={item.copyable ? { text: item.value } : false}
                     style={{
                       fontSize: 12,
-                      display: 'block',
+                      display: "block",
                       lineHeight: 1.6,
-                      wordBreak: 'break-all',
-                      fontFamily: item.mono ? 'var(--font-mono, monospace)' : 'inherit',
+                      wordBreak: "break-all",
+                      fontFamily: item.mono
+                        ? "var(--font-mono, monospace)"
+                        : "inherit",
                     }}
                   >
                     {item.value}
@@ -1761,32 +2256,48 @@ const RealtimeSearch: React.FC = () => {
             <div
               className="rounded-lg p-3"
               style={{
-                backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.03)',
-                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                backgroundColor: isDark
+                  ? "rgba(0,0,0,0.25)"
+                  : "rgba(0,0,0,0.03)",
+                border: `1px solid ${isDark ? "#334155" : "#e2e8f0"}`,
               }}
             >
               <div className="flex items-center justify-between gap-2 mb-2">
-                <span className="text-[11px] uppercase tracking-wide opacity-50">消息</span>
+                <span className="text-[11px] uppercase tracking-wide opacity-50">
+                  消息
+                </span>
                 <Space size="small">
                   <Tooltip title="复制消息">
                     <Button
                       size="small"
-                      icon={<span className="material-symbols-outlined text-sm">content_copy</span>}
-                      onClick={() => void copyToClipboard(drawerMessage, '已复制日志消息')}
+                      icon={
+                        <span className="material-symbols-outlined text-sm">
+                          content_copy
+                        </span>
+                      }
+                      onClick={() =>
+                        void copyToClipboard(drawerMessage, "已复制日志消息")
+                      }
                     />
                   </Tooltip>
                   <Tooltip title="复制原始日志">
                     <Button
                       size="small"
-                      icon={<span className="material-symbols-outlined text-sm">article</span>}
-                      onClick={() => void copyToClipboard(drawerRawContent, '已复制原始日志')}
+                      icon={
+                        <span className="material-symbols-outlined text-sm">
+                          article
+                        </span>
+                      }
+                      onClick={() =>
+                        void copyToClipboard(drawerRawContent, "已复制原始日志")
+                      }
                     />
                   </Tooltip>
                 </Space>
               </div>
               <Typography.Paragraph
                 className="!mb-0 text-sm leading-6 whitespace-pre-wrap break-all"
-                ellipsis={{ rows: 6, expandable: true, symbol: '展开' }}
+                ellipsis={{ rows: 6, expandable: true, symbol: "展开" }}
               >
                 {drawerMessage}
               </Typography.Paragraph>
@@ -1795,41 +2306,83 @@ const RealtimeSearch: React.FC = () => {
             <div className="flex flex-wrap gap-2">
               <Tag>service={drawerService}</Tag>
               <Tag>level={drawerLevel}</Tag>
-              {drawerHost !== '—' && <Tag>host={drawerHost}</Tag>}
-              {drawerHostIP !== '—' && <Tag>host_ip={drawerHostIP}</Tag>}
-              {selectedFields?.env != null && <Tag color="cyan">env={toDisplayText(selectedFields.env)}</Tag>}
-              {selectedFields?.region != null && <Tag>region={toDisplayText(selectedFields.region)}</Tag>}
-              {selectedFields?.method != null && <Tag>method={toDisplayText(selectedFields.method)}</Tag>}
-              {selectedFields?.statusCode != null && <Tag color={Number(selectedFields.statusCode) >= 500 ? 'error' : Number(selectedFields.statusCode) >= 400 ? 'warning' : 'success'}>status={toDisplayText(selectedFields.statusCode)}</Tag>}
-              {selectedFields?.traceId != null && <Tag color="purple">trace={toDisplayText(selectedFields.traceId)}</Tag>}
-              {selectedFields?.spanId != null && <Tag color="purple">span={toDisplayText(selectedFields.spanId)}</Tag>}
+              {drawerHost !== "—" && <Tag>host={drawerHost}</Tag>}
+              {drawerHostIP !== "—" && <Tag>host_ip={drawerHostIP}</Tag>}
+              {selectedFields?.env != null && (
+                <Tag color="cyan">env={toDisplayText(selectedFields.env)}</Tag>
+              )}
+              {selectedFields?.region != null && (
+                <Tag>region={toDisplayText(selectedFields.region)}</Tag>
+              )}
+              {selectedFields?.method != null && (
+                <Tag>method={toDisplayText(selectedFields.method)}</Tag>
+              )}
+              {selectedFields?.statusCode != null && (
+                <Tag
+                  color={
+                    Number(selectedFields.statusCode) >= 500
+                      ? "error"
+                      : Number(selectedFields.statusCode) >= 400
+                        ? "warning"
+                        : "success"
+                  }
+                >
+                  status={toDisplayText(selectedFields.statusCode)}
+                </Tag>
+              )}
+              {selectedFields?.traceId != null && (
+                <Tag color="purple">
+                  trace={toDisplayText(selectedFields.traceId)}
+                </Tag>
+              )}
+              {selectedFields?.spanId != null && (
+                <Tag color="purple">
+                  span={toDisplayText(selectedFields.spanId)}
+                </Tag>
+              )}
             </div>
 
             <Collapse
-              defaultActiveKey={['event']}
+              defaultActiveKey={["event"]}
               items={[
                 {
-                  key: 'event',
+                  key: "event",
                   label: (
                     <span className="flex items-center gap-1 text-xs">
-                      <span className="material-symbols-outlined text-sm">event</span>
+                      <span className="material-symbols-outlined text-sm">
+                        event
+                      </span>
                       事件层 (Event Layer)
                     </span>
                   ),
                   children: (
                     <Descriptions column={2} size="small" bordered>
                       <Descriptions.Item label="event_id">
-                        <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
+                        <Typography.Text
+                          copyable
+                          style={{
+                            fontSize: 12,
+                            fontFamily: "var(--font-mono, monospace)",
+                          }}
+                        >
                           {drawerEventID}
                         </Typography.Text>
                       </Descriptions.Item>
                       <Descriptions.Item label="level">
-                        <Tag color={LEVEL_CONFIG[selectedLog.level]?.tagColor || 'default'} style={{ margin: 0 }}>
+                        <Tag
+                          color={
+                            LEVEL_CONFIG[selectedLog.level]?.tagColor ||
+                            "default"
+                          }
+                          style={{ margin: 0 }}
+                        >
                           {drawerLevel.toUpperCase()}
                         </Tag>
                       </Descriptions.Item>
                       <Descriptions.Item label="timestamp">
-                        <span className="font-mono text-xs">{drawerTimestamp}</span>
+                        <span className="font-mono text-xs">
+                          {drawerTimestamp}
+                        </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="service_name">
                         <span className="text-xs">{drawerService}</span>
@@ -1838,11 +2391,15 @@ const RealtimeSearch: React.FC = () => {
                         <span className="font-mono text-xs">{drawerHost}</span>
                       </Descriptions.Item>
                       <Descriptions.Item label="host_ip">
-                        <span className="font-mono text-xs">{drawerHostIP}</span>
+                        <span className="font-mono text-xs">
+                          {drawerHostIP}
+                        </span>
                       </Descriptions.Item>
                       {selectedAggregation && (
                         <Descriptions.Item label="image_aggregation" span={2}>
-                          <span className="text-xs">{selectedAggregation.summary}</span>
+                          <span className="text-xs">
+                            {selectedAggregation.summary}
+                          </span>
                         </Descriptions.Item>
                       )}
                       <Descriptions.Item label="message" span={2}>
@@ -1851,131 +2408,198 @@ const RealtimeSearch: React.FC = () => {
                         </Typography.Paragraph>
                       </Descriptions.Item>
                       <Descriptions.Item label="source" span={2}>
-                        <Typography.Text copyable style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
+                        <Typography.Text
+                          copyable
+                          style={{
+                            fontSize: 12,
+                            fontFamily: "var(--font-mono, monospace)",
+                          }}
+                        >
                           {drawerSource}
                         </Typography.Text>
                       </Descriptions.Item>
                     </Descriptions>
                   ),
                 },
-                ...(selectedAggregation ? [{
-                  key: 'aggregation',
-                  label: (
-                    <span className="flex items-center gap-1 text-xs">
-                      <span className="material-symbols-outlined text-sm">stacked_email</span>
-                      图片聚合清单 (Aggregated Image Logs)
-                    </span>
-                  ),
-                  children: (
-                    <div className="flex flex-col gap-2">
-                      <div className="text-xs opacity-70">{selectedAggregation.summary}</div>
-                      <div
-                        className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all max-h-72 overflow-auto"
-                        style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
-                      >
-                        {selectedAggregation.entries.map((entry, entryIndex) => `${entryIndex + 1}. ${entry.rawLog ?? entry.message}`).join('\n')}
-                      </div>
-                    </div>
-                  ),
-                }] : []),
+                ...(selectedAggregation
+                  ? [
+                      {
+                        key: "aggregation",
+                        label: (
+                          <span className="flex items-center gap-1 text-xs">
+                            <span className="material-symbols-outlined text-sm">
+                              stacked_email
+                            </span>
+                            图片聚合清单 (Aggregated Image Logs)
+                          </span>
+                        ),
+                        children: (
+                          <div className="flex flex-col gap-2">
+                            <div className="text-xs opacity-70">
+                              {selectedAggregation.summary}
+                            </div>
+                            <div
+                              className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all max-h-72 overflow-auto"
+                              style={{
+                                backgroundColor: isDark
+                                  ? "rgba(0,0,0,0.25)"
+                                  : "rgba(0,0,0,0.04)",
+                                border: `1px solid ${isDark ? "#334155" : "#e2e8f0"}`,
+                              }}
+                            >
+                              {selectedAggregation.entries
+                                .map(
+                                  (entry, entryIndex) =>
+                                    `${entryIndex + 1}. ${entry.rawLog ?? entry.message}`,
+                                )
+                                .join("\n")}
+                            </div>
+                          </div>
+                        ),
+                      },
+                    ]
+                  : []),
                 {
-                  key: 'raw',
+                  key: "raw",
                   label: (
                     <span className="flex items-center gap-1 text-xs">
-                      <span className="material-symbols-outlined text-sm">article</span>
+                      <span className="material-symbols-outlined text-sm">
+                        article
+                      </span>
                       原始层 (Raw Layer)
                     </span>
                   ),
                   children: (
                     <div
                       className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all max-h-80 overflow-auto"
-                      style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
+                      style={{
+                        backgroundColor: isDark
+                          ? "rgba(0,0,0,0.25)"
+                          : "rgba(0,0,0,0.04)",
+                        border: `1px solid ${isDark ? "#334155" : "#e2e8f0"}`,
+                      }}
                     >
                       {drawerRawContent}
                     </div>
                   ),
                 },
                 {
-                  key: 'transport',
+                  key: "transport",
                   label: (
                     <span className="flex items-center gap-1 text-xs">
-                      <span className="material-symbols-outlined text-sm">swap_horiz</span>
+                      <span className="material-symbols-outlined text-sm">
+                        swap_horiz
+                      </span>
                       传输层 (Transport Layer)
                     </span>
                   ),
                   children: (
                     <Descriptions column={2} size="small" bordered>
                       <Descriptions.Item label="agent_id">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.agent_id)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(selectedFields?.agent_id)}
+                        </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="batch_id">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.batch_id)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(selectedFields?.batch_id)}
+                        </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="collect_time">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.collect_time ?? selectedLog?.timestamp)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(
+                            selectedFields?.collect_time ??
+                              selectedLog?.timestamp,
+                          )}
+                        </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="sequence">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.sequence)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(selectedFields?.sequence)}
+                        </span>
                       </Descriptions.Item>
                     </Descriptions>
                   ),
                 },
                 {
-                  key: 'ingest',
+                  key: "ingest",
                   label: (
                     <span className="flex items-center gap-1 text-xs">
-                      <span className="material-symbols-outlined text-sm">input</span>
+                      <span className="material-symbols-outlined text-sm">
+                        input
+                      </span>
                       接入层 (Ingest Layer)
                     </span>
                   ),
                   children: (
                     <Descriptions column={2} size="small" bordered>
                       <Descriptions.Item label="ingested_at">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.ingested_at)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(selectedFields?.ingested_at)}
+                        </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="schema_version">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.schema_version)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(selectedFields?.schema_version)}
+                        </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="pipeline_version">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.pipeline_version)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(selectedFields?.pipeline_version)}
+                        </span>
                       </Descriptions.Item>
                     </Descriptions>
                   ),
                 },
                 {
-                  key: 'governance',
+                  key: "governance",
                   label: (
                     <span className="flex items-center gap-1 text-xs">
-                      <span className="material-symbols-outlined text-sm">admin_panel_settings</span>
+                      <span className="material-symbols-outlined text-sm">
+                        admin_panel_settings
+                      </span>
                       治理层 (Governance Layer)
                     </span>
                   ),
                   children: (
                     <Descriptions column={2} size="small" bordered>
                       <Descriptions.Item label="tenant_id">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.tenant_id)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(selectedFields?.tenant_id)}
+                        </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="retention_policy">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.retention_policy)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(selectedFields?.retention_policy)}
+                        </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="pii_masked">
-                        <span className="font-mono text-xs">{toDisplayText(selectedFields?.pii_masked)}</span>
+                        <span className="font-mono text-xs">
+                          {toDisplayText(selectedFields?.pii_masked)}
+                        </span>
                       </Descriptions.Item>
                     </Descriptions>
                   ),
                 },
                 {
-                  key: 'payload',
+                  key: "payload",
                   label: (
                     <span className="flex items-center gap-1 text-xs">
-                      <span className="material-symbols-outlined text-sm">data_object</span>
+                      <span className="material-symbols-outlined text-sm">
+                        data_object
+                      </span>
                       完整载荷 (Full Payload)
                     </span>
                   ),
                   children: (
                     <div
                       className="p-3 rounded font-mono text-xs leading-relaxed whitespace-pre-wrap break-all max-h-96 overflow-auto"
-                      style={{ backgroundColor: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.04)', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
+                      style={{
+                        backgroundColor: isDark
+                          ? "rgba(0,0,0,0.25)"
+                          : "rgba(0,0,0,0.04)",
+                        border: `1px solid ${isDark ? "#334155" : "#e2e8f0"}`,
+                      }}
                     >
                       {drawerPayloadJson}
                     </div>
@@ -1984,7 +2608,11 @@ const RealtimeSearch: React.FC = () => {
               ]}
             />
 
-            <Divider orientation="left" orientationMargin={0} style={{ margin: '8px 0 12px' }}>
+            <Divider
+              orientation="left"
+              orientationMargin={0}
+              style={{ margin: "8px 0 12px" }}
+            >
               <span className="flex items-center gap-1 text-xs">
                 <span className="material-symbols-outlined text-sm">link</span>
                 追踪信息
@@ -1992,22 +2620,41 @@ const RealtimeSearch: React.FC = () => {
             </Divider>
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="Trace ID">
-                <Typography.Text copyable={drawerTraceId !== '—'} style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
+                <Typography.Text
+                  copyable={drawerTraceId !== "—"}
+                  style={{
+                    fontSize: 12,
+                    fontFamily: "var(--font-mono, monospace)",
+                  }}
+                >
                   {drawerTraceId}
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="Span ID">
-                <Typography.Text copyable={drawerSpanId !== '—'} style={{ fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>
+                <Typography.Text
+                  copyable={drawerSpanId !== "—"}
+                  style={{
+                    fontSize: 12,
+                    fontFamily: "var(--font-mono, monospace)",
+                  }}
+                >
                   {drawerSpanId}
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="Method / Status">
                 <span className="font-mono text-xs">
-                  {[drawerMethod !== '—' ? drawerMethod : '', drawerStatusCode !== '—' ? drawerStatusCode : ''].filter(Boolean).join(' / ') || '—'}
+                  {[
+                    drawerMethod !== "—" ? drawerMethod : "",
+                    drawerStatusCode !== "—" ? drawerStatusCode : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" / ") || "—"}
                 </span>
               </Descriptions.Item>
               <Descriptions.Item label="User-Agent">
-                <span className="font-mono text-xs break-all">{drawerUserAgent}</span>
+                <span className="font-mono text-xs break-all">
+                  {drawerUserAgent}
+                </span>
               </Descriptions.Item>
             </Descriptions>
           </div>
