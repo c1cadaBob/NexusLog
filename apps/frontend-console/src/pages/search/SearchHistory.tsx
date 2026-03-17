@@ -547,7 +547,7 @@ const SearchHistory: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className={isMobile ? "flex flex-col gap-3" : "flex items-center gap-3 flex-wrap"}>
         <Input.Search
           id="search-history-keyword"
           name="search-history-keyword"
@@ -557,7 +557,7 @@ const SearchHistory: React.FC = () => {
           onChange={(e) => setKeywordInput(e.target.value)}
           onSearch={handleSearch}
           allowClear
-          style={{ width: 300 }}
+          style={{ width: isMobile ? "100%" : 300 }}
         />
         <DatePicker.RangePicker
           id={{ start: "search-history-start", end: "search-history-end" }}
@@ -570,55 +570,62 @@ const SearchHistory: React.FC = () => {
             setDateRange(dates as [Dayjs | null, Dayjs | null] | null);
           }}
           placeholder={["开始时间", "结束时间"]}
+          style={isMobile ? { width: "100%" } : undefined}
         />
-        <Button
-          onClick={() => {
-            setSelectedRowKeys([]);
-            setKeywordInput("");
-            setKeyword("");
-            setDateRange(null);
-            setCurrentPage(1);
-          }}
-        >
-          重置
-        </Button>
-        <Popconfirm
-          title="确认批量删除"
-          description={`将删除选中的 ${selectedHistoryIDs.length} 条查询历史，删除后不可恢复，是否继续？`}
-          okText="删除"
-          cancelText="取消"
-          okButtonProps={{ danger: true, loading: batchDeleting }}
-          disabled={selectedHistoryIDs.length === 0}
-          onConfirm={() => void handleBatchDelete()}
-        >
-          <span>
-            <Button
-              danger
-              disabled={selectedHistoryIDs.length === 0}
-              loading={batchDeleting}
-              icon={
-                <span className="material-symbols-outlined text-sm">
-                  delete_sweep
-                </span>
-              }
-            >
-              批量删除
-            </Button>
+        <div className={isMobile ? "grid grid-cols-2 gap-2" : "contents"}>
+          <Button
+            onClick={() => {
+              setSelectedRowKeys([]);
+              setKeywordInput("");
+              setKeyword("");
+              setDateRange(null);
+              setCurrentPage(1);
+            }}
+            className={isMobile ? "w-full" : undefined}
+          >
+            重置
+          </Button>
+          <Popconfirm
+            title="确认批量删除"
+            description={`将删除选中的 ${selectedHistoryIDs.length} 条查询历史，删除后不可恢复，是否继续？`}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true, loading: batchDeleting }}
+            disabled={selectedHistoryIDs.length === 0}
+            onConfirm={() => void handleBatchDelete()}
+          >
+            <span className={isMobile ? "w-full" : undefined}>
+              <Button
+                danger
+                className={isMobile ? "w-full" : undefined}
+                disabled={selectedHistoryIDs.length === 0}
+                loading={batchDeleting}
+                icon={
+                  <span className="material-symbols-outlined text-sm">
+                    delete_sweep
+                  </span>
+                }
+              >
+                批量删除
+              </Button>
+            </span>
+          </Popconfirm>
+        </div>
+        <div className={isMobile ? "flex flex-wrap items-center gap-2 text-xs" : "flex flex-wrap items-center gap-3 text-xs"}>
+          <span className="opacity-50">
+            {formatSearchPageSummary(total, "条记录", visibleRange, "条")}
           </span>
-        </Popconfirm>
-        <span className="text-xs opacity-50">
-          {formatSearchPageSummary(total, "条记录", visibleRange, "条")}
-        </span>
-        {loading && !batchDeleting && (
-          <Tag color="processing" style={{ margin: 0 }}>
-            {resolveSearchPageLoadingLabel(rows.length)}
-          </Tag>
-        )}
-        {selectedHistoryIDs.length > 0 && (
-          <span className="text-xs text-blue-500">
-            已选择 {selectedHistoryIDs.length} 项
-          </span>
-        )}
+          {loading && !batchDeleting && (
+            <Tag color="processing" style={{ margin: 0 }}>
+              {resolveSearchPageLoadingLabel(rows.length)}
+            </Tag>
+          )}
+          {selectedHistoryIDs.length > 0 && (
+            <span className="text-blue-500">
+              已选择 {selectedHistoryIDs.length} 项
+            </span>
+          )}
+        </div>
       </div>
 
       {errorText && (
