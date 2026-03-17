@@ -127,6 +127,7 @@ export interface SavedQueryListResult {
   page: number;
   pageSize: number;
   hasNext: boolean;
+  availableTags?: string[];
 }
 
 export interface SavedQueryUpsertPayload {
@@ -633,11 +634,18 @@ function buildLocalQueryHistoryResult(params: QueryHistoryListParams): QueryHist
   };
 }
 
+function normalizeSavedQueryTags(tags: string[]): string[] {
+  return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)))
+    .sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
 function buildLocalSavedQueryResult(params: SavedQueryListParams): SavedQueryListResult {
   const keyword = params.keyword?.trim().toLowerCase() ?? '';
   const tag = params.tag?.trim() ?? '';
+  const allSavedQueries = readLocalSavedQueries();
+  const availableTags = normalizeSavedQueryTags(allSavedQueries.flatMap((item) => item.tags));
 
-  const filtered = readLocalSavedQueries()
+  const filtered = allSavedQueries
     .filter((item) => {
       if (keyword) {
         const inName = item.name.toLowerCase().includes(keyword);
@@ -660,6 +668,7 @@ function buildLocalSavedQueryResult(params: SavedQueryListParams): SavedQueryLis
     page: paged.page,
     pageSize: paged.pageSize,
     hasNext: paged.hasNext,
+    availableTags,
   };
 }
 
@@ -1461,12 +1470,16 @@ export async function fetchSavedQueries(params: SavedQueryListParams): Promise<S
     const total = toPositiveNumber(envelope.meta?.total, items.length);
     const page = toPositiveNumber(envelope.meta?.page, params.page);
     const pageSize = toPositiveNumber(envelope.meta?.page_size, params.pageSize);
+    const backendAvailableTags = Array.isArray(envelope.meta?.available_tags)
+      ? normalizeSavedQueryTags((envelope.meta?.available_tags as unknown[]).map((tag) => String(tag ?? '')))
+      : undefined;
     const backendResult: SavedQueryListResult = {
       items,
       total,
       page,
       pageSize,
       hasNext: Boolean(envelope.meta?.has_next ?? page * pageSize < total),
+      availableTags: backendAvailableTags,
     };
     return backendResult;
   } catch (error) {

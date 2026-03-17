@@ -97,11 +97,15 @@ const SavedQueries: React.FC = () => {
       setSavedList(result.items);
       setTotal(result.total);
       pendingPaginationRef.current = null;
-      setKnownTags((prev) => {
-        const merged = new Set(prev);
-        result.items.forEach((item) => item.tags.forEach((tag) => merged.add(tag)));
-        return Array.from(merged).sort((a, b) => a.localeCompare(b, 'zh-CN'));
-      });
+      if (Array.isArray(result.availableTags)) {
+        setKnownTags(result.availableTags);
+      } else {
+        setKnownTags((prev) => {
+          const merged = new Set(prev);
+          result.items.forEach((item) => item.tags.forEach((tag) => merged.add(tag)));
+          return Array.from(merged).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+        });
+      }
       if (result.page !== currentPage) {
         setCurrentPage(result.page);
       }

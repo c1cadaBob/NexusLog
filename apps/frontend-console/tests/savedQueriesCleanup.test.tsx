@@ -233,6 +233,75 @@ describe('SavedQueries legacy cleanup', () => {
     });
   });
 
+  it('recycles top-level tags when refreshed results return a narrower tag set', async () => {
+    fetchSavedQueriesMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'saved-billing',
+            name: 'Billing Query',
+            query: 'service:billing',
+            tags: ['billing'],
+            createdAt: '2026-03-17T04:00:00.000Z',
+          },
+          {
+            id: 'saved-ops',
+            name: 'Ops Query',
+            query: 'service:ops',
+            tags: ['ops'],
+            createdAt: '2026-03-17T03:00:00.000Z',
+          },
+        ],
+        total: 2,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: ['billing', 'ops'],
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'saved-ops',
+            name: 'Ops Query',
+            query: 'service:ops',
+            tags: ['ops'],
+            createdAt: '2026-03-17T03:00:00.000Z',
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 12,
+        hasNext: false,
+        availableTags: ['ops'],
+      });
+    render(
+      <App>
+        <MemoryRouter>
+          <SavedQueries />
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Billing Query')).toBeTruthy();
+      expect(screen.getByText('Ops Query')).toBeTruthy();
+      expect(screen.queryAllByText('billing').length).toBeGreaterThan(0);
+      expect(screen.queryAllByText('ops').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('搜索查询名称或语句...'), {
+      target: { value: 'ops' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'search' }));
+
+    await waitFor(() => {
+      expect(fetchSavedQueriesMock).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText('Billing Query')).toBeNull();
+      expect(screen.queryAllByText('billing')).toHaveLength(0);
+      expect(screen.getByText('Ops Query')).toBeTruthy();
+    });
+  });
+
   it('shows a loading hint while the empty saved-query list is still loading', async () => {
     const deferred = createDeferred<{
       items: Array<{ id: string; name: string; query: string; tags: string[]; createdAt: string }>;
