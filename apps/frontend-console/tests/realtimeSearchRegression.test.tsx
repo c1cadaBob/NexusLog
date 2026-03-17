@@ -11,6 +11,7 @@ import RealtimeSearch, {
   shouldBlockRealtimeDirectPageJump,
   shouldResolveRealtimeDeepPageCursor,
   shouldSuppressNextLiveTickAfterInteractiveRefresh,
+  shouldSuppressNextLiveTickAfterPaginationRefresh,
 } from '../src/pages/search/RealtimeSearch';
 
 const queryRealtimeLogsMock = vi.fn();
@@ -492,6 +493,44 @@ describe('RealtimeSearch regressions', () => {
       isLive: true,
       liveWindow: 'custom',
       explicitTimeRange: { from: '2026-03-16T08:00:00.000Z' },
+    })).toBe(false);
+  });
+
+  it('suppresses page-size refreshes only for the first page in active bounded live mode', () => {
+    expect(shouldSuppressNextLiveTickAfterPaginationRefresh({
+      isLive: true,
+      liveWindow: '15m',
+      explicitTimeRange: null,
+      pageSizeChanged: true,
+      targetPage: 1,
+    })).toBe(true);
+    expect(shouldSuppressNextLiveTickAfterPaginationRefresh({
+      isLive: true,
+      liveWindow: '15m',
+      explicitTimeRange: null,
+      pageSizeChanged: false,
+      targetPage: 1,
+    })).toBe(false);
+    expect(shouldSuppressNextLiveTickAfterPaginationRefresh({
+      isLive: true,
+      liveWindow: '15m',
+      explicitTimeRange: null,
+      pageSizeChanged: true,
+      targetPage: 2,
+    })).toBe(false);
+    expect(shouldSuppressNextLiveTickAfterPaginationRefresh({
+      isLive: false,
+      liveWindow: '15m',
+      explicitTimeRange: null,
+      pageSizeChanged: true,
+      targetPage: 1,
+    })).toBe(false);
+    expect(shouldSuppressNextLiveTickAfterPaginationRefresh({
+      isLive: true,
+      liveWindow: 'all',
+      explicitTimeRange: null,
+      pageSizeChanged: true,
+      targetPage: 1,
     })).toBe(false);
   });
 

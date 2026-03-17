@@ -166,6 +166,23 @@ export function shouldSuppressNextLiveTickAfterInteractiveRefresh(params: {
   return params.liveWindow !== "all" && params.liveWindow !== "custom";
 }
 
+export function shouldSuppressNextLiveTickAfterPaginationRefresh(params: {
+  isLive: boolean;
+  liveWindow: LiveWindowOption;
+  explicitTimeRange?: RealtimeExplicitTimeRange | null;
+  pageSizeChanged: boolean;
+  targetPage: number;
+}): boolean {
+  if (!params.pageSizeChanged || params.targetPage !== 1) {
+    return false;
+  }
+  return shouldSuppressNextLiveTickAfterInteractiveRefresh({
+    isLive: params.isLive,
+    liveWindow: params.liveWindow,
+    explicitTimeRange: params.explicitTimeRange,
+  });
+}
+
 function shouldUseUnboundedRealtimeQuery(
   liveWindow: LiveWindowOption,
   explicitTimeRange?: RealtimeExplicitTimeRange | null,
@@ -1134,6 +1151,14 @@ const RealtimeSearch: React.FC = () => {
     scheduleNextLiveTickRef.current = scheduleNextLiveTick;
   }, [scheduleNextLiveTick]);
 
+  const armSuppressedNextLiveTick = useCallback(() => {
+    suppressNextLiveTickRef.current = true;
+    if (!isLiveRef.current || livePollingDisabled) {
+      return;
+    }
+    scheduleNextLiveTickRef.current(LIVE_POLL_INTERVAL_MS);
+  }, [livePollingDisabled]);
+
   useEffect(() => {
     if (livePollingDisabled && isLive) {
       isLiveRef.current = false;
@@ -1265,7 +1290,7 @@ const RealtimeSearch: React.FC = () => {
         explicitTimeRange: normalizedCustomTimeRange,
       })
     ) {
-      suppressNextLiveTickRef.current = true;
+      armSuppressedNextLiveTick();
     }
     setCurrentPage(1);
     void executeQueryRef.current({
@@ -1326,7 +1351,7 @@ const RealtimeSearch: React.FC = () => {
           explicitTimeRange: nextExplicitTimeRange,
         })
       ) {
-        suppressNextLiveTickRef.current = true;
+        armSuppressedNextLiveTick();
       }
       setCurrentPage(1);
       if (normalizedQuery.extractedFilters) {
@@ -1388,7 +1413,7 @@ const RealtimeSearch: React.FC = () => {
           explicitTimeRange: nextExplicitTimeRange,
         })
       ) {
-        suppressNextLiveTickRef.current = true;
+        armSuppressedNextLiveTick();
       }
       setCurrentPage(1);
       void executeQuery({
@@ -2157,6 +2182,18 @@ const RealtimeSearch: React.FC = () => {
                   content: `正在顺序定位第 ${targetPage} 页，请稍候...`,
                   duration: 0,
                 });
+              }
+
+              if (
+                shouldSuppressNextLiveTickAfterPaginationRefresh({
+                  isLive: isLiveRef.current,
+                  liveWindow,
+                  explicitTimeRange: normalizedCustomTimeRange,
+                  pageSizeChanged,
+                  targetPage,
+                })
+              ) {
+                armSuppressedNextLiveTick();
               }
 
               if (pageSizeChanged) {
