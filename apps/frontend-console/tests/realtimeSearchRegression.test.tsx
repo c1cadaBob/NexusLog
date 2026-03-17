@@ -383,6 +383,76 @@ describe('RealtimeSearch regressions', () => {
     });
   });
 
+  it('retries histogram refresh without re-running the realtime logs query', async () => {
+    const deferred = createDeferred<{ buckets: Array<{ key: string; count: number }> }>();
+    const bucketKey = new Date().toISOString();
+
+    queryRealtimeLogsMock.mockResolvedValueOnce(
+      createQueryResult({
+        hits: [
+          {
+            id: 'log-histogram-1',
+            timestamp: '2026-03-16T07:04:27.236Z',
+            level: 'info',
+            service: 'vault',
+            host: 'dev-server-centos8',
+            hostIp: '192.168.0.202',
+            message: 'table row stays visible',
+            rawLog: 'table row stays visible',
+            fields: {},
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+    fetchAggregateStatsMock
+      .mockRejectedValueOnce(new Error('aggregate total request failed'))
+      .mockImplementationOnce(() => deferred.promise)
+      .mockResolvedValueOnce({
+        buckets: [{ key: bucketKey, count: 1 }],
+      });
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('趋势图加载失败')).toBeTruthy();
+      expect(screen.getByText('图表刷新失败，请稍后重试')).toBeTruthy();
+      expect(screen.getByText('table row stays visible')).toBeTruthy();
+    });
+    expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+
+    const retryButton = screen.getByRole('button', { name: /重\s*试/ });
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(2);
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+      expect(document.querySelector('.ant-btn-loading')).toBeTruthy();
+    });
+
+    deferred.resolve({
+      buckets: [{ key: bucketKey, count: 2 }],
+    });
+
+    await waitFor(() => {
+      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(3);
+      expect(screen.queryByText('趋势图加载失败')).toBeNull();
+      expect(screen.getByText('table row stays visible')).toBeTruthy();
+      expect(screen.getByTestId('histogram-state').textContent).toBe('buckets:1;normal:1;error:1');
+    });
+    expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a loading placeholder again when a new empty realtime request is pending', async () => {
     setViewport(390);
     const deferred = createDeferred<ReturnType<typeof createQueryResult>>();

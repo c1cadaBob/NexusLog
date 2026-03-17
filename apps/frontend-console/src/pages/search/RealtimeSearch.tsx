@@ -656,6 +656,7 @@ const RealtimeSearch: React.FC = () => {
   const [tableErrorText, setTableErrorText] = useState("");
   const [tableStaleErrorText, setTableStaleErrorText] = useState("");
   const [retryingCurrentQuery, setRetryingCurrentQuery] = useState(false);
+  const [retryingHistogram, setRetryingHistogram] = useState(false);
   const [histogramInitialLoading, setHistogramInitialLoading] = useState(true);
   const [histogramRefreshing, setHistogramRefreshing] = useState(false);
   const [histogramUsingStaleData, setHistogramUsingStaleData] = useState(false);
@@ -695,6 +696,7 @@ const RealtimeSearch: React.FC = () => {
   }, []);
 
   const latestQueryRequestRef = useRef(0);
+  const latestHistogramRequestRef = useRef(0);
   const inFlightRequestIDRef = useRef<number | null>(null);
   const initialQueryTriggeredRef = useRef(false);
   const pageCursorMapRef = useRef<Map<number, RealtimePageCursor>>(new Map());
@@ -752,6 +754,169 @@ const RealtimeSearch: React.FC = () => {
     [],
   );
 
+  const handleRetryHistogram = useCallback(() => {
+    if (histogramDisabled) {
+      return;
+    }
+
+    const histogramRequestID = latestHistogramRequestRef.current + 1;
+    latestHistogramRequestRef.current = histogramRequestID;
+    const queryText = activeQueryRef.current;
+    const hasStaleHistogramData = histogramData.length > 0;
+    const histogramFilters = buildRealtimeHistogramFilters({
+      levelFilter,
+      sourceFilter,
+      queryText,
+    });
+    const shouldRelaxHistogramNoiseFilter =
+      shouldRelaxRealtimeHistogramNoiseFilter({
+        levelFilter,
+        sourceFilter,
+        queryText,
+      });
+    const histogramTimeRange = resolveRealtimeHistogramRequestTimeRange(
+      liveWindow,
+      normalizedCustomTimeRange,
+    );
+
+    if (!histogramTimeRange) {
+      setRetryingHistogram(false);
+      setHistogramRefreshing(false);
+      return;
+    }
+
+    const histogramRefreshKey = buildRealtimeHistogramRefreshKey({
+      queryText,
+      levelFilter,
+      sourceFilter,
+    });
+    const totalHistogramController = registerAbortController(
+      new AbortController(),
+    );
+    const errorHistogramController = levelFilter
+      ? null
+      : registerAbortController(new AbortController());
+
+    setRetryingHistogram(true);
+    setHistogramRefreshing(true);
+
+    void (async () => {
+      let resolvedTotalHistogram: Awaited<
+        ReturnType<typeof fetchAggregateStats>
+      > | null = null;
+      let resolvedErrorHistogram: Awaited<
+        ReturnType<typeof fetchAggregateStats>
+      > | null = null;
+      let histogramFailed = false;
+      let histogramAbortOnly = true;
+
+      try {
+        try {
+          resolvedTotalHistogram = await fetchAggregateStats({
+            groupBy: "minute",
+            timeRange: histogramTimeRange,
+            keywords: queryText,
+            filters: histogramFilters,
+            signal: totalHistogramController.signal,
+          });
+        } catch (error) {
+          histogramFailed = true;
+          if (!isAbortError(error)) {
+            histogramAbortOnly = false;
+          }
+        }
+
+        if (histogramRequestID !== latestHistogramRequestRef.current) {
+          return;
+        }
+
+        if (resolvedTotalHistogram && !levelFilter && errorHistogramController) {
+          try {
+            resolvedErrorHistogram = await fetchAggregateStats({
+              groupBy: "minute",
+              timeRange: histogramTimeRange,
+              keywords: queryText,
+              filters: {
+                ...histogramFilters,
+                level: "error",
+              },
+              signal: errorHistogramController.signal,
+            });
+          } catch (error) {
+            histogramFailed = true;
+            if (!isAbortError(error)) {
+              histogramAbortOnly = false;
+            }
+          }
+        }
+
+        if (histogramRequestID !== latestHistogramRequestRef.current) {
+          return;
+        }
+
+        if (resolvedTotalHistogram) {
+          const totalBuckets = filterRealtimeHistogramBucketsByLiveWindow(
+            resolvedTotalHistogram.buckets,
+            liveWindow,
+            tableSnapshotTo,
+          );
+          const errorBuckets =
+            levelFilter === "error"
+              ? totalBuckets
+              : filterRealtimeHistogramBucketsByLiveWindow(
+                  resolvedErrorHistogram?.buckets ?? [],
+                  liveWindow,
+                  tableSnapshotTo,
+                );
+          setHistogramData(
+            buildRealtimeHistogramData(totalBuckets, errorBuckets),
+          );
+          setHistogramUsingStaleData(false);
+          setHistogramErrorText("");
+          setHistogramNoiseFilterRelaxed(shouldRelaxHistogramNoiseFilter);
+          setHistogramInitialLoading(false);
+          lastHistogramRefreshKeyRef.current = histogramRefreshKey;
+          lastHistogramFetchedAtRef.current = Date.now();
+          return;
+        }
+
+        if (histogramFailed && !histogramAbortOnly) {
+          const readableHistogramError = "图表刷新失败，请稍后重试";
+          setHistogramUsingStaleData(hasStaleHistogramData);
+          setHistogramErrorText(readableHistogramError);
+          if (!hasStaleHistogramData) {
+            setHistogramNoiseFilterRelaxed(false);
+          }
+          setHistogramInitialLoading(false);
+          message.warning(
+            hasStaleHistogramData
+              ? "图表刷新失败，已保留上一版统计"
+              : readableHistogramError,
+          );
+        }
+      } finally {
+        unregisterAbortController(totalHistogramController);
+        unregisterAbortController(errorHistogramController);
+        if (histogramRequestID === latestHistogramRequestRef.current) {
+          setHistogramRefreshing(false);
+          setHistogramInitialLoading(false);
+          setRetryingHistogram(false);
+        }
+      }
+    })();
+  }, [
+    histogramData.length,
+    histogramDisabled,
+    levelFilter,
+    liveWindow,
+    message,
+    normalizedCustomTimeRange,
+    registerAbortController,
+    sourceFilter,
+    tableSnapshotTo,
+    unregisterAbortController,
+  ]);
+
   const executeQuery = useCallback(
     async (options: {
       queryText: string;
@@ -770,11 +935,13 @@ const RealtimeSearch: React.FC = () => {
     }): Promise<RealtimeExecuteQueryStatus> => {
       const requestID = latestQueryRequestRef.current + 1;
       latestQueryRequestRef.current = requestID;
+      latestHistogramRequestRef.current += 1;
       inFlightRequestIDRef.current = requestID;
       clearLiveTimer();
       abortActiveRequests();
 
       const snapshotTo = options.snapshotTo?.trim() || new Date().toISOString();
+      setRetryingHistogram(false);
       setTableErrorText("");
       setTableStaleErrorText("");
       setHistogramErrorText("");
@@ -2370,8 +2537,8 @@ const RealtimeSearch: React.FC = () => {
             action={
               <Button
                 size="small"
-                loading={retryingCurrentQuery}
-                onClick={handleRetryCurrentQuery}
+                loading={retryingHistogram}
+                onClick={handleRetryHistogram}
               >
                 重试
               </Button>
