@@ -40,6 +40,7 @@ type userRepository interface {
 
 type userReservedPolicyRepository interface {
 	LookupReservedUsernamePolicy(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, error)
+	LookupReservedUsernamePolicyWithAvailability(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, bool, error)
 }
 
 // UserService handles user business logic.
@@ -588,8 +589,8 @@ func (s *UserService) ListRoles(ctx context.Context, tenantHeader string) ([]mod
 
 func (s *UserService) isReservedUsernameBlocked(ctx context.Context, tenantID uuid.UUID, username string) (bool, *model.APIError) {
 	if s.reservedPolicyRepo != nil {
-		policy, err := s.reservedPolicyRepo.LookupReservedUsernamePolicy(ctx, tenantID, username)
-		if err != nil {
+		policy, policySourceAvailable, err := s.reservedPolicyRepo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, username)
+		if err != nil || !policySourceAvailable {
 			return false, &model.APIError{
 				HTTPStatus: http.StatusServiceUnavailable,
 				Code:       "AUTHORIZATION_UNAVAILABLE",

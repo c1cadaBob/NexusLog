@@ -10,6 +10,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type timeBetweenMatcher struct {
@@ -164,6 +165,35 @@ func TestRotateSessionByRefreshToken_PreservesOriginalSessionTTL(t *testing.T) {
 	}
 	if gotUserID != userID {
 		t.Fatalf("expected userID %s, got %s", userID, gotUserID)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestLookupReservedUsernamePolicyWithAvailability_ReturnsUnavailableWhenTableMissing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewAuthRepository(db)
+	tenantID := uuid.New()
+
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, "tenant_root").
+		WillReturnError(&pq.Error{Code: "42P01"})
+
+	rec, available, err := repo.LookupReservedUsernamePolicyWithAvailability(context.Background(), tenantID, "tenant_root")
+	if err != nil {
+		t.Fatalf("LookupReservedUsernamePolicyWithAvailability() error = %v", err)
+	}
+	if available {
+		t.Fatal("expected reserved policy source to be unavailable")
+	}
+	if rec.Found {
+		t.Fatalf("expected empty policy record, got %#v", rec)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)

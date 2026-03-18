@@ -36,6 +36,7 @@ type authRepository interface {
 	GetLoginUserByUsername(ctx context.Context, tenantID uuid.UUID, username string) (repository.LoginUserRecord, error)
 	GetReservedSubjectPolicy(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, error)
 	LookupReservedUsernamePolicy(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, error)
+	LookupReservedUsernamePolicyWithAvailability(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, bool, error)
 	FindUserByEmailOrUsername(ctx context.Context, tenantID uuid.UUID, identifier string) (repository.UserIdentityRecord, error)
 	GetRefreshTokenUser(ctx context.Context, tenantID uuid.UUID, refreshToken string) (repository.UserIdentityRecord, error)
 	CreatePasswordResetToken(
@@ -135,8 +136,8 @@ func (s *AuthService) Register(ctx context.Context, tenantHeader string, req mod
 		return model.RegisterResponseData{}, apiErr
 	}
 
-	reservedPolicy, err := s.repo.LookupReservedUsernamePolicy(ctx, tenantID, normalizedReq.Username)
-	if err != nil {
+	reservedPolicy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, normalizedReq.Username)
+	if err != nil || !policySourceAvailable {
 		return model.RegisterResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusServiceUnavailable,
 			Code:       "AUTHORIZATION_UNAVAILABLE",

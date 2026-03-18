@@ -15,38 +15,39 @@ import (
 )
 
 type mockAuthRepository struct {
-	tenantExists      bool
-	checkErr          error
-	registerErr       error
-	userID            uuid.UUID
-	username          string
-	loginUser         repository.LoginUserRecord
-	loginUserErr      error
-	reservedPolicy    repository.ReservedSubjectPolicyRecord
-	reservedPolicyErr error
-	findUser          repository.UserIdentityRecord
-	findUserErr       error
-	refreshUser       repository.UserIdentityRecord
-	refreshUserErr    error
-	createResetErr    error
-	confirmResetErr   error
-	confirmResetUser  uuid.UUID
-	createSessionErr  error
-	rotateErr         error
-	revokeRefreshErr  error
-	revokeByUserErr   error
-	lockActive        bool
-	lockUntil         time.Time
-	lockErr           error
-	lastLoginAttempt  *repository.LoginAttemptInput
-	lastCreateSession *repository.CreateSessionInput
-	lastRotateInput   *repository.RotateSessionInput
-	sessionCreateCall int
-	rotateCall        int
-	createResetCall   int
-	confirmResetCall  int
-	revokeRefreshCall int
-	revokeByUserCall  int
+	tenantExists              bool
+	checkErr                  error
+	registerErr               error
+	userID                    uuid.UUID
+	username                  string
+	loginUser                 repository.LoginUserRecord
+	loginUserErr              error
+	reservedPolicy            repository.ReservedSubjectPolicyRecord
+	reservedPolicyErr         error
+	reservedPolicyUnavailable bool
+	findUser                  repository.UserIdentityRecord
+	findUserErr               error
+	refreshUser               repository.UserIdentityRecord
+	refreshUserErr            error
+	createResetErr            error
+	confirmResetErr           error
+	confirmResetUser          uuid.UUID
+	createSessionErr          error
+	rotateErr                 error
+	revokeRefreshErr          error
+	revokeByUserErr           error
+	lockActive                bool
+	lockUntil                 time.Time
+	lockErr                   error
+	lastLoginAttempt          *repository.LoginAttemptInput
+	lastCreateSession         *repository.CreateSessionInput
+	lastRotateInput           *repository.RotateSessionInput
+	sessionCreateCall         int
+	rotateCall                int
+	createResetCall           int
+	confirmResetCall          int
+	revokeRefreshCall         int
+	revokeByUserCall          int
 }
 
 func (m *mockAuthRepository) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -82,6 +83,13 @@ func (m *mockAuthRepository) LookupReservedUsernamePolicy(_ context.Context, _ u
 		return repository.ReservedSubjectPolicyRecord{}, m.reservedPolicyErr
 	}
 	return m.reservedPolicy, nil
+}
+
+func (m *mockAuthRepository) LookupReservedUsernamePolicyWithAvailability(_ context.Context, _ uuid.UUID, _ string) (repository.ReservedSubjectPolicyRecord, bool, error) {
+	if m.reservedPolicyErr != nil {
+		return repository.ReservedSubjectPolicyRecord{}, false, m.reservedPolicyErr
+	}
+	return m.reservedPolicy, !m.reservedPolicyUnavailable, nil
 }
 
 func (m *mockAuthRepository) FindUserByEmailOrUsername(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {
@@ -215,6 +223,23 @@ func TestRegisterValidationAndTenantErrors(t *testing.T) {
 	_, err = svc.Register(context.Background(), uuid.NewString(), model.RegisterRequest{Username: reservedUsernameSuperAdmin, Password: "Password123", Email: "a@example.com"})
 	if err == nil || err.Code != "AUTH_REGISTER_RESERVED_USERNAME" {
 		t.Fatalf("expected reserved username error, got %#v", err)
+	}
+}
+
+func TestRegisterFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+	tenantID := uuid.NewString()
+	svc := NewAuthService(&mockAuthRepository{
+		tenantExists:              true,
+		reservedPolicyUnavailable: true,
+	}, "test-secret")
+
+	_, err := svc.Register(context.Background(), tenantID, model.RegisterRequest{
+		Username: "tenant_root",
+		Password: "Password123",
+		Email:    "root@example.com",
+	})
+	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" {
+		t.Fatalf("expected authorization unavailable error, got %#v", err)
 	}
 }
 

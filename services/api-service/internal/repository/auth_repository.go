@@ -201,13 +201,13 @@ func (r *AuthRepository) GetLoginUserByUsername(ctx context.Context, tenantID uu
 	return rec, nil
 }
 
-func (r *AuthRepository) LookupReservedUsernamePolicy(ctx context.Context, tenantID uuid.UUID, username string) (ReservedSubjectPolicyRecord, error) {
+func (r *AuthRepository) LookupReservedUsernamePolicyWithAvailability(ctx context.Context, tenantID uuid.UUID, username string) (ReservedSubjectPolicyRecord, bool, error) {
 	if r == nil || r.db == nil || tenantID == uuid.Nil {
-		return ReservedSubjectPolicyRecord{}, nil
+		return ReservedSubjectPolicyRecord{}, false, nil
 	}
 	normalizedUsername := strings.TrimSpace(username)
 	if normalizedUsername == "" {
-		return ReservedSubjectPolicyRecord{}, nil
+		return ReservedSubjectPolicyRecord{}, true, nil
 	}
 	const q = `
 		SELECT reserved, interactive_login_allowed, system_subject, break_glass_allowed, COALESCE(managed_by, '')
@@ -227,17 +227,22 @@ func (r *AuthRepository) LookupReservedUsernamePolicy(ctx context.Context, tenan
 		&rec.ManagedBy,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ReservedSubjectPolicyRecord{}, nil
+			return ReservedSubjectPolicyRecord{}, true, nil
 		}
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "42P01" {
-			return ReservedSubjectPolicyRecord{}, nil
+			return ReservedSubjectPolicyRecord{}, false, nil
 		}
-		return ReservedSubjectPolicyRecord{}, fmt.Errorf("query reserved subject policy: %w", err)
+		return ReservedSubjectPolicyRecord{}, false, fmt.Errorf("query reserved subject policy: %w", err)
 	}
 
 	rec.Found = true
-	return rec, nil
+	return rec, true, nil
+}
+
+func (r *AuthRepository) LookupReservedUsernamePolicy(ctx context.Context, tenantID uuid.UUID, username string) (ReservedSubjectPolicyRecord, error) {
+	rec, _, err := r.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, username)
+	return rec, err
 }
 
 func (r *AuthRepository) GetReservedSubjectPolicy(ctx context.Context, tenantID uuid.UUID, username string) (ReservedSubjectPolicyRecord, error) {
