@@ -195,14 +195,9 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 				AuthzEpoch:                authzEpoch,
 			},
 		)
-		policy, err := authRepo.LookupReservedUsernamePolicy(c.Request.Context(), parseUUIDOrNil(claims.TenantID), userRecord.Username)
-		if err != nil {
-			httpx.Error(c, &model.APIError{
-				HTTPStatus: http.StatusInternalServerError,
-				Code:       "INTERNAL_ERROR",
-				Message:    "failed to load reserved subject policy",
-			})
-			c.Abort()
+		policy, policySourceAvailable, err := authRepo.LookupReservedUsernamePolicyWithAvailability(c.Request.Context(), parseUUIDOrNil(claims.TenantID), userRecord.Username)
+		if err != nil || !policySourceAvailable {
+			writeAuthorizationUnavailable(c)
 			return
 		}
 		authorizationContext = service.ApplyReservedSubjectPolicyForMiddleware(authorizationContext, policy)

@@ -480,6 +480,44 @@ func TestLoginRejectsPolicyReservedInteractiveAccessForCustomUsername(t *testing
 	}
 }
 
+func TestLoginFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+	tenantID := uuid.NewString()
+	userID := uuid.New()
+
+	hash, hashErr := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.DefaultCost)
+	if hashErr != nil {
+		t.Fatalf("bcrypt hash: %v", hashErr)
+	}
+
+	repoMock := &mockAuthRepository{
+		tenantExists:              true,
+		reservedPolicyUnavailable: true,
+		loginUser: repository.LoginUserRecord{
+			UserID:       userID,
+			Username:     "valid_user",
+			Email:        "user@example.com",
+			DisplayName:  "User",
+			Status:       "active",
+			PasswordHash: string(hash),
+		},
+	}
+
+	svc := NewAuthService(repoMock, "test-secret")
+	_, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "valid_user", Password: "Password123"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" || err.HTTPStatus != 503 {
+		t.Fatalf("expected authorization unavailable error, got %#v", err)
+	}
+	if repoMock.sessionCreateCall != 0 {
+		t.Fatalf("expected no session creation, got %d", repoMock.sessionCreateCall)
+	}
+	if repoMock.lastLoginAttempt == nil {
+		t.Fatal("expected blocked login attempt record")
+	}
+	if repoMock.lastLoginAttempt.Result != "blocked" || repoMock.lastLoginAttempt.Reason != "authorization_unavailable" {
+		t.Fatalf("unexpected blocked login attempt: %#v", repoMock.lastLoginAttempt)
+	}
+}
+
 func TestLoginRejectsSystemAutomationInteractiveAccess(t *testing.T) {
 	tenantID := uuid.NewString()
 	userID := uuid.New()
@@ -591,6 +629,29 @@ func TestRefreshRejectsPolicyReservedInteractiveAccessForCustomUsername(t *testi
 	_, err := svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-custom"}, "127.0.0.1", "ua")
 	if err == nil || err.Code != model.ErrorCodeAuthRefreshInteractiveDisabled {
 		t.Fatalf("expected refresh interactive login disabled error, got %#v", err)
+	}
+	if repoMock.rotateCall != 0 {
+		t.Fatalf("expected no rotate call, got %d", repoMock.rotateCall)
+	}
+}
+
+func TestRefreshFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+	tenantID := uuid.NewString()
+	repoMock := &mockAuthRepository{
+		tenantExists:              true,
+		reservedPolicyUnavailable: true,
+		refreshUser: repository.UserIdentityRecord{
+			UserID:   uuid.New(),
+			Username: "valid_user",
+			Email:    "user@example.com",
+			Status:   "active",
+		},
+	}
+	svc := NewAuthService(repoMock, "test-secret")
+
+	_, err := svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-custom"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" || err.HTTPStatus != 503 {
+		t.Fatalf("expected authorization unavailable error, got %#v", err)
 	}
 	if repoMock.rotateCall != 0 {
 		t.Fatalf("expected no rotate call, got %d", repoMock.rotateCall)

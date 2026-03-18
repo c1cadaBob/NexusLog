@@ -286,12 +286,23 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 	}
 
 	loginContext := BuildAuthorizationContext(userRec.Username, nil, nil)
-	policy, err := s.repo.LookupReservedUsernamePolicy(ctx, tenantID, userRec.Username)
-	if err != nil {
+	policy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, userRec.Username)
+	if err != nil || !policySourceAvailable {
+		uid := userRec.UserID
+		_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
+			TenantID:  tenantID,
+			UserID:    &uid,
+			Username:  userRec.Username,
+			Email:     userRec.Email,
+			IPAddress: clientIP,
+			UserAgent: userAgent,
+			Result:    "blocked",
+			Reason:    "authorization_unavailable",
+		})
 		return model.LoginResponseData{}, &model.APIError{
-			HTTPStatus: http.StatusInternalServerError,
-			Code:       "AUTH_LOGIN_INTERNAL_ERROR",
-			Message:    "internal error",
+			HTTPStatus: http.StatusServiceUnavailable,
+			Code:       "AUTHORIZATION_UNAVAILABLE",
+			Message:    "authorization backend unavailable",
 		}
 	}
 	loginContext = applyReservedSubjectPolicy(loginContext, policy)
@@ -371,12 +382,12 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 		}
 	}
 	refreshContext := BuildAuthorizationContext(refreshUser.Username, nil, nil)
-	policy, err := s.repo.LookupReservedUsernamePolicy(ctx, tenantID, refreshUser.Username)
-	if err != nil {
+	policy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, refreshUser.Username)
+	if err != nil || !policySourceAvailable {
 		return model.RefreshResponseData{}, &model.APIError{
-			HTTPStatus: http.StatusInternalServerError,
-			Code:       model.ErrorCodeAuthRefreshInternalError,
-			Message:    "internal error",
+			HTTPStatus: http.StatusServiceUnavailable,
+			Code:       "AUTHORIZATION_UNAVAILABLE",
+			Message:    "authorization backend unavailable",
 		}
 	}
 	refreshContext = applyReservedSubjectPolicy(refreshContext, policy)

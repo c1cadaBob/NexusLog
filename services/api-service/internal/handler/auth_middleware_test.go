@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 
 	"github.com/nexuslog/api-service/internal/model"
 	"github.com/nexuslog/api-service/internal/service"
@@ -702,6 +703,64 @@ func TestAuthRequired_RejectsPolicyReservedInteractiveAccessForCustomUsername(t 
 		t.Fatalf("expected FORBIDDEN, got %v", body["code"])
 	}
 	if body["message"] != "interactive login is disabled for this account" {
+		t.Fatalf("unexpected message: %v", body["message"])
+	}
+}
+
+func TestAuthRequired_FailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+	expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
+
+	userRows := sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
+		AddRow(userID, tenantID, "valid_user", "user@example.com", nil, "active", nil, time.Now(), time.Now())
+	mock.ExpectQuery("SELECT .+ FROM users").WithArgs(tenantID, userID).WillReturnRows(userRows)
+
+	viewerPerms, _ := json.Marshal([]string{"logs:read"})
+	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
+		AddRow(uuid.New(), tenantID, "viewer", nil, viewerPerms)
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+	mock.ExpectQuery(`FROM legacy_permission_mapping`).
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery(`FROM authz_version`).
+		WithArgs(tenantID, userID).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, "valid_user").
+		WillReturnError(&pq.Error{Code: "42P01"})
+
+	router := gin.New()
+	router.Use(AuthRequired(db, testJWTSecret))
+	router.GET("/snapshot", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/snapshot", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["code"] != "AUTHORIZATION_UNAVAILABLE" {
+		t.Fatalf("expected AUTHORIZATION_UNAVAILABLE, got %v", body["code"])
+	}
+	if body["message"] != "authorization backend unavailable" {
 		t.Fatalf("unexpected message: %v", body["message"])
 	}
 }
