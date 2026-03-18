@@ -51,9 +51,9 @@ func TestRequireAuthenticatedIdentity_LoadsAuthorizationSnapshotFromDatabase(t *
 			"permissions":       AuthenticatedPermissions(c),
 			"capabilities":      AuthenticatedCapabilities(c),
 			"scopes":            AuthenticatedScopes(c),
+			"tenant_read_scope": AuthenticatedTenantReadScope(c),
 			"actor_flags":       AuthenticatedActorFlags(c),
 			"authz_epoch":       AuthenticatedAuthzEpoch(c),
-			"global_log_access": AuthenticatedGlobalLogAccess(c),
 		})
 	})
 
@@ -70,9 +70,9 @@ func TestRequireAuthenticatedIdentity_LoadsAuthorizationSnapshotFromDatabase(t *
 		Permissions     []string        `json:"permissions"`
 		Capabilities    []string        `json:"capabilities"`
 		Scopes          []string        `json:"scopes"`
+		TenantReadScope TenantReadScope `json:"tenant_read_scope"`
 		ActorFlags      map[string]bool `json:"actor_flags"`
 		AuthzEpoch      int64           `json:"authz_epoch"`
-		GlobalLogAccess bool            `json:"global_log_access"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -83,8 +83,8 @@ func TestRequireAuthenticatedIdentity_LoadsAuthorizationSnapshotFromDatabase(t *
 	if !hasAuthorizationValue(body.Capabilities, "*") {
 		t.Fatalf("unexpected capabilities: %#v", body.Capabilities)
 	}
-	if !body.GlobalLogAccess {
-		t.Fatal("expected global log access to be derived from authz snapshot")
+	if body.TenantReadScope != TenantReadScopeAllTenants {
+		t.Fatalf("unexpected tenant read scope: %q", body.TenantReadScope)
 	}
 	if !body.ActorFlags["reserved"] || !body.ActorFlags["interactive_login_allowed"] {
 		t.Fatalf("unexpected actor flags: %#v", body.ActorFlags)
@@ -350,7 +350,6 @@ func TestRequireAuthenticatedIdentity_LoadsDirectCapabilitiesIntoRequestContext(
 			"capabilities":      AuthenticatedCapabilities(c),
 			"scopes":            AuthenticatedScopes(c),
 			"tenant_read_scope": AuthenticatedTenantReadScope(c),
-			"global_log_access": AuthenticatedGlobalLogAccess(c),
 			"ctx_capabilities":  ctxCapabilities,
 			"ctx_scopes":        ctxScopes,
 			"ctx_ready":         ctxReady,
@@ -370,7 +369,6 @@ func TestRequireAuthenticatedIdentity_LoadsDirectCapabilitiesIntoRequestContext(
 		Capabilities    []string        `json:"capabilities"`
 		Scopes          []string        `json:"scopes"`
 		TenantReadScope TenantReadScope `json:"tenant_read_scope"`
-		GlobalLogAccess bool            `json:"global_log_access"`
 		CtxCapabilities []string        `json:"ctx_capabilities"`
 		CtxScopes       []string        `json:"ctx_scopes"`
 		CtxReady        bool            `json:"ctx_ready"`
@@ -384,7 +382,7 @@ func TestRequireAuthenticatedIdentity_LoadsDirectCapabilitiesIntoRequestContext(
 	if !hasAnyScope(body.Scopes, "all_tenants") || !hasAnyScope(body.CtxScopes, "all_tenants") {
 		t.Fatalf("unexpected scopes: %#v %#v", body.Scopes, body.CtxScopes)
 	}
-	if body.TenantReadScope != TenantReadScopeAllTenants || !body.GlobalLogAccess {
+	if body.TenantReadScope != TenantReadScopeAllTenants {
 		t.Fatalf("expected all-tenant read access, got body=%#v", body)
 	}
 	if !body.CtxReady {

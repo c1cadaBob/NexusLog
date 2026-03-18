@@ -237,7 +237,7 @@
 | 服务 | 当前入口 | 当前主要耦合点 | 本轮拆解重点 |
 |---|---|---|---|
 | `api-service` | `AuthRequired` + `RequirePermission` 位于 `services/api-service/internal/handler/auth_middleware.go`，路由挂载在 `services/api-service/cmd/api/router.go`，`/users/me` 通过 `services/api-service/internal/service/authorization_context_service.go` 聚合上下文 | `authorization_context_service.go` 内存 `legacyPermissionCapabilityAliases` 仍把 `users:write` 扩展到登录策略、系统设置、采集、存储、Webhook、插件市场等非 IAM 能力，导致 `/users/me` 继续传播过大的 capability 面 | 先把 `/users/me` 的能力事实源从“内存扩权别名”收敛到“正式兼容映射 + 保留主体策略”，再逐步让 API 路由切到 `RequireCapability` / `RequireScope` |
-| `data-services` | `RequireAuthenticatedIdentity` + `RequirePermission` 分别挂在 `query-api`、`audit-api`、`export-api` 的 `cmd/api/main.go` | `shared/auth/authorization.go` 仍用 `sys-superadmin + super_admin` 查询推导 `global_log_access`；`query-api` / `audit-api` 又把它继续翻译成 `CanReadAllLogs`、`BypassTenantScope`、`tenantScope=nil` 等布尔或空值语义 | 先补 typed capability/scope 上下文，再收敛 `BypassTenantScope`、`tenant_id IS NULL`、`tenantScope=nil` 这些隐式跨租户表达 |
+| `data-services` | `RequireAuthenticatedIdentity` + `RequirePermission` 分别挂在 `query-api`、`audit-api`、`export-api` 的 `cmd/api/main.go` | `shared/auth` 已提供 typed capability/scope 与 `TenantReadScope`；`query-api` / `audit-api` 已切到显式 `TenantReadScope`，但 `export-api` 仍未显式建模 export scope，`stats_service` / repository 仍存在 `tenant_id IS NULL`、`tenantScope=nil` 等跨租户旧表达 | 继续把剩余 `NULL/空值=跨租户` 语义替换为显式 scope，并补齐 export 侧 actor 能力建模 |
 | `control-plane` | `RequireAuthenticatedIdentity`、`RequireOperatorRole`、`RequireAdminRole` 在 `services/control-plane/cmd/api/main.go` 统一接线 | `RequireAdminRole` / `RequireOperatorRole` 直接查角色名；`global_tenant_access.go` 直接写死 `sys-superadmin` + `super_admin`；`/api/v1/metrics/report` 还靠 `auth_middleware.go` 的 path 特判分流 Agent 身份 | 先把 route group 改成 capability guard，再拆出显式 `agentRoutes`，最后清理 `tenantScope=""` 和角色名/用户名硬编码 |
 
 ### P0：api-service
@@ -257,12 +257,12 @@
 |---|---|---|
 | `services/data-services/shared/auth/middleware.go` | 解析 JWT、注入 `tenant_id/user_id`、加载 `permissions` | 增加 capability/scopes/authz_epoch 装载；保留 permissions 兼容；把 `authorization_ready` 与新上下文字段一起设置 |
 | `services/data-services/shared/auth/authorization.go` | `RequirePermission` 与旧权限加载 | 保留 `RequirePermission` 兼容；新增 `RequireCapability`、`RequireScope`；将 `globalLogAccessQuery` 从用户名/角色硬编码改为 capability + scope + reserved policy 组合判断 |
-| `services/data-services/shared/auth/identity_context.go` | 读取鉴权上下文 | 新增 `AuthenticatedCapabilities()`、`AuthenticatedScopes()`、`AuthenticatedAuthzEpoch()`、`AuthenticatedActorFlags()`；逐步废弃单一 `AuthenticatedGlobalLogAccess()` 布尔 getter |
-| `services/data-services/query-api/internal/handler/handler.go` | 将 Gin 上下文翻译成 Query actor | 当前把 `AuthenticatedGlobalLogAccess()` 映射成 `CanReadAllLogs`；需要改成显式 capability/scope/authorizedTenants 结构，避免 handler 提前丢失授权语义 |
+| `services/data-services/shared/auth/identity_context.go` | 读取鉴权上下文 | 已提供 `AuthenticatedCapabilities()`、`AuthenticatedScopes()`、`AuthenticatedAuthzEpoch()`、`AuthenticatedActorFlags()`；跨租户读取统一通过 `AuthenticatedTenantReadScope()` 表达 |
+| `services/data-services/query-api/internal/handler/handler.go` | 将 Gin 上下文翻译成 Query actor | 已切到 `TenantReadScope`；下一步补 `authorizedTenants` / export 复用模型，避免 handler 仍只传单一租户或全租户两态 |
 | `services/data-services/query-api/internal/service/service.go` | Query actor 与查询权限聚合 | 当前只用 `{TenantID, UserID, CanReadAllLogs}` 表达查询权限，需要改成显式 capability/scope 上下文，支持 `tenant`、`owned`、`all_tenants` |
 | `services/data-services/query-api/internal/service/stats_service.go` | 统计聚合与告警摘要 | 当前仍用 `CanReadAllLogs` 和 `tenant_id IS NULL` 表达跨租户；需要改成显式 scope，不再用 `NULL = all_tenants` |
 | `services/data-services/query-api/internal/repository/repository.go` | ES 查询入参与 tenant bypass | 当前有 `BypassTenantScope` 语义，需要改成显式 scope/授权租户集合，避免 capability 迁移后继续保留布尔绕过 |
-| `services/data-services/audit-api/internal/handler/audit_handler.go` | 将 Gin 上下文翻译成 Audit actor | 当前直接把 `AuthenticatedGlobalLogAccess()` 映射成 `BypassTenantScope`；需要与 service/repository 一起改成显式 scope 模型，避免 handler 层继续透传布尔绕过 |
+| `services/data-services/audit-api/internal/handler/audit_handler.go` | 将 Gin 上下文翻译成 Audit actor | 已切到 `TenantReadScope`；下一步继续与 service/repository 一起消除 `nil tenantScope = all_tenants` 旧语义 |
 | `services/data-services/audit-api/internal/service/audit_service.go` | 审计 actor 与查询控制 | 当前用 `BypassTenantScope` 表达跨租户，需要改成 capability + scope 模型，并消除 service 层“要求 tenant 非空”与 repository 层“允许 nil tenantScope”之间的语义冲突 |
 | `services/data-services/audit-api/internal/repository/audit_repository.go` | 审计查询仓储 | 当前 `tenantScope=nil` 表示全租户，需要改成显式 scope/专门全租户路径 |
 | `services/data-services/export-api/internal/handler/export_handler.go` | 构造导出 actor 并下发服务层 | 当前仅传 `tenantID/userID`，未显式声明 export 是否允许跨租户；需要补 capability/scope，或明确保持 tenant-scoped 并在 handler 层 fail-closed |

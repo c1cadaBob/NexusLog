@@ -63,7 +63,7 @@ func TestAuthenticatedAuthorizationSnapshotUsesContextOnly(t *testing.T) {
 	if got := AuthenticatedTenantReadScope(c); got != TenantReadScopeAllTenants {
 		t.Fatalf("AuthenticatedTenantReadScope() = %q, want %q", got, TenantReadScopeAllTenants)
 	}
-	if !AuthenticatedGlobalLogAccess(c) {
-		t.Fatal("AuthenticatedGlobalLogAccess() = false, want true")
+	if !TenantReadScopeAllowsAllTenants(AuthenticatedTenantReadScope(c)) {
+		t.Fatal("TenantReadScopeAllowsAllTenants(AuthenticatedTenantReadScope()) = false, want true")
 	}
 }

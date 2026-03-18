@@ -25,7 +25,7 @@
 
 2. `data-services/shared/auth`：
    - `query-api`、`audit-api`、`export-api` 共用一套 JWT 身份校验与权限加载逻辑。
-   - 运行时仍然基于权限字符串判定，但额外引入了 `global_log_access` 特殊逻辑。
+   - 运行时已开始收敛到 `capability + scope + TenantReadScope`，但路由入口仍保留 `permissions` 兼容层。
    - 参考：`services/data-services/shared/auth/middleware.go`、`services/data-services/shared/auth/authorization.go`
 
 3. `control-plane`：
