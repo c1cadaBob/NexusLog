@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 func TestBuildESQuery_UsesStructuredV2FieldsAndFilterAliases(t *testing.T) {
@@ -163,9 +165,9 @@ func TestBuildESQuery_UsesMatchNoneWhenTenantMissing(t *testing.T) {
 
 func TestBuildESQuery_SkipsTenantFilterWhenBypassEnabled(t *testing.T) {
 	query := BuildESQuery(SearchLogsInput{
-		TenantID:          "tenant-a",
-		BypassTenantScope: true,
-		Keywords:          "error",
+		TenantID:        "tenant-a",
+		TenantReadScope: sharedauth.TenantReadScopeAllTenants,
+		Keywords:        "error",
 	})
 
 	raw, err := json.Marshal(query)

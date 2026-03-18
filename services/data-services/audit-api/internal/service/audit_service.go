@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nexuslog/data-services/audit-api/internal/repository"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 // AuditLogItem 审计日志项（API 响应）
@@ -57,8 +58,8 @@ func NewAuditService(repo *repository.AuditRepository) *AuditService {
 
 // RequestActor 描述一次审计查询请求的调用身份。
 type RequestActor struct {
-	TenantID          string
-	BypassTenantScope bool
+	TenantID        string
+	TenantReadScope sharedauth.TenantReadScope
 }
 
 // ListAuditLogs 分页查询审计日志
@@ -97,17 +98,17 @@ func (s *AuditService) ListAuditLogs(ctx context.Context, actor RequestActor, re
 	}
 
 	output, err := s.repo.ListAuditLogs(ctx, repository.ListAuditLogsInput{
-		TenantID:          actor.TenantID,
-		BypassTenantScope: actor.BypassTenantScope,
-		UserID:            userID,
-		Action:            action,
-		ResourceType:      resourceType,
-		FromTime:          fromTime,
-		ToTime:            toTime,
-		Page:              page,
-		PageSize:          pageSize,
-		SortBy:            strings.TrimSpace(req.SortBy),
-		SortOrder:         strings.TrimSpace(req.SortOrder),
+		TenantID:        actor.TenantID,
+		TenantReadScope: actor.TenantReadScope,
+		UserID:          userID,
+		Action:          action,
+		ResourceType:    resourceType,
+		FromTime:        fromTime,
+		ToTime:          toTime,
+		Page:            page,
+		PageSize:        pageSize,
+		SortBy:          strings.TrimSpace(req.SortBy),
+		SortOrder:       strings.TrimSpace(req.SortOrder),
 	})
 	if err != nil {
 		return ListAuditLogsResult{}, err
@@ -138,8 +139,8 @@ func (s *AuditService) ListAuditLogs(ctx context.Context, actor RequestActor, re
 
 func normalizeActor(actor RequestActor) RequestActor {
 	return RequestActor{
-		TenantID:          strings.TrimSpace(actor.TenantID),
-		BypassTenantScope: actor.BypassTenantScope,
+		TenantID:        strings.TrimSpace(actor.TenantID),
+		TenantReadScope: sharedauth.NormalizeTenantReadScope(actor.TenantReadScope),
 	}
 }
 

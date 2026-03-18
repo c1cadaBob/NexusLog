@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -121,7 +120,7 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 	filters := []map[string]any{
 		{"range": map[string]any{"@timestamp": map[string]any{"gte": from24h, "lte": to}}},
 	}
-	filters = appendTenantFilter(filters, actor.TenantID, actor.CanReadAllLogs)
+	filters = appendTenantFilter(filters, actor)
 	query := map[string]any{
 		"bool": map[string]any{"filter": filters},
 	}
@@ -257,7 +256,7 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 
 	// Alert summary from PostgreSQL
 	if s.db != nil {
-		alertSummary, err := s.getAlertSummary(ctx, actor.TenantID, actor.CanReadAllLogs)
+		alertSummary, err := s.getAlertSummary(ctx, actor)
 		if err == nil {
 			stats.AlertSummary = *alertSummary
 		}
@@ -268,7 +267,8 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 }
 
 func overviewStatsCacheKey(actor RequestActor) string {
-	return strings.TrimSpace(actor.TenantID) + "|" + strconv.FormatBool(actor.CanReadAllLogs)
+	actor = normalizeActor(actor)
+	return strings.TrimSpace(actor.TenantID) + "|" + string(actor.TenantReadScope)
 }
 
 func cloneOverviewStats(stats *OverviewStats) *OverviewStats {
@@ -353,11 +353,12 @@ func normalizeAggregateRequest(req AggregateRequest) AggregateRequest {
 }
 
 func aggregateCacheKey(actor RequestActor, req AggregateRequest) string {
+	actor = normalizeActor(actor)
 	filtersRaw, err := json.Marshal(req.Filters)
 	if err != nil {
 		filtersRaw = []byte("{}")
 	}
-	return strings.TrimSpace(actor.TenantID) + "|" + strconv.FormatBool(actor.CanReadAllLogs) + "|" + req.GroupBy + "|" + req.TimeRange + "|" + req.Keywords + "|" + string(filtersRaw)
+	return strings.TrimSpace(actor.TenantID) + "|" + string(actor.TenantReadScope) + "|" + req.GroupBy + "|" + req.TimeRange + "|" + req.Keywords + "|" + string(filtersRaw)
 }
 
 func (s *StatsService) getAggregateCache(cacheKey string, now time.Time) (*AggregateResult, bool) {
@@ -470,12 +471,13 @@ func stringFromOverviewBucketValue(raw any) string {
 	return strings.TrimSpace(text)
 }
 
-func (s *StatsService) getAlertSummary(ctx context.Context, tenantID string, bypassTenantScope bool) (*AlertSummary, error) {
+func (s *StatsService) getAlertSummary(ctx context.Context, actor RequestActor) (*AlertSummary, error) {
 	if s.db == nil {
 		return &AlertSummary{}, nil
 	}
-	tenantScope := any(strings.TrimSpace(tenantID))
-	if bypassTenantScope {
+	actor = normalizeActor(actor)
+	tenantScope := any(strings.TrimSpace(actor.TenantID))
+	if actorCanReadAllTenants(actor) {
 		tenantScope = nil
 	}
 	query := `
@@ -554,12 +556,12 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 	to := queryNow.Format(time.RFC3339)
 
 	query := repository.BuildESQuery(repository.SearchLogsInput{
-		TenantID:          actor.TenantID,
-		BypassTenantScope: actor.CanReadAllLogs,
-		Keywords:          req.Keywords,
-		TimeRangeFrom:     from,
-		TimeRangeTo:       to,
-		Filters:           req.Filters,
+		TenantID:        actor.TenantID,
+		TenantReadScope: actor.TenantReadScope,
+		Keywords:        req.Keywords,
+		TimeRangeFrom:   from,
+		TimeRangeTo:     to,
+		Filters:         req.Filters,
 	})
 	if boolQuery, ok := query["bool"].(map[string]any); ok {
 		query["bool"] = boolQuery
@@ -658,11 +660,12 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 	return aggregateResult, nil
 }
 
-func appendTenantFilter(filters []map[string]any, tenantID string, bypassTenantScope bool) []map[string]any {
-	if bypassTenantScope {
+func appendTenantFilter(filters []map[string]any, actor RequestActor) []map[string]any {
+	actor = normalizeActor(actor)
+	if actorCanReadAllTenants(actor) {
 		return filters
 	}
-	tenantID = strings.TrimSpace(tenantID)
+	tenantID := strings.TrimSpace(actor.TenantID)
 	if tenantID == "" {
 		return append(filters, map[string]any{"match_none": map[string]any{}})
 	}

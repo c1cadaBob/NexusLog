@@ -43,16 +43,15 @@ func TestAuthenticatedAuthorizationSnapshotUsesContextOnly(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	c.Set(string(contextKeyUserPermissions), []string{"logs:read", "logs:export"})
 	c.Set(string(contextKeyUserCapabilities), []string{"log.query.read", "export.job.read"})
-	c.Set(string(contextKeyUserScopes), []string{"tenant", "owned"})
+	c.Set(string(contextKeyUserScopes), []string{"tenant", "owned", "all_tenants"})
 	c.Set(string(contextKeyUserAuthzEpoch), int64(7))
 	c.Set(string(contextKeyUserActorFlags), map[string]bool{"reserved": true})
-	c.Set(string(contextKeyGlobalLogAccess), true)
 
 	permissions := AuthenticatedPermissions(c)
 	capabilities := AuthenticatedCapabilities(c)
 	scopes := AuthenticatedScopes(c)
 	actorFlags := AuthenticatedActorFlags(c)
-	if len(permissions) != 2 || len(capabilities) != 2 || len(scopes) != 2 {
+	if len(permissions) != 2 || len(capabilities) != 2 || len(scopes) != 3 {
 		t.Fatalf("unexpected snapshot: perms=%#v caps=%#v scopes=%#v", permissions, capabilities, scopes)
 	}
 	if AuthenticatedAuthzEpoch(c) != 7 {
@@ -60,6 +59,9 @@ func TestAuthenticatedAuthorizationSnapshotUsesContextOnly(t *testing.T) {
 	}
 	if !actorFlags["reserved"] {
 		t.Fatalf("AuthenticatedActorFlags() = %#v, want reserved=true", actorFlags)
+	}
+	if got := AuthenticatedTenantReadScope(c); got != TenantReadScopeAllTenants {
+		t.Fatalf("AuthenticatedTenantReadScope() = %q, want %q", got, TenantReadScopeAllTenants)
 	}
 	if !AuthenticatedGlobalLogAccess(c) {
 		t.Fatal("AuthenticatedGlobalLogAccess() = false, want true")

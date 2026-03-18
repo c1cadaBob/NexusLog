@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 var (
@@ -31,17 +33,17 @@ type AuditLog struct {
 
 // ListAuditLogsInput 审计日志列表过滤参数
 type ListAuditLogsInput struct {
-	TenantID          string
-	BypassTenantScope bool
-	UserID            *string
-	Action            *string
-	ResourceType      *string
-	FromTime          *time.Time
-	ToTime            *time.Time
-	Page              int
-	PageSize          int
-	SortBy            string
-	SortOrder         string
+	TenantID        string
+	TenantReadScope sharedauth.TenantReadScope
+	UserID          *string
+	Action          *string
+	ResourceType    *string
+	FromTime        *time.Time
+	ToTime          *time.Time
+	Page            int
+	PageSize        int
+	SortBy          string
+	SortOrder       string
 }
 
 // ListAuditLogsOutput 审计日志列表输出
@@ -87,8 +89,8 @@ WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
   AND ($6::timestamptz IS NULL OR created_at <= $6)
 `
 	var total int64
-	tenantScope := auditTenantScopeArg(strings.TrimSpace(in.TenantID), in.BypassTenantScope)
-	if tenantScope == nil && !in.BypassTenantScope {
+	tenantScope := auditTenantScopeArg(strings.TrimSpace(in.TenantID), in.TenantReadScope)
+	if tenantScope == nil && !sharedauth.TenantReadScopeAllowsAllTenants(in.TenantReadScope) {
 		return ListAuditLogsOutput{}, fmt.Errorf("tenant_id is required")
 	}
 	err := r.db.QueryRowContext(ctx, countQuery,
@@ -223,8 +225,8 @@ func normalizeSortOrder(order string) string {
 	return "DESC"
 }
 
-func auditTenantScopeArg(tenantID string, bypassTenantScope bool) any {
-	if bypassTenantScope {
+func auditTenantScopeArg(tenantID string, tenantReadScope sharedauth.TenantReadScope) any {
+	if sharedauth.TenantReadScopeAllowsAllTenants(tenantReadScope) {
 		return nil
 	}
 	if tenantID == "" {

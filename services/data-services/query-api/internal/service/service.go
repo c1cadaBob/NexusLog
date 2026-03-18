@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nexuslog/data-services/query-api/internal/repository"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 const (
@@ -59,9 +60,9 @@ var (
 
 // RequestActor 描述一次查询请求的调用身份。
 type RequestActor struct {
-	TenantID       string
-	UserID         string
-	CanReadAllLogs bool
+	TenantID        string
+	UserID          string
+	TenantReadScope sharedauth.TenantReadScope
 }
 
 // TimeRange 定义时间范围查询参数。
@@ -236,17 +237,17 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 	}
 
 	repoResult, err := s.logRepo.SearchLogs(ctx, repository.SearchLogsInput{
-		TenantID:          actor.TenantID,
-		BypassTenantScope: actor.CanReadAllLogs,
-		Keywords:          strings.TrimSpace(req.Keywords),
-		TimeRangeFrom:     strings.TrimSpace(req.TimeRange.From),
-		TimeRangeTo:       strings.TrimSpace(req.TimeRange.To),
-		Filters:           req.Filters,
-		Sort:              toRepositorySort(req.Sort),
-		Page:              page,
-		PageSize:          pageSize,
-		PITID:             pitID,
-		SearchAfter:       searchAfter,
+		TenantID:        actor.TenantID,
+		TenantReadScope: actor.TenantReadScope,
+		Keywords:        strings.TrimSpace(req.Keywords),
+		TimeRangeFrom:   strings.TrimSpace(req.TimeRange.From),
+		TimeRangeTo:     strings.TrimSpace(req.TimeRange.To),
+		Filters:         req.Filters,
+		Sort:            toRepositorySort(req.Sort),
+		Page:            page,
+		PageSize:        pageSize,
+		PITID:           pitID,
+		SearchAfter:     searchAfter,
 	})
 	if err != nil {
 		s.tryRecordQueryHistory(ctx, actor, req, SearchLogsResult{
@@ -648,10 +649,14 @@ func hashQueryPayload(req SearchLogsRequest) string {
 
 func normalizeActor(actor RequestActor) RequestActor {
 	return RequestActor{
-		TenantID:       strings.TrimSpace(actor.TenantID),
-		UserID:         strings.TrimSpace(actor.UserID),
-		CanReadAllLogs: actor.CanReadAllLogs,
+		TenantID:        strings.TrimSpace(actor.TenantID),
+		UserID:          strings.TrimSpace(actor.UserID),
+		TenantReadScope: sharedauth.NormalizeTenantReadScope(actor.TenantReadScope),
 	}
+}
+
+func actorCanReadAllTenants(actor RequestActor) bool {
+	return sharedauth.TenantReadScopeAllowsAllTenants(actor.TenantReadScope)
 }
 
 func parseOptionalTime(raw string) (*time.Time, error) {
@@ -945,7 +950,7 @@ func (s *QueryService) lookupServiceHintsBySourcePath(ctx context.Context, actor
 			map[string]any{"match_phrase": map[string]any{"log.file.path": sourcePath}},
 		)
 	}
-	filters := appendTenantFilter(nil, actor.TenantID, actor.CanReadAllLogs)
+	filters := appendTenantFilter(nil, actor)
 	query := map[string]any{
 		"bool": map[string]any{
 			"should":               shouldClauses,
@@ -1011,8 +1016,9 @@ func (s *QueryService) setSourcePathServiceHint(actor RequestActor, sourcePath, 
 }
 
 func sourcePathServiceHintCacheKey(actor RequestActor, sourcePath string) string {
+	actor = normalizeActor(actor)
 	tenantScope := strings.TrimSpace(actor.TenantID)
-	if actor.CanReadAllLogs {
+	if actorCanReadAllTenants(actor) {
 		tenantScope = "*"
 	}
 	return tenantScope + "\u0000" + strings.TrimSpace(sourcePath)

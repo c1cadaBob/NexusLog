@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nexuslog/data-services/query-api/internal/repository"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 func TestStatsServiceAggregate_UsesMinuteHistogramAndStructuredQuery(t *testing.T) {
@@ -218,7 +219,7 @@ func TestStatsServiceAggregate_FallsBackToStaleCacheOnESError(t *testing.T) {
 }
 
 func TestAppendTenantFilter_UsesMatchNoneWhenTenantMissing(t *testing.T) {
-	filters := appendTenantFilter(nil, "", false)
+	filters := appendTenantFilter(nil, RequestActor{})
 	if len(filters) != 1 {
 		t.Fatalf("appendTenantFilter() len = %d, want 1", len(filters))
 	}
@@ -228,7 +229,7 @@ func TestAppendTenantFilter_UsesMatchNoneWhenTenantMissing(t *testing.T) {
 }
 
 func TestAppendTenantFilter_SkipsTenantScopeForGlobalAccess(t *testing.T) {
-	filters := appendTenantFilter([]map[string]any{{"term": map[string]any{"log.level": "error"}}}, "tenant-a", true)
+	filters := appendTenantFilter([]map[string]any{{"term": map[string]any{"log.level": "error"}}}, RequestActor{TenantID: "tenant-a", TenantReadScope: sharedauth.TenantReadScopeAllTenants})
 	if len(filters) != 1 {
 		t.Fatalf("appendTenantFilter() len = %d, want 1", len(filters))
 	}
@@ -265,8 +266,8 @@ func TestStatsServiceGetOverviewStats_SkipsTenantFilterForGlobalAccess(t *testin
 
 	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
 	_, err := svc.GetOverviewStats(context.Background(), RequestActor{
-		TenantID:       "11111111-1111-1111-1111-111111111111",
-		CanReadAllLogs: true,
+		TenantID:        "11111111-1111-1111-1111-111111111111",
+		TenantReadScope: sharedauth.TenantReadScopeAllTenants,
 	})
 	if err != nil {
 		t.Fatalf("GetOverviewStats() error = %v", err)

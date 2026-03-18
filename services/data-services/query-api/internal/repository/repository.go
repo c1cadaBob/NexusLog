@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 	sharedhttpguard "github.com/nexuslog/data-services/shared/httpguard"
 )
 
@@ -37,17 +38,17 @@ type SortField struct {
 
 // SearchLogsInput 定义检索日志请求参数。
 type SearchLogsInput struct {
-	TenantID          string
-	BypassTenantScope bool
-	Keywords          string
-	TimeRangeFrom     string
-	TimeRangeTo       string
-	Filters           map[string]any
-	Sort              []SortField
-	Page              int
-	PageSize          int
-	PITID             string
-	SearchAfter       []any
+	TenantID        string
+	TenantReadScope sharedauth.TenantReadScope
+	Keywords        string
+	TimeRangeFrom   string
+	TimeRangeTo     string
+	Filters         map[string]any
+	Sort            []SortField
+	Page            int
+	PageSize        int
+	PITID           string
+	SearchAfter     []any
 }
 
 // RawLogHit 表示 ES 返回的原始日志命中项。
@@ -135,7 +136,7 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 		return SearchLogsResult{}, err
 	}
 	in.TenantID = strings.TrimSpace(in.TenantID)
-	if in.TenantID == "" && !in.BypassTenantScope {
+	if in.TenantID == "" && !sharedauth.TenantReadScopeAllowsAllTenants(in.TenantReadScope) {
 		return SearchLogsResult{}, ErrTenantScopeRequired
 	}
 	if in.Page <= 0 {
@@ -575,7 +576,7 @@ func BuildESQuery(in SearchLogsInput) map[string]any {
 	mustClauses := make([]map[string]any, 0, 2)
 
 	tenantID := strings.TrimSpace(in.TenantID)
-	if !in.BypassTenantScope {
+	if !sharedauth.TenantReadScopeAllowsAllTenants(in.TenantReadScope) {
 		if tenantID == "" {
 			return tenantScopedMatchNoneQuery()
 		}

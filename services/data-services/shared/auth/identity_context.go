@@ -84,19 +84,9 @@ func AuthenticatedActorFlags(c *gin.Context) map[string]bool {
 }
 
 // AuthenticatedGlobalLogAccess returns whether the authenticated actor may read logs across tenants.
+// Deprecated: prefer AuthenticatedTenantReadScope for new code.
 func AuthenticatedGlobalLogAccess(c *gin.Context) bool {
-	if c == nil {
-		return false
-	}
-	value, ok := c.Get(string(contextKeyGlobalLogAccess))
-	if !ok {
-		return false
-	}
-	allowed, ok := value.(bool)
-	if !ok {
-		return false
-	}
-	return allowed
+	return TenantReadScopeAllowsAllTenants(AuthenticatedTenantReadScope(c))
 }
 
 func authenticatedStringSlice(c *gin.Context, key string) []string {
