@@ -995,4 +995,7 @@ func expectAuthorizationContextLookup(mock sqlmock.Sqlmock, permissions ...strin
 	mock.ExpectQuery(`FROM authz_version`).
 		WithArgs(testRouteTenantID, testRouteUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(1))
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(testRouteTenantID, "route-user").
+		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}))
 }

@@ -23,9 +23,6 @@ func lookupReservedSubjectPolicy(ctx context.Context, db *sql.DB, tenantID, user
 	if db == nil || strings.TrimSpace(tenantID) == "" || strings.TrimSpace(username) == "" {
 		return reservedSubjectPolicy{}, nil
 	}
-	if !isReservedUsername(username) {
-		return reservedSubjectPolicy{}, nil
-	}
 
 	const q = `
 		SELECT reserved, interactive_login_allowed, system_subject, break_glass_allowed, COALESCE(managed_by, '')

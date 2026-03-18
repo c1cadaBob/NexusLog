@@ -59,6 +59,9 @@ func TestEventHandler_ListEvents_GlobalTenantRead(t *testing.T) {
 	mock.ExpectQuery("FROM authz_version").
 		WithArgs("10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001").
 		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(1))
+	mock.ExpectQuery("FROM subject_reserved_policy").
+		WithArgs("10000000-0000-0000-0000-000000000001", "cross-tenant-reader").
+		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}))
 	mock.ExpectQuery("FROM alert_events").
 		WithArgs("").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))

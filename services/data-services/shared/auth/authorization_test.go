@@ -211,6 +211,9 @@ func TestRequireAuthenticatedIdentity_MapsCapabilitiesWithoutOverGranting(t *tes
 				AddRow("viewer", "viewer", []byte(`["logs:read"]`)),
 		)
 	expectSharedAuthorizationRegistryQueries(mock, tenantID, userID, 1)
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, "viewer").
+		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}))
 
 	router := gin.New()
 	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
@@ -314,6 +317,70 @@ func TestRequirePermission_FailsClosedWhenAuthorizationUnavailable(t *testing.T)
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/protected", nil))
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRequireAuthenticatedIdentity_RejectsPolicyReservedInteractiveAccessForCustomUsername(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	tenantID := "10000000-0000-0000-0000-000000000001"
+	userID := "20000000-0000-0000-0000-000000000077"
+	accessTokenJTI := "jti-custom-reserved"
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_sessions
+			WHERE tenant_id = $1::uuid
+			  AND user_id = $2::uuid
+			  AND access_token_jti = $3
+			  AND session_status = 'active'
+			  AND expires_at > $4
+		)
+	`)).
+		WithArgs(tenantID, userID, accessTokenJTI, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(authorizationContextQuery)).
+		WithArgs(userID, tenantID).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"username", "name", "permissions"}).
+				AddRow("tenant-automation", "viewer", []byte(`["logs:read"]`)),
+		)
+	expectSharedAuthorizationRegistryQueries(mock, tenantID, userID, 1)
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, "tenant-automation").
+		WillReturnRows(
+			sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}).
+				AddRow(true, false, false, false, "policy"),
+		)
+
+	router := gin.New()
+	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
+	router.GET("/api/v1/query/logs", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	token := mustIssueToken(t, tenantID, userID, accessTokenJTI)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query/logs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["message"] != "interactive login is disabled for this account" {
+		t.Fatalf("unexpected message: %v", body["message"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
 	}
 }
 
@@ -423,6 +490,9 @@ func TestRequireAuthenticatedIdentity_LoadsDirectCapabilitiesIntoRequestContext(
 				AddRow("cross-tenant-reader", "viewer", []byte(`["log.query.read","all_tenants"]`)),
 		)
 	expectSharedAuthorizationRegistryQueries(mock, tenantID, userID, 1)
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, "cross-tenant-reader").
+		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}))
 
 	router := gin.New()
 	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
