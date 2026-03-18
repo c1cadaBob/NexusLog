@@ -475,22 +475,12 @@ func (s *StatsService) getAlertSummary(ctx context.Context, actor RequestActor) 
 	if s.db == nil {
 		return &AlertSummary{}, nil
 	}
-	actor = normalizeActor(actor)
-	tenantScope := any(strings.TrimSpace(actor.TenantID))
-	if actorCanReadAllTenants(actor) {
-		tenantScope = nil
+	query, args, err := buildAlertSummaryQuery(actor)
+	if err != nil {
+		return nil, err
 	}
-	query := `
-SELECT 
-  COUNT(*) as total,
-  COUNT(*) FILTER (WHERE status = 'firing') as firing,
-  COUNT(*) FILTER (WHERE status = 'resolved') as resolved
-FROM alert_events
-WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
-  AND fired_at >= NOW() - INTERVAL '24 hours'
-`
 	var total, firing, resolved int64
-	err := s.db.QueryRowContext(ctx, query, tenantScope).Scan(&total, &firing, &resolved)
+	err = s.db.QueryRowContext(ctx, query, args...).Scan(&total, &firing, &resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -514,6 +504,26 @@ type AggregateResult struct {
 type AggregateBucket struct {
 	Key   string `json:"key"`
 	Count int64  `json:"count"`
+}
+
+func buildAlertSummaryQuery(actor RequestActor) (string, []any, error) {
+	actor = normalizeActor(actor)
+	query := `
+SELECT 
+  COUNT(*) as total,
+  COUNT(*) FILTER (WHERE status = 'firing') as firing,
+  COUNT(*) FILTER (WHERE status = 'resolved') as resolved
+FROM alert_events
+WHERE fired_at >= NOW() - INTERVAL '24 hours'
+`
+	if actorCanReadAllTenants(actor) {
+		return query, nil, nil
+	}
+	if actor.TenantID == "" {
+		return "", nil, ErrTenantContextRequired
+	}
+	query += "  AND tenant_id = $1::uuid\n"
+	return query, []any{actor.TenantID}, nil
 }
 
 func resolveAggregateTimeRangeDuration(timeRange string) time.Duration {

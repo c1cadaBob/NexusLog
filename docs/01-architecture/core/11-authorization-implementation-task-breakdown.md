@@ -260,11 +260,11 @@
 | `services/data-services/shared/auth/identity_context.go` | 读取鉴权上下文 | 已提供 `AuthenticatedCapabilities()`、`AuthenticatedScopes()`、`AuthenticatedAuthzEpoch()`、`AuthenticatedActorFlags()`；跨租户读取统一通过 `AuthenticatedTenantReadScope()` 表达 |
 | `services/data-services/query-api/internal/handler/handler.go` | 将 Gin 上下文翻译成 Query actor | 已切到 `TenantReadScope`；下一步补 `authorizedTenants` / export 复用模型，避免 handler 仍只传单一租户或全租户两态 |
 | `services/data-services/query-api/internal/service/service.go` | Query actor 与查询权限聚合 | 当前只用 `{TenantID, UserID, CanReadAllLogs}` 表达查询权限，需要改成显式 capability/scope 上下文，支持 `tenant`、`owned`、`all_tenants` |
-| `services/data-services/query-api/internal/service/stats_service.go` | 统计聚合与告警摘要 | 当前仍用 `CanReadAllLogs` 和 `tenant_id IS NULL` 表达跨租户；需要改成显式 scope，不再用 `NULL = all_tenants` |
+| `services/data-services/query-api/internal/service/stats_service.go` | 统计聚合与告警摘要 | ES 侧已使用显式 `TenantReadScope`，告警摘要 SQL 也应统一避免 `tenant_id IS NULL = all_tenants` 这种隐式表达；后续继续补齐 authorized tenant set 等更细粒度范围 |
 | `services/data-services/query-api/internal/repository/repository.go` | ES 查询入参与 tenant bypass | 当前有 `BypassTenantScope` 语义，需要改成显式 scope/授权租户集合，避免 capability 迁移后继续保留布尔绕过 |
 | `services/data-services/audit-api/internal/handler/audit_handler.go` | 将 Gin 上下文翻译成 Audit actor | 已切到 `TenantReadScope`；下一步继续与 service/repository 一起消除 `nil tenantScope = all_tenants` 旧语义 |
 | `services/data-services/audit-api/internal/service/audit_service.go` | 审计 actor 与查询控制 | 当前用 `BypassTenantScope` 表达跨租户，需要改成 capability + scope 模型，并消除 service 层“要求 tenant 非空”与 repository 层“允许 nil tenantScope”之间的语义冲突 |
-| `services/data-services/audit-api/internal/repository/audit_repository.go` | 审计查询仓储 | 当前 `tenantScope=nil` 表示全租户，需要改成显式 scope/专门全租户路径 |
+| `services/data-services/audit-api/internal/repository/audit_repository.go` | 审计查询仓储 | 已收口为显式 tenant where clause / all-tenant query 分支；后续继续与 service 层一起统一跨租户访问契约 |
 | `services/data-services/export-api/internal/handler/export_handler.go` | 构造导出 actor 并下发服务层 | 当前仅传 `tenantID/userID`，未显式声明 export 是否允许跨租户；需要补 capability/scope，或明确保持 tenant-scoped 并在 handler 层 fail-closed |
 | `services/data-services/export-api/internal/service/export_service.go` | 导出任务创建/读取/下载服务 | 当前只有 `tenantID/userID` 身份入参，需要补 capability 粒度与 `owned vs tenant` scope |
 | `services/data-services/export-api/internal/repository/es_export_repository.go` | 导出 ES 查询过滤 | 当前只接受 tenant 过滤，后续若支持受控跨租户导出，需要升级为显式 scope |

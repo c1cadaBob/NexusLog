@@ -218,6 +218,32 @@ func TestStatsServiceAggregate_FallsBackToStaleCacheOnESError(t *testing.T) {
 	}
 }
 
+func TestBuildAlertSummaryQuery_UsesExplicitTenantPredicate(t *testing.T) {
+	query, args, err := buildAlertSummaryQuery(RequestActor{TenantID: "tenant-a"})
+	if err != nil {
+		t.Fatalf("buildAlertSummaryQuery() error = %v", err)
+	}
+	if !strings.Contains(query, "tenant_id = $1::uuid") {
+		t.Fatalf("buildAlertSummaryQuery() query = %q, want tenant predicate", query)
+	}
+	if len(args) != 1 || args[0] != "tenant-a" {
+		t.Fatalf("buildAlertSummaryQuery() args = %#v, want tenant-a", args)
+	}
+}
+
+func TestBuildAlertSummaryQuery_OmitsTenantPredicateForAllTenants(t *testing.T) {
+	query, args, err := buildAlertSummaryQuery(RequestActor{TenantID: "tenant-a", TenantReadScope: sharedauth.TenantReadScopeAllTenants})
+	if err != nil {
+		t.Fatalf("buildAlertSummaryQuery() error = %v", err)
+	}
+	if strings.Contains(query, "tenant_id = $1::uuid") {
+		t.Fatalf("buildAlertSummaryQuery() query = %q, did not expect tenant predicate", query)
+	}
+	if len(args) != 0 {
+		t.Fatalf("buildAlertSummaryQuery() args = %#v, want empty", args)
+	}
+}
+
 func TestAppendTenantFilter_UsesMatchNoneWhenTenantMissing(t *testing.T) {
 	filters := appendTenantFilter(nil, RequestActor{})
 	if len(filters) != 1 {

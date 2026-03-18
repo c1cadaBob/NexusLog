@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/nexuslog/data-services/query-api/internal/repository"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 func TestNormalizeDisplayMessage_UnwrapsJSONAndCompactsWhitespace(t *testing.T) {
@@ -503,6 +504,22 @@ func TestBuildSourcePathServiceHints_UsesNewestValidService(t *testing.T) {
 
 	if got := hints[sourcePath]; got != "query-api" {
 		t.Fatalf("hints[%q]=%q, want query-api", sourcePath, got)
+	}
+}
+
+func TestSourcePathServiceHintCacheKey_UsesExplicitTenantReadScope(t *testing.T) {
+	sourcePath := "/var/log/app.log"
+	tenantScoped := sourcePathServiceHintCacheKey(RequestActor{TenantID: "tenant-a"}, sourcePath)
+	allTenants := sourcePathServiceHintCacheKey(RequestActor{TenantID: "tenant-a", TenantReadScope: sharedauth.TenantReadScopeAllTenants}, sourcePath)
+
+	if tenantScoped == allTenants {
+		t.Fatalf("sourcePathServiceHintCacheKey() should differ by tenant scope, got %q", tenantScoped)
+	}
+	if strings.Contains(allTenants, "*") {
+		t.Fatalf("sourcePathServiceHintCacheKey() = %q, did not expect legacy '*' sentinel", allTenants)
+	}
+	if !strings.HasPrefix(allTenants, string(sharedauth.TenantReadScopeAllTenants)+"\u0000tenant-a\u0000") {
+		t.Fatalf("sourcePathServiceHintCacheKey() = %q, want explicit all_tenants prefix", allTenants)
 	}
 }
 

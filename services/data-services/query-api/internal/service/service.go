@@ -1017,11 +1017,7 @@ func (s *QueryService) setSourcePathServiceHint(actor RequestActor, sourcePath, 
 
 func sourcePathServiceHintCacheKey(actor RequestActor, sourcePath string) string {
 	actor = normalizeActor(actor)
-	tenantScope := strings.TrimSpace(actor.TenantID)
-	if actorCanReadAllTenants(actor) {
-		tenantScope = "*"
-	}
-	return tenantScope + "\u0000" + strings.TrimSpace(sourcePath)
+	return string(actor.TenantReadScope) + "\u0000" + strings.TrimSpace(actor.TenantID) + "\u0000" + strings.TrimSpace(sourcePath)
 }
 
 func buildSourcePathServiceHints(hits []repository.RawLogHit) map[string]string {

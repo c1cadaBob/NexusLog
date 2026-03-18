@@ -78,33 +78,21 @@ func (r *AuditRepository) ListAuditLogs(ctx context.Context, in ListAuditLogsInp
 	sortBy := normalizeSortBy(in.SortBy)
 	sortOrder := normalizeSortOrder(in.SortOrder)
 
+	whereClause, whereArgs, err := buildAuditLogWhereClause(in)
+	if err != nil {
+		return ListAuditLogsOutput{}, err
+	}
 	countQuery := `
 SELECT COUNT(1)
 FROM audit_logs
-WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
-  AND ($2::uuid IS NULL OR user_id = $2)
-  AND ($3::text IS NULL OR action = $3)
-  AND ($4::text IS NULL OR resource_type = $4)
-  AND ($5::timestamptz IS NULL OR created_at >= $5)
-  AND ($6::timestamptz IS NULL OR created_at <= $6)
-`
+WHERE ` + whereClause
 	var total int64
-	tenantScope := auditTenantScopeArg(strings.TrimSpace(in.TenantID), in.TenantReadScope)
-	if tenantScope == nil && !sharedauth.TenantReadScopeAllowsAllTenants(in.TenantReadScope) {
-		return ListAuditLogsOutput{}, fmt.Errorf("tenant_id is required")
-	}
-	err := r.db.QueryRowContext(ctx, countQuery,
-		tenantScope,
-		nullableStringPtr(in.UserID),
-		nullableStringPtr(in.Action),
-		nullableStringPtr(in.ResourceType),
-		in.FromTime,
-		in.ToTime,
-	).Scan(&total)
+	err = r.db.QueryRowContext(ctx, countQuery, whereArgs...).Scan(&total)
 	if err != nil {
 		return ListAuditLogsOutput{}, fmt.Errorf("count audit logs: %w", err)
 	}
 
+	listArgs := append(append([]any{}, whereArgs...), offset, pageSize)
 	listQuery := fmt.Sprintf(`
 SELECT
 	id::text,
@@ -118,26 +106,12 @@ SELECT
 	user_agent,
 	created_at
 FROM audit_logs
-WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
-  AND ($2::uuid IS NULL OR user_id = $2)
-  AND ($3::text IS NULL OR action = $3)
-  AND ($4::text IS NULL OR resource_type = $4)
-  AND ($5::timestamptz IS NULL OR created_at >= $5)
-  AND ($6::timestamptz IS NULL OR created_at <= $6)
+WHERE %s
 ORDER BY %s %s
-OFFSET $7 LIMIT $8
-`, sortBy, sortOrder)
+OFFSET $%d LIMIT $%d
+`, whereClause, sortBy, sortOrder, len(whereArgs)+1, len(whereArgs)+2)
 
-	rows, err := r.db.QueryContext(ctx, listQuery,
-		tenantScope,
-		nullableStringPtr(in.UserID),
-		nullableStringPtr(in.Action),
-		nullableStringPtr(in.ResourceType),
-		in.FromTime,
-		in.ToTime,
-		offset,
-		pageSize,
-	)
+	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
 	if err != nil {
 		return ListAuditLogsOutput{}, fmt.Errorf("list audit logs: %w", err)
 	}
@@ -225,14 +199,42 @@ func normalizeSortOrder(order string) string {
 	return "DESC"
 }
 
-func auditTenantScopeArg(tenantID string, tenantReadScope sharedauth.TenantReadScope) any {
-	if sharedauth.TenantReadScopeAllowsAllTenants(tenantReadScope) {
-		return nil
+func buildAuditLogWhereClause(in ListAuditLogsInput) (string, []any, error) {
+	clauses := make([]string, 0, 6)
+	args := make([]any, 0, 6)
+
+	if !sharedauth.TenantReadScopeAllowsAllTenants(in.TenantReadScope) {
+		tenantID := strings.TrimSpace(in.TenantID)
+		if tenantID == "" {
+			return "", nil, fmt.Errorf("tenant_id is required")
+		}
+		args = append(args, tenantID)
+		clauses = append(clauses, fmt.Sprintf("tenant_id = $%d::uuid", len(args)))
 	}
-	if tenantID == "" {
-		return nil
+	if userID := nullableStringPtr(in.UserID); userID != nil {
+		args = append(args, userID)
+		clauses = append(clauses, fmt.Sprintf("user_id = $%d::uuid", len(args)))
 	}
-	return tenantID
+	if action := nullableStringPtr(in.Action); action != nil {
+		args = append(args, action)
+		clauses = append(clauses, fmt.Sprintf("action = $%d::text", len(args)))
+	}
+	if resourceType := nullableStringPtr(in.ResourceType); resourceType != nil {
+		args = append(args, resourceType)
+		clauses = append(clauses, fmt.Sprintf("resource_type = $%d::text", len(args)))
+	}
+	if in.FromTime != nil {
+		args = append(args, in.FromTime)
+		clauses = append(clauses, fmt.Sprintf("created_at >= $%d::timestamptz", len(args)))
+	}
+	if in.ToTime != nil {
+		args = append(args, in.ToTime)
+		clauses = append(clauses, fmt.Sprintf("created_at <= $%d::timestamptz", len(args)))
+	}
+	if len(clauses) == 0 {
+		return "1=1", args, nil
+	}
+	return strings.Join(clauses, "\n  AND "), args, nil
 }
 
 func nullableStringPtr(s *string) any {
