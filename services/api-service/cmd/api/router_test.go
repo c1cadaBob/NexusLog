@@ -24,6 +24,9 @@ func expectRouteAuthorizationContextQueries(mock sqlmock.Sqlmock, tenantID, user
 	mock.ExpectQuery(`FROM authz_version`).
 		WithArgs(tenantID, userID).
 		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}))
 }
 
 func TestRegisterRoutes_UserCreateAllowsLegacyUsersWriteAlias(t *testing.T) {

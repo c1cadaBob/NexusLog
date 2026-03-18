@@ -413,6 +413,48 @@ func TestLoginInvalidCredentialsAndSuccess(t *testing.T) {
 	}
 }
 
+func TestLoginRejectsPolicyReservedInteractiveAccessForCustomUsername(t *testing.T) {
+	tenantID := uuid.NewString()
+	userID := uuid.New()
+
+	hash, hashErr := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.DefaultCost)
+	if hashErr != nil {
+		t.Fatalf("bcrypt hash: %v", hashErr)
+	}
+
+	repoMock := &mockAuthRepository{
+		tenantExists: true,
+		loginUser: repository.LoginUserRecord{
+			UserID:       userID,
+			Username:     "tenant-automation",
+			Email:        "tenant-automation@nexuslog.local",
+			DisplayName:  "Tenant Automation",
+			Status:       "active",
+			PasswordHash: string(hash),
+		},
+		reservedPolicy: repository.ReservedSubjectPolicyRecord{
+			Found:                   true,
+			Reserved:                true,
+			InteractiveLoginAllowed: false,
+		},
+	}
+
+	svc := NewAuthService(repoMock, "test-secret")
+	_, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "tenant-automation", Password: "Password123"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != model.ErrorCodeAuthLoginInteractiveDisabled {
+		t.Fatalf("expected interactive login disabled error, got %#v", err)
+	}
+	if repoMock.sessionCreateCall != 0 {
+		t.Fatalf("expected no session creation, got %d", repoMock.sessionCreateCall)
+	}
+	if repoMock.lastLoginAttempt == nil {
+		t.Fatal("expected blocked login attempt record")
+	}
+	if repoMock.lastLoginAttempt.Result != "blocked" || repoMock.lastLoginAttempt.Reason != "interactive_login_disallowed" {
+		t.Fatalf("unexpected blocked login attempt: %#v", repoMock.lastLoginAttempt)
+	}
+}
+
 func TestLoginRejectsSystemAutomationInteractiveAccess(t *testing.T) {
 	tenantID := uuid.NewString()
 	userID := uuid.New()
@@ -500,6 +542,33 @@ func TestRefreshValidationAndRotation(t *testing.T) {
 	_, err = svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-3"}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_REFRESH_INTERNAL_ERROR" {
 		t.Fatalf("expected internal error, got %#v", err)
+	}
+}
+
+func TestRefreshRejectsPolicyReservedInteractiveAccessForCustomUsername(t *testing.T) {
+	tenantID := uuid.NewString()
+	repoMock := &mockAuthRepository{
+		tenantExists: true,
+		refreshUser: repository.UserIdentityRecord{
+			UserID:   uuid.New(),
+			Username: "tenant-automation",
+			Email:    "tenant-automation@nexuslog.local",
+			Status:   "active",
+		},
+		reservedPolicy: repository.ReservedSubjectPolicyRecord{
+			Found:                   true,
+			Reserved:                true,
+			InteractiveLoginAllowed: false,
+		},
+	}
+	svc := NewAuthService(repoMock, "test-secret")
+
+	_, err := svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-custom"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != model.ErrorCodeAuthRefreshInteractiveDisabled {
+		t.Fatalf("expected refresh interactive login disabled error, got %#v", err)
+	}
+	if repoMock.rotateCall != 0 {
+		t.Fatalf("expected no rotate call, got %d", repoMock.rotateCall)
 	}
 }
 

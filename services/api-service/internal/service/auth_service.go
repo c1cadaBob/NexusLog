@@ -285,7 +285,7 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 	}
 
 	loginContext := BuildAuthorizationContext(userRec.Username, nil, nil)
-	policy, err := s.repo.GetReservedSubjectPolicy(ctx, tenantID, userRec.Username)
+	policy, err := s.repo.LookupReservedUsernamePolicy(ctx, tenantID, userRec.Username)
 	if err != nil {
 		return model.LoginResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,
@@ -370,7 +370,7 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 		}
 	}
 	refreshContext := BuildAuthorizationContext(refreshUser.Username, nil, nil)
-	policy, err := s.repo.GetReservedSubjectPolicy(ctx, tenantID, refreshUser.Username)
+	policy, err := s.repo.LookupReservedUsernamePolicy(ctx, tenantID, refreshUser.Username)
 	if err != nil {
 		return model.RefreshResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,

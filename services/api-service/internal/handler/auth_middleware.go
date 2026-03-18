@@ -195,7 +195,7 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 				AuthzEpoch:                authzEpoch,
 			},
 		)
-		policy, err := authRepo.GetReservedSubjectPolicy(c.Request.Context(), parseUUIDOrNil(claims.TenantID), userRecord.Username)
+		policy, err := authRepo.LookupReservedUsernamePolicy(c.Request.Context(), parseUUIDOrNil(claims.TenantID), userRecord.Username)
 		if err != nil {
 			httpx.Error(c, &model.APIError{
 				HTTPStatus: http.StatusInternalServerError,
