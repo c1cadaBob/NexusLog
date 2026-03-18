@@ -50,8 +50,9 @@ func TestRequireAuthenticatedIdentity_SetsIdentityHeadersFromToken(t *testing.T)
 	router.Use(RequireAuthenticatedIdentity(nil, testJWTSecret))
 	router.GET("/api/v1/query/logs", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"tenant_id": c.GetHeader("X-Tenant-ID"),
-			"user_id":   c.GetHeader("X-User-ID"),
+			"tenant_id":             c.GetHeader("X-Tenant-ID"),
+			"user_id":               c.GetHeader("X-User-ID"),
+			"authorized_tenant_ids": AuthenticatedAuthorizedTenantIDs(c),
 		})
 	})
 
@@ -68,6 +69,9 @@ func TestRequireAuthenticatedIdentity_SetsIdentityHeadersFromToken(t *testing.T)
 	}
 	if body := resp.Body.String(); body == "" || !strings.Contains(body, "10000000-0000-0000-0000-000000000001") || !strings.Contains(body, "20000000-0000-0000-0000-000000000001") {
 		t.Fatalf("unexpected body: %s", body)
+	}
+	if !strings.Contains(resp.Body.String(), `"authorized_tenant_ids":[]`) {
+		t.Fatalf("expected empty authorized_tenant_ids in body: %s", resp.Body.String())
 	}
 }
 

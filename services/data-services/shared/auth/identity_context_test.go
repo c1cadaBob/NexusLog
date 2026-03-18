@@ -44,15 +44,17 @@ func TestAuthenticatedAuthorizationSnapshotUsesContextOnly(t *testing.T) {
 	c.Set(string(contextKeyUserPermissions), []string{"logs:read", "logs:export"})
 	c.Set(string(contextKeyUserCapabilities), []string{"log.query.read", "export.job.read"})
 	c.Set(string(contextKeyUserScopes), []string{"tenant", "owned", "all_tenants"})
+	c.Set(string(contextKeyUserAuthorizedTenantIDs), []string{"tenant-b", "tenant-a"})
 	c.Set(string(contextKeyUserAuthzEpoch), int64(7))
 	c.Set(string(contextKeyUserActorFlags), map[string]bool{"reserved": true})
 
 	permissions := AuthenticatedPermissions(c)
 	capabilities := AuthenticatedCapabilities(c)
 	scopes := AuthenticatedScopes(c)
+	authorizedTenantIDs := AuthenticatedAuthorizedTenantIDs(c)
 	actorFlags := AuthenticatedActorFlags(c)
-	if len(permissions) != 2 || len(capabilities) != 2 || len(scopes) != 3 {
-		t.Fatalf("unexpected snapshot: perms=%#v caps=%#v scopes=%#v", permissions, capabilities, scopes)
+	if len(permissions) != 2 || len(capabilities) != 2 || len(scopes) != 3 || len(authorizedTenantIDs) != 2 {
+		t.Fatalf("unexpected snapshot: perms=%#v caps=%#v scopes=%#v authorized_tenants=%#v", permissions, capabilities, scopes, authorizedTenantIDs)
 	}
 	if AuthenticatedAuthzEpoch(c) != 7 {
 		t.Fatalf("AuthenticatedAuthzEpoch() = %d, want 7", AuthenticatedAuthzEpoch(c))

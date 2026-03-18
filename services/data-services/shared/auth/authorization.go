@@ -12,15 +12,16 @@ import (
 )
 
 const (
-	contextKeyUserPermissions    contextKey = "user_permissions"
-	contextKeyAuthorizationReady contextKey = "authorization_ready"
-	contextKeyUserRoles          contextKey = "user_roles"
-	contextKeyUserCapabilities   contextKey = "user_capabilities"
-	contextKeyUserScopes         contextKey = "user_scopes"
-	contextKeyUserEntitlements   contextKey = "user_entitlements"
-	contextKeyUserFeatureFlags   contextKey = "user_feature_flags"
-	contextKeyUserAuthzEpoch     contextKey = "user_authz_epoch"
-	contextKeyUserActorFlags     contextKey = "user_actor_flags"
+	contextKeyUserPermissions         contextKey = "user_permissions"
+	contextKeyAuthorizationReady      contextKey = "authorization_ready"
+	contextKeyUserRoles               contextKey = "user_roles"
+	contextKeyUserCapabilities        contextKey = "user_capabilities"
+	contextKeyUserScopes              contextKey = "user_scopes"
+	contextKeyUserAuthorizedTenantIDs contextKey = "user_authorized_tenant_ids"
+	contextKeyUserEntitlements        contextKey = "user_entitlements"
+	contextKeyUserFeatureFlags        contextKey = "user_feature_flags"
+	contextKeyUserAuthzEpoch          contextKey = "user_authz_epoch"
+	contextKeyUserActorFlags          contextKey = "user_actor_flags"
 )
 
 const authorizationContextQuery = `

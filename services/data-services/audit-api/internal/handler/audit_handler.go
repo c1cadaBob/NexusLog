@@ -96,8 +96,9 @@ func writeServiceError(c *gin.Context, err error) {
 
 func resolveActor(c *gin.Context) service.RequestActor {
 	return service.RequestActor{
-		TenantID:        sharedauth.AuthenticatedTenantID(c),
-		TenantReadScope: sharedauth.AuthenticatedTenantReadScope(c),
+		TenantID:            sharedauth.AuthenticatedTenantID(c),
+		TenantReadScope:     sharedauth.AuthenticatedTenantReadScope(c),
+		AuthorizedTenantIDs: sharedauth.AuthenticatedAuthorizedTenantIDs(c),
 	}
 }
 

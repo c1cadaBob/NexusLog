@@ -59,6 +59,7 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 		roles := []string{}
 		capabilities := []string{}
 		scopes := []string{}
+		authorizedTenantIDs := []string{}
 		entitlements := []string{}
 		featureFlags := []string{}
 		actorFlags := map[string]bool{}
@@ -103,6 +104,7 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 		c.Set(string(contextKeyUserRoles), roles)
 		c.Set(string(contextKeyUserCapabilities), capabilities)
 		c.Set(string(contextKeyUserScopes), scopes)
+		c.Set(string(contextKeyUserAuthorizedTenantIDs), authorizedTenantIDs)
 		c.Set(string(contextKeyUserEntitlements), entitlements)
 		c.Set(string(contextKeyUserFeatureFlags), featureFlags)
 		c.Set(string(contextKeyUserAuthzEpoch), authzEpoch)
@@ -116,6 +118,7 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 		ctx = context.WithValue(ctx, contextKeyUserRoles, roles)
 		ctx = context.WithValue(ctx, contextKeyUserCapabilities, capabilities)
 		ctx = context.WithValue(ctx, contextKeyUserScopes, scopes)
+		ctx = context.WithValue(ctx, contextKeyUserAuthorizedTenantIDs, authorizedTenantIDs)
 		ctx = context.WithValue(ctx, contextKeyUserEntitlements, entitlements)
 		ctx = context.WithValue(ctx, contextKeyUserFeatureFlags, featureFlags)
 		ctx = context.WithValue(ctx, contextKeyUserAuthzEpoch, authzEpoch)

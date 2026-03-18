@@ -255,9 +255,9 @@
 
 | 文件 | 当前职责 | 需要改动 |
 |---|---|---|
-| `services/data-services/shared/auth/middleware.go` | 解析 JWT、注入 `tenant_id/user_id`、加载 `permissions` | 增加 capability/scopes/authz_epoch 装载；保留 permissions 兼容；把 `authorization_ready` 与新上下文字段一起设置 |
+| `services/data-services/shared/auth/middleware.go` | 解析 JWT、注入 `tenant_id/user_id`、加载 `permissions` | 增加 capability/scopes/authz_epoch 装载；保留 permissions 兼容；当前已预留 `authorized_tenant_ids` 上下文字段，后续可直接接正式授权租户事实源 |
 | `services/data-services/shared/auth/authorization.go` | `RequirePermission` 与旧权限加载 | 保留 `RequirePermission` 兼容；新增 `RequireCapability`、`RequireScope`；将 `globalLogAccessQuery` 从用户名/角色硬编码改为 capability + scope + reserved policy 组合判断 |
-| `services/data-services/shared/auth/identity_context.go` | 读取鉴权上下文 | 已提供 `AuthenticatedCapabilities()`、`AuthenticatedScopes()`、`AuthenticatedAuthzEpoch()`、`AuthenticatedActorFlags()`；跨租户读取统一通过 `AuthenticatedTenantReadScope()` 表达 |
+| `services/data-services/shared/auth/identity_context.go` | 读取鉴权上下文 | 已提供 `AuthenticatedCapabilities()`、`AuthenticatedScopes()`、`AuthenticatedAuthzEpoch()`、`AuthenticatedActorFlags()`、`AuthenticatedAuthorizedTenantIDs()`；跨租户读取统一通过 `AuthenticatedTenantReadScope()` + 显式授权租户集合表达 |
 | `services/data-services/query-api/internal/handler/handler.go` | 将 Gin 上下文翻译成 Query actor | 已切到 `TenantReadScope`；当前 actor 已支持 `authorized tenant set` 承载位，后续只需把正式授权租户列表接进 handler/context |
 | `services/data-services/query-api/internal/service/service.go` | Query actor 与查询权限聚合 | 已新增 `authorized tenant set` 兼容入口；日志检索链路已不再依赖“必须先有当前 tenant_id”的两态前提，并为 future tenant_group / delegated tenant 范围预留 actor 字段 |
 | `services/data-services/query-api/internal/service/stats_service.go` | 统计聚合与告警摘要 | ES 聚合与告警摘要 SQL 已统一复用显式授权租户集合；缓存 key 也已纳入租户范围，避免不同授权租户集合共享缓存 |

@@ -37,6 +37,11 @@ func AuthenticatedScopes(c *gin.Context) []string {
 	return authenticatedStringSlice(c, string(contextKeyUserScopes))
 }
 
+// AuthenticatedAuthorizedTenantIDs returns the explicit authorized tenant ids loaded by the authentication middleware.
+func AuthenticatedAuthorizedTenantIDs(c *gin.Context) []string {
+	return authenticatedStringSlice(c, string(contextKeyUserAuthorizedTenantIDs))
+}
+
 // AuthenticatedEntitlements returns entitlements loaded by the authentication middleware.
 func AuthenticatedEntitlements(c *gin.Context) []string {
 	return authenticatedStringSlice(c, string(contextKeyUserEntitlements))
