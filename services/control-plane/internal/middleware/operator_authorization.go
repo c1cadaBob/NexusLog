@@ -8,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const authContextKeyOperatorRoleGranted = "operator_role_granted"
+
 const operatorRoleExistsQuery = `
 	SELECT EXISTS(
 		SELECT 1
@@ -46,6 +48,7 @@ func RequireOperatorRole(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		if hasOperatorAuthorizationSnapshot(c) {
+			markOperatorRoleGranted(c)
 			c.Next()
 			return
 		}
@@ -63,6 +66,7 @@ func RequireOperatorRole(db *sql.DB) gin.HandlerFunc {
 			writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "operator or administrator role required")
 			return
 		}
+		markOperatorRoleGranted(c)
 		c.Next()
 	}
 }
@@ -73,6 +77,13 @@ func hasOperatorRole(ctx context.Context, db *sql.DB, tenantID, userID string) (
 		return false, err
 	}
 	return allowed, nil
+}
+
+func markOperatorRoleGranted(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(authContextKeyOperatorRoleGranted, true)
 }
 
 func hasOperatorAuthorizationSnapshot(c *gin.Context) bool {

@@ -26,6 +26,8 @@ const adminRoleExistsQuery = `
 	)
 `
 
+const authContextKeyAdminRoleGranted = "admin_role_granted"
+
 var adminAuthorizationCapabilities = []string{
 	"iam.user.create",
 	"iam.user.delete",
@@ -49,6 +51,7 @@ func RequireAdminRole(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		if hasAdminAuthorizationSnapshot(c) {
+			markAdminRoleGranted(c)
 			c.Next()
 			return
 		}
@@ -66,6 +69,7 @@ func RequireAdminRole(db *sql.DB) gin.HandlerFunc {
 			writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "administrator role required")
 			return
 		}
+		markAdminRoleGranted(c)
 		c.Next()
 	}
 }
@@ -76,6 +80,14 @@ func hasAdminRole(ctx context.Context, db *sql.DB, tenantID, userID string) (boo
 		return false, err
 	}
 	return allowed, nil
+}
+
+func markAdminRoleGranted(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(authContextKeyAdminRoleGranted, true)
+	c.Set(authContextKeyOperatorRoleGranted, true)
 }
 
 func hasAdminAuthorizationSnapshot(c *gin.Context) bool {

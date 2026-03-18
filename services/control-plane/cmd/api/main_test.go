@@ -761,7 +761,7 @@ func newManagementAdminRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
 	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
-	resource.RegisterRoutes(adminRoutes, resource.NewThresholdHandler(resource.NewThresholdRepository(db)))
+	resource.RegisterAuthorizedRoutes(router, db, resource.NewThresholdHandler(resource.NewThresholdRepository(db)))
 	alertRuleRepo := alert.NewRuleRepositoryPG(db)
 	alert.RegisterAuthorizedAlertRuleRoutes(adminRoutes, alert.NewRuleHandler(alert.NewRuleService(alertRuleRepo)))
 	return router
@@ -800,8 +800,7 @@ func newIngestV3AdminRouter(db *sql.DB) *gin.Engine {
 func newAlertEventOperatorRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
-	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
-	alert.RegisterAlertEventRoutes(operatorRoutes, alert.NewEventHandler(db))
+	alert.RegisterAuthorizedAlertEventRoutes(router, db, alert.NewEventHandler(db))
 	return router
 }
 

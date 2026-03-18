@@ -1,11 +1,14 @@
 package backup
 
 import (
+	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 // Handler handles backup HTTP endpoints.
@@ -30,6 +33,21 @@ func RegisterRoutes(router gin.IRouter, h *Handler) {
 		g.POST("/snapshots/:name/restore", h.RestoreSnapshot)
 		g.DELETE("/snapshots/:name", h.DeleteSnapshot)
 		g.POST("/snapshots/:name/cancel", h.CancelSnapshot)
+	}
+}
+
+// RegisterAuthorizedRoutes registers backup routes with capability-first compatibility guards.
+func RegisterAuthorizedRoutes(router gin.IRouter, db *sql.DB, h *Handler) {
+	g := router.Group("/api/v1/backup")
+	{
+		g.GET("/repositories", cpMiddleware.RequireCapabilityOrAdminRole(db, "backup.read"), h.ListRepositories)
+		g.POST("/repositories", cpMiddleware.RequireCapabilityOrAdminRole(db, "backup.create"), h.CreateRepository)
+		g.GET("/snapshots", cpMiddleware.RequireCapabilityOrAdminRole(db, "backup.read"), h.ListSnapshots)
+		g.POST("/snapshots", cpMiddleware.RequireCapabilityOrAdminRole(db, "backup.create"), h.CreateSnapshot)
+		g.GET("/snapshots/:name", cpMiddleware.RequireCapabilityOrAdminRole(db, "backup.read"), h.GetSnapshotStatus)
+		g.POST("/snapshots/:name/restore", cpMiddleware.RequireCapabilityOrAdminRole(db, "backup.restore"), h.RestoreSnapshot)
+		g.DELETE("/snapshots/:name", cpMiddleware.RequireCapabilityOrAdminRole(db, "backup.delete"), h.DeleteSnapshot)
+		g.POST("/snapshots/:name/cancel", cpMiddleware.RequireCapabilityOrAdminRole(db, "backup.cancel"), h.CancelSnapshot)
 	}
 }
 

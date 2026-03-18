@@ -64,6 +64,19 @@ func RegisterAlertEventRoutes(router gin.IRouter, handler *EventHandler) {
 	}
 }
 
+func RegisterAuthorizedAlertEventRoutes(router gin.IRouter, db *sql.DB, handler *EventHandler) {
+	if handler == nil || handler.db == nil {
+		return
+	}
+	g := router.Group("/api/v1/alert/events")
+	{
+		g.GET("", cpMiddleware.RequireCapabilityOrOperatorRole(db, "alert.event.read"), handler.ListEvents)
+		g.POST("/:id/acknowledge", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.AcknowledgeEvent)
+		g.POST("/:id/resolve", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.ResolveEvent)
+		g.POST("/:id/silence", cpMiddleware.RequireCapabilityOrOperatorRole(db, "alert.silence.create"), handler.SilenceEvent)
+	}
+}
+
 func (h *EventHandler) ListEvents(c *gin.Context) {
 	tenantID := getTenantID(c)
 	if tenantID == "" {

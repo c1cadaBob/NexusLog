@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -36,6 +37,18 @@ func RegisterRoutes(router gin.IRouter, handler *ThresholdHandler) {
 		g.POST("", handler.Create)
 		g.PUT("/:id", handler.Update)
 		g.DELETE("/:id", handler.Delete)
+	}
+}
+
+// RegisterAuthorizedRoutes registers threshold routes with capability-first compatibility guards.
+func RegisterAuthorizedRoutes(router gin.IRouter, db *sql.DB, handler *ThresholdHandler) {
+	g := router.Group("/api/v1/resource/thresholds")
+	{
+		g.GET("", cpMiddleware.RequireCapabilityOrAdminRole(db, "resource.threshold.read"), handler.List)
+		g.GET("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "resource.threshold.read"), handler.Get)
+		g.POST("", cpMiddleware.RequireCapabilityOrAdminRole(db, "resource.threshold.create"), handler.Create)
+		g.PUT("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "resource.threshold.update"), handler.Update)
+		g.DELETE("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "resource.threshold.delete"), handler.Delete)
 	}
 }
 

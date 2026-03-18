@@ -108,7 +108,7 @@ func main() {
 
 	// ES Snapshot Backup/Restore (W4-B3)
 	backupSvc := backup.NewService()
-	backup.RegisterRoutes(adminRoutes, backup.NewHandler(backupSvc))
+	backup.RegisterAuthorizedRoutes(router, pgDB, backup.NewHandler(backupSvc))
 
 	// Metrics report + query API (W3-B6, W3-B8)
 	if pgDB != nil {
@@ -124,7 +124,7 @@ func main() {
 		// Background cleanup: delete metrics older than 30 days, run daily
 		metrics.StartCleanupJob(workerCtx, metricsRepo, 30, 24*time.Hour)
 		// Resource threshold CRUD (W3-B7)
-		resource.RegisterRoutes(adminRoutes, resource.NewThresholdHandler(thresholdRepo))
+		resource.RegisterAuthorizedRoutes(router, pgDB, resource.NewThresholdHandler(thresholdRepo))
 	}
 
 	// Alert rules API (requires PostgreSQL)
@@ -133,7 +133,7 @@ func main() {
 		alertRuleService := alert.NewRuleService(alertRuleRepo)
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
 		alert.RegisterAuthorizedAlertRuleRoutes(adminRoutes, alertRuleHandler)
-		alert.RegisterAlertEventRoutes(operatorRoutes, alert.NewEventHandler(pgDB))
+		alert.RegisterAuthorizedAlertEventRoutes(router, pgDB, alert.NewEventHandler(pgDB))
 
 		// Alert silence policy (W4-B6)
 		silenceSvc := alert.NewSilenceService(pgDB)
