@@ -276,11 +276,11 @@
 | `services/control-plane/internal/middleware/auth_middleware.go` | 控制面认证入口 | 已拆成显式 `RequireAuthenticatedUserIdentity()` / `RequireAuthenticatedAgentIdentity()`；用户流不再靠 path 特判分流 Agent 身份，后续继续对齐 data-services 的 capabilities/scopes/authz_epoch 上下文 |
 | `services/control-plane/internal/middleware/admin_authorization.go` | 管理员回退授权与兼容层 | 已去掉 `role.name IN ('super_admin','system_admin')` 硬编码，改成从 `roles.permissions` 中匹配 `users:write` / `iam.user.*` 权限包；当前已收紧为仅信任 `authorization_ready=true` 的快照，上下文不可信时只回查 DB 真相；下一步再继续把 route wiring 全量切到 `RequireCapability*` |
 | `services/control-plane/internal/middleware/operator_authorization.go` | 操作员回退授权与兼容层 | 已去掉 `role.name IN (...)` 硬编码，改成从 `roles.permissions` 中匹配 `alerts:write` / `incidents:write` / `logs:export` / 相关 capability 包；当前已收紧为仅信任 `authorization_ready=true` 的快照，上下文不可信时只回查 DB 真相；下一步继续收紧为纯 capability 化 |
-| `services/control-plane/internal/middleware/global_tenant_access.go` | 跨租户读权限判定 | 已改为 `capability + scope(all_tenants/system)` 组合；后续再接正式 `subject_reserved_policy` 事实源 |
+| `services/control-plane/internal/middleware/global_tenant_access.go` | 跨租户读权限判定 | 已改为 `capability + scope(all_tenants/system)` 组合，并已收紧为仅信任 `authorization_ready=true` 的上下文快照；后续再接正式 `subject_reserved_policy` 事实源 |
 | `services/control-plane/internal/middleware/identity_context.go` | 控制面身份上下文读取 | 扩展 getter，支持新授权上下文字段 |
 | `services/control-plane/cmd/api/main.go` | control-plane 路由 wiring | 当前已拆出 `userRoutes` / `agentRoutes`：`/api/v1/metrics/report` 走显式 agent 鉴权，其余交互式 API 走用户鉴权；下一步继续把 `RequireOperatorRole/RequireAdminRole` 组合接线收口到 capability wiring |
 | `services/control-plane/cmd/api/ingest_runtime.go`、`services/control-plane/cmd/api/ingestv3_routes.go` | admin/operator 路由注册与边界声明 | 让注册函数接收“已授权 router”或显式 authz requirement，而不是在 bootstrap 里依赖 `adminRoutes/operatorRoutes` 隐式传递角色语义 |
-| `services/control-plane/internal/alert/event_handler.go`、`services/control-plane/internal/alert/silence_handler.go`、`services/control-plane/internal/alert/rule_handler.go`、`services/control-plane/internal/notification/channel_handler.go` | control-plane 业务 handler | 当前有以 `tenantScope=""` 表达全租户的旧语义，后续要改成 capability + scope 显式模型，不能继续依赖空字符串代表全租户 |
+| `services/control-plane/internal/alert/event_handler.go`、`services/control-plane/internal/alert/silence_handler.go`、`services/control-plane/internal/alert/rule_handler.go`、`services/control-plane/internal/notification/channel_handler.go` | control-plane 业务 handler | `alert event/silence` 读取链路已开始改成显式 `ReadScope{tenant,global}`，不再在 handler 中用 `tenantScope=""` 表达全租户；后续继续把 `rule/channel` 同类入口与 repo/service 一并收口到 capability + scope 显式模型 |
 
 ### P1：服务入口路由
 

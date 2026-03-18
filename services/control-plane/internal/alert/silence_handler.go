@@ -47,8 +47,15 @@ func RegisterAuthorizedSilenceRoutes(router gin.IRouter, db *sql.DB, h *SilenceH
 // ListSilences GET /api/v1/alert/silences
 func (h *SilenceHandler) ListSilences(c *gin.Context) {
 	tenantID := strings.TrimSpace(getTenantID(c))
-	tenantScope := tenantID
-	allowed, err := cpMiddleware.HasGlobalTenantReadAccess(c.Request.Context(), h.svc.db, tenantID, getActorID(c))
+	if tenantID == "" {
+		setAlertSilenceAuditEvent(c, "alert_silences.list", "", buildSilenceListAuditDetails(0, http.StatusBadRequest, "failed", ErrorCodeRequestInvalidParams))
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    ErrorCodeRequestInvalidParams,
+			"message": "X-Tenant-ID header is required",
+		})
+		return
+	}
+	readScope, err := resolveReadScope(c.Request.Context(), h.svc.db, tenantID, getActorID(c))
 	if err != nil {
 		setAlertSilenceAuditEvent(c, "alert_silences.list", "", buildSilenceListAuditDetails(0, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -57,11 +64,8 @@ func (h *SilenceHandler) ListSilences(c *gin.Context) {
 		})
 		return
 	}
-	if allowed {
-		tenantScope = ""
-	}
 
-	silences, err := h.svc.ListActive(c.Request.Context(), tenantScope)
+	silences, err := h.svc.ListActiveForScope(c.Request.Context(), readScope)
 	if err != nil {
 		setAlertSilenceAuditEvent(c, "alert_silences.list", "", buildSilenceListAuditDetails(0, http.StatusInternalServerError, "failed", ErrorCodeInternalError))
 		c.JSON(http.StatusInternalServerError, gin.H{

@@ -108,14 +108,10 @@ func (h *EventHandler) ListEvents(c *gin.Context) {
 		}
 	}
 
-	tenantScope := tenantID
-	allowed, err := cpMiddleware.HasGlobalTenantReadAccess(c.Request.Context(), h.db, tenantID, getActorID(c))
+	readScope, err := resolveReadScope(c.Request.Context(), h.db, tenantID, getActorID(c))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to authorize request", nil)
 		return
-	}
-	if allowed {
-		tenantScope = ""
 	}
 
 	var (
@@ -123,7 +119,7 @@ func (h *EventHandler) ListEvents(c *gin.Context) {
 		rows  *sql.Rows
 	)
 	offset := (page - 1) * pageSize
-	if tenantScope == "" {
+	if readScope.Global {
 		countQuery := `
 SELECT COUNT(1)
 FROM alert_events
@@ -159,7 +155,7 @@ FROM alert_events
 WHERE tenant_id = $1::uuid
   AND ($2 = '' OR status = $2)
 `
-		if err := h.db.QueryRowContext(c.Request.Context(), countQuery, tenantScope, status).Scan(&total); err != nil {
+		if err := h.db.QueryRowContext(c.Request.Context(), countQuery, readScope.TenantID, status).Scan(&total); err != nil {
 			writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)
 			return
 		}
@@ -182,7 +178,7 @@ ORDER BY fired_at DESC
 OFFSET $3
 LIMIT $4
 `
-		rows, err = h.db.QueryContext(c.Request.Context(), query, tenantScope, status, offset, pageSize)
+		rows, err = h.db.QueryContext(c.Request.Context(), query, readScope.TenantID, status, offset, pageSize)
 	}
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)

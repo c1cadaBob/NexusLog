@@ -38,7 +38,8 @@ func TestHasGlobalTenantReadAccess(t *testing.T) {
 }
 
 func TestHasGlobalTenantReadAccess_AllowsContextBackedWildcardScope(t *testing.T) {
-	ctx := context.WithValue(context.Background(), authContextKeyUserCapabilities, []string{"*"})
+	ctx := context.WithValue(context.Background(), authContextKeyAuthorizationReady, true)
+	ctx = context.WithValue(ctx, authContextKeyUserCapabilities, []string{"*"})
 	ctx = context.WithValue(ctx, authContextKeyUserScopes, []string{"all_tenants", "tenant"})
 
 	allowed, err := HasGlobalTenantReadAccess(ctx, nil, "10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001")
@@ -51,7 +52,8 @@ func TestHasGlobalTenantReadAccess_AllowsContextBackedWildcardScope(t *testing.T
 }
 
 func TestHasGlobalTenantReadAccess_AllowsContextBackedReadCapabilityWithScope(t *testing.T) {
-	ctx := context.WithValue(context.Background(), authContextKeyUserCapabilities, []string{"notification.channel.read_metadata"})
+	ctx := context.WithValue(context.Background(), authContextKeyAuthorizationReady, true)
+	ctx = context.WithValue(ctx, authContextKeyUserCapabilities, []string{"notification.channel.read_metadata"})
 	ctx = context.WithValue(ctx, authContextKeyUserScopes, []string{"all_tenants", "tenant"})
 
 	allowed, err := HasGlobalTenantReadAccess(ctx, nil, "10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001")
@@ -60,6 +62,19 @@ func TestHasGlobalTenantReadAccess_AllowsContextBackedReadCapabilityWithScope(t 
 	}
 	if !allowed {
 		t.Fatal("HasGlobalTenantReadAccess() = false, want true")
+	}
+}
+
+func TestHasGlobalTenantReadAccess_RejectsUntrustedContextSnapshot(t *testing.T) {
+	ctx := context.WithValue(context.Background(), authContextKeyUserCapabilities, []string{"*"})
+	ctx = context.WithValue(ctx, authContextKeyUserScopes, []string{"all_tenants", "tenant"})
+
+	allowed, err := HasGlobalTenantReadAccess(ctx, nil, "10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("HasGlobalTenantReadAccess() error = %v", err)
+	}
+	if allowed {
+		t.Fatal("HasGlobalTenantReadAccess() = true, want false")
 	}
 }
 

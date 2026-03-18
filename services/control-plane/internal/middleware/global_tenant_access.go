@@ -22,11 +22,8 @@ func HasGlobalTenantReadAccess(ctx context.Context, db *sql.DB, tenantID, userID
 	if tenantID == "" || userID == "" {
 		return false, nil
 	}
-	if hasGlobalTenantReadAccessFromContext(ctx) {
-		return true, nil
-	}
 	if hasAuthorizationReadyFromContext(ctx) {
-		return false, nil
+		return hasGlobalTenantReadAccessFromContext(ctx), nil
 	}
 	if db == nil {
 		return false, nil

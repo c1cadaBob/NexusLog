@@ -34,6 +34,11 @@ func NewSilenceService(db *sql.DB) *SilenceService {
 
 // ListActive returns silences that are currently active (now between starts_at and ends_at).
 func (s *SilenceService) ListActive(ctx context.Context, tenantID string) ([]Silence, error) {
+	return s.ListActiveForScope(ctx, ReadScope{TenantID: tenantID})
+}
+
+// ListActiveForScope returns active silences for an explicit read scope.
+func (s *SilenceService) ListActiveForScope(ctx context.Context, scope ReadScope) ([]Silence, error) {
 	if s.db == nil {
 		return nil, nil
 	}
@@ -44,9 +49,9 @@ FROM alert_silences
 WHERE starts_at <= $1 AND ends_at >= $1
 `
 	args := []any{now}
-	if tenantID != "" {
+	if !scope.Global {
 		query += ` AND (tenant_id IS NULL OR tenant_id = $2::uuid)`
-		args = append(args, tenantID)
+		args = append(args, strings.TrimSpace(scope.TenantID))
 	}
 	query += ` ORDER BY starts_at ASC`
 

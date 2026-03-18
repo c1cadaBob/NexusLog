@@ -28,6 +28,19 @@ func newSilenceTestRouter(handler *SilenceHandler) *gin.Engine {
 	return router
 }
 
+func TestSilenceHandler_ListSilences_RequiresTenant(t *testing.T) {
+	handler := NewSilenceHandler(NewSilenceService(nil))
+	router := newSilenceTestRouter(handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/alert/silences", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestSilenceHandler_ListSilences_GlobalTenantRead(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
