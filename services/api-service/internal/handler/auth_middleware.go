@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,13 +18,19 @@ import (
 )
 
 const (
-	contextKeyUserID          = "user_id"
-	contextKeyTenantID        = "tenant_id"
-	contextKeyUserRoles       = "user_roles"
-	contextKeyUserPermissions = "user_permissions"
+	contextKeyUserID           = "user_id"
+	contextKeyTenantID         = "tenant_id"
+	contextKeyUserRoles        = "user_roles"
+	contextKeyUserPermissions  = "user_permissions"
+	contextKeyUserCapabilities = "user_capabilities"
+	contextKeyUserScopes       = "user_scopes"
+	contextKeyUserEntitlements = "user_entitlements"
+	contextKeyUserFeatureFlags = "user_feature_flags"
+	contextKeyUserAuthzEpoch   = "user_authz_epoch"
+	contextKeyUserActorFlags   = "user_actor_flags"
 )
 
-// AuthRequired validates JWT token and sets user context (user_id, tenant_id, user_roles, user_permissions).
+// AuthRequired validates JWT token and sets user context.
 func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 	authService := service.NewAuthService(nil, jwtSecret)
 	userRepo := repository.NewUserRepository(db)
@@ -107,8 +114,7 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		// Verify user exists and get roles/permissions
-		_, err = userRepo.GetUser(c.Request.Context(), claims.TenantID, claims.UserID)
+		userRecord, err := userRepo.GetUser(c.Request.Context(), claims.TenantID, claims.UserID)
 		if err != nil {
 			httpx.Error(c, &model.APIError{
 				HTTPStatus: http.StatusUnauthorized,
@@ -131,28 +137,54 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 		}
 
 		roleNames := make([]string, 0, len(roles))
-		permSet := make(map[string]bool)
-		for _, r := range roles {
-			roleNames = append(roleNames, r.Name)
-			perms := parsePermissions(r.Permissions)
-			for _, p := range perms {
-				permSet[p] = true
+		permSet := make(map[string]struct{})
+		for _, role := range roles {
+			roleName := strings.TrimSpace(role.Name)
+			if roleName != "" {
+				roleNames = append(roleNames, roleName)
+			}
+			for _, permission := range parsePermissions(role.Permissions) {
+				normalizedPermission := strings.TrimSpace(permission)
+				if normalizedPermission == "" {
+					continue
+				}
+				permSet[normalizedPermission] = struct{}{}
 			}
 		}
+		sort.Strings(roleNames)
 
 		permissions := make([]string, 0, len(permSet))
-		for p := range permSet {
-			permissions = append(permissions, p)
+		for permission := range permSet {
+			permissions = append(permissions, permission)
 		}
+		sort.Strings(permissions)
+
+		authorizationContext := service.BuildAuthorizationContext(userRecord.Username, roleNames, permissions)
 
 		c.Set(contextKeyUserID, claims.UserID)
 		c.Set(contextKeyTenantID, claims.TenantID)
 		c.Set(contextKeyUserRoles, roleNames)
 		c.Set(contextKeyUserPermissions, permissions)
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyUserID, claims.UserID))
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyTenantID, claims.TenantID))
+		c.Set(contextKeyUserCapabilities, authorizationContext.Capabilities)
+		c.Set(contextKeyUserScopes, authorizationContext.Scopes)
+		c.Set(contextKeyUserEntitlements, authorizationContext.Entitlements)
+		c.Set(contextKeyUserFeatureFlags, authorizationContext.FeatureFlags)
+		c.Set(contextKeyUserAuthzEpoch, authorizationContext.AuthzEpoch)
+		c.Set(contextKeyUserActorFlags, authorizationContext.ActorFlags)
 
-		// Override X-Tenant-ID from token for tenant isolation
+		requestContext := c.Request.Context()
+		requestContext = context.WithValue(requestContext, contextKeyUserID, claims.UserID)
+		requestContext = context.WithValue(requestContext, contextKeyTenantID, claims.TenantID)
+		requestContext = context.WithValue(requestContext, contextKeyUserRoles, roleNames)
+		requestContext = context.WithValue(requestContext, contextKeyUserPermissions, permissions)
+		requestContext = context.WithValue(requestContext, contextKeyUserCapabilities, authorizationContext.Capabilities)
+		requestContext = context.WithValue(requestContext, contextKeyUserScopes, authorizationContext.Scopes)
+		requestContext = context.WithValue(requestContext, contextKeyUserEntitlements, authorizationContext.Entitlements)
+		requestContext = context.WithValue(requestContext, contextKeyUserFeatureFlags, authorizationContext.FeatureFlags)
+		requestContext = context.WithValue(requestContext, contextKeyUserAuthzEpoch, authorizationContext.AuthzEpoch)
+		requestContext = context.WithValue(requestContext, contextKeyUserActorFlags, authorizationContext.ActorFlags)
+		c.Request = c.Request.WithContext(requestContext)
+
 		c.Request.Header.Set("X-Tenant-ID", claims.TenantID)
 		c.Request.Header.Set("X-User-ID", claims.UserID)
 
@@ -161,11 +193,10 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 }
 
 // RequirePermission checks if the authenticated user has the required permission.
-// Must be used after AuthRequired. Returns 403 with unified error body if denied.
 func RequirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		permsVal, exists := c.Get(contextKeyUserPermissions)
-		if !exists {
+		permissions, ok := readContextStringSlice(c, contextKeyUserPermissions)
+		if !ok {
 			httpx.Error(c, &model.APIError{
 				HTTPStatus: http.StatusForbidden,
 				Code:       "FORBIDDEN",
@@ -175,18 +206,7 @@ func RequirePermission(permission string) gin.HandlerFunc {
 			return
 		}
 
-		permissions, ok := permsVal.([]string)
-		if !ok {
-			httpx.Error(c, &model.APIError{
-				HTTPStatus: http.StatusForbidden,
-				Code:       "FORBIDDEN",
-				Message:    "permission check failed",
-			})
-			c.Abort()
-			return
-		}
-
-		if hasPermission(permissions, permission) {
+		if hasAuthorizationValue(permissions, permission) {
 			c.Next()
 			return
 		}
@@ -200,12 +220,52 @@ func RequirePermission(permission string) gin.HandlerFunc {
 	}
 }
 
-func hasPermission(permissions []string, required string) bool {
-	for _, p := range permissions {
-		if p == "*" {
-			return true
+// RequireCapability checks if the authenticated user has the required capability.
+func RequireCapability(capability string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		capabilities, ok := readContextStringSlice(c, contextKeyUserCapabilities)
+		if !ok {
+			httpx.Error(c, &model.APIError{
+				HTTPStatus: http.StatusForbidden,
+				Code:       "FORBIDDEN",
+				Message:    "capability check failed: auth context missing",
+			})
+			c.Abort()
+			return
 		}
-		if p == required {
+
+		if hasAuthorizationValue(capabilities, capability) {
+			c.Next()
+			return
+		}
+
+		httpx.Error(c, &model.APIError{
+			HTTPStatus: http.StatusForbidden,
+			Code:       "FORBIDDEN",
+			Message:    "insufficient capabilities",
+		})
+		c.Abort()
+	}
+}
+
+func readContextStringSlice(c *gin.Context, key string) ([]string, bool) {
+	if c == nil {
+		return nil, false
+	}
+	value, exists := c.Get(key)
+	if !exists {
+		return nil, false
+	}
+	items, ok := value.([]string)
+	if !ok {
+		return nil, false
+	}
+	return items, true
+}
+
+func hasAuthorizationValue(values []string, required string) bool {
+	for _, value := range values {
+		if value == "*" || value == required {
 			return true
 		}
 	}

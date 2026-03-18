@@ -37,6 +37,16 @@ func TestBuildAuthorizationContextMapsLegacyPermissions(t *testing.T) {
 	assertContains(ctx.Capabilities, "iam.user.read")
 	assertContains(ctx.Scopes, "tenant")
 	assertContains(ctx.Scopes, "owned")
+	assertNotContains := func(values []string, target string) {
+		t.Helper()
+		for _, value := range values {
+			if value == target {
+				t.Fatalf("did not expect %q in %#v", target, values)
+			}
+		}
+	}
+	assertNotContains(ctx.Capabilities, "dashboard.read")
+	assertNotContains(ctx.Capabilities, "auth.session.read")
 	if ctx.AuthzEpoch != defaultAuthzEpoch {
 		t.Fatalf("unexpected authz epoch: %d", ctx.AuthzEpoch)
 	}

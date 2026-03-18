@@ -20,13 +20,14 @@ const (
 	ErrorCodeAuthRegisterInternalError    = "AUTH_REGISTER_INTERNAL_ERROR"
 
 	// Login.
-	ErrorCodeAuthLoginInvalidArgument    = "AUTH_LOGIN_INVALID_ARGUMENT"
-	ErrorCodeAuthLoginTenantRequired     = "AUTH_LOGIN_TENANT_REQUIRED"
-	ErrorCodeAuthLoginTenantInvalid      = "AUTH_LOGIN_TENANT_INVALID"
-	ErrorCodeAuthLoginTenantNotFound     = "AUTH_LOGIN_TENANT_NOT_FOUND"
-	ErrorCodeAuthLoginInvalidCredentials = "AUTH_LOGIN_INVALID_CREDENTIALS"
-	ErrorCodeAuthLoginRateLimited        = "AUTH_LOGIN_RATE_LIMITED"
-	ErrorCodeAuthLoginInternalError      = "AUTH_LOGIN_INTERNAL_ERROR"
+	ErrorCodeAuthLoginInvalidArgument     = "AUTH_LOGIN_INVALID_ARGUMENT"
+	ErrorCodeAuthLoginTenantRequired      = "AUTH_LOGIN_TENANT_REQUIRED"
+	ErrorCodeAuthLoginTenantInvalid       = "AUTH_LOGIN_TENANT_INVALID"
+	ErrorCodeAuthLoginTenantNotFound      = "AUTH_LOGIN_TENANT_NOT_FOUND"
+	ErrorCodeAuthLoginInvalidCredentials  = "AUTH_LOGIN_INVALID_CREDENTIALS"
+	ErrorCodeAuthLoginInteractiveDisabled = "AUTH_LOGIN_INTERACTIVE_DISABLED"
+	ErrorCodeAuthLoginRateLimited         = "AUTH_LOGIN_RATE_LIMITED"
+	ErrorCodeAuthLoginInternalError       = "AUTH_LOGIN_INTERNAL_ERROR"
 
 	// Refresh.
 	ErrorCodeAuthRefreshInvalidArgument = "AUTH_REFRESH_INVALID_ARGUMENT"
@@ -74,13 +75,14 @@ var authErrorStatusCatalog = map[string]int{
 	ErrorCodeAuthRegisterRateLimited:      http.StatusTooManyRequests,
 	ErrorCodeAuthRegisterInternalError:    http.StatusInternalServerError,
 
-	ErrorCodeAuthLoginInvalidArgument:    http.StatusBadRequest,
-	ErrorCodeAuthLoginTenantRequired:     http.StatusBadRequest,
-	ErrorCodeAuthLoginTenantInvalid:      http.StatusBadRequest,
-	ErrorCodeAuthLoginTenantNotFound:     http.StatusNotFound,
-	ErrorCodeAuthLoginInvalidCredentials: http.StatusUnauthorized,
-	ErrorCodeAuthLoginRateLimited:        http.StatusTooManyRequests,
-	ErrorCodeAuthLoginInternalError:      http.StatusInternalServerError,
+	ErrorCodeAuthLoginInvalidArgument:     http.StatusBadRequest,
+	ErrorCodeAuthLoginTenantRequired:      http.StatusBadRequest,
+	ErrorCodeAuthLoginTenantInvalid:       http.StatusBadRequest,
+	ErrorCodeAuthLoginTenantNotFound:      http.StatusNotFound,
+	ErrorCodeAuthLoginInvalidCredentials:  http.StatusUnauthorized,
+	ErrorCodeAuthLoginInteractiveDisabled: http.StatusForbidden,
+	ErrorCodeAuthLoginRateLimited:         http.StatusTooManyRequests,
+	ErrorCodeAuthLoginInternalError:       http.StatusInternalServerError,
 
 	ErrorCodeAuthRefreshInvalidArgument: http.StatusBadRequest,
 	ErrorCodeAuthRefreshTenantRequired:  http.StatusBadRequest,
@@ -124,13 +126,14 @@ var authErrorMessageCatalog = map[string]string{
 	ErrorCodeAuthRegisterRateLimited:      "too many register attempts, retry later",
 	ErrorCodeAuthRegisterInternalError:    "internal error",
 
-	ErrorCodeAuthLoginInvalidArgument:    "invalid request",
-	ErrorCodeAuthLoginTenantRequired:     "tenant header required",
-	ErrorCodeAuthLoginTenantInvalid:      "invalid tenant id",
-	ErrorCodeAuthLoginTenantNotFound:     "tenant not found",
-	ErrorCodeAuthLoginInvalidCredentials: "username or password is incorrect",
-	ErrorCodeAuthLoginRateLimited:        "too many login attempts, retry later",
-	ErrorCodeAuthLoginInternalError:      "internal error",
+	ErrorCodeAuthLoginInvalidArgument:     "invalid request",
+	ErrorCodeAuthLoginTenantRequired:      "tenant header required",
+	ErrorCodeAuthLoginTenantInvalid:       "invalid tenant id",
+	ErrorCodeAuthLoginTenantNotFound:      "tenant not found",
+	ErrorCodeAuthLoginInvalidCredentials:  "username or password is incorrect",
+	ErrorCodeAuthLoginInteractiveDisabled: "interactive login is disabled for this account",
+	ErrorCodeAuthLoginRateLimited:         "too many login attempts, retry later",
+	ErrorCodeAuthLoginInternalError:       "internal error",
 
 	ErrorCodeAuthRefreshInvalidArgument: "invalid request",
 	ErrorCodeAuthRefreshTenantRequired:  "tenant header required",

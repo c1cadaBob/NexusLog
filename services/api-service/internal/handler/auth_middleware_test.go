@@ -435,3 +435,193 @@ func TestAuthRequired_MiddlewarePerformance(t *testing.T) {
 		t.Logf("middleware execution %v (target <5ms); acceptable in test env", elapsed)
 	}
 }
+
+func TestAuthRequired_InjectsAuthorizationSnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+	expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
+
+	userRows := sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
+		AddRow(userID, tenantID, "viewer", "viewer@test.com", nil, "active", nil, time.Now(), time.Now())
+	mock.ExpectQuery("SELECT .+ FROM users").WithArgs(tenantID, userID).WillReturnRows(userRows)
+
+	viewerPerms, _ := json.Marshal([]string{"users:read", "logs:read"})
+	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
+		AddRow(uuid.New(), tenantID, "viewer", nil, viewerPerms)
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+
+	router := gin.New()
+	router.Use(AuthRequired(db, testJWTSecret))
+	router.GET("/snapshot", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"capabilities": authenticatedCapabilities(c),
+			"scopes":       authenticatedScopes(c),
+			"authz_epoch":  authenticatedAuthzEpoch(c),
+			"actor_flags":  authenticatedActorFlags(c),
+		})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/snapshot", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Capabilities []string        `json:"capabilities"`
+		Scopes       []string        `json:"scopes"`
+		AuthzEpoch   int64           `json:"authz_epoch"`
+		ActorFlags   map[string]bool `json:"actor_flags"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	assertContainsString(t, body.Capabilities, "iam.user.read")
+	assertContainsString(t, body.Capabilities, "log.query.read")
+	assertNotContainsString(t, body.Capabilities, "dashboard.read")
+	assertContainsString(t, body.Scopes, "tenant")
+	assertContainsString(t, body.Scopes, "owned")
+	if body.AuthzEpoch != 1 {
+		t.Fatalf("expected authz epoch 1, got %d", body.AuthzEpoch)
+	}
+	if !body.ActorFlags["interactive_login_allowed"] || body.ActorFlags["system_subject"] {
+		t.Fatalf("unexpected actor flags: %#v", body.ActorFlags)
+	}
+}
+
+func TestRequireCapability_UsesCompatibilityMappingAndDeniesMissingCapability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+
+	setupViewer := func() {
+		expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
+		userRows := sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
+			AddRow(userID, tenantID, "viewer", "viewer@test.com", nil, "active", nil, time.Now(), time.Now())
+		mock.ExpectQuery("SELECT .+ FROM users").WithArgs(tenantID, userID).WillReturnRows(userRows)
+		viewerPerms, _ := json.Marshal([]string{"users:read"})
+		roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
+			AddRow(uuid.New(), tenantID, "viewer", nil, viewerPerms)
+		mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+	}
+
+	setupViewer()
+	router := gin.New()
+	router.Use(AuthRequired(db, testJWTSecret))
+	router.GET("/allowed", RequireCapability("iam.user.read"), func(c *gin.Context) { c.Status(http.StatusOK) })
+	router.GET("/blocked", RequireCapability("iam.user.create"), func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	reqAllowed := httptest.NewRequest(http.MethodGet, "/allowed", nil)
+	reqAllowed.Header.Set("Authorization", "Bearer "+accessToken)
+	reqAllowed.Header.Set("X-Tenant-ID", tenantID.String())
+	respAllowed := httptest.NewRecorder()
+	router.ServeHTTP(respAllowed, reqAllowed)
+	if respAllowed.Code != http.StatusOK {
+		t.Fatalf("expected 200 for mapped capability, got %d body=%s", respAllowed.Code, respAllowed.Body.String())
+	}
+
+	setupViewer()
+	reqBlocked := httptest.NewRequest(http.MethodGet, "/blocked", nil)
+	reqBlocked.Header.Set("Authorization", "Bearer "+accessToken)
+	reqBlocked.Header.Set("X-Tenant-ID", tenantID.String())
+	respBlocked := httptest.NewRecorder()
+	router.ServeHTTP(respBlocked, reqBlocked)
+	if respBlocked.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for unmapped capability, got %d body=%s", respBlocked.Code, respBlocked.Body.String())
+	}
+}
+
+func TestAuthRequired_SystemAutomationActorFlags(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken, accessTokenJTI := mustIssueAccessToken(t, userID, tenantID)
+	expectActiveSessionQuery(mock, tenantID, userID, accessTokenJTI)
+
+	userRows := sqlmock.NewRows([]string{"id", "tenant_id", "username", "email", "display_name", "status", "last_login_at", "created_at", "updated_at"}).
+		AddRow(userID, tenantID, "system-automation", "system-automation@nexuslog.local", nil, "active", nil, time.Now(), time.Now())
+	mock.ExpectQuery("SELECT .+ FROM users").WithArgs(tenantID, userID).WillReturnRows(userRows)
+
+	automationPerms, _ := json.Marshal([]string{"audit:write"})
+	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
+		AddRow(uuid.New(), tenantID, "system_automation", nil, automationPerms)
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+
+	router := gin.New()
+	router.Use(AuthRequired(db, testJWTSecret))
+	router.GET("/snapshot", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"scopes":      authenticatedScopes(c),
+			"actor_flags": authenticatedActorFlags(c),
+		})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/snapshot", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Scopes     []string        `json:"scopes"`
+		ActorFlags map[string]bool `json:"actor_flags"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	assertContainsString(t, body.Scopes, "system")
+	if body.ActorFlags["interactive_login_allowed"] {
+		t.Fatalf("expected interactive login disabled, got %#v", body.ActorFlags)
+	}
+	if !body.ActorFlags["system_subject"] || !body.ActorFlags["reserved"] {
+		t.Fatalf("unexpected actor flags: %#v", body.ActorFlags)
+	}
+}
+
+func assertContainsString(t *testing.T, values []string, target string) {
+	t.Helper()
+	for _, value := range values {
+		if value == target {
+			return
+		}
+	}
+	t.Fatalf("expected %q in %#v", target, values)
+}
+
+func assertNotContainsString(t *testing.T, values []string, target string) {
+	t.Helper()
+	for _, value := range values {
+		if value == target {
+			t.Fatalf("did not expect %q in %#v", target, values)
+		}
+	}
+}

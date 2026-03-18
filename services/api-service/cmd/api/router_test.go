@@ -84,9 +84,8 @@ func TestRegisterRoutes_UserMeDoesNotRequireUsersRead(t *testing.T) {
 	if len(body.Data.Permissions) != 1 || body.Data.Permissions[0] != "logs:read" {
 		t.Fatalf("unexpected permissions: %#v", body.Data.Permissions)
 	}
-	if len(body.Data.Capabilities) == 0 || body.Data.Capabilities[0] != "analysis.anomaly.read" {
-		t.Fatalf("unexpected capabilities: %#v", body.Data.Capabilities)
-	}
+	assertRouteContains(t, body.Data.Capabilities, "log.query.read")
+	assertRouteNotContains(t, body.Data.Capabilities, "analysis.anomaly.read")
 	if body.Data.AuthzEpoch != 1 {
 		t.Fatalf("unexpected authz epoch: %d", body.Data.AuthzEpoch)
 	}
@@ -108,4 +107,23 @@ func newRoleRows(userID, tenantID uuid.UUID, permissions []string) *sqlmock.Rows
 	rawPermissions, _ := json.Marshal(permissions)
 	return sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(userID, tenantID, "viewer", nil, rawPermissions)
+}
+
+func assertRouteContains(t *testing.T, values []string, target string) {
+	t.Helper()
+	for _, value := range values {
+		if value == target {
+			return
+		}
+	}
+	t.Fatalf("expected %q in %#v", target, values)
+}
+
+func assertRouteNotContains(t *testing.T, values []string, target string) {
+	t.Helper()
+	for _, value := range values {
+		if value == target {
+			t.Fatalf("did not expect %q in %#v", target, values)
+		}
+	}
 }

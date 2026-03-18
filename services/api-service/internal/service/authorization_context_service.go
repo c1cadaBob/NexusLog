@@ -13,51 +13,27 @@ var allAuthorizationScopes = []string{"system", "all_tenants", "tenant_group", "
 
 var legacyPermissionCapabilityAliases = map[string][]string{
 	"users:read": {
-		"auth.session.read",
-		"iam.user.read",
 		"iam.role.read",
+		"iam.user.read",
 	},
 	"users:write": {
-		"agent.read",
-		"auth.login_policy.read",
-		"auth.login_policy.update",
-		"backup.read",
-		"data.retention.read",
-		"field.dictionary.read",
-		"field.mapping.read",
-		"ingest.source.read",
-		"integration.plugin.read",
-		"integration.webhook.read_metadata",
 		"iam.user.create",
+		"iam.user.delete",
 		"iam.user.grant_role",
 		"iam.user.revoke_role",
 		"iam.user.update_profile",
 		"iam.user.update_status",
-		"masking.rule.read",
-		"parse.rule.read",
-		"settings.global.read",
-		"settings.global.update",
-		"settings.parameter.read",
-		"settings.parameter.update",
-		"settings.version.read",
-		"settings.version.rollback",
-		"storage.index.read",
 	},
 	"logs:read": {
-		"analysis.anomaly.read",
-		"analysis.cluster.read",
-		"dashboard.read",
 		"log.query.aggregate",
 		"log.query.read",
 		"query.history.read",
 		"query.saved.read",
-		"trace.analysis.read",
-		"trace.read",
-		"trace.topology.read",
 	},
 	"logs:export": {
-		"log.export.read",
-		"report.download.read",
+		"export.job.create",
+		"export.job.download",
+		"export.job.read",
 	},
 	"alerts:read": {
 		"alert.event.read",
@@ -73,6 +49,9 @@ var legacyPermissionCapabilityAliases = map[string][]string{
 		"alert.rule.update",
 		"alert.silence.create",
 		"alert.silence.delete",
+		"alert.silence.update",
+		"notification.channel.create",
+		"notification.channel.delete",
 		"notification.channel.test",
 		"notification.channel.update",
 	},
@@ -84,39 +63,32 @@ var legacyPermissionCapabilityAliases = map[string][]string{
 		"incident.timeline.read",
 	},
 	"incidents:write": {
+		"incident.archive",
 		"incident.assign",
-		"incident.comment.create",
-		"incident.resolve",
+		"incident.close",
+		"incident.create",
 		"incident.update",
 	},
 	"metrics:read": {
-		"dr.read",
-		"ingest.task.read",
 		"metric.read",
 		"ops.health.read",
-		"ops.scaling.read",
 		"storage.capacity.read",
 	},
 	"dashboards:read": {
-		"cost.budget.read",
-		"cost.optimization.read",
-		"cost.read",
 		"dashboard.read",
-		"help.read",
-		"integration.api_doc.read",
-		"integration.sdk.read",
-		"report.download.read",
 		"report.read",
-		"report.schedule.read",
 	},
 	"audit:read": {
 		"audit.log.read",
 	},
+	"audit:write": {
+		"audit.log.write_system",
+	},
 }
 
 var legacyPermissionScopes = map[string][]string{
-	"users:read":      {"tenant", "self"},
-	"users:write":     {"tenant", "self"},
+	"users:read":      {"tenant"},
+	"users:write":     {"tenant"},
 	"logs:read":       {"tenant", "owned"},
 	"logs:export":     {"tenant", "owned"},
 	"alerts:read":     {"tenant"},
@@ -124,11 +96,12 @@ var legacyPermissionScopes = map[string][]string{
 	"incidents:read":  {"tenant", "resource"},
 	"incidents:write": {"tenant", "resource"},
 	"metrics:read":    {"tenant"},
-	"dashboards:read": {"tenant", "owned"},
+	"dashboards:read": {"tenant"},
 	"audit:read":      {"tenant"},
+	"audit:write":     {"system"},
 }
 
-type authorizationContextData struct {
+type AuthorizationContextSnapshot struct {
 	Capabilities []string
 	Scopes       []string
 	Entitlements []string
@@ -137,7 +110,19 @@ type authorizationContextData struct {
 	ActorFlags   map[string]bool
 }
 
-func buildAuthorizationContext(username string, roles []model.RoleData, permissions []string) authorizationContextData {
+func BuildAuthorizationContext(username string, roleNames []string, permissions []string) AuthorizationContextSnapshot {
+	return buildAuthorizationContextFromRoleNames(username, roleNames, permissions)
+}
+
+func buildAuthorizationContext(username string, roles []model.RoleData, permissions []string) AuthorizationContextSnapshot {
+	roleNames := make([]string, 0, len(roles))
+	for _, role := range roles {
+		roleNames = append(roleNames, role.Name)
+	}
+	return buildAuthorizationContextFromRoleNames(username, roleNames, permissions)
+}
+
+func buildAuthorizationContextFromRoleNames(username string, roleNames []string, permissions []string) AuthorizationContextSnapshot {
 	capabilitySet := make(map[string]struct{})
 	scopeSet := make(map[string]struct{})
 	actorFlags := map[string]bool{
@@ -175,19 +160,19 @@ func buildAuthorizationContext(username string, roles []model.RoleData, permissi
 		}
 	}
 
-	for _, role := range roles {
-		roleName := strings.TrimSpace(role.Name)
-		if roleName == "" {
+	for _, roleName := range roleNames {
+		normalizedRoleName := strings.TrimSpace(roleName)
+		if normalizedRoleName == "" {
 			continue
 		}
-		if isProtectedRoleName(roleName) {
+		if isProtectedRoleName(normalizedRoleName) {
 			actorFlags["reserved"] = true
 		}
-		if strings.EqualFold(roleName, protectedRoleNameSystemAutomation) {
+		if strings.EqualFold(normalizedRoleName, protectedRoleNameSystemAutomation) {
 			actorFlags["interactive_login_allowed"] = false
 			actorFlags["system_subject"] = true
 		}
-		if strings.EqualFold(roleName, protectedRoleNameSuperAdmin) {
+		if strings.EqualFold(normalizedRoleName, protectedRoleNameSuperAdmin) {
 			isSuperAdminSubject = true
 		}
 	}
@@ -202,7 +187,7 @@ func buildAuthorizationContext(username string, roles []model.RoleData, permissi
 			scopeSet["tenant"] = struct{}{}
 		}
 		if isSuperAdminSubject {
-			for _, scope := range []string{"system", "all_tenants", "tenant_group", "tenant", "owned", "resource", "self"} {
+			for _, scope := range allAuthorizationScopes {
 				scopeSet[scope] = struct{}{}
 			}
 		}
@@ -213,7 +198,7 @@ func buildAuthorizationContext(username string, roles []model.RoleData, permissi
 		scopeSet["tenant"] = struct{}{}
 	}
 
-	return authorizationContextData{
+	return AuthorizationContextSnapshot{
 		Capabilities: sortedStringSet(capabilitySet),
 		Scopes:       sortedStringSet(scopeSet),
 		Entitlements: []string{},

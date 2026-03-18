@@ -349,6 +349,43 @@ func TestLoginInvalidCredentialsAndSuccess(t *testing.T) {
 	}
 }
 
+func TestLoginRejectsSystemAutomationInteractiveAccess(t *testing.T) {
+	tenantID := uuid.NewString()
+	userID := uuid.New()
+
+	hash, hashErr := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.DefaultCost)
+	if hashErr != nil {
+		t.Fatalf("bcrypt hash: %v", hashErr)
+	}
+
+	repoMock := &mockAuthRepository{
+		tenantExists: true,
+		loginUser: repository.LoginUserRecord{
+			UserID:       userID,
+			Username:     reservedUsernameSystemAutomation,
+			Email:        "system-automation@nexuslog.local",
+			DisplayName:  "System Automation",
+			Status:       "active",
+			PasswordHash: string(hash),
+		},
+	}
+
+	svc := NewAuthService(repoMock, "test-secret")
+	_, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: reservedUsernameSystemAutomation, Password: "Password123"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != model.ErrorCodeAuthLoginInteractiveDisabled {
+		t.Fatalf("expected interactive login disabled error, got %#v", err)
+	}
+	if repoMock.sessionCreateCall != 0 {
+		t.Fatalf("expected no session creation, got %d", repoMock.sessionCreateCall)
+	}
+	if repoMock.lastLoginAttempt == nil {
+		t.Fatal("expected blocked login attempt record")
+	}
+	if repoMock.lastLoginAttempt.Result != "blocked" || repoMock.lastLoginAttempt.Reason != "interactive_login_disallowed" {
+		t.Fatalf("unexpected blocked login attempt: %#v", repoMock.lastLoginAttempt)
+	}
+}
+
 func TestRefreshValidationAndRotation(t *testing.T) {
 	tenantID := uuid.NewString()
 

@@ -259,8 +259,28 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 		})
 		return model.LoginResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusUnauthorized,
-			Code:       "AUTH_LOGIN_INVALID_CREDENTIALS",
+			Code:       model.ErrorCodeAuthLoginInvalidCredentials,
 			Message:    "username or password is incorrect",
+		}
+	}
+
+	loginContext := BuildAuthorizationContext(userRec.Username, nil, nil)
+	if !loginContext.ActorFlags["interactive_login_allowed"] {
+		uid := userRec.UserID
+		_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
+			TenantID:  tenantID,
+			UserID:    &uid,
+			Username:  userRec.Username,
+			Email:     userRec.Email,
+			IPAddress: clientIP,
+			UserAgent: userAgent,
+			Result:    "blocked",
+			Reason:    "interactive_login_disallowed",
+		})
+		return model.LoginResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusForbidden,
+			Code:       model.ErrorCodeAuthLoginInteractiveDisabled,
+			Message:    "interactive login is disabled for this account",
 		}
 	}
 

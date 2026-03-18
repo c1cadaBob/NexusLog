@@ -63,17 +63,17 @@ func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
 
 	userV1 := protected.Group("/users")
 	userV1.GET("/me", userHandler.GetMe)
-	userV1.GET("", handler.RequirePermission("users:read"), userHandler.List)
-	userV1.POST("/batch/status", handler.RequirePermission("users:write"), userHandler.BatchUpdateStatus)
-	userV1.GET("/:id", handler.RequirePermission("users:read"), userHandler.Get)
-	userV1.POST("", handler.RequirePermission("users:write"), userHandler.Create)
-	userV1.PUT("/:id", handler.RequirePermission("users:write"), userHandler.Update)
-	userV1.DELETE("/:id", handler.RequirePermission("users:write"), userHandler.Delete)
-	userV1.POST("/:id/roles", handler.RequirePermission("users:write"), userHandler.AssignRole)
-	userV1.DELETE("/:id/roles/:roleId", handler.RequirePermission("users:write"), userHandler.RemoveRole)
+	userV1.GET("", handler.RequirePermission("users:read"), handler.RequireCapability("iam.user.read"), userHandler.List)
+	userV1.POST("/batch/status", handler.RequirePermission("users:write"), handler.RequireCapability("iam.user.update_status"), userHandler.BatchUpdateStatus)
+	userV1.GET("/:id", handler.RequirePermission("users:read"), handler.RequireCapability("iam.user.read"), userHandler.Get)
+	userV1.POST("", handler.RequirePermission("users:write"), handler.RequireCapability("iam.user.create"), userHandler.Create)
+	userV1.PUT("/:id", handler.RequirePermission("users:write"), handler.RequireCapability("iam.user.update_profile"), userHandler.Update)
+	userV1.DELETE("/:id", handler.RequirePermission("users:write"), handler.RequireCapability("iam.user.delete"), userHandler.Delete)
+	userV1.POST("/:id/roles", handler.RequirePermission("users:write"), handler.RequireCapability("iam.user.grant_role"), userHandler.AssignRole)
+	userV1.DELETE("/:id/roles/:roleId", handler.RequirePermission("users:write"), handler.RequireCapability("iam.user.revoke_role"), userHandler.RemoveRole)
 
 	roleV1 := protected.Group("/roles")
-	roleV1.GET("", handler.RequirePermission("users:read"), userHandler.ListRoles)
+	roleV1.GET("", handler.RequirePermission("users:read"), handler.RequireCapability("iam.role.read"), userHandler.ListRoles)
 }
 
 func newHTTPServer(port string, router http.Handler) *http.Server {
