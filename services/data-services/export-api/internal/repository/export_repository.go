@@ -95,7 +95,7 @@ RETURNING id::text
 }
 
 // GetJob 按租户和任务 ID 获取导出任务
-func (r *ExportRepository) GetJob(ctx context.Context, tenantID, jobID string) (*ExportJob, error) {
+func (r *ExportRepository) GetJob(ctx context.Context, tenantID, jobID, ownerUserID string) (*ExportJob, error) {
 	if !r.IsConfigured() {
 		return nil, ErrExportNotFound
 	}
@@ -104,6 +104,10 @@ func (r *ExportRepository) GetJob(ctx context.Context, tenantID, jobID string) (
 		return nil, err
 	}
 	normalizedJobID, err := normalizeLookupUUID(jobID, ErrExportNotFound)
+	if err != nil {
+		return nil, err
+	}
+	ownerClause, ownerArgs, err := buildCreatedByOwnershipClause(3, ownerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -123,12 +127,13 @@ SELECT
 	completed_at,
 	expires_at
 FROM export_jobs
-WHERE id = $1::uuid AND tenant_id = $2::uuid
+WHERE id = $1::uuid AND tenant_id = $2::uuid` + ownerClause + `
 `
 	var job ExportJob
 	var paramsRaw []byte
 	var tenantIDOut sql.NullString
-	err = r.db.QueryRowContext(ctx, query, normalizedJobID, normalizedTenantID).Scan(
+	args := append([]any{normalizedJobID, normalizedTenantID}, ownerArgs...)
+	err = r.db.QueryRowContext(ctx, query, args...).Scan(
 		&job.ID,
 		&tenantIDOut,
 		&paramsRaw,
@@ -163,7 +168,7 @@ WHERE id = $1::uuid AND tenant_id = $2::uuid
 }
 
 // ListJobs 分页列出导出任务
-func (r *ExportRepository) ListJobs(ctx context.Context, tenantID string, page, pageSize int) ([]ExportJob, int64, error) {
+func (r *ExportRepository) ListJobs(ctx context.Context, tenantID string, page, pageSize int, ownerUserID string) ([]ExportJob, int64, error) {
 	if !r.IsConfigured() {
 		return nil, 0, fmt.Errorf("export repository is not configured")
 	}
@@ -175,9 +180,14 @@ func (r *ExportRepository) ListJobs(ctx context.Context, tenantID string, page, 
 	pageSize = normalizePageSize(pageSize)
 	offset := (page - 1) * pageSize
 
-	countQuery := `SELECT COUNT(1) FROM export_jobs WHERE tenant_id = $1::uuid`
+	ownerClause, ownerArgs, err := buildCreatedByOwnershipClause(2, ownerUserID)
+	if err != nil {
+		return nil, 0, err
+	}
+	countQuery := `SELECT COUNT(1) FROM export_jobs WHERE tenant_id = $1::uuid` + ownerClause
+	countArgs := append([]any{normalizedTenantID}, ownerArgs...)
 	var total int64
-	if err := r.db.QueryRowContext(ctx, countQuery, normalizedTenantID).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count export jobs: %w", err)
 	}
 
@@ -197,11 +207,12 @@ SELECT
 	completed_at,
 	expires_at
 FROM export_jobs
-WHERE tenant_id = $1::uuid
+WHERE tenant_id = $1::uuid` + ownerClause + `
 ORDER BY created_at DESC
-OFFSET $2 LIMIT $3
+OFFSET $` + fmt.Sprintf("%d", len(ownerArgs)+2) + ` LIMIT $` + fmt.Sprintf("%d", len(ownerArgs)+3) + `
 `
-	rows, err := r.db.QueryContext(ctx, listQuery, normalizedTenantID, offset, pageSize)
+	listArgs := append(append([]any{normalizedTenantID}, ownerArgs...), offset, pageSize)
+	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list export jobs: %w", err)
 	}
@@ -317,6 +328,17 @@ func normalizeLookupUUID(raw string, errOnInvalid error) (string, error) {
 		return "", errOnInvalid
 	}
 	return strings.ToLower(raw), nil
+}
+
+func buildCreatedByOwnershipClause(startParam int, ownerUserID string) (string, []any, error) {
+	normalizedOwnerUserID, err := normalizeOptionalUUID(ownerUserID, "created_by")
+	if err != nil {
+		return "", nil, err
+	}
+	if normalizedOwnerUserID == "" {
+		return "", nil, nil
+	}
+	return fmt.Sprintf(" AND created_by = $%d::uuid", startParam), []any{normalizedOwnerUserID}, nil
 }
 
 func normalizePage(page int) int {

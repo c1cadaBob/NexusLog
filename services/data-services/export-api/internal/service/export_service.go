@@ -29,9 +29,16 @@ const (
 	CapabilityExportJobCreate     = "export.job.create"
 	CapabilityExportJobRead       = "export.job.read"
 	CapabilityExportJobDownload   = "export.job.download"
+	ScopeTenant                   = "tenant"
+	ScopeOwned                    = "owned"
+	ScopeAllTenants               = "all_tenants"
+	ScopeSystem                   = "system"
 )
 
-var ErrExportPermissionDenied = errors.New("export permission denied")
+var (
+	ErrExportPermissionDenied = errors.New("export permission denied")
+	ErrExportScopeDenied      = errors.New("export scope denied")
+)
 
 // CreateExportJobRequest 创建导出任务请求
 type CreateExportJobRequest struct {
@@ -67,6 +74,7 @@ type RequestActor struct {
 	UserID          string
 	TenantReadScope sharedauth.TenantReadScope
 	Capabilities    []string
+	Scopes          []string
 }
 
 // ExportService 封装导出业务逻辑
@@ -94,6 +102,9 @@ func (s *ExportService) CreateExportJob(ctx context.Context, actor RequestActor,
 		return "", err
 	}
 	if err := requireActorCapability(actor, CapabilityExportJobCreate); err != nil {
+		return "", err
+	}
+	if err := requireExportCreateScope(actor); err != nil {
 		return "", err
 	}
 	format := strings.ToLower(strings.TrimSpace(req.Format))
@@ -302,7 +313,11 @@ func (s *ExportService) GetJob(ctx context.Context, actor RequestActor, jobID st
 	if err := requireActorCapability(actor, CapabilityExportJobRead); err != nil {
 		return nil, err
 	}
-	job, err := s.exportRepo.GetJob(ctx, actor.TenantID, jobID)
+	ownerUserID, err := resolveExportOwnerFilter(actor)
+	if err != nil {
+		return nil, err
+	}
+	job, err := s.exportRepo.GetJob(ctx, actor.TenantID, jobID, ownerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +336,11 @@ func (s *ExportService) ListJobs(ctx context.Context, actor RequestActor, page, 
 	if err := requireActorCapability(actor, CapabilityExportJobRead); err != nil {
 		return ListExportJobsResult{}, err
 	}
-	items, total, err := s.exportRepo.ListJobs(ctx, actor.TenantID, page, pageSize)
+	ownerUserID, err := resolveExportOwnerFilter(actor)
+	if err != nil {
+		return ListExportJobsResult{}, err
+	}
+	items, total, err := s.exportRepo.ListJobs(ctx, actor.TenantID, page, pageSize, ownerUserID)
 	if err != nil {
 		return ListExportJobsResult{}, err
 	}
@@ -349,7 +368,11 @@ func (s *ExportService) GetDownloadPath(ctx context.Context, actor RequestActor,
 	if err := requireActorCapability(actor, CapabilityExportJobDownload); err != nil {
 		return "", "", err
 	}
-	job, err := s.exportRepo.GetJob(ctx, actor.TenantID, jobID)
+	ownerUserID, err := resolveExportOwnerFilter(actor)
+	if err != nil {
+		return "", "", err
+	}
+	job, err := s.exportRepo.GetJob(ctx, actor.TenantID, jobID, ownerUserID)
 	if err != nil {
 		return "", "", err
 	}
@@ -388,6 +411,7 @@ func normalizeActor(actor RequestActor) (RequestActor, error) {
 		UserID:          strings.TrimSpace(actor.UserID),
 		TenantReadScope: sharedauth.NormalizeTenantReadScope(actor.TenantReadScope),
 		Capabilities:    normalizeCapabilities(actor.Capabilities),
+		Scopes:          normalizeScopes(actor.Scopes),
 	}
 	if normalized.TenantID == "" {
 		return RequestActor{}, repository.ErrTenantContextRequired
@@ -410,6 +434,21 @@ func normalizeCapabilities(capabilities []string) []string {
 	return normalized
 }
 
+func normalizeScopes(scopes []string) []string {
+	if len(scopes) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		trimmed := strings.TrimSpace(scope)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
+}
+
 func requireActorCapability(actor RequestActor, capability string) error {
 	if actorHasCapability(actor, capability) {
 		return nil
@@ -422,6 +461,41 @@ func actorHasCapability(actor RequestActor, capability string) bool {
 	for _, current := range actor.Capabilities {
 		if current == "*" || current == required {
 			return true
+		}
+	}
+	return false
+}
+
+func requireExportCreateScope(actor RequestActor) error {
+	if actorHasAnyScope(actor, ScopeTenant, ScopeOwned, ScopeAllTenants, ScopeSystem) {
+		if actorHasAnyScope(actor, ScopeOwned) && !actorHasAnyScope(actor, ScopeTenant, ScopeAllTenants, ScopeSystem) && strings.TrimSpace(actor.UserID) == "" {
+			return fmt.Errorf("%w: owned", ErrExportScopeDenied)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: create", ErrExportScopeDenied)
+}
+
+func resolveExportOwnerFilter(actor RequestActor) (string, error) {
+	if actorHasAnyScope(actor, ScopeTenant, ScopeAllTenants, ScopeSystem) {
+		return "", nil
+	}
+	if actorHasAnyScope(actor, ScopeOwned) {
+		ownerUserID := strings.TrimSpace(actor.UserID)
+		if ownerUserID == "" {
+			return "", fmt.Errorf("%w: owned", ErrExportScopeDenied)
+		}
+		return ownerUserID, nil
+	}
+	return "", fmt.Errorf("%w: read", ErrExportScopeDenied)
+}
+
+func actorHasAnyScope(actor RequestActor, expected ...string) bool {
+	for _, scope := range actor.Scopes {
+		for _, item := range expected {
+			if scope == item {
+				return true
+			}
 		}
 	}
 	return false

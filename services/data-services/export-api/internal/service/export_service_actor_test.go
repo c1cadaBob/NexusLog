@@ -21,6 +21,7 @@ func TestNormalizeActor_NormalizesTenantReadScope(t *testing.T) {
 		UserID:          " user-a ",
 		TenantReadScope: sharedauth.TenantReadScope("all_tenants"),
 		Capabilities:    []string{" export.job.read ", ""},
+		Scopes:          []string{" tenant ", ""},
 	})
 	if err != nil {
 		t.Fatalf("normalizeActor() error = %v", err)
@@ -33,6 +34,9 @@ func TestNormalizeActor_NormalizesTenantReadScope(t *testing.T) {
 	}
 	if len(actor.Capabilities) != 1 || actor.Capabilities[0] != CapabilityExportJobRead {
 		t.Fatalf("normalizeActor().Capabilities = %#v, want [%q]", actor.Capabilities, CapabilityExportJobRead)
+	}
+	if len(actor.Scopes) != 1 || actor.Scopes[0] != ScopeTenant {
+		t.Fatalf("normalizeActor().Scopes = %#v, want [%q]", actor.Scopes, ScopeTenant)
 	}
 }
 
@@ -49,6 +53,49 @@ func TestRequireActorCapability_RejectsMissingCapability(t *testing.T) {
 	err := requireActorCapability(RequestActor{Capabilities: []string{CapabilityExportJobRead}}, CapabilityExportJobDownload)
 	if !errors.Is(err, ErrExportPermissionDenied) {
 		t.Fatalf("requireActorCapability() error = %v, want ErrExportPermissionDenied", err)
+	}
+}
+
+func TestResolveExportOwnerFilter_AllowsTenantScopeWithoutOwnerFilter(t *testing.T) {
+	ownerUserID, err := resolveExportOwnerFilter(RequestActor{TenantID: "tenant-a", Scopes: []string{ScopeTenant}})
+	if err != nil {
+		t.Fatalf("resolveExportOwnerFilter() error = %v", err)
+	}
+	if ownerUserID != "" {
+		t.Fatalf("resolveExportOwnerFilter() = %q, want empty", ownerUserID)
+	}
+}
+
+func TestResolveExportOwnerFilter_UsesActorUserForOwnedScope(t *testing.T) {
+	ownerUserID, err := resolveExportOwnerFilter(RequestActor{TenantID: "tenant-a", UserID: "user-a", Scopes: []string{ScopeOwned}})
+	if err != nil {
+		t.Fatalf("resolveExportOwnerFilter() error = %v", err)
+	}
+	if ownerUserID != "user-a" {
+		t.Fatalf("resolveExportOwnerFilter() = %q, want user-a", ownerUserID)
+	}
+}
+
+func TestResolveExportOwnerFilter_RejectsMissingScopes(t *testing.T) {
+	_, err := resolveExportOwnerFilter(RequestActor{TenantID: "tenant-a"})
+	if !errors.Is(err, ErrExportScopeDenied) {
+		t.Fatalf("resolveExportOwnerFilter() error = %v, want ErrExportScopeDenied", err)
+	}
+}
+
+func TestRequireExportCreateScope_AcceptsOwnedAndTenant(t *testing.T) {
+	if err := requireExportCreateScope(RequestActor{TenantID: "tenant-a", UserID: "20000000-0000-0000-0000-000000000001", Scopes: []string{ScopeOwned}}); err != nil {
+		t.Fatalf("requireExportCreateScope() owned error = %v", err)
+	}
+	if err := requireExportCreateScope(RequestActor{TenantID: "tenant-a", Scopes: []string{ScopeTenant}}); err != nil {
+		t.Fatalf("requireExportCreateScope() tenant error = %v", err)
+	}
+}
+
+func TestRequireExportCreateScope_RejectsOwnedScopeWithoutUserID(t *testing.T) {
+	err := requireExportCreateScope(RequestActor{TenantID: "tenant-a", Scopes: []string{ScopeOwned}})
+	if !errors.Is(err, ErrExportScopeDenied) {
+		t.Fatalf("requireExportCreateScope() error = %v, want ErrExportScopeDenied", err)
 	}
 }
 
