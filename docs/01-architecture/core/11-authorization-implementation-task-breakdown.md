@@ -211,7 +211,7 @@
 - `capabilities`：作为页面/API 新判定主轴
 - `scopes`：决定是否可跨租户、仅本人、仅资源拥有者等
 - `authz_epoch`：后续用于前端缓存失效、token 内版本比对、JIT 授权刷新
-- `actor_flags`：承载系统保留主体、系统自动化主体、交互式登录是否允许等治理信号
+- `actor_flags`：承载系统保留主体、系统自动化主体、交互式登录是否允许等治理信号；其中 `interactive_login_allowed=false` 必须同时在 `login`、`refresh`、受保护路由中间件三处生效，不能只做前端展示
 
 ## 5. 工作流 C：统一 capability 中间件与共享鉴权链路改造
 

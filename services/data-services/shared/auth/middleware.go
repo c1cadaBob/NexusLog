@@ -78,6 +78,10 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 				writeAuthError(c, http.StatusInternalServerError, "failed to load permissions")
 				return
 			}
+			if !isInteractiveAccessAllowed(authzRecord.Snapshot.ActorFlags) {
+				writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "interactive login is disabled for this account")
+				return
+			}
 			permissions = append([]string{}, authzRecord.Permissions...)
 			roles = append([]string{}, authzRecord.Roles...)
 			capabilities = append([]string{}, authzRecord.Snapshot.Capabilities...)
@@ -203,4 +207,12 @@ func writeAuthError(c *gin.Context, status int, message string) {
 		"request_id": requestID,
 		"details":    gin.H{},
 	})
+}
+
+func isInteractiveAccessAllowed(actorFlags map[string]bool) bool {
+	if len(actorFlags) == 0 {
+		return true
+	}
+	allowed, exists := actorFlags["interactive_login_allowed"]
+	return !exists || allowed
 }

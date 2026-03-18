@@ -57,6 +57,16 @@ func (m *handlerRepoMock) FindUserByEmailOrUsername(_ context.Context, _ uuid.UU
 	return m.findUser, nil
 }
 
+func (m *handlerRepoMock) GetRefreshTokenUser(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {
+	userID := m.stableUserID()
+	return repository.UserIdentityRecord{
+		UserID:   userID,
+		Username: "handler-user",
+		Email:    "handler-user@nexuslog.local",
+		Status:   "active",
+	}, nil
+}
+
 func (m *handlerRepoMock) CreatePasswordResetToken(
 	_ context.Context,
 	_, _ uuid.UUID,
@@ -88,7 +98,7 @@ func (m *handlerRepoMock) RotateSessionByRefreshToken(_ context.Context, _ repos
 	if m.rotateErr != nil {
 		return uuid.Nil, m.rotateErr
 	}
-	return uuid.New(), nil
+	return m.stableUserID(), nil
 }
 
 func (m *handlerRepoMock) RevokeSessionByRefreshToken(_ context.Context, _ uuid.UUID, _ string) error {
@@ -105,6 +115,13 @@ func (m *handlerRepoMock) RecordLoginAttempt(_ context.Context, _ repository.Log
 
 func (m *handlerRepoMock) IsLoginLocked(_ context.Context, _ uuid.UUID, _ string) (bool, time.Time, error) {
 	return false, time.Time{}, nil
+}
+
+func (m *handlerRepoMock) stableUserID() uuid.UUID {
+	if m.userID != uuid.Nil {
+		return m.userID
+	}
+	return uuid.MustParse("11111111-1111-1111-1111-111111111111")
 }
 
 func TestRegisterInvalidBody(t *testing.T) {

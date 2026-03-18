@@ -160,6 +160,15 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 		sort.Strings(permissions)
 
 		authorizationContext := service.BuildAuthorizationContext(userRecord.Username, roleNames, permissions)
+		if !isInteractiveAccessAllowed(authorizationContext.ActorFlags) {
+			httpx.Error(c, &model.APIError{
+				HTTPStatus: http.StatusForbidden,
+				Code:       "FORBIDDEN",
+				Message:    "interactive login is disabled for this account",
+			})
+			c.Abort()
+			return
+		}
 
 		c.Set(contextKeyUserID, claims.UserID)
 		c.Set(contextKeyTenantID, claims.TenantID)
@@ -270,6 +279,14 @@ func hasAuthorizationValue(values []string, required string) bool {
 		}
 	}
 	return false
+}
+
+func isInteractiveAccessAllowed(actorFlags map[string]bool) bool {
+	if len(actorFlags) == 0 {
+		return true
+	}
+	allowed, exists := actorFlags["interactive_login_allowed"]
+	return !exists || allowed
 }
 
 func parsePermissions(raw []byte) []string {

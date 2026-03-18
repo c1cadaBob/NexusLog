@@ -35,6 +35,7 @@ type authRepository interface {
 	RegisterUser(ctx context.Context, input repository.RegisterUserInput) (uuid.UUID, string, error)
 	GetLoginUserByUsername(ctx context.Context, tenantID uuid.UUID, username string) (repository.LoginUserRecord, error)
 	FindUserByEmailOrUsername(ctx context.Context, tenantID uuid.UUID, identifier string) (repository.UserIdentityRecord, error)
+	GetRefreshTokenUser(ctx context.Context, tenantID uuid.UUID, refreshToken string) (repository.UserIdentityRecord, error)
 	CreatePasswordResetToken(
 		ctx context.Context,
 		tenantID, userID uuid.UUID,
@@ -325,11 +326,35 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 		return model.RefreshResponseData{}, apiErr
 	}
 
+	refreshUser, err := s.repo.GetRefreshTokenUser(ctx, tenantID, normalizedReq.RefreshToken)
+	if err != nil {
+		if errors.Is(err, repository.ErrInvalidRefreshToken) || errors.Is(err, repository.ErrUserNotFound) {
+			return model.RefreshResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusUnauthorized,
+				Code:       model.ErrorCodeAuthRefreshInvalidToken,
+				Message:    "refresh token invalid or expired",
+			}
+		}
+		return model.RefreshResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       model.ErrorCodeAuthRefreshInternalError,
+			Message:    "internal error",
+		}
+	}
+	refreshContext := BuildAuthorizationContext(refreshUser.Username, nil, nil)
+	if !refreshContext.ActorFlags["interactive_login_allowed"] {
+		return model.RefreshResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusForbidden,
+			Code:       model.ErrorCodeAuthRefreshInteractiveDisabled,
+			Message:    "interactive login is disabled for this account",
+		}
+	}
+
 	refreshToken, err := newOpaqueToken()
 	if err != nil {
 		return model.RefreshResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,
-			Code:       "AUTH_REFRESH_INTERNAL_ERROR",
+			Code:       model.ErrorCodeAuthRefreshInternalError,
 			Message:    "internal error",
 		}
 	}
@@ -340,13 +365,20 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 		if errors.Is(rotateErr, repository.ErrInvalidRefreshToken) {
 			return model.RefreshResponseData{}, &model.APIError{
 				HTTPStatus: http.StatusUnauthorized,
-				Code:       "AUTH_REFRESH_INVALID_TOKEN",
+				Code:       model.ErrorCodeAuthRefreshInvalidToken,
 				Message:    "refresh token invalid or expired",
 			}
 		}
 		return model.RefreshResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,
-			Code:       "AUTH_REFRESH_INTERNAL_ERROR",
+			Code:       model.ErrorCodeAuthRefreshInternalError,
+			Message:    "internal error",
+		}
+	}
+	if refreshUser.UserID != uuid.Nil && refreshUser.UserID != userID {
+		return model.RefreshResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       model.ErrorCodeAuthRefreshInternalError,
 			Message:    "internal error",
 		}
 	}
@@ -355,7 +387,7 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 	if err != nil {
 		return model.RefreshResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusInternalServerError,
-			Code:       "AUTH_REFRESH_INTERNAL_ERROR",
+			Code:       model.ErrorCodeAuthRefreshInternalError,
 			Message:    "internal error",
 		}
 	}

@@ -25,6 +25,59 @@ func (m timeBetweenMatcher) Match(v driver.Value) bool {
 	return !t.Before(m.min) && !t.After(m.max)
 }
 
+func TestGetRefreshTokenUser_RejectsInvalidRefreshToken(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewAuthRepository(db)
+	tenantID := uuid.New()
+	refreshToken := "missing-refresh-token"
+
+	mock.ExpectQuery(`SELECT u.id, u.username, u.email, u.status\s+FROM user_sessions s\s+JOIN users u`).
+		WithArgs(tenantID, hashToken(refreshToken), sqlmock.AnyArg()).
+		WillReturnError(sql.ErrNoRows)
+
+	_, err = repo.GetRefreshTokenUser(context.Background(), tenantID, refreshToken)
+	if !errors.Is(err, ErrInvalidRefreshToken) {
+		t.Fatalf("expected ErrInvalidRefreshToken, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestGetRefreshTokenUser_ReturnsActiveUserIdentity(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewAuthRepository(db)
+	tenantID := uuid.New()
+	userID := uuid.New()
+	refreshToken := "active-refresh-token"
+
+	mock.ExpectQuery(`SELECT u.id, u.username, u.email, u.status\s+FROM user_sessions s\s+JOIN users u`).
+		WithArgs(tenantID, hashToken(refreshToken), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "email", "status"}).
+			AddRow(userID, "system-automation", "system-automation@nexuslog.local", "active"))
+
+	rec, err := repo.GetRefreshTokenUser(context.Background(), tenantID, refreshToken)
+	if err != nil {
+		t.Fatalf("GetRefreshTokenUser() error = %v", err)
+	}
+	if rec.UserID != userID || rec.Username != "system-automation" {
+		t.Fatalf("GetRefreshTokenUser() = %#v, want active identity", rec)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestRotateSessionByRefreshToken_RejectsDisabledUser(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

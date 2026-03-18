@@ -30,12 +30,13 @@ const (
 	ErrorCodeAuthLoginInternalError       = "AUTH_LOGIN_INTERNAL_ERROR"
 
 	// Refresh.
-	ErrorCodeAuthRefreshInvalidArgument = "AUTH_REFRESH_INVALID_ARGUMENT"
-	ErrorCodeAuthRefreshTenantRequired  = "AUTH_REFRESH_TENANT_REQUIRED"
-	ErrorCodeAuthRefreshTenantInvalid   = "AUTH_REFRESH_TENANT_INVALID"
-	ErrorCodeAuthRefreshTenantNotFound  = "AUTH_REFRESH_TENANT_NOT_FOUND"
-	ErrorCodeAuthRefreshInvalidToken    = "AUTH_REFRESH_INVALID_TOKEN"
-	ErrorCodeAuthRefreshInternalError   = "AUTH_REFRESH_INTERNAL_ERROR"
+	ErrorCodeAuthRefreshInvalidArgument     = "AUTH_REFRESH_INVALID_ARGUMENT"
+	ErrorCodeAuthRefreshTenantRequired      = "AUTH_REFRESH_TENANT_REQUIRED"
+	ErrorCodeAuthRefreshTenantInvalid       = "AUTH_REFRESH_TENANT_INVALID"
+	ErrorCodeAuthRefreshTenantNotFound      = "AUTH_REFRESH_TENANT_NOT_FOUND"
+	ErrorCodeAuthRefreshInvalidToken        = "AUTH_REFRESH_INVALID_TOKEN"
+	ErrorCodeAuthRefreshInteractiveDisabled = "AUTH_REFRESH_INTERACTIVE_DISABLED"
+	ErrorCodeAuthRefreshInternalError       = "AUTH_REFRESH_INTERNAL_ERROR"
 
 	// Logout.
 	ErrorCodeAuthLogoutInvalidArgument = "AUTH_LOGOUT_INVALID_ARGUMENT"
@@ -84,12 +85,13 @@ var authErrorStatusCatalog = map[string]int{
 	ErrorCodeAuthLoginRateLimited:         http.StatusTooManyRequests,
 	ErrorCodeAuthLoginInternalError:       http.StatusInternalServerError,
 
-	ErrorCodeAuthRefreshInvalidArgument: http.StatusBadRequest,
-	ErrorCodeAuthRefreshTenantRequired:  http.StatusBadRequest,
-	ErrorCodeAuthRefreshTenantInvalid:   http.StatusBadRequest,
-	ErrorCodeAuthRefreshTenantNotFound:  http.StatusNotFound,
-	ErrorCodeAuthRefreshInvalidToken:    http.StatusUnauthorized,
-	ErrorCodeAuthRefreshInternalError:   http.StatusInternalServerError,
+	ErrorCodeAuthRefreshInvalidArgument:     http.StatusBadRequest,
+	ErrorCodeAuthRefreshTenantRequired:      http.StatusBadRequest,
+	ErrorCodeAuthRefreshTenantInvalid:       http.StatusBadRequest,
+	ErrorCodeAuthRefreshTenantNotFound:      http.StatusNotFound,
+	ErrorCodeAuthRefreshInvalidToken:        http.StatusUnauthorized,
+	ErrorCodeAuthRefreshInteractiveDisabled: http.StatusForbidden,
+	ErrorCodeAuthRefreshInternalError:       http.StatusInternalServerError,
 
 	ErrorCodeAuthLogoutInvalidArgument: http.StatusBadRequest,
 	ErrorCodeAuthLogoutTenantRequired:  http.StatusBadRequest,
@@ -135,12 +137,13 @@ var authErrorMessageCatalog = map[string]string{
 	ErrorCodeAuthLoginRateLimited:         "too many login attempts, retry later",
 	ErrorCodeAuthLoginInternalError:       "internal error",
 
-	ErrorCodeAuthRefreshInvalidArgument: "invalid request",
-	ErrorCodeAuthRefreshTenantRequired:  "tenant header required",
-	ErrorCodeAuthRefreshTenantInvalid:   "invalid tenant id",
-	ErrorCodeAuthRefreshTenantNotFound:  "tenant not found",
-	ErrorCodeAuthRefreshInvalidToken:    "refresh token invalid or expired",
-	ErrorCodeAuthRefreshInternalError:   "internal error",
+	ErrorCodeAuthRefreshInvalidArgument:     "invalid request",
+	ErrorCodeAuthRefreshTenantRequired:      "tenant header required",
+	ErrorCodeAuthRefreshTenantInvalid:       "invalid tenant id",
+	ErrorCodeAuthRefreshTenantNotFound:      "tenant not found",
+	ErrorCodeAuthRefreshInvalidToken:        "refresh token invalid or expired",
+	ErrorCodeAuthRefreshInteractiveDisabled: "interactive login is disabled for this account",
+	ErrorCodeAuthRefreshInternalError:       "internal error",
 
 	ErrorCodeAuthLogoutInvalidArgument: "invalid request",
 	ErrorCodeAuthLogoutTenantRequired:  "tenant header required",

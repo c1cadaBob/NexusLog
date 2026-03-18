@@ -24,6 +24,8 @@ type mockAuthRepository struct {
 	loginUserErr      error
 	findUser          repository.UserIdentityRecord
 	findUserErr       error
+	refreshUser       repository.UserIdentityRecord
+	refreshUserErr    error
 	createResetErr    error
 	confirmResetErr   error
 	confirmResetUser  uuid.UUID
@@ -73,6 +75,22 @@ func (m *mockAuthRepository) FindUserByEmailOrUsername(_ context.Context, _ uuid
 	return m.findUser, nil
 }
 
+func (m *mockAuthRepository) GetRefreshTokenUser(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {
+	if m.refreshUserErr != nil {
+		return repository.UserIdentityRecord{}, m.refreshUserErr
+	}
+	if m.refreshUser.UserID != uuid.Nil {
+		return m.refreshUser, nil
+	}
+	userID := uuid.New()
+	return repository.UserIdentityRecord{
+		UserID:   userID,
+		Username: "valid_user",
+		Email:    "user@example.com",
+		Status:   "active",
+	}, nil
+}
+
 func (m *mockAuthRepository) CreatePasswordResetToken(
 	_ context.Context,
 	_, _ uuid.UUID,
@@ -114,6 +132,15 @@ func (m *mockAuthRepository) RotateSessionByRefreshToken(_ context.Context, inpu
 	m.rotateCall++
 	if m.rotateErr != nil {
 		return uuid.Nil, m.rotateErr
+	}
+	if m.refreshUser.UserID != uuid.Nil {
+		return m.refreshUser.UserID, nil
+	}
+	if m.loginUser.UserID != uuid.Nil {
+		return m.loginUser.UserID, nil
+	}
+	if m.userID != uuid.Nil {
+		return m.userID, nil
 	}
 	return uuid.New(), nil
 }
@@ -388,8 +415,14 @@ func TestLoginRejectsSystemAutomationInteractiveAccess(t *testing.T) {
 
 func TestRefreshValidationAndRotation(t *testing.T) {
 	tenantID := uuid.NewString()
+	refreshUser := repository.UserIdentityRecord{
+		UserID:   uuid.New(),
+		Username: "valid_user",
+		Email:    "user@example.com",
+		Status:   "active",
+	}
 
-	repoMock := &mockAuthRepository{tenantExists: true}
+	repoMock := &mockAuthRepository{tenantExists: true, refreshUser: refreshUser}
 	svc := NewAuthService(repoMock, "test-secret")
 
 	_, err := svc.Refresh(context.Background(), "", model.RefreshRequest{}, "127.0.0.1", "ua")
@@ -414,6 +447,7 @@ func TestRefreshValidationAndRotation(t *testing.T) {
 	}
 
 	repoMock.rotateErr = nil
+	repoMock.refreshUser = refreshUser
 	resp, err := svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-2"}, "127.0.0.1", "ua")
 	if err != nil {
 		t.Fatalf("expected refresh success, got %#v", err)
@@ -429,6 +463,28 @@ func TestRefreshValidationAndRotation(t *testing.T) {
 	_, err = svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-3"}, "127.0.0.1", "ua")
 	if err == nil || err.Code != "AUTH_REFRESH_INTERNAL_ERROR" {
 		t.Fatalf("expected internal error, got %#v", err)
+	}
+}
+
+func TestRefreshRejectsSystemAutomationInteractiveAccess(t *testing.T) {
+	tenantID := uuid.NewString()
+	repoMock := &mockAuthRepository{
+		tenantExists: true,
+		refreshUser: repository.UserIdentityRecord{
+			UserID:   uuid.New(),
+			Username: reservedUsernameSystemAutomation,
+			Email:    "system-automation@nexuslog.local",
+			Status:   "active",
+		},
+	}
+	svc := NewAuthService(repoMock, "test-secret")
+
+	_, err := svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-system"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != model.ErrorCodeAuthRefreshInteractiveDisabled {
+		t.Fatalf("expected refresh interactive login disabled error, got %#v", err)
+	}
+	if repoMock.rotateCall != 0 {
+		t.Fatalf("expected no rotate call, got %d", repoMock.rotateCall)
 	}
 }
 

@@ -97,6 +97,66 @@ func TestRequireAuthenticatedIdentity_LoadsAuthorizationSnapshotFromDatabase(t *
 	}
 }
 
+func TestRequireAuthenticatedIdentity_RejectsSystemAutomationInteractiveAccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	tenantID := "10000000-0000-0000-0000-000000000001"
+	userID := "20000000-0000-0000-0000-000000000099"
+	accessTokenJTI := "jti-system"
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_sessions
+			WHERE tenant_id = $1::uuid
+			  AND user_id = $2::uuid
+			  AND access_token_jti = $3
+			  AND session_status = 'active'
+			  AND expires_at > $4
+		)
+	`)).
+		WithArgs(tenantID, userID, accessTokenJTI, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(authorizationContextQuery)).
+		WithArgs(userID, tenantID).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"username", "name", "permissions"}).
+				AddRow("system-automation", "system_automation", []byte(`["audit:write"]`)),
+		)
+
+	router := gin.New()
+	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
+	router.GET("/api/v1/query/logs", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	token := mustIssueToken(t, tenantID, userID, accessTokenJTI)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query/logs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["code"] != "FORBIDDEN" {
+		t.Fatalf("unexpected code: %v", body["code"])
+	}
+	if body["message"] != "interactive login is disabled for this account" {
+		t.Fatalf("unexpected message: %v", body["message"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func TestRequireAuthenticatedIdentity_MapsCapabilitiesWithoutOverGranting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()

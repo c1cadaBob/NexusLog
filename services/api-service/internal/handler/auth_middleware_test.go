@@ -550,7 +550,7 @@ func TestRequireCapability_UsesCompatibilityMappingAndDeniesMissingCapability(t 
 	}
 }
 
-func TestAuthRequired_SystemAutomationActorFlags(t *testing.T) {
+func TestAuthRequired_RejectsSystemAutomationInteractiveAccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -575,10 +575,7 @@ func TestAuthRequired_SystemAutomationActorFlags(t *testing.T) {
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))
 	router.GET("/snapshot", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"scopes":      authenticatedScopes(c),
-			"actor_flags": authenticatedActorFlags(c),
-		})
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/snapshot", nil)
@@ -587,23 +584,19 @@ func TestAuthRequired_SystemAutomationActorFlags(t *testing.T) {
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
 	}
 
-	var body struct {
-		Scopes     []string        `json:"scopes"`
-		ActorFlags map[string]bool `json:"actor_flags"`
-	}
+	var body map[string]any
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	assertContainsString(t, body.Scopes, "system")
-	if body.ActorFlags["interactive_login_allowed"] {
-		t.Fatalf("expected interactive login disabled, got %#v", body.ActorFlags)
+	if body["code"] != "FORBIDDEN" {
+		t.Fatalf("expected FORBIDDEN, got %v", body["code"])
 	}
-	if !body.ActorFlags["system_subject"] || !body.ActorFlags["reserved"] {
-		t.Fatalf("unexpected actor flags: %#v", body.ActorFlags)
+	if body["message"] != "interactive login is disabled for this account" {
+		t.Fatalf("unexpected message: %v", body["message"])
 	}
 }
 

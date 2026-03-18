@@ -219,6 +219,38 @@ func (r *AuthRepository) FindUserByEmailOrUsername(ctx context.Context, tenantID
 	return rec, nil
 }
 
+func (r *AuthRepository) GetRefreshTokenUser(ctx context.Context, tenantID uuid.UUID, refreshToken string) (UserIdentityRecord, error) {
+	const q = `
+		SELECT u.id, u.username, u.email, u.status
+		FROM user_sessions s
+		JOIN users u ON u.id = s.user_id AND u.tenant_id = s.tenant_id
+		WHERE s.tenant_id = $1
+		  AND s.refresh_token_hash = $2
+		  AND s.session_status = 'active'
+		  AND s.expires_at > $3
+		  AND u.status = 'active'
+		ORDER BY s.updated_at DESC
+		LIMIT 1
+	`
+
+	var rec UserIdentityRecord
+	if err := r.db.QueryRowContext(ctx, q, tenantID, hashToken(refreshToken), time.Now().UTC()).Scan(
+		&rec.UserID,
+		&rec.Username,
+		&rec.Email,
+		&rec.Status,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return UserIdentityRecord{}, ErrInvalidRefreshToken
+		}
+		return UserIdentityRecord{}, fmt.Errorf("query refresh token user: %w", err)
+	}
+	if rec.Status != "active" {
+		return UserIdentityRecord{}, ErrInvalidRefreshToken
+	}
+	return rec, nil
+}
+
 func (r *AuthRepository) CreatePasswordResetToken(
 	ctx context.Context,
 	tenantID, userID uuid.UUID,

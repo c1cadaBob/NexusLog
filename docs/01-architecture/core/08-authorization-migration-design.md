@@ -458,7 +458,12 @@
    - `entitlements`
    - `feature_flags`
    - `authz_epoch`
-4. 审计日志新增：
+   - `actor_flags`
+4. 将 `actor_flags.interactive_login_allowed` 作为运行时约束而不只是展示字段：
+   - 登录接口拒绝交互式登录受限主体
+   - refresh 接口拒绝续发受限主体会话
+   - 受保护路由中间件拒绝已存在的遗留交互式会话继续访问
+5. 审计日志新增：
    - `decision_capability`
    - `decision_scope`
    - `decision_result`
