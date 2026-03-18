@@ -26,6 +26,9 @@ func TestUpdateUser_DisableRevokesSessions(t *testing.T) {
 	mock.ExpectExec(`UPDATE user_sessions`).
 		WithArgs(tenantID, userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO authz_version`).
+		WithArgs(tenantID, userID, "user.update").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	if err := repo.UpdateUser(context.Background(), tenantID.String(), userID.String(), UpdateUserInput{Status: ptr("disabled")}); err != nil {
@@ -52,6 +55,9 @@ func TestUpdateUser_EmailChangeDoesNotRevokeSessions(t *testing.T) {
 	mock.ExpectExec(`UPDATE users`).
 		WithArgs(email, tenantID, userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO authz_version`).
+		WithArgs(tenantID, userID, "user.update").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	if err := repo.UpdateUser(context.Background(), tenantID.String(), userID.String(), UpdateUserInput{Email: &email}); err != nil {
@@ -74,11 +80,14 @@ func TestBatchUpdateUsersStatus_DisableRevokesSessions(t *testing.T) {
 	userIDs := []uuid.UUID{uuid.New(), uuid.New()}
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`UPDATE users`).
+	mock.ExpectQuery(`UPDATE users`).
 		WithArgs("disabled", tenantID, sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 2))
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(userIDs[0]).AddRow(userIDs[1]))
 	mock.ExpectExec(`UPDATE user_sessions`).
 		WithArgs(tenantID, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(`INSERT INTO authz_version`).
+		WithArgs(tenantID, sqlmock.AnyArg(), "user.batch_status_update").
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectCommit()
 
@@ -88,6 +97,64 @@ func TestBatchUpdateUsersStatus_DisableRevokesSessions(t *testing.T) {
 	}
 	if updated != 2 {
 		t.Fatalf("updated=%d, want 2", updated)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestAssignRole_BumpsAuthzVersion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewUserRepository(db)
+	tenantID := uuid.New()
+	userID := uuid.New()
+	roleID := uuid.New()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO user_roles`).
+		WithArgs(tenantID, userID, roleID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO authz_version`).
+		WithArgs(tenantID, userID, "user.assign_role").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := repo.AssignRole(context.Background(), tenantID.String(), userID.String(), roleID.String()); err != nil {
+		t.Fatalf("AssignRole returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestRemoveRole_BumpsAuthzVersion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewUserRepository(db)
+	tenantID := uuid.New()
+	userID := uuid.New()
+	roleID := uuid.New()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM user_roles`).
+		WithArgs(tenantID, userID, roleID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO authz_version`).
+		WithArgs(tenantID, userID, "user.remove_role").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := repo.RemoveRole(context.Background(), tenantID.String(), userID.String(), roleID.String()); err != nil {
+		t.Fatalf("RemoveRole returned error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)

@@ -35,6 +35,14 @@ func expectActiveSessionQuery(mock sqlmock.Sqlmock, tenantID, userID uuid.UUID, 
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 }
 
+func expectAuthorizationContextQueries(mock sqlmock.Sqlmock, tenantID, userID uuid.UUID) {
+	mock.ExpectQuery(`FROM legacy_permission_mapping`).
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery(`FROM authz_version`).
+		WithArgs(tenantID, userID).
+		WillReturnError(sql.ErrNoRows)
+}
+
 func TestAuthRequired_NoToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, _, _ := sqlmock.New()
@@ -150,6 +158,7 @@ func TestAuthRequired_ValidToken_AdminRole(t *testing.T) {
 	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(uuid.New(), tenantID, "admin", nil, adminPerms)
 	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+	expectAuthorizationContextQueries(mock, tenantID, userID)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))
@@ -192,6 +201,7 @@ func TestAuthRequired_ValidToken_ViewerRole_ReadAllowed(t *testing.T) {
 	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(uuid.New(), tenantID, "viewer", nil, viewerPerms)
 	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+	expectAuthorizationContextQueries(mock, tenantID, userID)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))
@@ -231,6 +241,7 @@ func TestAuthRequired_ValidToken_ViewerRole_WriteBlocked(t *testing.T) {
 	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(uuid.New(), tenantID, "viewer", nil, viewerPerms)
 	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+	expectAuthorizationContextQueries(mock, tenantID, userID)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))
@@ -289,6 +300,7 @@ func TestAuthRequired_ThreeRoleIsolation(t *testing.T) {
 			roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 				AddRow(uuid.New(), tenantID, r.name, nil, perms)
 			mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+			expectAuthorizationContextQueries(mock, tenantID, userID)
 
 			router := gin.New()
 			router.Use(AuthRequired(db, testJWTSecret))
@@ -316,6 +328,7 @@ func TestAuthRequired_ThreeRoleIsolation(t *testing.T) {
 			mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(
 				sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 					AddRow(uuid.New(), tenantID, r.name, nil, perms))
+			expectAuthorizationContextQueries(mock, tenantID, userID)
 
 			reqWrite := httptest.NewRequest(http.MethodPost, "/write", nil)
 			reqWrite.Header.Set("Authorization", "Bearer "+accessToken)
@@ -414,6 +427,7 @@ func TestAuthRequired_MiddlewarePerformance(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM users").WithArgs(tenantID, userID).WillReturnRows(userRows)
 	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+	expectAuthorizationContextQueries(mock, tenantID, userID)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))
@@ -457,6 +471,7 @@ func TestAuthRequired_InjectsAuthorizationSnapshot(t *testing.T) {
 	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(uuid.New(), tenantID, "viewer", nil, viewerPerms)
 	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+	expectAuthorizationContextQueries(mock, tenantID, userID)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))
@@ -598,6 +613,7 @@ func TestRequireCapability_UsesCompatibilityMappingAndDeniesMissingCapability(t 
 		roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 			AddRow(uuid.New(), tenantID, "viewer", nil, viewerPerms)
 		mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+		expectAuthorizationContextQueries(mock, tenantID, userID)
 	}
 
 	setupViewer()
@@ -647,6 +663,7 @@ func TestAuthRequired_RejectsSystemAutomationInteractiveAccess(t *testing.T) {
 	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(uuid.New(), tenantID, "system_automation", nil, automationPerms)
 	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+	expectAuthorizationContextQueries(mock, tenantID, userID)
 	mock.ExpectQuery(`FROM subject_reserved_policy`).
 		WithArgs(tenantID, "system-automation").
 		WillReturnRows(

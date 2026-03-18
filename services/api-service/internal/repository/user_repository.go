@@ -347,6 +347,10 @@ func (r *UserRepository) UpdateUser(ctx context.Context, tenantID, userID string
 		}
 	}
 
+	if err = bumpUserAuthzVersionTx(ctx, tx, tenantUUID, userUUID, "user.update"); err != nil {
+		return err
+	}
+
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("commit user update: %w", err)
 	}
@@ -377,6 +381,7 @@ func (r *UserRepository) BatchUpdateUsersStatus(ctx context.Context, tenantID st
 		WHERE tenant_id = $2
 		  AND id = ANY($3::uuid[])
 		  AND status <> $1
+		RETURNING id
 	`
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -388,27 +393,51 @@ func (r *UserRepository) BatchUpdateUsersStatus(ctx context.Context, tenantID st
 		}
 	}()
 
-	result, err := tx.ExecContext(ctx, q, status, tenantUUID, pq.Array(idStrings))
+	rows, err := tx.QueryContext(ctx, q, status, tenantUUID, pq.Array(idStrings))
 	if err != nil {
 		return 0, fmt.Errorf("batch update users status: %w", err)
 	}
-	updated, _ := result.RowsAffected()
 
-	if status == "disabled" {
+	updatedIDs := make([]uuid.UUID, 0, len(userIDs))
+	for rows.Next() {
+		var updatedUserID uuid.UUID
+		if err := rows.Scan(&updatedUserID); err != nil {
+			_ = rows.Close()
+			return 0, fmt.Errorf("scan batch updated user id: %w", err)
+		}
+		updatedIDs = append(updatedIDs, updatedUserID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, fmt.Errorf("iterate batch updated users: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, fmt.Errorf("close batch updated users rows: %w", err)
+	}
+
+	if status == "disabled" && len(updatedIDs) > 0 {
+		revokedIDs := make([]string, 0, len(updatedIDs))
+		for _, updatedUserID := range updatedIDs {
+			revokedIDs = append(revokedIDs, updatedUserID.String())
+		}
 		const revokeSessionsSQL = `
 			UPDATE user_sessions
 			SET session_status = 'revoked', revoked_at = NOW(), updated_at = NOW()
 			WHERE tenant_id = $1 AND user_id = ANY($2::uuid[]) AND session_status = 'active'
 		`
-		if _, err = tx.ExecContext(ctx, revokeSessionsSQL, tenantUUID, pq.Array(idStrings)); err != nil {
+		if _, err = tx.ExecContext(ctx, revokeSessionsSQL, tenantUUID, pq.Array(revokedIDs)); err != nil {
 			return 0, fmt.Errorf("revoke active sessions for disabled users: %w", err)
 		}
+	}
+
+	if err = bumpUsersAuthzVersionTx(ctx, tx, tenantUUID, updatedIDs, "user.batch_status_update"); err != nil {
+		return 0, err
 	}
 
 	if err = tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit batch user status update: %w", err)
 	}
-	return int(updated), nil
+	return len(updatedIDs), nil
 }
 
 func (r *UserRepository) AssignRole(ctx context.Context, tenantID, userID, roleID string) error {
@@ -434,7 +463,17 @@ func (r *UserRepository) AssignRole(ctx context.Context, tenantID, userID, roleI
 		  AND u.tenant_id = $1
 		  AND r.tenant_id = $1
 	`
-	result, err := r.db.ExecContext(ctx, q, tenantUUID, userUUID, roleUUID)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	result, err := tx.ExecContext(ctx, q, tenantUUID, userUUID, roleUUID)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) {
@@ -450,6 +489,12 @@ func (r *UserRepository) AssignRole(ctx context.Context, tenantID, userID, roleI
 	}
 	if affected == 0 {
 		return ErrRoleNotFound
+	}
+	if err = bumpUserAuthzVersionTx(ctx, tx, tenantUUID, userUUID, "user.assign_role"); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit assign role: %w", err)
 	}
 	return nil
 }
@@ -478,13 +523,29 @@ func (r *UserRepository) RemoveRole(ctx context.Context, tenantID, userID, roleI
 		  AND u.tenant_id = $1
 		  AND r.tenant_id = $1
 	`
-	result, err := r.db.ExecContext(ctx, q, tenantUUID, userUUID, roleUUID)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	result, err := tx.ExecContext(ctx, q, tenantUUID, userUUID, roleUUID)
 	if err != nil {
 		return fmt.Errorf("remove role: %w", err)
 	}
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
 		return ErrRoleNotFound
+	}
+	if err = bumpUserAuthzVersionTx(ctx, tx, tenantUUID, userUUID, "user.remove_role"); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit remove role: %w", err)
 	}
 	return nil
 }

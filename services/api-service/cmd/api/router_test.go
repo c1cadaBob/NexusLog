@@ -18,6 +18,14 @@ import (
 
 const routeTestJWTSecret = "router-test-secret"
 
+func expectRouteAuthorizationContextQueries(mock sqlmock.Sqlmock, tenantID, userID uuid.UUID) {
+	mock.ExpectQuery(`FROM legacy_permission_mapping`).
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery(`FROM authz_version`).
+		WithArgs(tenantID, userID).
+		WillReturnError(sql.ErrNoRows)
+}
+
 func TestRegisterRoutes_UserCreateAllowsLegacyUsersWriteAlias(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -256,6 +264,7 @@ func TestRegisterRoutes_UserMeDoesNotRequireUsersRead(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").
 		WithArgs(tenantID, userID).
 		WillReturnRows(newRoleRows(userID, tenantID, []string{"logs:read"}))
+	expectRouteAuthorizationContextQueries(mock, tenantID, userID)
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM obs\.tenant WHERE id = \$1 AND status = 'active'\)`).
 		WithArgs(tenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -329,6 +338,7 @@ func mustIssueRouteAccessToken(t *testing.T, userID, tenantID uuid.UUID, _ *sql.
 	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").
 		WithArgs(tenantID, userID).
 		WillReturnRows(newRoleRows(userID, tenantID, permissions))
+	expectRouteAuthorizationContextQueries(mock, tenantID, userID)
 
 	return accessToken
 }

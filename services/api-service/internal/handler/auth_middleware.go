@@ -162,7 +162,39 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 		}
 		sort.Strings(permissions)
 
-		authorizationContext := service.BuildAuthorizationContext(userRecord.Username, roleNames, permissions)
+		capabilityAliases, permissionScopes, explicitLegacyMappings, err := authRepo.LoadLegacyPermissionMappings(c.Request.Context())
+		if err != nil {
+			httpx.Error(c, &model.APIError{
+				HTTPStatus: http.StatusServiceUnavailable,
+				Code:       "AUTHORIZATION_UNAVAILABLE",
+				Message:    "failed to load authorization mapping",
+			})
+			c.Abort()
+			return
+		}
+
+		authzEpoch, err := authRepo.GetUserAuthzEpoch(c.Request.Context(), parseUUIDOrNil(claims.TenantID), parseUUIDOrNil(claims.UserID))
+		if err != nil {
+			httpx.Error(c, &model.APIError{
+				HTTPStatus: http.StatusServiceUnavailable,
+				Code:       "AUTHORIZATION_UNAVAILABLE",
+				Message:    "failed to load authorization version",
+			})
+			c.Abort()
+			return
+		}
+
+		authorizationContext := service.BuildAuthorizationContextWithOptions(
+			userRecord.Username,
+			roleNames,
+			permissions,
+			service.AuthorizationContextOptions{
+				CapabilityAliases:         capabilityAliases,
+				PermissionScopes:          permissionScopes,
+				UseExplicitLegacyMappings: explicitLegacyMappings,
+				AuthzEpoch:                authzEpoch,
+			},
+		)
 		policy, err := authRepo.GetReservedSubjectPolicy(c.Request.Context(), parseUUIDOrNil(claims.TenantID), userRecord.Username)
 		if err != nil {
 			httpx.Error(c, &model.APIError{
