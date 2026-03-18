@@ -219,7 +219,7 @@ func TestNotificationRoutes_AllowAdminUser(t *testing.T) {
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-admin")
 
 	expectAuthenticatedSession(mock, "jti-admin")
-	expectAuthorizationContextLookup(mock)
+	expectAuthorizationContextLookup(mock, "alerts:read")
 	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -619,10 +619,7 @@ func TestIncidentRoutes_AllowOperatorUser(t *testing.T) {
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-incidents-operator")
 
 	expectAuthenticatedSession(mock, "jti-incidents-operator")
-	expectAuthorizationContextLookup(mock)
-	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
-		WithArgs(testRouteUserID, testRouteTenantID).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthorizationContextLookup(mock, "incidents:write")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/incidents", strings.NewReader(`{}`))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -680,7 +677,7 @@ func TestMetricsQueryRoutes_AllowOperatorUser(t *testing.T) {
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-metrics-query-operator")
 
 	expectAuthenticatedSession(mock, "jti-metrics-query-operator")
-	expectAuthorizationContextLookup(mock)
+	expectAuthorizationContextLookup(mock, "metrics:read")
 	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -756,7 +753,7 @@ func newNotificationAdminRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
 	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
-	notification.RegisterChannelRoutes(adminRoutes, notification.NewChannelRepository(db), notification.NewSMTPSender())
+	notification.RegisterAuthorizedChannelRoutes(adminRoutes, notification.NewChannelRepository(db), notification.NewSMTPSender())
 	return router
 }
 
@@ -766,7 +763,7 @@ func newManagementAdminRouter(db *sql.DB) *gin.Engine {
 	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
 	resource.RegisterRoutes(adminRoutes, resource.NewThresholdHandler(resource.NewThresholdRepository(db)))
 	alertRuleRepo := alert.NewRuleRepositoryPG(db)
-	alert.RegisterAlertRuleRoutes(adminRoutes, alert.NewRuleHandler(alert.NewRuleService(alertRuleRepo)))
+	alert.RegisterAuthorizedAlertRuleRoutes(adminRoutes, alert.NewRuleHandler(alert.NewRuleService(alertRuleRepo)))
 	return router
 }
 
@@ -813,7 +810,7 @@ func newIncidentOperatorRouter(db *sql.DB) *gin.Engine {
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
 	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
 	incidentHandler := incident.NewHandler(incident.NewService(nil, nil))
-	incident.RegisterIncidentRoutes(operatorRoutes, incidentHandler)
+	incident.RegisterAuthorizedIncidentRoutes(operatorRoutes, incidentHandler)
 	return router
 }
 
@@ -822,7 +819,7 @@ func newMetricsQueryOperatorRouter(db *sql.DB) *gin.Engine {
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
 	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
 	metricsHandler := metrics.NewHandler(metrics.NewService(metrics.NewRepository(db)))
-	metrics.RegisterQueryRoutes(operatorRoutes, metricsHandler)
+	metrics.RegisterAuthorizedQueryRoutes(operatorRoutes, metricsHandler)
 	return router
 }
 
@@ -860,11 +857,18 @@ func expectAuthenticatedSession(mock sqlmock.Sqlmock, jti string) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 }
 
-func expectAuthorizationContextLookup(mock sqlmock.Sqlmock) {
+func expectAuthorizationContextLookup(mock sqlmock.Sqlmock, permissions ...string) {
+	permissionJSON := `[]`
+	if len(permissions) > 0 {
+		encoded, err := json.Marshal(permissions)
+		if err == nil {
+			permissionJSON = string(encoded)
+		}
+	}
 	mock.ExpectQuery(regexp.QuoteMeta(testAuthorizationContextQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
-				AddRow("route-user", "viewer", []byte(`[]`)),
+				AddRow("route-user", "viewer", []byte(permissionJSON)),
 		)
 }

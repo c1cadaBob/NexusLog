@@ -52,6 +52,20 @@ func RegisterAlertRuleRoutes(router gin.IRouter, handler *RuleHandler) {
 	}
 }
 
+// RegisterAuthorizedAlertRuleRoutes registers alert rule routes with capability guards.
+func RegisterAuthorizedAlertRuleRoutes(router gin.IRouter, handler *RuleHandler) {
+	g := router.Group("/api/v1/alert/rules")
+	{
+		g.GET("", cpMiddleware.RequireCapability("alert.rule.read"), handler.ListRules)
+		g.GET("/:id", cpMiddleware.RequireCapability("alert.rule.read"), handler.GetRule)
+		g.POST("", cpMiddleware.RequireCapability("alert.rule.create"), handler.CreateRule)
+		g.PUT("/:id", cpMiddleware.RequireCapability("alert.rule.update"), handler.UpdateRule)
+		g.DELETE("/:id", cpMiddleware.RequireCapability("alert.rule.delete"), handler.DeleteRule)
+		g.PUT("/:id/enable", cpMiddleware.RequireCapability("alert.rule.enable"), handler.EnableRule)
+		g.PUT("/:id/disable", cpMiddleware.RequireCapability("alert.rule.disable"), handler.DisableRule)
+	}
+}
+
 // ListRules handles GET /api/v1/alert/rules.
 func (h *RuleHandler) ListRules(c *gin.Context) {
 	tenantID := getTenantID(c)

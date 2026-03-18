@@ -51,6 +51,15 @@ func RegisterQueryRoutes(router gin.IRouter, handler *Handler) {
 	}
 }
 
+// RegisterAuthorizedQueryRoutes registers operator-facing metrics query routes with capability guards.
+func RegisterAuthorizedQueryRoutes(router gin.IRouter, handler *Handler) {
+	g := router.Group("/api/v1/metrics")
+	{
+		g.GET("/overview", cpMiddleware.RequireCapability("metric.read"), handler.QueryOverview)
+		g.GET("/servers/:agent_id", cpMiddleware.RequireCapability("metric.read"), handler.QueryAgentMetrics)
+	}
+}
+
 // Report handles POST /api/v1/metrics/report.
 func (h *Handler) Report(c *gin.Context) {
 	tenantID := getTenantID(c)

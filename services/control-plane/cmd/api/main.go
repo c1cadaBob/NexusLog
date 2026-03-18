@@ -120,7 +120,7 @@ func main() {
 		metricsSvc.WithEvaluator(evaluator)
 		metricsHandler := metrics.NewHandler(metricsSvc)
 		metrics.RegisterReportRoutes(router, metricsHandler)
-		metrics.RegisterQueryRoutes(operatorRoutes, metricsHandler)
+		metrics.RegisterAuthorizedQueryRoutes(operatorRoutes, metricsHandler)
 		// Background cleanup: delete metrics older than 30 days, run daily
 		metrics.StartCleanupJob(workerCtx, metricsRepo, 30, 24*time.Hour)
 		// Resource threshold CRUD (W3-B7)
@@ -132,19 +132,19 @@ func main() {
 		alertRuleRepo := alert.NewRuleRepositoryPG(pgDB)
 		alertRuleService := alert.NewRuleService(alertRuleRepo)
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
-		alert.RegisterAlertRuleRoutes(adminRoutes, alertRuleHandler)
+		alert.RegisterAuthorizedAlertRuleRoutes(adminRoutes, alertRuleHandler)
 		alert.RegisterAlertEventRoutes(operatorRoutes, alert.NewEventHandler(pgDB))
 
 		// Alert silence policy (W4-B6)
 		silenceSvc := alert.NewSilenceService(pgDB)
-		alert.RegisterSilenceRoutes(adminRoutes, alert.NewSilenceHandler(silenceSvc))
+		alert.RegisterAuthorizedSilenceRoutes(adminRoutes, alert.NewSilenceHandler(silenceSvc))
 
 		// Incident API
 		incidentRepo := incident.NewRepositoryPG(pgDB)
 		incidentTimeline := incident.NewTimelineStorePG(pgDB)
 		incidentService := incident.NewService(incidentRepo, incidentTimeline)
 		incidentHandler := incident.NewHandler(incidentService)
-		incident.RegisterIncidentRoutes(operatorRoutes, incidentHandler)
+		incident.RegisterAuthorizedIncidentRoutes(operatorRoutes, incidentHandler)
 
 		if isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "false")) {
 			evaluatorInterval := parseDurationEnv("ALERT_EVALUATOR_INTERVAL", 30*time.Second)
@@ -200,7 +200,7 @@ func main() {
 	if pgDB != nil {
 		channelRepo := notification.NewChannelRepository(pgDB)
 		smtpSender := notification.NewSMTPSender()
-		notification.RegisterChannelRoutes(adminRoutes, channelRepo, smtpSender)
+		notification.RegisterAuthorizedChannelRoutes(adminRoutes, channelRepo, smtpSender)
 	}
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {

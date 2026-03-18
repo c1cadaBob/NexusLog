@@ -735,6 +735,79 @@ func TestGetMeUsesAuthenticatedContext(t *testing.T) {
 	}
 }
 
+func TestGetMePrefersAuthenticatedAuthorizationSnapshot(t *testing.T) {
+	uid := uuid.New()
+	tenantID := uuid.New()
+	now := time.Now()
+	mock := &userRepoMock{
+		tenantExists: true,
+		getUser: &repository.UserRecord{
+			ID:          uid,
+			TenantID:    tenantID,
+			Username:    "alice",
+			Email:       "alice@example.com",
+			DisplayName: sql.NullString{String: "Alice", Valid: true},
+			Status:      "active",
+			LastLoginAt: sql.NullTime{},
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+		getUserRoles: []repository.RoleRecord{{
+			ID:          uuid.New(),
+			TenantID:    tenantID,
+			Name:        "viewer",
+			Description: sql.NullString{String: "Viewer", Valid: true},
+			Permissions: []byte(`[]`),
+		}},
+	}
+	h := NewUserHandler(service.NewUserService(mock))
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(contextKeyUserID, uid.String())
+		c.Set(contextKeyTenantID, tenantID.String())
+		c.Set(contextKeyUserPermissions, []string{"alerts:read"})
+		c.Set(contextKeyUserCapabilities, []string{"alert.rule.read"})
+		c.Set(contextKeyUserScopes, []string{"tenant"})
+		c.Set(contextKeyUserEntitlements, []string{"advanced_alerting"})
+		c.Set(contextKeyUserFeatureFlags, []string{"alert-rules-v2"})
+		c.Set(contextKeyUserAuthzEpoch, int64(9))
+		c.Set(contextKeyUserActorFlags, map[string]bool{"interactive_login_allowed": true, "reserved": false})
+		c.Next()
+	})
+	router.GET("/api/v1/users/me", h.GetMe)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing data payload: %#v", body)
+	}
+	permissions, ok := data["permissions"].([]any)
+	if !ok || len(permissions) != 1 || permissions[0] != "alerts:read" {
+		t.Fatalf("unexpected permissions payload: %#v", data["permissions"])
+	}
+	capabilities, ok := data["capabilities"].([]any)
+	if !ok || len(capabilities) != 1 || capabilities[0] != "alert.rule.read" {
+		t.Fatalf("unexpected capabilities payload: %#v", data["capabilities"])
+	}
+	if data["authz_epoch"] != float64(9) {
+		t.Fatalf("unexpected authz_epoch payload: %#v", data["authz_epoch"])
+	}
+}
+
 func TestGetMeRejectsSpoofedUserHeaderWithoutAuthContext(t *testing.T) {
 	h := NewUserHandler(service.NewUserService(&userRepoMock{tenantExists: true}))
 	router := setupUserRouter(h)

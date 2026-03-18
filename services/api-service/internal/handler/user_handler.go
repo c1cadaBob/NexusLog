@@ -449,6 +449,15 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		httpx.Error(c, apiErr)
 		return
 	}
+	if hasAuthenticatedAuthorizationSnapshot(c) {
+		resp.Permissions = authenticatedPermissions(c)
+		resp.Capabilities = authenticatedCapabilities(c)
+		resp.Scopes = authenticatedScopes(c)
+		resp.Entitlements = authenticatedEntitlements(c)
+		resp.FeatureFlags = authenticatedFeatureFlags(c)
+		resp.AuthzEpoch = authenticatedAuthzEpoch(c)
+		resp.ActorFlags = authenticatedActorFlags(c)
+	}
 	httpx.Success(c, http.StatusOK, resp)
 }
 

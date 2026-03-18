@@ -20,6 +20,10 @@ func authenticatedUserID(c *gin.Context) string {
 	return strings.TrimSpace(c.GetString(contextKeyUserID))
 }
 
+func authenticatedPermissions(c *gin.Context) []string {
+	return authenticatedStringSlice(c, contextKeyUserPermissions)
+}
+
 func authenticatedCapabilities(c *gin.Context) []string {
 	return authenticatedStringSlice(c, contextKeyUserCapabilities)
 }
@@ -67,6 +71,14 @@ func authenticatedActorFlags(c *gin.Context) map[string]bool {
 		copied[key] = enabled
 	}
 	return copied
+}
+
+func hasAuthenticatedAuthorizationSnapshot(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	_, exists := c.Get(contextKeyUserPermissions)
+	return exists
 }
 
 func authenticatedStringSlice(c *gin.Context, key string) []string {

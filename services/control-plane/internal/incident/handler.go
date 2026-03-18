@@ -49,6 +49,24 @@ func RegisterIncidentRoutes(router gin.IRouter, handler *Handler) {
 	}
 }
 
+// RegisterAuthorizedIncidentRoutes registers incident routes with capability guards.
+func RegisterAuthorizedIncidentRoutes(router gin.IRouter, handler *Handler) {
+	g := router.Group("/api/v1/incidents")
+	{
+		g.GET("", cpMiddleware.RequireCapability("incident.read"), handler.ListIncidents)
+		g.GET("/sla/summary", cpMiddleware.RequireCapability("incident.sla.read"), handler.GetSLASummary)
+		g.GET("/:id", cpMiddleware.RequireCapability("incident.read"), handler.GetIncident)
+		g.POST("", cpMiddleware.RequireCapability("incident.create"), handler.CreateIncident)
+		g.PUT("/:id", cpMiddleware.RequireCapability("incident.update"), handler.UpdateIncident)
+		g.POST("/:id/archive", cpMiddleware.RequireCapability("incident.archive"), handler.ArchiveIncident)
+		g.POST("/:id/acknowledge", cpMiddleware.RequireCapability("incident.update"), handler.Acknowledge)
+		g.POST("/:id/investigate", cpMiddleware.RequireCapability("incident.update"), handler.Investigate)
+		g.POST("/:id/resolve", cpMiddleware.RequireCapability("incident.update"), handler.Resolve)
+		g.POST("/:id/close", cpMiddleware.RequireCapability("incident.close"), handler.Close)
+		g.GET("/:id/timeline", cpMiddleware.RequireCapability("incident.timeline.read"), handler.GetTimeline)
+	}
+}
+
 // ListIncidents handles GET /api/v1/incidents.
 func (h *Handler) ListIncidents(c *gin.Context) {
 	tenantID := getTenantID(c)

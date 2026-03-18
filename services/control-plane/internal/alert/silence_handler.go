@@ -32,6 +32,17 @@ func RegisterSilenceRoutes(router gin.IRouter, h *SilenceHandler) {
 	}
 }
 
+// RegisterAuthorizedSilenceRoutes registers silence routes with capability guards.
+func RegisterAuthorizedSilenceRoutes(router gin.IRouter, h *SilenceHandler) {
+	g := router.Group("/api/v1/alert/silences")
+	{
+		g.GET("", cpMiddleware.RequireCapability("alert.silence.read"), h.ListSilences)
+		g.POST("", cpMiddleware.RequireCapability("alert.silence.create"), h.CreateSilence)
+		g.PUT("/:id", cpMiddleware.RequireCapability("alert.silence.update"), h.UpdateSilence)
+		g.DELETE("/:id", cpMiddleware.RequireCapability("alert.silence.delete"), h.DeleteSilence)
+	}
+}
+
 // ListSilences GET /api/v1/alert/silences
 func (h *SilenceHandler) ListSilences(c *gin.Context) {
 	tenantID := strings.TrimSpace(getTenantID(c))

@@ -69,6 +69,18 @@ func RegisterChannelRoutes(router gin.IRouter, repo *ChannelRepository, sender *
 	g.POST("/:id/test", h.TestChannel)
 }
 
+// RegisterAuthorizedChannelRoutes registers notification channel routes with capability guards.
+func RegisterAuthorizedChannelRoutes(router gin.IRouter, repo *ChannelRepository, sender *SMTPSender) {
+	h := NewChannelHandler(repo, sender)
+	g := router.Group("/api/v1/notification/channels")
+	g.GET("", cpMiddleware.RequireCapability("notification.channel.read_metadata"), h.ListChannels)
+	g.GET("/:id", cpMiddleware.RequireCapability("notification.channel.read_metadata"), h.GetChannel)
+	g.POST("", cpMiddleware.RequireCapability("notification.channel.create"), h.CreateChannel)
+	g.PUT("/:id", cpMiddleware.RequireCapability("notification.channel.update"), h.UpdateChannel)
+	g.DELETE("/:id", cpMiddleware.RequireCapability("notification.channel.delete"), h.DeleteChannel)
+	g.POST("/:id/test", cpMiddleware.RequireCapability("notification.channel.test"), h.TestChannel)
+}
+
 func sanitizeNotificationValidationError(err error, fallback string) string {
 	if err == nil {
 		return fallback
