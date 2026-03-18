@@ -501,6 +501,82 @@ func TestAuthRequired_InjectsAuthorizationSnapshot(t *testing.T) {
 	}
 }
 
+func TestRequireCapability_FailsClosedWhenAuthorizationUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequireCapability("iam.user.read"))
+	router.GET("/protected", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/protected", nil))
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["code"] != "AUTHORIZATION_UNAVAILABLE" {
+		t.Fatalf("expected AUTHORIZATION_UNAVAILABLE, got %v", body["code"])
+	}
+}
+
+func TestRequireScope_AllowsExactScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(contextKeyAuthorizationReady, true)
+		c.Set(contextKeyUserScopes, []string{"owned", "tenant"})
+		c.Next()
+	})
+	router.Use(RequireScope("tenant"))
+	router.GET("/protected", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/protected", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRequireScope_RejectsInsufficientScopes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(contextKeyAuthorizationReady, true)
+		c.Set(contextKeyUserScopes, []string{"owned"})
+		c.Next()
+	})
+	router.Use(RequireScope("tenant"))
+	router.GET("/protected", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/protected", nil))
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body["message"] != "insufficient scopes" {
+		t.Fatalf("unexpected message: %v", body["message"])
+	}
+}
+
+func TestRequireScope_FailsClosedWhenAuthorizationUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequireScope("tenant"))
+	router.GET("/protected", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/protected", nil))
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestRequireCapability_UsesCompatibilityMappingAndDeniesMissingCapability(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()

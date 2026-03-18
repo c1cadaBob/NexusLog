@@ -767,6 +767,7 @@ func TestGetMePrefersAuthenticatedAuthorizationSnapshot(t *testing.T) {
 	router.Use(func(c *gin.Context) {
 		c.Set(contextKeyUserID, uid.String())
 		c.Set(contextKeyTenantID, tenantID.String())
+		c.Set(contextKeyAuthorizationReady, true)
 		c.Set(contextKeyUserPermissions, []string{"alerts:read"})
 		c.Set(contextKeyUserCapabilities, []string{"alert.rule.read"})
 		c.Set(contextKeyUserScopes, []string{"tenant"})

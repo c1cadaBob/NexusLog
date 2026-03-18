@@ -244,7 +244,7 @@
 
 | 文件 | 当前职责 | 需要改动 |
 |---|---|---|
-| `services/api-service/internal/handler/auth_middleware.go` | API-service JWT 鉴权与 `RequirePermission` | 在不破坏现有 `RequirePermission` 的前提下新增 `RequireCapability` / `RequireScope`；允许先从 `permissions` + compatibility mapping 判定，再逐步切到 capability binding |
+| `services/api-service/internal/handler/auth_middleware.go` | API-service JWT 鉴权与 `RequirePermission` | 已新增 `RequireCapability` / `RequireScope` 与 `authorization_ready` fail-closed 语义；后续继续从 `permissions` + compatibility mapping 逐步切到 capability binding |
 | `services/api-service/internal/handler/identity_context.go` | 读出 `tenant_id/user_id/permissions` | 增加 `AuthenticatedCapabilities()`、`AuthenticatedScopes()`、`AuthenticatedAuthzEpoch()`、`AuthenticatedActorFlags()` |
 | `services/api-service/internal/service/authorization_context_service.go` | 当前在内存中维护 `legacyPermissionCapabilityAliases` / `legacyPermissionScopes`，作为 `/users/me` 的能力事实源 | 改为优先读取正式 `legacy_permission_mapping`、`role_capability_binding`、`subject_reserved_policy`；移除 `users:write -> auth.login_policy.* / settings.* / ingest.* / integration.*` 这类前端借权能力扩张 |
 | `services/api-service/internal/service/authorization_context_service_test.go` | `/users/me` 授权上下文单测 | 补约束性测试：`users:write` 仅映射 IAM 写能力，不再隐式命中登录策略、系统设置、采集、Webhook、插件市场等 capability |

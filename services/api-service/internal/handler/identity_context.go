@@ -74,11 +74,7 @@ func authenticatedActorFlags(c *gin.Context) map[string]bool {
 }
 
 func hasAuthenticatedAuthorizationSnapshot(c *gin.Context) bool {
-	if c == nil {
-		return false
-	}
-	_, exists := c.Get(contextKeyUserPermissions)
-	return exists
+	return isAuthorizationReady(c)
 }
 
 func authenticatedStringSlice(c *gin.Context, key string) []string {

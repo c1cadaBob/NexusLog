@@ -63,16 +63,20 @@ func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
 
 	userV1 := protected.Group("/users")
 	userV1.GET("/me", userHandler.GetMe)
-	userV1.GET("", handler.RequireCapability("iam.user.read"), userHandler.List)
-	userV1.POST("/batch/status", handler.RequireCapability("iam.user.update_status"), userHandler.BatchUpdateStatus)
-	userV1.GET("/:id", handler.RequireCapability("iam.user.read"), userHandler.Get)
-	userV1.POST("", handler.RequireCapability("iam.user.create"), userHandler.Create)
-	userV1.PUT("/:id", handler.RequireCapability("iam.user.update_profile"), userHandler.Update)
-	userV1.DELETE("/:id", handler.RequireCapability("iam.user.delete"), userHandler.Delete)
-	userV1.POST("/:id/roles", handler.RequireCapability("iam.user.grant_role"), userHandler.AssignRole)
-	userV1.DELETE("/:id/roles/:roleId", handler.RequireCapability("iam.user.revoke_role"), userHandler.RemoveRole)
+
+	tenantScopedUsers := userV1.Group("")
+	tenantScopedUsers.Use(handler.RequireScope("tenant"))
+	tenantScopedUsers.GET("", handler.RequireCapability("iam.user.read"), userHandler.List)
+	tenantScopedUsers.POST("/batch/status", handler.RequireCapability("iam.user.update_status"), userHandler.BatchUpdateStatus)
+	tenantScopedUsers.GET("/:id", handler.RequireCapability("iam.user.read"), userHandler.Get)
+	tenantScopedUsers.POST("", handler.RequireCapability("iam.user.create"), userHandler.Create)
+	tenantScopedUsers.PUT("/:id", handler.RequireCapability("iam.user.update_profile"), userHandler.Update)
+	tenantScopedUsers.DELETE("/:id", handler.RequireCapability("iam.user.delete"), userHandler.Delete)
+	tenantScopedUsers.POST("/:id/roles", handler.RequireCapability("iam.user.grant_role"), userHandler.AssignRole)
+	tenantScopedUsers.DELETE("/:id/roles/:roleId", handler.RequireCapability("iam.user.revoke_role"), userHandler.RemoveRole)
 
 	roleV1 := protected.Group("/roles")
+	roleV1.Use(handler.RequireScope("tenant"))
 	roleV1.GET("", handler.RequireCapability("iam.role.read"), userHandler.ListRoles)
 }
 

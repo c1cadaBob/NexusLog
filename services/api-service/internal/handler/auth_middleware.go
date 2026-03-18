@@ -18,16 +18,17 @@ import (
 )
 
 const (
-	contextKeyUserID           = "user_id"
-	contextKeyTenantID         = "tenant_id"
-	contextKeyUserRoles        = "user_roles"
-	contextKeyUserPermissions  = "user_permissions"
-	contextKeyUserCapabilities = "user_capabilities"
-	contextKeyUserScopes       = "user_scopes"
-	contextKeyUserEntitlements = "user_entitlements"
-	contextKeyUserFeatureFlags = "user_feature_flags"
-	contextKeyUserAuthzEpoch   = "user_authz_epoch"
-	contextKeyUserActorFlags   = "user_actor_flags"
+	contextKeyUserID             = "user_id"
+	contextKeyTenantID           = "tenant_id"
+	contextKeyAuthorizationReady = "authorization_ready"
+	contextKeyUserRoles          = "user_roles"
+	contextKeyUserPermissions    = "user_permissions"
+	contextKeyUserCapabilities   = "user_capabilities"
+	contextKeyUserScopes         = "user_scopes"
+	contextKeyUserEntitlements   = "user_entitlements"
+	contextKeyUserFeatureFlags   = "user_feature_flags"
+	contextKeyUserAuthzEpoch     = "user_authz_epoch"
+	contextKeyUserActorFlags     = "user_actor_flags"
 )
 
 // AuthRequired validates JWT token and sets user context.
@@ -172,6 +173,7 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 
 		c.Set(contextKeyUserID, claims.UserID)
 		c.Set(contextKeyTenantID, claims.TenantID)
+		c.Set(contextKeyAuthorizationReady, true)
 		c.Set(contextKeyUserRoles, roleNames)
 		c.Set(contextKeyUserPermissions, permissions)
 		c.Set(contextKeyUserCapabilities, authorizationContext.Capabilities)
@@ -184,6 +186,7 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 		requestContext := c.Request.Context()
 		requestContext = context.WithValue(requestContext, contextKeyUserID, claims.UserID)
 		requestContext = context.WithValue(requestContext, contextKeyTenantID, claims.TenantID)
+		requestContext = context.WithValue(requestContext, contextKeyAuthorizationReady, true)
 		requestContext = context.WithValue(requestContext, contextKeyUserRoles, roleNames)
 		requestContext = context.WithValue(requestContext, contextKeyUserPermissions, permissions)
 		requestContext = context.WithValue(requestContext, contextKeyUserCapabilities, authorizationContext.Capabilities)
@@ -203,57 +206,58 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 
 // RequirePermission checks if the authenticated user has the required permission.
 func RequirePermission(permission string) gin.HandlerFunc {
+	required := strings.TrimSpace(permission)
 	return func(c *gin.Context) {
-		permissions, ok := readContextStringSlice(c, contextKeyUserPermissions)
-		if !ok {
-			httpx.Error(c, &model.APIError{
-				HTTPStatus: http.StatusForbidden,
-				Code:       "FORBIDDEN",
-				Message:    "permission check failed: auth context missing",
-			})
-			c.Abort()
+		if !isAuthorizationReady(c) {
+			writeAuthorizationUnavailable(c)
 			return
 		}
 
-		if hasAuthorizationValue(permissions, permission) {
+		permissions, _ := readContextStringSlice(c, contextKeyUserPermissions)
+		if hasAuthorizationValue(permissions, required) {
 			c.Next()
 			return
 		}
 
-		httpx.Error(c, &model.APIError{
-			HTTPStatus: http.StatusForbidden,
-			Code:       "FORBIDDEN",
-			Message:    "insufficient permissions",
-		})
-		c.Abort()
+		writeAuthorizationForbidden(c, "insufficient permissions")
 	}
 }
 
 // RequireCapability checks if the authenticated user has the required capability.
 func RequireCapability(capability string) gin.HandlerFunc {
+	required := strings.TrimSpace(capability)
 	return func(c *gin.Context) {
-		capabilities, ok := readContextStringSlice(c, contextKeyUserCapabilities)
-		if !ok {
-			httpx.Error(c, &model.APIError{
-				HTTPStatus: http.StatusForbidden,
-				Code:       "FORBIDDEN",
-				Message:    "capability check failed: auth context missing",
-			})
-			c.Abort()
+		if !isAuthorizationReady(c) {
+			writeAuthorizationUnavailable(c)
 			return
 		}
 
-		if hasAuthorizationValue(capabilities, capability) {
+		capabilities, _ := readContextStringSlice(c, contextKeyUserCapabilities)
+		if hasAuthorizationValue(capabilities, required) {
 			c.Next()
 			return
 		}
 
-		httpx.Error(c, &model.APIError{
-			HTTPStatus: http.StatusForbidden,
-			Code:       "FORBIDDEN",
-			Message:    "insufficient capabilities",
-		})
-		c.Abort()
+		writeAuthorizationForbidden(c, "insufficient capabilities")
+	}
+}
+
+// RequireScope checks if the authenticated user has the required authorization scope.
+func RequireScope(scope string) gin.HandlerFunc {
+	required := strings.TrimSpace(scope)
+	return func(c *gin.Context) {
+		if !isAuthorizationReady(c) {
+			writeAuthorizationUnavailable(c)
+			return
+		}
+
+		scopes, _ := readContextStringSlice(c, contextKeyUserScopes)
+		if hasAuthorizationValue(scopes, required) {
+			c.Next()
+			return
+		}
+
+		writeAuthorizationForbidden(c, "insufficient scopes")
 	}
 }
 
@@ -270,6 +274,36 @@ func readContextStringSlice(c *gin.Context, key string) ([]string, bool) {
 		return nil, false
 	}
 	return items, true
+}
+
+func isAuthorizationReady(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	value, exists := c.Get(contextKeyAuthorizationReady)
+	if !exists {
+		return false
+	}
+	ready, ok := value.(bool)
+	return ok && ready
+}
+
+func writeAuthorizationUnavailable(c *gin.Context) {
+	httpx.Error(c, &model.APIError{
+		HTTPStatus: http.StatusServiceUnavailable,
+		Code:       "AUTHORIZATION_UNAVAILABLE",
+		Message:    "authorization backend unavailable",
+	})
+	c.Abort()
+}
+
+func writeAuthorizationForbidden(c *gin.Context, message string) {
+	httpx.Error(c, &model.APIError{
+		HTTPStatus: http.StatusForbidden,
+		Code:       "FORBIDDEN",
+		Message:    strings.TrimSpace(message),
+	})
+	c.Abort()
 }
 
 func hasAuthorizationValue(values []string, required string) bool {

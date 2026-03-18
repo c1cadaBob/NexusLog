@@ -114,6 +114,45 @@ func TestRegisterRoutes_UserCreateRejectsMissingCapability(t *testing.T) {
 	}
 }
 
+func TestRegisterRoutes_UserCreateRejectsOwnedOnlyScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken := mustIssueRouteAccessToken(t, userID, tenantID, db, mock, "owned-writer", []string{"iam.user.create", "owned"})
+
+	router := gin.New()
+	registerRoutes(router, db, routeTestJWTSecret)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"username":`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["message"] != "insufficient scopes" {
+		t.Fatalf("unexpected message: %v", body["message"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestRegisterRoutes_RoleListAllowsDirectCapabilityWithoutLegacyPermission(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -147,6 +186,44 @@ func TestRegisterRoutes_RoleListAllowsDirectCapabilityWithoutLegacyPermission(t 
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestRegisterRoutes_RoleListRejectsOwnedOnlyScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken := mustIssueRouteAccessToken(t, userID, tenantID, db, mock, "owned-role-reader", []string{"iam.role.read", "owned"})
+
+	router := gin.New()
+	registerRoutes(router, db, routeTestJWTSecret)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/roles", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["message"] != "insufficient scopes" {
+		t.Fatalf("unexpected message: %v", body["message"])
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
