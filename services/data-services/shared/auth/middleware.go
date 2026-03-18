@@ -66,17 +66,20 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 				writeAuthError(c, http.StatusUnauthorized, "session is revoked or expired")
 				return
 			}
-			permissions, err := loadUserPermissions(c.Request.Context(), db, tenantID, userID)
+			authzRecord, err := loadAuthorizationContext(c.Request.Context(), db, tenantID, userID)
 			if err != nil {
 				writeAuthError(c, http.StatusInternalServerError, "failed to load permissions")
 				return
 			}
-			globalLogAccess, err = loadGlobalLogAccess(c.Request.Context(), db, tenantID, userID)
-			if err != nil {
-				writeAuthError(c, http.StatusInternalServerError, "failed to load authorization scope")
-				return
-			}
-			c.Set(string(contextKeyUserPermissions), permissions)
+			c.Set(string(contextKeyUserPermissions), authzRecord.Permissions)
+			c.Set(string(contextKeyUserRoles), authzRecord.Roles)
+			c.Set(string(contextKeyUserCapabilities), authzRecord.Snapshot.Capabilities)
+			c.Set(string(contextKeyUserScopes), authzRecord.Snapshot.Scopes)
+			c.Set(string(contextKeyUserEntitlements), authzRecord.Snapshot.Entitlements)
+			c.Set(string(contextKeyUserFeatureFlags), authzRecord.Snapshot.FeatureFlags)
+			c.Set(string(contextKeyUserAuthzEpoch), authzRecord.Snapshot.AuthzEpoch)
+			c.Set(string(contextKeyUserActorFlags), authzRecord.Snapshot.ActorFlags)
+			globalLogAccess = canBypassTenantScope(authzRecord.Snapshot)
 			authorizationReady = true
 		}
 

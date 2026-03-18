@@ -45,7 +45,7 @@ func main() {
 		r.Use(sharedauth.RequireAuthenticatedIdentity(db, jwtSecret))
 		v1 := r.Group("/api/v1/audit", sharedauth.RequirePermission("audit:read"))
 		{
-			v1.GET("/logs", auditHandler.ListAuditLogs)
+			v1.GET("/logs", sharedauth.RequireCapability("audit.log.read"), auditHandler.ListAuditLogs)
 		}
 	})
 }

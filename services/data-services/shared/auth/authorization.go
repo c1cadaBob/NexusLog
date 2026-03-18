@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -14,53 +15,63 @@ const (
 	contextKeyUserPermissions    contextKey = "user_permissions"
 	contextKeyAuthorizationReady contextKey = "authorization_ready"
 	contextKeyGlobalLogAccess    contextKey = "global_log_access"
+	contextKeyUserRoles          contextKey = "user_roles"
+	contextKeyUserCapabilities   contextKey = "user_capabilities"
+	contextKeyUserScopes         contextKey = "user_scopes"
+	contextKeyUserEntitlements   contextKey = "user_entitlements"
+	contextKeyUserFeatureFlags   contextKey = "user_feature_flags"
+	contextKeyUserAuthzEpoch     contextKey = "user_authz_epoch"
+	contextKeyUserActorFlags     contextKey = "user_actor_flags"
 )
 
-const userPermissionsQuery = `
-	SELECT r.permissions
-	FROM roles r
-	JOIN user_roles ur ON ur.role_id = r.id
-	JOIN users u ON u.id = ur.user_id
+const authorizationContextQuery = `
+	SELECT u.username, COALESCE(r.name, ''), COALESCE(r.permissions, '[]'::jsonb)
+	FROM users u
+	LEFT JOIN user_roles ur ON ur.user_id = u.id
+	LEFT JOIN roles r ON r.id = ur.role_id AND r.tenant_id = u.tenant_id
 	WHERE u.id = $1::uuid
 	  AND u.tenant_id = $2::uuid
 	  AND u.status = 'active'
-	  AND r.tenant_id = $2::uuid
 `
 
-const globalLogAccessQuery = `
-	SELECT EXISTS(
-		SELECT 1
-		FROM users u
-		JOIN user_roles ur ON ur.user_id = u.id
-		JOIN roles r ON r.id = ur.role_id
-		WHERE u.id = $1::uuid
-		  AND u.tenant_id = $2::uuid
-		  AND u.status = 'active'
-		  AND LOWER(u.username) = 'sys-superadmin'
-		  AND r.tenant_id = $2::uuid
-		  AND LOWER(r.name) = 'super_admin'
-	)
-`
+type authorizationContextRecord struct {
+	Username    string
+	Roles       []string
+	Permissions []string
+	Snapshot    AuthorizationContextSnapshot
+}
 
-func loadUserPermissions(ctx context.Context, db *sql.DB, tenantID, userID string) ([]string, error) {
+func loadAuthorizationContext(ctx context.Context, db *sql.DB, tenantID, userID string) (authorizationContextRecord, error) {
 	if db == nil {
-		return nil, nil
+		return authorizationContextRecord{}, nil
 	}
-	rows, err := db.QueryContext(ctx, userPermissionsQuery, userID, tenantID)
+	rows, err := db.QueryContext(ctx, authorizationContextQuery, userID, tenantID)
 	if err != nil {
-		return nil, err
+		return authorizationContextRecord{}, err
 	}
 	defer rows.Close()
 
 	permissionSet := make(map[string]struct{})
+	roleSet := make(map[string]struct{})
+	username := ""
 	for rows.Next() {
-		var raw []byte
-		if err := rows.Scan(&raw); err != nil {
-			return nil, err
+		var (
+			rowUsername    string
+			rowRoleName    string
+			rawPermissions []byte
+		)
+		if err := rows.Scan(&rowUsername, &rowRoleName, &rawPermissions); err != nil {
+			return authorizationContextRecord{}, err
 		}
-		permissions, err := parsePermissions(raw)
+		if username == "" {
+			username = strings.TrimSpace(rowUsername)
+		}
+		if trimmedRole := strings.TrimSpace(rowRoleName); trimmedRole != "" {
+			roleSet[trimmedRole] = struct{}{}
+		}
+		permissions, err := parsePermissions(rawPermissions)
 		if err != nil {
-			return nil, err
+			return authorizationContextRecord{}, err
 		}
 		for _, permission := range permissions {
 			trimmed := strings.TrimSpace(permission)
@@ -71,14 +82,27 @@ func loadUserPermissions(ctx context.Context, db *sql.DB, tenantID, userID strin
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return authorizationContextRecord{}, err
 	}
 
 	permissions := make([]string, 0, len(permissionSet))
 	for permission := range permissionSet {
 		permissions = append(permissions, permission)
 	}
-	return permissions, nil
+	sort.Strings(permissions)
+
+	roles := make([]string, 0, len(roleSet))
+	for role := range roleSet {
+		roles = append(roles, role)
+	}
+	sort.Strings(roles)
+
+	return authorizationContextRecord{
+		Username:    strings.TrimSpace(username),
+		Roles:       roles,
+		Permissions: permissions,
+		Snapshot:    BuildAuthorizationContext(username, roles, permissions),
+	}, nil
 }
 
 func parsePermissions(raw []byte) ([]string, error) {
@@ -90,17 +114,6 @@ func parsePermissions(raw []byte) ([]string, error) {
 		return nil, err
 	}
 	return result, nil
-}
-
-func loadGlobalLogAccess(ctx context.Context, db *sql.DB, tenantID, userID string) (bool, error) {
-	if db == nil {
-		return false, nil
-	}
-	var allowed bool
-	if err := db.QueryRowContext(ctx, globalLogAccessQuery, userID, tenantID).Scan(&allowed); err != nil {
-		return false, err
-	}
-	return allowed, nil
 }
 
 func RequirePermission(permission string) gin.HandlerFunc {
@@ -119,7 +132,7 @@ func RequirePermission(permission string) gin.HandlerFunc {
 
 		permissionsValue, _ := c.Get(string(contextKeyUserPermissions))
 		permissions, _ := permissionsValue.([]string)
-		if hasPermission(permissions, required) {
+		if hasAuthorizationValue(permissions, required) {
 			c.Next()
 			return
 		}
@@ -127,9 +140,33 @@ func RequirePermission(permission string) gin.HandlerFunc {
 	}
 }
 
-func hasPermission(permissions []string, required string) bool {
-	for _, permission := range permissions {
-		if permission == "*" || permission == required {
+func RequireCapability(capability string) gin.HandlerFunc {
+	required := strings.TrimSpace(capability)
+	return func(c *gin.Context) {
+		ready, ok := c.Get(string(contextKeyAuthorizationReady))
+		if !ok {
+			writeAuthorizationError(c, http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "authorization backend unavailable")
+			return
+		}
+		readyBool, ok := ready.(bool)
+		if !ok || !readyBool {
+			writeAuthorizationError(c, http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "authorization backend unavailable")
+			return
+		}
+
+		capabilitiesValue, _ := c.Get(string(contextKeyUserCapabilities))
+		capabilities, _ := capabilitiesValue.([]string)
+		if hasAuthorizationValue(capabilities, required) {
+			c.Next()
+			return
+		}
+		writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "insufficient capabilities")
+	}
+}
+
+func hasAuthorizationValue(values []string, required string) bool {
+	for _, value := range values {
+		if value == "*" || value == required {
 			return true
 		}
 	}

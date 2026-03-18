@@ -24,26 +24,63 @@ func AuthenticatedUserID(c *gin.Context) string {
 
 // AuthenticatedPermissions returns permissions loaded by the authentication middleware.
 func AuthenticatedPermissions(c *gin.Context) []string {
+	return authenticatedStringSlice(c, string(contextKeyUserPermissions))
+}
+
+// AuthenticatedCapabilities returns capabilities loaded by the authentication middleware.
+func AuthenticatedCapabilities(c *gin.Context) []string {
+	return authenticatedStringSlice(c, string(contextKeyUserCapabilities))
+}
+
+// AuthenticatedScopes returns scopes loaded by the authentication middleware.
+func AuthenticatedScopes(c *gin.Context) []string {
+	return authenticatedStringSlice(c, string(contextKeyUserScopes))
+}
+
+// AuthenticatedEntitlements returns entitlements loaded by the authentication middleware.
+func AuthenticatedEntitlements(c *gin.Context) []string {
+	return authenticatedStringSlice(c, string(contextKeyUserEntitlements))
+}
+
+// AuthenticatedFeatureFlags returns feature flags loaded by the authentication middleware.
+func AuthenticatedFeatureFlags(c *gin.Context) []string {
+	return authenticatedStringSlice(c, string(contextKeyUserFeatureFlags))
+}
+
+// AuthenticatedAuthzEpoch returns authz version loaded by the authentication middleware.
+func AuthenticatedAuthzEpoch(c *gin.Context) int64 {
 	if c == nil {
-		return nil
+		return 0
 	}
-	value, ok := c.Get(string(contextKeyUserPermissions))
+	value, ok := c.Get(string(contextKeyUserAuthzEpoch))
 	if !ok {
-		return nil
+		return 0
 	}
-	permissions, ok := value.([]string)
+	epoch, ok := value.(int64)
 	if !ok {
-		return nil
+		return 0
 	}
-	result := make([]string, 0, len(permissions))
-	for _, permission := range permissions {
-		trimmed := strings.TrimSpace(permission)
-		if trimmed == "" {
-			continue
-		}
-		result = append(result, trimmed)
+	return epoch
+}
+
+// AuthenticatedActorFlags returns actor governance flags.
+func AuthenticatedActorFlags(c *gin.Context) map[string]bool {
+	if c == nil {
+		return map[string]bool{}
 	}
-	return result
+	value, ok := c.Get(string(contextKeyUserActorFlags))
+	if !ok {
+		return map[string]bool{}
+	}
+	flags, ok := value.(map[string]bool)
+	if !ok {
+		return map[string]bool{}
+	}
+	copied := make(map[string]bool, len(flags))
+	for key, enabled := range flags {
+		copied[key] = enabled
+	}
+	return copied
 }
 
 // AuthenticatedGlobalLogAccess returns whether the authenticated actor may read logs across tenants.
@@ -60,4 +97,27 @@ func AuthenticatedGlobalLogAccess(c *gin.Context) bool {
 		return false
 	}
 	return allowed
+}
+
+func authenticatedStringSlice(c *gin.Context, key string) []string {
+	if c == nil {
+		return []string{}
+	}
+	value, ok := c.Get(key)
+	if !ok {
+		return []string{}
+	}
+	items, ok := value.([]string)
+	if !ok {
+		return []string{}
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
 }

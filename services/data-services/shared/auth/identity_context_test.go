@@ -36,26 +36,31 @@ func TestAuthenticatedUserIDIgnoresHeadersWithoutContext(t *testing.T) {
 	}
 }
 
-func TestAuthenticatedPermissionsUsesContextOnly(t *testing.T) {
+func TestAuthenticatedAuthorizationSnapshotUsesContextOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	c.Set(string(contextKeyUserPermissions), []string{"logs:read", "logs:export"})
-
-	permissions := AuthenticatedPermissions(c)
-	if len(permissions) != 2 {
-		t.Fatalf("AuthenticatedPermissions() = %#v, want 2 permissions", permissions)
-	}
-}
-
-func TestAuthenticatedGlobalLogAccessUsesContextOnly(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set(string(contextKeyUserCapabilities), []string{"log.query.read", "export.job.read"})
+	c.Set(string(contextKeyUserScopes), []string{"tenant", "owned"})
+	c.Set(string(contextKeyUserAuthzEpoch), int64(7))
+	c.Set(string(contextKeyUserActorFlags), map[string]bool{"reserved": true})
 	c.Set(string(contextKeyGlobalLogAccess), true)
 
+	permissions := AuthenticatedPermissions(c)
+	capabilities := AuthenticatedCapabilities(c)
+	scopes := AuthenticatedScopes(c)
+	actorFlags := AuthenticatedActorFlags(c)
+	if len(permissions) != 2 || len(capabilities) != 2 || len(scopes) != 2 {
+		t.Fatalf("unexpected snapshot: perms=%#v caps=%#v scopes=%#v", permissions, capabilities, scopes)
+	}
+	if AuthenticatedAuthzEpoch(c) != 7 {
+		t.Fatalf("AuthenticatedAuthzEpoch() = %d, want 7", AuthenticatedAuthzEpoch(c))
+	}
+	if !actorFlags["reserved"] {
+		t.Fatalf("AuthenticatedActorFlags() = %#v, want reserved=true", actorFlags)
+	}
 	if !AuthenticatedGlobalLogAccess(c) {
 		t.Fatal("AuthenticatedGlobalLogAccess() = false, want true")
 	}
