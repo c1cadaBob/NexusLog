@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/nexuslog/api-service/internal/httpx"
 	"github.com/nexuslog/api-service/internal/model"
@@ -34,6 +35,7 @@ const (
 // AuthRequired validates JWT token and sets user context.
 func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 	authService := service.NewAuthService(nil, jwtSecret)
+	authRepo := repository.NewAuthRepository(db)
 	userRepo := repository.NewUserRepository(db)
 
 	return func(c *gin.Context) {
@@ -161,6 +163,17 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 		sort.Strings(permissions)
 
 		authorizationContext := service.BuildAuthorizationContext(userRecord.Username, roleNames, permissions)
+		policy, err := authRepo.GetReservedSubjectPolicy(c.Request.Context(), parseUUIDOrNil(claims.TenantID), userRecord.Username)
+		if err != nil {
+			httpx.Error(c, &model.APIError{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       "INTERNAL_ERROR",
+				Message:    "failed to load reserved subject policy",
+			})
+			c.Abort()
+			return
+		}
+		authorizationContext = service.ApplyReservedSubjectPolicyForMiddleware(authorizationContext, policy)
 		if !isInteractiveAccessAllowed(authorizationContext.ActorFlags) {
 			httpx.Error(c, &model.APIError{
 				HTTPStatus: http.StatusForbidden,
@@ -332,6 +345,14 @@ func parsePermissions(raw []byte) []string {
 		return nil
 	}
 	return arr
+}
+
+func parseUUIDOrNil(raw string) uuid.UUID {
+	parsed, err := uuid.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return uuid.Nil
+	}
+	return parsed
 }
 
 func isAccessTokenSessionActive(ctx context.Context, db *sql.DB, tenantID, userID, accessTokenJTI string) (bool, error) {

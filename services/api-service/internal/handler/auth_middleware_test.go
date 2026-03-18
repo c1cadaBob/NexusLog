@@ -647,6 +647,12 @@ func TestAuthRequired_RejectsSystemAutomationInteractiveAccess(t *testing.T) {
 	roleRows := sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
 		AddRow(uuid.New(), tenantID, "system_automation", nil, automationPerms)
 	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").WithArgs(tenantID, userID).WillReturnRows(roleRows)
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, "system-automation").
+		WillReturnRows(
+			sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}).
+				AddRow(true, false, true, false, "test"),
+		)
 
 	router := gin.New()
 	router.Use(AuthRequired(db, testJWTSecret))

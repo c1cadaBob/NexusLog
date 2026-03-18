@@ -34,6 +34,7 @@ type authRepository interface {
 	CheckTenantExists(ctx context.Context, tenantID uuid.UUID) (bool, error)
 	RegisterUser(ctx context.Context, input repository.RegisterUserInput) (uuid.UUID, string, error)
 	GetLoginUserByUsername(ctx context.Context, tenantID uuid.UUID, username string) (repository.LoginUserRecord, error)
+	GetReservedSubjectPolicy(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, error)
 	FindUserByEmailOrUsername(ctx context.Context, tenantID uuid.UUID, identifier string) (repository.UserIdentityRecord, error)
 	GetRefreshTokenUser(ctx context.Context, tenantID uuid.UUID, refreshToken string) (repository.UserIdentityRecord, error)
 	CreatePasswordResetToken(
@@ -266,6 +267,15 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 	}
 
 	loginContext := BuildAuthorizationContext(userRec.Username, nil, nil)
+	policy, err := s.repo.GetReservedSubjectPolicy(ctx, tenantID, userRec.Username)
+	if err != nil {
+		return model.LoginResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_LOGIN_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+	loginContext = applyReservedSubjectPolicy(loginContext, policy)
 	if !loginContext.ActorFlags["interactive_login_allowed"] {
 		uid := userRec.UserID
 		_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
@@ -342,6 +352,15 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 		}
 	}
 	refreshContext := BuildAuthorizationContext(refreshUser.Username, nil, nil)
+	policy, err := s.repo.GetReservedSubjectPolicy(ctx, tenantID, refreshUser.Username)
+	if err != nil {
+		return model.RefreshResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       model.ErrorCodeAuthRefreshInternalError,
+			Message:    "internal error",
+		}
+	}
+	refreshContext = applyReservedSubjectPolicy(refreshContext, policy)
 	if !refreshContext.ActorFlags["interactive_login_allowed"] {
 		return model.RefreshResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusForbidden,

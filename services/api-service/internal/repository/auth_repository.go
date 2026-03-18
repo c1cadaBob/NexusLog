@@ -52,6 +52,16 @@ type UserIdentityRecord struct {
 	Status   string
 }
 
+// ReservedSubjectPolicyRecord defines reserved-subject governance facts.
+type ReservedSubjectPolicyRecord struct {
+	Reserved                bool
+	InteractiveLoginAllowed bool
+	SystemSubject           bool
+	BreakGlassAllowed       bool
+	ManagedBy               string
+	Found                   bool
+}
+
 // CreateSessionInput defines input for creating user session.
 type CreateSessionInput struct {
 	TenantID       uuid.UUID
@@ -188,6 +198,45 @@ func (r *AuthRepository) GetLoginUserByUsername(ctx context.Context, tenantID uu
 	if rec.Status != "active" {
 		return LoginUserRecord{}, ErrInvalidCredentials
 	}
+	return rec, nil
+}
+
+func (r *AuthRepository) GetReservedSubjectPolicy(ctx context.Context, tenantID uuid.UUID, username string) (ReservedSubjectPolicyRecord, error) {
+	if r == nil || r.db == nil {
+		return ReservedSubjectPolicyRecord{}, nil
+	}
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername != "sys-superadmin" && normalizedUsername != "system-automation" {
+		return ReservedSubjectPolicyRecord{}, nil
+	}
+	const q = `
+		SELECT reserved, interactive_login_allowed, system_subject, break_glass_allowed, COALESCE(managed_by, '')
+		FROM subject_reserved_policy
+		WHERE tenant_id = $1
+		  AND subject_type = 'username'
+		  AND LOWER(subject_ref) = LOWER($2)
+		LIMIT 1
+	`
+
+	var rec ReservedSubjectPolicyRecord
+	if err := r.db.QueryRowContext(ctx, q, tenantID, normalizedUsername).Scan(
+		&rec.Reserved,
+		&rec.InteractiveLoginAllowed,
+		&rec.SystemSubject,
+		&rec.BreakGlassAllowed,
+		&rec.ManagedBy,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ReservedSubjectPolicyRecord{}, nil
+		}
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "42P01" {
+			return ReservedSubjectPolicyRecord{}, nil
+		}
+		return ReservedSubjectPolicyRecord{}, fmt.Errorf("query reserved subject policy: %w", err)
+	}
+
+	rec.Found = true
 	return rec, nil
 }
 

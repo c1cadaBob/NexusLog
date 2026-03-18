@@ -19,17 +19,18 @@ import (
 )
 
 type handlerRepoMock struct {
-	tenantExists bool
-	userID       uuid.UUID
-	username     string
-	registerErr  error
-	loginUser    repository.LoginUserRecord
-	loginErr     error
-	rotateErr    error
-	revokeErr    error
-	findUserErr  error
-	findUser     repository.UserIdentityRecord
-	confirmErr   error
+	tenantExists   bool
+	userID         uuid.UUID
+	username       string
+	registerErr    error
+	loginUser      repository.LoginUserRecord
+	loginErr       error
+	reservedPolicy repository.ReservedSubjectPolicyRecord
+	rotateErr      error
+	revokeErr      error
+	findUserErr    error
+	findUser       repository.UserIdentityRecord
+	confirmErr     error
 }
 
 func (m *handlerRepoMock) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -48,6 +49,10 @@ func (m *handlerRepoMock) GetLoginUserByUsername(_ context.Context, _ uuid.UUID,
 		return repository.LoginUserRecord{}, m.loginErr
 	}
 	return m.loginUser, nil
+}
+
+func (m *handlerRepoMock) GetReservedSubjectPolicy(_ context.Context, _ uuid.UUID, _ string) (repository.ReservedSubjectPolicyRecord, error) {
+	return m.reservedPolicy, nil
 }
 
 func (m *handlerRepoMock) FindUserByEmailOrUsername(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {

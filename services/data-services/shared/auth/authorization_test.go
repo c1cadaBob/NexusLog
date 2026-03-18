@@ -43,6 +43,12 @@ func TestRequireAuthenticatedIdentity_LoadsAuthorizationSnapshotFromDatabase(t *
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("sys-superadmin", "super_admin", []byte(`["*"]`)),
 		)
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, "sys-superadmin").
+		WillReturnRows(
+			sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}).
+				AddRow(true, true, false, true, "test"),
+		)
 
 	router := gin.New()
 	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
@@ -127,6 +133,12 @@ func TestRequireAuthenticatedIdentity_RejectsSystemAutomationInteractiveAccess(t
 		WillReturnRows(
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("system-automation", "system_automation", []byte(`["audit:write"]`)),
+		)
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, "system-automation").
+		WillReturnRows(
+			sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}).
+				AddRow(true, false, true, false, "test"),
 		)
 
 	router := gin.New()

@@ -22,6 +22,8 @@ type mockAuthRepository struct {
 	username          string
 	loginUser         repository.LoginUserRecord
 	loginUserErr      error
+	reservedPolicy    repository.ReservedSubjectPolicyRecord
+	reservedPolicyErr error
 	findUser          repository.UserIdentityRecord
 	findUserErr       error
 	refreshUser       repository.UserIdentityRecord
@@ -66,6 +68,13 @@ func (m *mockAuthRepository) GetLoginUserByUsername(_ context.Context, _ uuid.UU
 		return repository.LoginUserRecord{}, m.loginUserErr
 	}
 	return m.loginUser, nil
+}
+
+func (m *mockAuthRepository) GetReservedSubjectPolicy(_ context.Context, _ uuid.UUID, _ string) (repository.ReservedSubjectPolicyRecord, error) {
+	if m.reservedPolicyErr != nil {
+		return repository.ReservedSubjectPolicyRecord{}, m.reservedPolicyErr
+	}
+	return m.reservedPolicy, nil
 }
 
 func (m *mockAuthRepository) FindUserByEmailOrUsername(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {

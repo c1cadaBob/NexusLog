@@ -199,11 +199,18 @@ func loadAuthorizationContext(ctx context.Context, db *sql.DB, tenantID, userID 
 	}
 	sort.Strings(roles)
 
+	snapshot := BuildAuthorizationContext(username, roles, permissions)
+	policy, err := lookupReservedSubjectPolicy(ctx, db, tenantID, username)
+	if err != nil {
+		return authorizationContextRecord{}, err
+	}
+	snapshot = applyReservedSubjectPolicy(snapshot, policy)
+
 	return authorizationContextRecord{
 		Username:    strings.TrimSpace(username),
 		Roles:       roles,
 		Permissions: permissions,
-		Snapshot:    BuildAuthorizationContext(username, roles, permissions),
+		Snapshot:    snapshot,
 	}, nil
 }
 
