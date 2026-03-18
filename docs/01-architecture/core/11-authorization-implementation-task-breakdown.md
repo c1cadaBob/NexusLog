@@ -221,7 +221,7 @@
 
 1. `api-service` 以 `RequirePermission("users:read")` 为主
 2. `data-services` 以共享 `RequirePermission("logs:read")`、`RequirePermission("audit:read")` 为主
-3. `control-plane` 仍有 `RequireAdminRole`、`RequireOperatorRole`、`sys-superadmin + super_admin` 的硬编码查询
+3. `control-plane` 仍有 `RequireAdminRole`、`RequireOperatorRole` 等 legacy fallback，但跨租户读判定已 capability 化，管理员/操作员回退查询也正在从角色名切到权限/能力包
 
 目标状态应为：
 
@@ -238,7 +238,7 @@
 |---|---|---|---|
 | `api-service` | `AuthRequired` + `RequirePermission` 位于 `services/api-service/internal/handler/auth_middleware.go`，路由挂载在 `services/api-service/cmd/api/router.go`，`/users/me` 通过 `services/api-service/internal/service/authorization_context_service.go` 聚合上下文 | `authorization_context_service.go` 内存 `legacyPermissionCapabilityAliases` 仍把 `users:write` 扩展到登录策略、系统设置、采集、存储、Webhook、插件市场等非 IAM 能力，导致 `/users/me` 继续传播过大的 capability 面 | 先把 `/users/me` 的能力事实源从“内存扩权别名”收敛到“正式兼容映射 + 保留主体策略”，再逐步让 API 路由切到 `RequireCapability` / `RequireScope` |
 | `data-services` | `RequireAuthenticatedIdentity` + `RequirePermission` 分别挂在 `query-api`、`audit-api`、`export-api` 的 `cmd/api/main.go` | `shared/auth` 已提供 typed capability/scope 与 `TenantReadScope`；`query-api` / `audit-api` 已切到显式 `TenantReadScope`，`export-api` 也已显式携带 actor scope、下沉 service capability 校验，并开始按 `tenant/owned` 区分任务读取范围 | 继续补齐 export 侧 `owned vs tenant` scope 契约细节，并把剩余跨租户范围收口到 authorized tenant set |
-| `control-plane` | `RequireAuthenticatedIdentity`、`RequireOperatorRole`、`RequireAdminRole` 在 `services/control-plane/cmd/api/main.go` 统一接线 | `RequireAdminRole` / `RequireOperatorRole` 直接查角色名；`global_tenant_access.go` 直接写死 `sys-superadmin` + `super_admin`；`/api/v1/metrics/report` 还靠 `auth_middleware.go` 的 path 特判分流 Agent 身份 | 先把 route group 改成 capability guard，再拆出显式 `agentRoutes`，最后清理 `tenantScope=""` 和角色名/用户名硬编码 |
+| `control-plane` | `RequireAuthenticatedIdentity`、`RequireOperatorRole`、`RequireAdminRole` 在 `services/control-plane/cmd/api/main.go` 统一接线 | `global_tenant_access.go` 已切到 capability + scope；`RequireAdminRole` / `RequireOperatorRole` 的 DB fallback 也已从角色名白名单切到权限/能力包匹配，但 `/api/v1/metrics/report` 还靠 `auth_middleware.go` 的 path 特判分流 Agent 身份 | 继续把 route group 改成 capability guard，再拆出显式 `agentRoutes`，最后清理 `tenantScope=""` 和剩余 legacy fallback |
 
 ### P0：api-service
 
@@ -274,9 +274,9 @@
 | 文件 | 当前职责 | 需要改动 |
 |---|---|---|
 | `services/control-plane/internal/middleware/auth_middleware.go` | 控制面认证入口 | 与 data-services 共享鉴权语义保持一致：除了 `tenant_id/user_id`，还应支持 capabilities/scopes/authz_epoch 上下文 |
-| `services/control-plane/internal/middleware/admin_authorization.go` | 基于角色名 / `*` 判断管理员 | 改成 capability 判定，例如 `iam.user.read` / `iam.user.update_status` / `settings.*` 等；不再依赖角色名白名单 |
-| `services/control-plane/internal/middleware/operator_authorization.go` | 基于角色名判断 operator/admin | 改成 capability 判定，不再依赖 `role.name IN (...)` |
-| `services/control-plane/internal/middleware/global_tenant_access.go` | 跨租户读权限硬编码判断 | 用 `subject_reserved_policy + capability + scope(all_tenants)` 替代当前 `sys-superadmin + super_admin` 查询 |
+| `services/control-plane/internal/middleware/admin_authorization.go` | 管理员回退授权与兼容层 | 已去掉 `role.name IN ('super_admin','system_admin')` 硬编码，改成从 `roles.permissions` 中匹配 `users:write` / `iam.user.*` 权限包；下一步再继续把 route wiring 全量切到 `RequireCapability*` |
+| `services/control-plane/internal/middleware/operator_authorization.go` | 操作员回退授权与兼容层 | 已去掉 `role.name IN (...)` 硬编码，改成从 `roles.permissions` 中匹配 `alerts:write` / `incidents:write` / `logs:export` / 相关 capability 包；下一步继续收紧为纯 capability 化 |
+| `services/control-plane/internal/middleware/global_tenant_access.go` | 跨租户读权限判定 | 已改为 `capability + scope(all_tenants/system)` 组合；后续再接正式 `subject_reserved_policy` 事实源 |
 | `services/control-plane/internal/middleware/identity_context.go` | 控制面身份上下文读取 | 扩展 getter，支持新授权上下文字段 |
 | `services/control-plane/cmd/api/main.go` | control-plane 路由 wiring | 当前通过 `RequireOperatorRole/RequireAdminRole` 组合接线，capability 化后要同步替换 wiring；同时把 `/api/v1/metrics/report` 从 path 特判迁到显式 `agentRoutes`，避免 `auth_middleware.go` 继续维护路由字符串分流 |
 | `services/control-plane/cmd/api/ingest_runtime.go`、`services/control-plane/cmd/api/ingestv3_routes.go` | admin/operator 路由注册与边界声明 | 让注册函数接收“已授权 router”或显式 authz requirement，而不是在 bootstrap 里依赖 `adminRoutes/operatorRoutes` 隐式传递角色语义 |
@@ -298,7 +298,7 @@
 | `services/data-services/shared/auth/authorization_test.go` | 共享鉴权单测 | 新增 capability / scope / compatibility mapping 双轨测试 |
 | `services/data-services/shared/auth/identity_context_test.go` | 上下文 getter 测试 | 新增 capabilities / scopes / authz_epoch getter 测试 |
 | `services/data-services/shared/auth/middleware_test.go` | 鉴权中间件测试 | 新增上下文装载与 `X-Tenant-ID` 覆盖逻辑测试 |
-| `services/control-plane/cmd/api/main_test.go` | control-plane 鉴权与查询测试 | 去掉对 `LOWER(u.username) = 'sys-superadmin'` 硬编码查询的依赖，改测保留主体策略与 capability/scope |
+| `services/control-plane/cmd/api/main_test.go` | control-plane 鉴权与查询测试 | 去掉对保留主体/角色名字面量的依赖；当前已转向权限包查询断言，后续继续改测 capability/scope / reserved policy |
 | `services/control-plane/internal/middleware/*_test.go` | control-plane 中间件测试 | 对齐 capability 化后的判定结果 |
 
 ### 5.3 建议的后端切换顺序（接口级）

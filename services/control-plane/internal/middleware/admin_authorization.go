@@ -19,10 +19,16 @@ const adminRoleExistsQuery = `
 		  AND u.tenant_id = $2::uuid
 		  AND u.status = 'active'
 		  AND r.tenant_id = $2::uuid
-		  AND (
-			LOWER(r.name) IN ('super_admin', 'system_admin')
-			OR COALESCE(r.permissions, '[]'::jsonb) ? '*'
-		  )
+		  AND COALESCE(r.permissions, '[]'::jsonb) ?| ARRAY[
+			'*',
+			'users:write',
+			'iam.user.create',
+			'iam.user.delete',
+			'iam.user.grant_role',
+			'iam.user.revoke_role',
+			'iam.user.update_profile',
+			'iam.user.update_status'
+		  ]
 	)
 `
 
