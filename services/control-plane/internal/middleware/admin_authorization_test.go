@@ -51,6 +51,29 @@ func TestRequireAdminRole_AllowsTenantAdmin(t *testing.T) {
 	}
 }
 
+func TestRequireAdminRole_AllowsContextBackedAdministratorWithoutDatabase(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(authContextKeyTenantID, testAdminTenantID)
+		c.Set(authContextKeyUserID, testAdminUserID)
+		c.Set(authContextKeyUserPermissions, []string{"users:write"})
+		c.Set(authContextKeyUserCapabilities, []string{"iam.user.grant_role"})
+		c.Next()
+	})
+	router.Use(RequireAdminRole(nil))
+	router.GET("/api/v1/backup/repositories", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/backup/repositories", nil))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestRequireAdminRole_RejectsNonAdminUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()

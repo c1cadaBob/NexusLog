@@ -30,6 +30,19 @@ func TestHasGlobalTenantReadAccess(t *testing.T) {
 	}
 }
 
+func TestHasGlobalTenantReadAccess_AllowsContextBackedWildcardScope(t *testing.T) {
+	ctx := context.WithValue(context.Background(), authContextKeyUserCapabilities, []string{"*"})
+	ctx = context.WithValue(ctx, authContextKeyUserScopes, []string{"all_tenants", "tenant"})
+
+	allowed, err := HasGlobalTenantReadAccess(ctx, nil, "10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("HasGlobalTenantReadAccess() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("HasGlobalTenantReadAccess() = false, want true")
+	}
+}
+
 func TestHasGlobalTenantReadAccess_SkipsWhenIdentityMissing(t *testing.T) {
 	allowed, err := HasGlobalTenantReadAccess(context.Background(), nil, "", "")
 	if err != nil {

@@ -22,12 +22,15 @@ const globalTenantReadAccessQuery = `
 `
 
 func HasGlobalTenantReadAccess(ctx context.Context, db *sql.DB, tenantID, userID string) (bool, error) {
-	if db == nil {
-		return false, nil
-	}
 	tenantID = strings.TrimSpace(tenantID)
 	userID = strings.TrimSpace(userID)
 	if tenantID == "" || userID == "" {
+		return false, nil
+	}
+	if hasGlobalTenantReadAccessFromContext(ctx) {
+		return true, nil
+	}
+	if db == nil {
 		return false, nil
 	}
 	var allowed bool
@@ -35,4 +38,12 @@ func HasGlobalTenantReadAccess(ctx context.Context, db *sql.DB, tenantID, userID
 		return false, err
 	}
 	return allowed, nil
+}
+
+func hasGlobalTenantReadAccessFromContext(ctx context.Context) bool {
+	capabilities := authenticatedContextStringSlice(ctx, authContextKeyUserCapabilities)
+	if !hasAuthorizationValue(capabilities, "*") {
+		return false
+	}
+	return hasAnyScope(authenticatedContextStringSlice(ctx, authContextKeyUserScopes), "all_tenants", "system")
 }

@@ -26,6 +26,15 @@ const adminRoleExistsQuery = `
 	)
 `
 
+var adminAuthorizationCapabilities = []string{
+	"iam.user.create",
+	"iam.user.delete",
+	"iam.user.grant_role",
+	"iam.user.revoke_role",
+	"iam.user.update_profile",
+	"iam.user.update_status",
+}
+
 // RequireAdminRole restricts sensitive routes to tenant administrators.
 func RequireAdminRole(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -37,6 +46,10 @@ func RequireAdminRole(db *sql.DB) gin.HandlerFunc {
 		userID := AuthenticatedUserID(c)
 		if tenantID == "" || userID == "" {
 			writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "permission check failed: auth context missing")
+			return
+		}
+		if hasAdminAuthorizationSnapshot(c) {
+			c.Next()
 			return
 		}
 		if db == nil {
@@ -63,6 +76,14 @@ func hasAdminRole(ctx context.Context, db *sql.DB, tenantID, userID string) (boo
 		return false, err
 	}
 	return allowed, nil
+}
+
+func hasAdminAuthorizationSnapshot(c *gin.Context) bool {
+	permissions := AuthenticatedPermissions(c)
+	if hasAuthorizationValue(permissions, "*") || hasAuthorizationValue(permissions, "users:write") {
+		return true
+	}
+	return hasAnyCapability(AuthenticatedCapabilities(c), adminAuthorizationCapabilities...)
 }
 
 func writeAuthorizationError(c *gin.Context, status int, code, message string) {

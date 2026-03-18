@@ -13,9 +13,18 @@ import (
 )
 
 const (
-	authContextKeyUserID   = "user_id"
-	authContextKeyTenantID = "tenant_id"
-	authContextKeyAgentID  = "agent_id"
+	authContextKeyUserID             = "user_id"
+	authContextKeyTenantID           = "tenant_id"
+	authContextKeyAgentID            = "agent_id"
+	authContextKeyAuthorizationReady = "authorization_ready"
+	authContextKeyUserRoles          = "user_roles"
+	authContextKeyUserPermissions    = "user_permissions"
+	authContextKeyUserCapabilities   = "user_capabilities"
+	authContextKeyUserScopes         = "user_scopes"
+	authContextKeyUserEntitlements   = "user_entitlements"
+	authContextKeyUserFeatureFlags   = "user_feature_flags"
+	authContextKeyUserAuthzEpoch     = "user_authz_epoch"
+	authContextKeyUserActorFlags     = "user_actor_flags"
 )
 
 var uuidPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
@@ -37,6 +46,7 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 			if !authenticateAgentIdentity(c, db) {
 				return
 			}
+			bindAuthorizationContext(c, false, emptyAuthorizationContextRecord())
 			c.Next()
 			return
 		}
@@ -60,6 +70,8 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 			return
 		}
 
+		authorizationReady := false
+		authzRecord := emptyAuthorizationContextRecord()
 		if db != nil {
 			active, err := isAccessTokenSessionActive(c.Request.Context(), db, tenantID, userID, claims.ID)
 			if err != nil {
@@ -70,9 +82,16 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 				writeAuthError(c, http.StatusUnauthorized, "session is revoked or expired")
 				return
 			}
+			authzRecord, err = loadAuthorizationContext(c.Request.Context(), db, tenantID, userID)
+			if err != nil {
+				writeAuthError(c, http.StatusInternalServerError, "failed to load permissions")
+				return
+			}
+			authorizationReady = true
 		}
 
 		bindAuthenticatedUserIdentity(c, tenantID, userID)
+		bindAuthorizationContext(c, authorizationReady, authzRecord)
 		c.Next()
 	}
 }
@@ -238,6 +257,69 @@ func bindAuthenticatedAgentIdentity(c *gin.Context, tenantID, agentID string) {
 	} else {
 		c.Request.Header.Del("X-Agent-ID")
 	}
+}
+
+func bindAuthorizationContext(c *gin.Context, ready bool, authzRecord authorizationContextRecord) {
+	if c == nil {
+		return
+	}
+
+	permissions := cloneAuthorizationStrings(authzRecord.Permissions)
+	roles := cloneAuthorizationStrings(authzRecord.Roles)
+	capabilities := cloneAuthorizationStrings(authzRecord.Snapshot.Capabilities)
+	scopes := cloneAuthorizationStrings(authzRecord.Snapshot.Scopes)
+	entitlements := cloneAuthorizationStrings(authzRecord.Snapshot.Entitlements)
+	featureFlags := cloneAuthorizationStrings(authzRecord.Snapshot.FeatureFlags)
+	actorFlags := cloneAuthorizationFlags(authzRecord.Snapshot.ActorFlags)
+	authzEpoch := authzRecord.Snapshot.AuthzEpoch
+
+	c.Set(authContextKeyAuthorizationReady, ready)
+	c.Set(authContextKeyUserPermissions, permissions)
+	c.Set(authContextKeyUserRoles, roles)
+	c.Set(authContextKeyUserCapabilities, capabilities)
+	c.Set(authContextKeyUserScopes, scopes)
+	c.Set(authContextKeyUserEntitlements, entitlements)
+	c.Set(authContextKeyUserFeatureFlags, featureFlags)
+	c.Set(authContextKeyUserAuthzEpoch, authzEpoch)
+	c.Set(authContextKeyUserActorFlags, actorFlags)
+
+	ctx := c.Request.Context()
+	ctx = context.WithValue(ctx, authContextKeyAuthorizationReady, ready)
+	ctx = context.WithValue(ctx, authContextKeyUserPermissions, permissions)
+	ctx = context.WithValue(ctx, authContextKeyUserRoles, roles)
+	ctx = context.WithValue(ctx, authContextKeyUserCapabilities, capabilities)
+	ctx = context.WithValue(ctx, authContextKeyUserScopes, scopes)
+	ctx = context.WithValue(ctx, authContextKeyUserEntitlements, entitlements)
+	ctx = context.WithValue(ctx, authContextKeyUserFeatureFlags, featureFlags)
+	ctx = context.WithValue(ctx, authContextKeyUserAuthzEpoch, authzEpoch)
+	ctx = context.WithValue(ctx, authContextKeyUserActorFlags, actorFlags)
+	c.Request = c.Request.WithContext(ctx)
+}
+
+func cloneAuthorizationStrings(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	cloned := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		cloned = append(cloned, trimmed)
+	}
+	return cloned
+}
+
+func cloneAuthorizationFlags(values map[string]bool) map[string]bool {
+	if len(values) == 0 {
+		return map[string]bool{}
+	}
+	cloned := make(map[string]bool, len(values))
+	for key, enabled := range values {
+		cloned[strings.TrimSpace(key)] = enabled
+	}
+	return cloned
 }
 
 func isAccessTokenSessionActive(ctx context.Context, db *sql.DB, tenantID, userID, accessTokenJTI string) (bool, error) {

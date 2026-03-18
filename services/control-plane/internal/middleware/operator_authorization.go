@@ -25,6 +25,13 @@ const operatorRoleExistsQuery = `
 	)
 `
 
+var operatorAuthorizationCapabilities = []string{
+	"alert.rule.update",
+	"alert.silence.update",
+	"export.job.create",
+	"incident.update",
+}
+
 // RequireOperatorRole restricts routes to tenant operators and administrators.
 func RequireOperatorRole(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -36,6 +43,10 @@ func RequireOperatorRole(db *sql.DB) gin.HandlerFunc {
 		userID := AuthenticatedUserID(c)
 		if tenantID == "" || userID == "" {
 			writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "permission check failed: auth context missing")
+			return
+		}
+		if hasOperatorAuthorizationSnapshot(c) {
+			c.Next()
 			return
 		}
 		if db == nil {
@@ -62,4 +73,15 @@ func hasOperatorRole(ctx context.Context, db *sql.DB, tenantID, userID string) (
 		return false, err
 	}
 	return allowed, nil
+}
+
+func hasOperatorAuthorizationSnapshot(c *gin.Context) bool {
+	if hasAdminAuthorizationSnapshot(c) {
+		return true
+	}
+	permissions := AuthenticatedPermissions(c)
+	if hasAuthorizationValue(permissions, "alerts:write") || hasAuthorizationValue(permissions, "incidents:write") || hasAuthorizationValue(permissions, "logs:export") {
+		return true
+	}
+	return hasAnyCapability(AuthenticatedCapabilities(c), operatorAuthorizationCapabilities...)
 }

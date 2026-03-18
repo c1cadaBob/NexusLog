@@ -46,6 +46,29 @@ func TestRequireOperatorRole_AllowsOperator(t *testing.T) {
 	}
 }
 
+func TestRequireOperatorRole_AllowsContextBackedOperatorWithoutDatabase(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(authContextKeyTenantID, testAdminTenantID)
+		c.Set(authContextKeyUserID, testAdminUserID)
+		c.Set(authContextKeyUserPermissions, []string{"alerts:write"})
+		c.Set(authContextKeyUserCapabilities, []string{"alert.rule.update"})
+		c.Next()
+	})
+	router.Use(RequireOperatorRole(nil))
+	router.POST("/api/v1/ingest/receipts", func(c *gin.Context) {
+		c.Status(http.StatusCreated)
+	})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/v1/ingest/receipts", nil))
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestRequireOperatorRole_RejectsNonOperator(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()

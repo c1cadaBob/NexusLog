@@ -65,6 +65,16 @@ const testOperatorRoleExistsQuery = `
 	)
 `
 
+const testAuthorizationContextQuery = `
+	SELECT u.username, COALESCE(r.name, ''), COALESCE(r.permissions, '[]'::jsonb)
+	FROM users u
+	LEFT JOIN user_roles ur ON ur.user_id = u.id
+	LEFT JOIN roles r ON r.id = ur.role_id AND r.tenant_id = u.tenant_id
+	WHERE u.id = $1::uuid
+	  AND u.tenant_id = $2::uuid
+	  AND u.status = 'active'
+`
+
 type routeAuthClaims struct {
 	UserID   string `json:"user_id"`
 	TenantID string `json:"tenant_id"`
@@ -82,9 +92,8 @@ func TestNotificationRoutes_RejectNonAdminUser(t *testing.T) {
 	router := newNotificationAdminRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-non-admin")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-non-admin", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-non-admin")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -113,9 +122,8 @@ func TestResourceThresholdRoutes_RejectNonAdminUser(t *testing.T) {
 	router := newManagementAdminRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-threshold-non-admin")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-threshold-non-admin", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-threshold-non-admin")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -144,9 +152,8 @@ func TestResourceThresholdRoutes_AllowAdminUser(t *testing.T) {
 	router := newManagementAdminRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-threshold-admin")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-threshold-admin", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-threshold-admin")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -181,9 +188,8 @@ func TestAlertRuleRoutes_RejectNonAdminUser(t *testing.T) {
 	router := newManagementAdminRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-alert-rule-non-admin")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-alert-rule-non-admin", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-alert-rule-non-admin")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -212,9 +218,8 @@ func TestNotificationRoutes_AllowAdminUser(t *testing.T) {
 	router := newNotificationAdminRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-admin")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-admin", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-admin")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -274,9 +279,8 @@ func TestIngestAdminRoutes_RejectNonAdminUser(t *testing.T) {
 			router := newIngestRuntimeRouter(t, db)
 			token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-non-admin")
 
-			mock.ExpectQuery(`FROM user_sessions s`).
-				WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-non-admin", sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+			expectAuthenticatedSession(mock, "jti-ingest-non-admin")
+			expectAuthorizationContextLookup(mock)
 			mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 				WithArgs(testRouteUserID, testRouteTenantID).
 				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -311,9 +315,8 @@ func TestIngestAdminRoutes_AllowAdminUser(t *testing.T) {
 	router := newIngestRuntimeRouter(t, db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-admin")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-admin", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-ingest-admin")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -349,9 +352,8 @@ func TestIngestReceiptRoute_RejectsNonOperatorUser(t *testing.T) {
 	router := newIngestRuntimeRouter(t, db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-receipt-non-operator")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-receipt-non-operator", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-ingest-receipt-non-operator")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -381,9 +383,8 @@ func TestIngestReceiptRoute_AllowsOperatorUser(t *testing.T) {
 	router := newIngestRuntimeRouter(t, db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-receipt-operator")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingest-receipt-operator", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-ingest-receipt-operator")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -455,9 +456,8 @@ func TestIngestV3Routes_RejectNonAdminUser(t *testing.T) {
 			router := newIngestV3AdminRouter(db)
 			token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingestv3-non-admin")
 
-			mock.ExpectQuery(`FROM user_sessions s`).
-				WithArgs(testRouteTenantID, testRouteUserID, "jti-ingestv3-non-admin", sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+			expectAuthenticatedSession(mock, "jti-ingestv3-non-admin")
+			expectAuthorizationContextLookup(mock)
 			mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 				WithArgs(testRouteUserID, testRouteTenantID).
 				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -489,9 +489,8 @@ func TestIngestV3Routes_AllowAdminUser(t *testing.T) {
 	router := newIngestV3AdminRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingestv3-admin")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-ingestv3-admin", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-ingestv3-admin")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -528,9 +527,8 @@ func TestAlertEventRoutes_RejectNonOperatorUser(t *testing.T) {
 	router := newAlertEventOperatorRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-alert-events-non-operator")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-alert-events-non-operator", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-alert-events-non-operator")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -559,9 +557,8 @@ func TestAlertEventRoutes_AllowOperatorUser(t *testing.T) {
 	router := newAlertEventOperatorRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-alert-events-operator")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-alert-events-operator", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-alert-events-operator")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -590,9 +587,8 @@ func TestIncidentRoutes_RejectNonOperatorUser(t *testing.T) {
 	router := newIncidentOperatorRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-incidents-non-operator")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-incidents-non-operator", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-incidents-non-operator")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -622,9 +618,8 @@ func TestIncidentRoutes_AllowOperatorUser(t *testing.T) {
 	router := newIncidentOperatorRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-incidents-operator")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-incidents-operator", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-incidents-operator")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -654,9 +649,8 @@ func TestMetricsQueryRoutes_RejectNonOperatorUser(t *testing.T) {
 	router := newMetricsQueryOperatorRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-metrics-query-non-operator")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-metrics-query-non-operator", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-metrics-query-non-operator")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -685,9 +679,8 @@ func TestMetricsQueryRoutes_AllowOperatorUser(t *testing.T) {
 	router := newMetricsQueryOperatorRouter(db)
 	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-metrics-query-operator")
 
-	mock.ExpectQuery(`FROM user_sessions s`).
-		WithArgs(testRouteTenantID, testRouteUserID, "jti-metrics-query-operator", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectAuthenticatedSession(mock, "jti-metrics-query-operator")
+	expectAuthorizationContextLookup(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
 		WithArgs(testRouteUserID, testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -859,4 +852,19 @@ func mustIssueRouteToken(t *testing.T, userID, tenantID, jti string) string {
 		t.Fatalf("sign token: %v", err)
 	}
 	return signed
+}
+
+func expectAuthenticatedSession(mock sqlmock.Sqlmock, jti string) {
+	mock.ExpectQuery(`FROM user_sessions s`).
+		WithArgs(testRouteTenantID, testRouteUserID, jti, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+}
+
+func expectAuthorizationContextLookup(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(regexp.QuoteMeta(testAuthorizationContextQuery)).
+		WithArgs(testRouteUserID, testRouteTenantID).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"username", "name", "permissions"}).
+				AddRow("route-user", "viewer", []byte(`[]`)),
+		)
 }

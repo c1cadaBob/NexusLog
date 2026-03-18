@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +142,91 @@ func TestRequireAuthenticatedIdentity_SetsIdentityHeadersFromToken(t *testing.T)
 	}
 	if body := resp.Body.String(); body == "" || !strings.Contains(body, "10000000-0000-0000-0000-000000000001") || !strings.Contains(body, "20000000-0000-0000-0000-000000000001") {
 		t.Fatalf("unexpected body: %s", body)
+	}
+}
+
+func TestRequireAuthenticatedIdentity_LoadsAuthorizationSnapshotFromDatabase(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	tenantID := "10000000-0000-0000-0000-000000000001"
+	userID := "20000000-0000-0000-0000-000000000001"
+	accessTokenJTI := "jti-authz"
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_sessions s
+			JOIN users u ON u.id = s.user_id AND u.tenant_id = s.tenant_id
+			WHERE s.tenant_id = $1::uuid
+			  AND s.user_id = $2::uuid
+			  AND s.access_token_jti = $3
+			  AND s.session_status = 'active'
+			  AND s.expires_at > $4
+			  AND u.status = 'active'
+		)
+	`)).
+		WithArgs(tenantID, userID, accessTokenJTI, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(authorizationContextQuery)).
+		WithArgs(userID, tenantID).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"username", "name", "permissions"}).
+				AddRow("sys-superadmin", "super_admin", []byte(`["*"]`)),
+		)
+
+	router := gin.New()
+	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
+	router.GET("/api/v1/incidents", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"permissions":  AuthenticatedPermissions(c),
+			"capabilities": AuthenticatedCapabilities(c),
+			"scopes":       AuthenticatedScopes(c),
+			"actor_flags":  AuthenticatedActorFlags(c),
+			"authz_epoch":  AuthenticatedAuthzEpoch(c),
+		})
+	})
+
+	token := mustIssueToken(t, tenantID, userID, accessTokenJTI)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/incidents", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Permissions  []string        `json:"permissions"`
+		Capabilities []string        `json:"capabilities"`
+		Scopes       []string        `json:"scopes"`
+		ActorFlags   map[string]bool `json:"actor_flags"`
+		AuthzEpoch   int64           `json:"authz_epoch"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !hasAuthorizationValue(body.Permissions, "*") {
+		t.Fatalf("unexpected permissions: %#v", body.Permissions)
+	}
+	if !hasAuthorizationValue(body.Capabilities, "*") {
+		t.Fatalf("unexpected capabilities: %#v", body.Capabilities)
+	}
+	if !hasAnyScope(body.Scopes, "all_tenants", "system") {
+		t.Fatalf("unexpected scopes: %#v", body.Scopes)
+	}
+	if !body.ActorFlags["reserved"] || !body.ActorFlags["interactive_login_allowed"] {
+		t.Fatalf("unexpected actor flags: %#v", body.ActorFlags)
+	}
+	if body.AuthzEpoch != 1 {
+		t.Fatalf("unexpected authz epoch: %d", body.AuthzEpoch)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }
 
