@@ -2,6 +2,7 @@ package incident
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -50,20 +51,20 @@ func RegisterIncidentRoutes(router gin.IRouter, handler *Handler) {
 }
 
 // RegisterAuthorizedIncidentRoutes registers incident routes with capability guards.
-func RegisterAuthorizedIncidentRoutes(router gin.IRouter, handler *Handler) {
+func RegisterAuthorizedIncidentRoutes(router gin.IRouter, db *sql.DB, handler *Handler) {
 	g := router.Group("/api/v1/incidents")
 	{
-		g.GET("", cpMiddleware.RequireCapability("incident.read"), handler.ListIncidents)
-		g.GET("/sla/summary", cpMiddleware.RequireCapability("incident.sla.read"), handler.GetSLASummary)
-		g.GET("/:id", cpMiddleware.RequireCapability("incident.read"), handler.GetIncident)
-		g.POST("", cpMiddleware.RequireCapability("incident.create"), handler.CreateIncident)
-		g.PUT("/:id", cpMiddleware.RequireCapability("incident.update"), handler.UpdateIncident)
-		g.POST("/:id/archive", cpMiddleware.RequireCapability("incident.archive"), handler.ArchiveIncident)
-		g.POST("/:id/acknowledge", cpMiddleware.RequireCapability("incident.update"), handler.Acknowledge)
-		g.POST("/:id/investigate", cpMiddleware.RequireCapability("incident.update"), handler.Investigate)
-		g.POST("/:id/resolve", cpMiddleware.RequireCapability("incident.update"), handler.Resolve)
-		g.POST("/:id/close", cpMiddleware.RequireCapability("incident.close"), handler.Close)
-		g.GET("/:id/timeline", cpMiddleware.RequireCapability("incident.timeline.read"), handler.GetTimeline)
+		g.GET("", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.read"), handler.ListIncidents)
+		g.GET("/sla/summary", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.sla.read"), handler.GetSLASummary)
+		g.GET("/:id", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.read"), handler.GetIncident)
+		g.POST("", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.create"), handler.CreateIncident)
+		g.PUT("/:id", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.UpdateIncident)
+		g.POST("/:id/archive", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.archive"), handler.ArchiveIncident)
+		g.POST("/:id/acknowledge", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.Acknowledge)
+		g.POST("/:id/investigate", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.Investigate)
+		g.POST("/:id/resolve", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.Resolve)
+		g.POST("/:id/close", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.close"), handler.Close)
+		g.GET("/:id/timeline", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.timeline.read"), handler.GetTimeline)
 	}
 }
 

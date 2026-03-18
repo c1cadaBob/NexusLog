@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -70,15 +71,15 @@ func RegisterChannelRoutes(router gin.IRouter, repo *ChannelRepository, sender *
 }
 
 // RegisterAuthorizedChannelRoutes registers notification channel routes with capability guards.
-func RegisterAuthorizedChannelRoutes(router gin.IRouter, repo *ChannelRepository, sender *SMTPSender) {
+func RegisterAuthorizedChannelRoutes(router gin.IRouter, db *sql.DB, repo *ChannelRepository, sender *SMTPSender) {
 	h := NewChannelHandler(repo, sender)
 	g := router.Group("/api/v1/notification/channels")
-	g.GET("", cpMiddleware.RequireCapability("notification.channel.read_metadata"), h.ListChannels)
-	g.GET("/:id", cpMiddleware.RequireCapability("notification.channel.read_metadata"), h.GetChannel)
-	g.POST("", cpMiddleware.RequireCapability("notification.channel.create"), h.CreateChannel)
-	g.PUT("/:id", cpMiddleware.RequireCapability("notification.channel.update"), h.UpdateChannel)
-	g.DELETE("/:id", cpMiddleware.RequireCapability("notification.channel.delete"), h.DeleteChannel)
-	g.POST("/:id/test", cpMiddleware.RequireCapability("notification.channel.test"), h.TestChannel)
+	g.GET("", cpMiddleware.RequireCapabilityOrAdminRole(db, "notification.channel.read_metadata"), h.ListChannels)
+	g.GET("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "notification.channel.read_metadata"), h.GetChannel)
+	g.POST("", cpMiddleware.RequireCapabilityOrAdminRole(db, "notification.channel.create"), h.CreateChannel)
+	g.PUT("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "notification.channel.update"), h.UpdateChannel)
+	g.DELETE("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "notification.channel.delete"), h.DeleteChannel)
+	g.POST("/:id/test", cpMiddleware.RequireCapabilityOrAdminRole(db, "notification.channel.test"), h.TestChannel)
 }
 
 func sanitizeNotificationValidationError(err error, fallback string) string {

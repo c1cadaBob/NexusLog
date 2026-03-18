@@ -3,6 +3,7 @@ package alert
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -53,16 +54,16 @@ func RegisterAlertRuleRoutes(router gin.IRouter, handler *RuleHandler) {
 }
 
 // RegisterAuthorizedAlertRuleRoutes registers alert rule routes with capability guards.
-func RegisterAuthorizedAlertRuleRoutes(router gin.IRouter, handler *RuleHandler) {
+func RegisterAuthorizedAlertRuleRoutes(router gin.IRouter, db *sql.DB, handler *RuleHandler) {
 	g := router.Group("/api/v1/alert/rules")
 	{
-		g.GET("", cpMiddleware.RequireCapability("alert.rule.read"), handler.ListRules)
-		g.GET("/:id", cpMiddleware.RequireCapability("alert.rule.read"), handler.GetRule)
-		g.POST("", cpMiddleware.RequireCapability("alert.rule.create"), handler.CreateRule)
-		g.PUT("/:id", cpMiddleware.RequireCapability("alert.rule.update"), handler.UpdateRule)
-		g.DELETE("/:id", cpMiddleware.RequireCapability("alert.rule.delete"), handler.DeleteRule)
-		g.PUT("/:id/enable", cpMiddleware.RequireCapability("alert.rule.enable"), handler.EnableRule)
-		g.PUT("/:id/disable", cpMiddleware.RequireCapability("alert.rule.disable"), handler.DisableRule)
+		g.GET("", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.rule.read"), handler.ListRules)
+		g.GET("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.rule.read"), handler.GetRule)
+		g.POST("", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.rule.create"), handler.CreateRule)
+		g.PUT("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.rule.update"), handler.UpdateRule)
+		g.DELETE("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.rule.delete"), handler.DeleteRule)
+		g.PUT("/:id/enable", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.rule.enable"), handler.EnableRule)
+		g.PUT("/:id/disable", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.rule.disable"), handler.DisableRule)
 	}
 }
 

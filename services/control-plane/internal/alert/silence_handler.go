@@ -1,6 +1,7 @@
 package alert
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strings"
@@ -33,13 +34,13 @@ func RegisterSilenceRoutes(router gin.IRouter, h *SilenceHandler) {
 }
 
 // RegisterAuthorizedSilenceRoutes registers silence routes with capability guards.
-func RegisterAuthorizedSilenceRoutes(router gin.IRouter, h *SilenceHandler) {
+func RegisterAuthorizedSilenceRoutes(router gin.IRouter, db *sql.DB, h *SilenceHandler) {
 	g := router.Group("/api/v1/alert/silences")
 	{
-		g.GET("", cpMiddleware.RequireCapability("alert.silence.read"), h.ListSilences)
-		g.POST("", cpMiddleware.RequireCapability("alert.silence.create"), h.CreateSilence)
-		g.PUT("/:id", cpMiddleware.RequireCapability("alert.silence.update"), h.UpdateSilence)
-		g.DELETE("/:id", cpMiddleware.RequireCapability("alert.silence.delete"), h.DeleteSilence)
+		g.GET("", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.silence.read"), h.ListSilences)
+		g.POST("", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.silence.create"), h.CreateSilence)
+		g.PUT("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.silence.update"), h.UpdateSilence)
+		g.DELETE("/:id", cpMiddleware.RequireCapabilityOrAdminRole(db, "alert.silence.delete"), h.DeleteSilence)
 	}
 }
 

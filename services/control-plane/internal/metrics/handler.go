@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -52,11 +53,11 @@ func RegisterQueryRoutes(router gin.IRouter, handler *Handler) {
 }
 
 // RegisterAuthorizedQueryRoutes registers operator-facing metrics query routes with capability guards.
-func RegisterAuthorizedQueryRoutes(router gin.IRouter, handler *Handler) {
+func RegisterAuthorizedQueryRoutes(router gin.IRouter, db *sql.DB, handler *Handler) {
 	g := router.Group("/api/v1/metrics")
 	{
-		g.GET("/overview", cpMiddleware.RequireCapability("metric.read"), handler.QueryOverview)
-		g.GET("/servers/:agent_id", cpMiddleware.RequireCapability("metric.read"), handler.QueryAgentMetrics)
+		g.GET("/overview", cpMiddleware.RequireCapabilityOrOperatorRole(db, "metric.read"), handler.QueryOverview)
+		g.GET("/servers/:agent_id", cpMiddleware.RequireCapabilityOrOperatorRole(db, "metric.read"), handler.QueryAgentMetrics)
 	}
 }
 

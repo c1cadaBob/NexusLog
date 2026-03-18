@@ -81,8 +81,6 @@ func main() {
 	if pgDB != nil {
 		router.Use(middleware.AuditMiddleware(pgDB))
 	}
-	operatorRoutes := router.Group("", middleware.RequireOperatorRole(pgDB))
-	adminRoutes := router.Group("", middleware.RequireAdminRole(pgDB))
 
 	var pullCursorStore *ingest.PullCursorStore
 	if pgBackend != nil {
@@ -120,7 +118,7 @@ func main() {
 		metricsSvc.WithEvaluator(evaluator)
 		metricsHandler := metrics.NewHandler(metricsSvc)
 		metrics.RegisterReportRoutes(router, metricsHandler)
-		metrics.RegisterAuthorizedQueryRoutes(operatorRoutes, metricsHandler)
+		metrics.RegisterAuthorizedQueryRoutes(router, pgDB, metricsHandler)
 		// Background cleanup: delete metrics older than 30 days, run daily
 		metrics.StartCleanupJob(workerCtx, metricsRepo, 30, 24*time.Hour)
 		// Resource threshold CRUD (W3-B7)
@@ -132,19 +130,19 @@ func main() {
 		alertRuleRepo := alert.NewRuleRepositoryPG(pgDB)
 		alertRuleService := alert.NewRuleService(alertRuleRepo)
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
-		alert.RegisterAuthorizedAlertRuleRoutes(adminRoutes, alertRuleHandler)
+		alert.RegisterAuthorizedAlertRuleRoutes(router, pgDB, alertRuleHandler)
 		alert.RegisterAuthorizedAlertEventRoutes(router, pgDB, alert.NewEventHandler(pgDB))
 
 		// Alert silence policy (W4-B6)
 		silenceSvc := alert.NewSilenceService(pgDB)
-		alert.RegisterAuthorizedSilenceRoutes(adminRoutes, alert.NewSilenceHandler(silenceSvc))
+		alert.RegisterAuthorizedSilenceRoutes(router, pgDB, alert.NewSilenceHandler(silenceSvc))
 
 		// Incident API
 		incidentRepo := incident.NewRepositoryPG(pgDB)
 		incidentTimeline := incident.NewTimelineStorePG(pgDB)
 		incidentService := incident.NewService(incidentRepo, incidentTimeline)
 		incidentHandler := incident.NewHandler(incidentService)
-		incident.RegisterAuthorizedIncidentRoutes(operatorRoutes, incidentHandler)
+		incident.RegisterAuthorizedIncidentRoutes(router, pgDB, incidentHandler)
 
 		if isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "false")) {
 			evaluatorInterval := parseDurationEnv("ALERT_EVALUATOR_INTERVAL", 30*time.Second)
@@ -200,7 +198,7 @@ func main() {
 	if pgDB != nil {
 		channelRepo := notification.NewChannelRepository(pgDB)
 		smtpSender := notification.NewSMTPSender()
-		notification.RegisterAuthorizedChannelRoutes(adminRoutes, channelRepo, smtpSender)
+		notification.RegisterAuthorizedChannelRoutes(router, pgDB, channelRepo, smtpSender)
 	}
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {

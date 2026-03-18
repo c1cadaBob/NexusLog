@@ -207,6 +207,39 @@ func TestAlertRuleRoutes_RejectNonAdminUser(t *testing.T) {
 	}
 }
 
+func TestAlertRuleRoutes_AllowCapabilityUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newManagementAdminRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-alert-rule-capability")
+
+	expectAuthenticatedSession(mock, "jti-alert-rule-capability")
+	expectAuthorizationContextLookup(mock, "alerts:read")
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(1) FROM alert_rules WHERE tenant_id = $1::uuid`)).
+		WithArgs(testRouteTenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`SELECT\s+id::text,\s+tenant_id::text,\s+name,`).
+		WithArgs(testRouteTenantID, 0, 20).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "condition", "severity", "enabled", "notification_channels", "created_by", "created_at", "updated_at"}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/alert/rules", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func TestNotificationRoutes_AllowAdminUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
@@ -220,9 +253,6 @@ func TestNotificationRoutes_AllowAdminUser(t *testing.T) {
 
 	expectAuthenticatedSession(mock, "jti-admin")
 	expectAuthorizationContextLookup(mock, "alerts:read")
-	mock.ExpectQuery(regexp.QuoteMeta(testAdminRoleExistsQuery)).
-		WithArgs(testRouteUserID, testRouteTenantID).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(1) FROM notification_channels WHERE tenant_id = $1::uuid`)).
 		WithArgs(testRouteTenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
@@ -758,9 +788,6 @@ func TestMetricsQueryRoutes_AllowOperatorUser(t *testing.T) {
 
 	expectAuthenticatedSession(mock, "jti-metrics-query-operator")
 	expectAuthorizationContextLookup(mock, "metrics:read")
-	mock.ExpectQuery(regexp.QuoteMeta(testOperatorRoleExistsQuery)).
-		WithArgs(testRouteUserID, testRouteTenantID).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/servers/agent-1?range=bad", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -832,18 +859,16 @@ func TestMetricsReportRoute_AllowsAgentKey(t *testing.T) {
 func newNotificationAdminRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
-	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
-	notification.RegisterAuthorizedChannelRoutes(adminRoutes, notification.NewChannelRepository(db), notification.NewSMTPSender())
+	notification.RegisterAuthorizedChannelRoutes(router, db, notification.NewChannelRepository(db), notification.NewSMTPSender())
 	return router
 }
 
 func newManagementAdminRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
-	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
 	resource.RegisterAuthorizedRoutes(router, db, resource.NewThresholdHandler(resource.NewThresholdRepository(db)))
 	alertRuleRepo := alert.NewRuleRepositoryPG(db)
-	alert.RegisterAuthorizedAlertRuleRoutes(adminRoutes, alert.NewRuleHandler(alert.NewRuleService(alertRuleRepo)))
+	alert.RegisterAuthorizedAlertRuleRoutes(router, db, alert.NewRuleHandler(alert.NewRuleService(alertRuleRepo)))
 	return router
 }
 
@@ -884,18 +909,16 @@ func newAlertEventOperatorRouter(db *sql.DB) *gin.Engine {
 func newIncidentOperatorRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
-	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
 	incidentHandler := incident.NewHandler(incident.NewService(nil, nil))
-	incident.RegisterAuthorizedIncidentRoutes(operatorRoutes, incidentHandler)
+	incident.RegisterAuthorizedIncidentRoutes(router, db, incidentHandler)
 	return router
 }
 
 func newMetricsQueryOperatorRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
-	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
 	metricsHandler := metrics.NewHandler(metrics.NewService(metrics.NewRepository(db)))
-	metrics.RegisterAuthorizedQueryRoutes(operatorRoutes, metricsHandler)
+	metrics.RegisterAuthorizedQueryRoutes(router, db, metricsHandler)
 	return router
 }
 
