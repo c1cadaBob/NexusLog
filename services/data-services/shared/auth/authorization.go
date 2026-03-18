@@ -14,7 +14,6 @@ import (
 const (
 	contextKeyUserPermissions    contextKey = "user_permissions"
 	contextKeyAuthorizationReady contextKey = "authorization_ready"
-	contextKeyGlobalLogAccess    contextKey = "global_log_access"
 	contextKeyUserRoles          contextKey = "user_roles"
 	contextKeyUserCapabilities   contextKey = "user_capabilities"
 	contextKeyUserScopes         contextKey = "user_scopes"

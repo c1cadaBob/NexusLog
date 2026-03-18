@@ -41,20 +41,7 @@ func AuthenticatedTenantReadScope(c *gin.Context) TenantReadScope {
 	if c == nil {
 		return TenantReadScopeTenant
 	}
-	capabilities := AuthenticatedCapabilities(c)
-	scopes := AuthenticatedScopes(c)
-	if len(capabilities) > 0 || len(scopes) > 0 {
-		return ResolveTenantReadScope(capabilities, scopes)
-	}
-	value, ok := c.Get(string(contextKeyGlobalLogAccess))
-	if !ok {
-		return TenantReadScopeTenant
-	}
-	allowed, ok := value.(bool)
-	if ok && allowed {
-		return TenantReadScopeAllTenants
-	}
-	return TenantReadScopeTenant
+	return ResolveTenantReadScope(AuthenticatedCapabilities(c), AuthenticatedScopes(c))
 }
 
 // TenantReadScopeAllowsAllTenants reports whether the scope permits cross-tenant reads.

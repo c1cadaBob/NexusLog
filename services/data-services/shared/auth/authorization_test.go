@@ -346,15 +346,14 @@ func TestRequireAuthenticatedIdentity_LoadsDirectCapabilitiesIntoRequestContext(
 		ctxCapabilities, _ := c.Request.Context().Value(contextKeyUserCapabilities).([]string)
 		ctxScopes, _ := c.Request.Context().Value(contextKeyUserScopes).([]string)
 		ctxReady, _ := c.Request.Context().Value(contextKeyAuthorizationReady).(bool)
-		ctxGlobalAccess, _ := c.Request.Context().Value(contextKeyGlobalLogAccess).(bool)
 		c.JSON(http.StatusOK, gin.H{
 			"capabilities":      AuthenticatedCapabilities(c),
 			"scopes":            AuthenticatedScopes(c),
+			"tenant_read_scope": AuthenticatedTenantReadScope(c),
 			"global_log_access": AuthenticatedGlobalLogAccess(c),
 			"ctx_capabilities":  ctxCapabilities,
 			"ctx_scopes":        ctxScopes,
 			"ctx_ready":         ctxReady,
-			"ctx_global_access": ctxGlobalAccess,
 		})
 	})
 
@@ -368,13 +367,13 @@ func TestRequireAuthenticatedIdentity_LoadsDirectCapabilitiesIntoRequestContext(
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
 	var body struct {
-		Capabilities    []string `json:"capabilities"`
-		Scopes          []string `json:"scopes"`
-		GlobalLogAccess bool     `json:"global_log_access"`
-		CtxCapabilities []string `json:"ctx_capabilities"`
-		CtxScopes       []string `json:"ctx_scopes"`
-		CtxReady        bool     `json:"ctx_ready"`
-		CtxGlobalAccess bool     `json:"ctx_global_access"`
+		Capabilities    []string        `json:"capabilities"`
+		Scopes          []string        `json:"scopes"`
+		TenantReadScope TenantReadScope `json:"tenant_read_scope"`
+		GlobalLogAccess bool            `json:"global_log_access"`
+		CtxCapabilities []string        `json:"ctx_capabilities"`
+		CtxScopes       []string        `json:"ctx_scopes"`
+		CtxReady        bool            `json:"ctx_ready"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -385,8 +384,8 @@ func TestRequireAuthenticatedIdentity_LoadsDirectCapabilitiesIntoRequestContext(
 	if !hasAnyScope(body.Scopes, "all_tenants") || !hasAnyScope(body.CtxScopes, "all_tenants") {
 		t.Fatalf("unexpected scopes: %#v %#v", body.Scopes, body.CtxScopes)
 	}
-	if !body.GlobalLogAccess || !body.CtxGlobalAccess {
-		t.Fatalf("expected global log access, got body=%#v", body)
+	if body.TenantReadScope != TenantReadScopeAllTenants || !body.GlobalLogAccess {
+		t.Fatalf("expected all-tenant read access, got body=%#v", body)
 	}
 	if !body.CtxReady {
 		t.Fatal("expected ctx_ready=true")

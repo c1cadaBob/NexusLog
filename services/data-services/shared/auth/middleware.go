@@ -55,7 +55,6 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 		}
 
 		authorizationReady := false
-		globalLogAccess := false
 		permissions := []string{}
 		roles := []string{}
 		capabilities := []string{}
@@ -90,14 +89,12 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 				actorFlags[key] = enabled
 			}
 			authzEpoch = authzRecord.Snapshot.AuthzEpoch
-			globalLogAccess = canBypassTenantScope(authzRecord.Snapshot)
 			authorizationReady = true
 		}
 
 		c.Set(string(contextKeyUserID), userID)
 		c.Set(string(contextKeyTenantID), tenantID)
 		c.Set(string(contextKeyAuthorizationReady), authorizationReady)
-		c.Set(string(contextKeyGlobalLogAccess), globalLogAccess)
 		c.Set(string(contextKeyUserPermissions), permissions)
 		c.Set(string(contextKeyUserRoles), roles)
 		c.Set(string(contextKeyUserCapabilities), capabilities)
@@ -111,7 +108,6 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 		ctx = context.WithValue(ctx, contextKeyUserID, userID)
 		ctx = context.WithValue(ctx, contextKeyTenantID, tenantID)
 		ctx = context.WithValue(ctx, contextKeyAuthorizationReady, authorizationReady)
-		ctx = context.WithValue(ctx, contextKeyGlobalLogAccess, globalLogAccess)
 		ctx = context.WithValue(ctx, contextKeyUserPermissions, permissions)
 		ctx = context.WithValue(ctx, contextKeyUserRoles, roles)
 		ctx = context.WithValue(ctx, contextKeyUserCapabilities, capabilities)

@@ -21,12 +21,13 @@ func TestResolveTenantReadScope_StaysTenantWithoutCrossTenantScope(t *testing.T)
 	}
 }
 
-func TestAuthenticatedTenantReadScope_FallsBackToLegacyBoolean(t *testing.T) {
+func TestAuthenticatedTenantReadScope_DerivesFromCapabilitiesAndScopes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set(string(contextKeyGlobalLogAccess), true)
+	c.Set(string(contextKeyUserCapabilities), []string{"log.query.read"})
+	c.Set(string(contextKeyUserScopes), []string{"all_tenants"})
 
 	if got := AuthenticatedTenantReadScope(c); got != TenantReadScopeAllTenants {
 		t.Fatalf("AuthenticatedTenantReadScope() = %q, want %q", got, TenantReadScopeAllTenants)
