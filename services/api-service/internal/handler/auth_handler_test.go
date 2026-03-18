@@ -80,6 +80,16 @@ func (m *handlerRepoMock) GetRefreshTokenUser(_ context.Context, _ uuid.UUID, _ 
 	}, nil
 }
 
+func (m *handlerRepoMock) GetPasswordResetTokenUser(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {
+	userID := m.stableUserID()
+	return repository.UserIdentityRecord{
+		UserID:   userID,
+		Username: "handler-user",
+		Email:    "handler-user@nexuslog.local",
+		Status:   "active",
+	}, nil
+}
+
 func (m *handlerRepoMock) CreatePasswordResetToken(
 	_ context.Context,
 	_, _ uuid.UUID,

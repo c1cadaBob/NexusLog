@@ -227,6 +227,36 @@ func TestLookupReservedUsernamePolicy_ReturnsPolicyForCustomUsername(t *testing.
 	}
 }
 
+func TestGetPasswordResetTokenUser_ReturnsActiveUserIdentity(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewAuthRepository(db)
+	tenantID := uuid.New()
+	userID := uuid.New()
+	rawToken := "reset-token-active"
+	expiresAt := time.Now().UTC().Add(30 * time.Minute)
+
+	mock.ExpectQuery(`FROM password_reset_tokens prt`).
+		WithArgs(tenantID, hashToken(rawToken)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "email", "status", "expires_at", "used_at"}).
+			AddRow(userID, "alice", "alice@example.com", "active", expiresAt, nil))
+
+	rec, err := repo.GetPasswordResetTokenUser(context.Background(), tenantID, rawToken)
+	if err != nil {
+		t.Fatalf("GetPasswordResetTokenUser() error = %v", err)
+	}
+	if rec.UserID != userID || rec.Username != "alice" {
+		t.Fatalf("unexpected reset token user: %#v", rec)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestRotateSessionByRefreshToken_ReplayRevokesActiveFamilySessions(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

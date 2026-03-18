@@ -313,6 +313,38 @@ func (r *AuthRepository) GetRefreshTokenUser(ctx context.Context, tenantID uuid.
 	return rec, nil
 }
 
+func (r *AuthRepository) GetPasswordResetTokenUser(ctx context.Context, tenantID uuid.UUID, rawToken string) (UserIdentityRecord, error) {
+	const q = `
+		SELECT u.id, u.username, u.email, u.status, prt.expires_at, prt.used_at
+		FROM password_reset_tokens prt
+		JOIN users u ON u.id = prt.user_id AND u.tenant_id = prt.tenant_id
+		WHERE prt.tenant_id = $1
+		  AND prt.token_hash = $2
+		LIMIT 1
+	`
+
+	var rec UserIdentityRecord
+	var expiresAt time.Time
+	var usedAt sql.NullTime
+	if err := r.db.QueryRowContext(ctx, q, tenantID, hashToken(rawToken)).Scan(
+		&rec.UserID,
+		&rec.Username,
+		&rec.Email,
+		&rec.Status,
+		&expiresAt,
+		&usedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return UserIdentityRecord{}, ErrInvalidResetToken
+		}
+		return UserIdentityRecord{}, fmt.Errorf("query password reset token user: %w", err)
+	}
+	if rec.Status != "active" || usedAt.Valid || !expiresAt.After(time.Now().UTC()) {
+		return UserIdentityRecord{}, ErrInvalidResetToken
+	}
+	return rec, nil
+}
+
 func (r *AuthRepository) CreatePasswordResetToken(
 	ctx context.Context,
 	tenantID, userID uuid.UUID,

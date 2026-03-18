@@ -530,13 +530,47 @@ func (s *UserService) RemoveRole(ctx context.Context, tenantHeader, userID, role
 
 // GetMe returns the current user's info plus backward-compatible authorization context.
 func (s *UserService) GetMe(ctx context.Context, tenantHeader, userID string) (model.GetMeResponseData, *model.APIError) {
-	userData, apiErr := s.GetUser(ctx, tenantHeader, userID)
+	tenantID, apiErr := parseAndCheckTenantUser(ctx, s.repo, tenantHeader, "USER")
 	if apiErr != nil {
 		return model.GetMeResponseData{}, apiErr
 	}
 
+	u, err := s.repo.GetUser(ctx, tenantID.String(), userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			return model.GetMeResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusNotFound,
+				Code:       "USER_NOT_FOUND",
+				Message:    "user not found",
+			}
+		}
+		return model.GetMeResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "USER_GET_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	roles, _ := s.repo.GetUserRoles(ctx, tenantID.String(), userID)
+	roleData := make([]model.RoleData, 0, len(roles))
+	for _, r := range roles {
+		roleData = append(roleData, roleRecordToData(r))
+	}
+	userData := userRecordToData(*u, roleData)
+
 	permissions := sortedUniquePermissions(userData.Roles)
 	authorizationContext := buildAuthorizationContext(userData.Username, userData.Roles, permissions)
+	if s.reservedPolicyRepo != nil {
+		policy, policySourceAvailable, err := s.reservedPolicyRepo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, userData.Username)
+		if err != nil || !policySourceAvailable {
+			return model.GetMeResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusServiceUnavailable,
+				Code:       "AUTHORIZATION_UNAVAILABLE",
+				Message:    "authorization backend unavailable",
+			}
+		}
+		authorizationContext = ApplyReservedSubjectPolicyForMiddleware(authorizationContext, policy)
+	}
 
 	return model.GetMeResponseData{
 		User:         userData,

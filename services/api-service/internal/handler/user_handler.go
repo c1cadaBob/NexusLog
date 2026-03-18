@@ -444,19 +444,30 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		return
 	}
 
+	if hasAuthenticatedAuthorizationSnapshot(c) {
+		userData, apiErr := h.userService.GetUser(c.Request.Context(), tenantID, userID)
+		if apiErr != nil {
+			httpx.Error(c, apiErr)
+			return
+		}
+		httpx.Success(c, http.StatusOK, model.GetMeResponseData{
+			User:         userData,
+			Roles:        userData.Roles,
+			Permissions:  authenticatedPermissions(c),
+			Capabilities: authenticatedCapabilities(c),
+			Scopes:       authenticatedScopes(c),
+			Entitlements: authenticatedEntitlements(c),
+			FeatureFlags: authenticatedFeatureFlags(c),
+			AuthzEpoch:   authenticatedAuthzEpoch(c),
+			ActorFlags:   authenticatedActorFlags(c),
+		})
+		return
+	}
+
 	resp, apiErr := h.userService.GetMe(c.Request.Context(), tenantID, userID)
 	if apiErr != nil {
 		httpx.Error(c, apiErr)
 		return
-	}
-	if hasAuthenticatedAuthorizationSnapshot(c) {
-		resp.Permissions = authenticatedPermissions(c)
-		resp.Capabilities = authenticatedCapabilities(c)
-		resp.Scopes = authenticatedScopes(c)
-		resp.Entitlements = authenticatedEntitlements(c)
-		resp.FeatureFlags = authenticatedFeatureFlags(c)
-		resp.AuthzEpoch = authenticatedAuthzEpoch(c)
-		resp.ActorFlags = authenticatedActorFlags(c)
 	}
 	httpx.Success(c, http.StatusOK, resp)
 }

@@ -39,6 +39,7 @@ type authRepository interface {
 	LookupReservedUsernamePolicyWithAvailability(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, bool, error)
 	FindUserByEmailOrUsername(ctx context.Context, tenantID uuid.UUID, identifier string) (repository.UserIdentityRecord, error)
 	GetRefreshTokenUser(ctx context.Context, tenantID uuid.UUID, refreshToken string) (repository.UserIdentityRecord, error)
+	GetPasswordResetTokenUser(ctx context.Context, tenantID uuid.UUID, rawToken string) (repository.UserIdentityRecord, error)
 	CreatePasswordResetToken(
 		ctx context.Context,
 		tenantID, userID uuid.UUID,
@@ -520,6 +521,20 @@ func (s *AuthService) PasswordResetRequest(
 		}
 	}
 
+	resetContext := BuildAuthorizationContext(userRec.Username, nil, nil)
+	policy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, userRec.Username)
+	if err != nil || !policySourceAvailable {
+		return model.PasswordResetRequestResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusServiceUnavailable,
+			Code:       "AUTHORIZATION_UNAVAILABLE",
+			Message:    "authorization backend unavailable",
+		}
+	}
+	resetContext = applyReservedSubjectPolicy(resetContext, policy)
+	if !resetContext.ActorFlags["interactive_login_allowed"] {
+		return model.PasswordResetRequestResponseData{Accepted: true}, nil
+	}
+
 	resetToken, err := newOpaqueToken()
 	if err != nil {
 		return model.PasswordResetRequestResponseData{}, &model.APIError{
@@ -561,6 +576,46 @@ func (s *AuthService) PasswordResetConfirm(
 	normalizedReq, apiErr := normalizeAndValidateResetConfirm(req)
 	if apiErr != nil {
 		return model.PasswordResetConfirmResponseData{}, apiErr
+	}
+
+	resetUser, err := s.repo.GetPasswordResetTokenUser(ctx, tenantID, normalizedReq.Token)
+	if err != nil {
+		if errors.Is(err, repository.ErrInvalidResetToken) {
+			return model.PasswordResetConfirmResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       "AUTH_RESET_CONFIRM_INVALID_TOKEN",
+				Message:    "reset token invalid or expired",
+				Details: map[string]any{
+					"field": "token",
+				},
+			}
+		}
+		return model.PasswordResetConfirmResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       "AUTH_RESET_CONFIRM_INTERNAL_ERROR",
+			Message:    "internal error",
+		}
+	}
+
+	resetContext := BuildAuthorizationContext(resetUser.Username, nil, nil)
+	policy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, resetUser.Username)
+	if err != nil || !policySourceAvailable {
+		return model.PasswordResetConfirmResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusServiceUnavailable,
+			Code:       "AUTHORIZATION_UNAVAILABLE",
+			Message:    "authorization backend unavailable",
+		}
+	}
+	resetContext = applyReservedSubjectPolicy(resetContext, policy)
+	if !resetContext.ActorFlags["interactive_login_allowed"] {
+		return model.PasswordResetConfirmResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       "AUTH_RESET_CONFIRM_INVALID_TOKEN",
+			Message:    "reset token invalid or expired",
+			Details: map[string]any{
+				"field": "token",
+			},
+		}
 	}
 
 	hashBytes, err := bcrypt.GenerateFromPassword([]byte(normalizedReq.NewPassword), bcryptCost)

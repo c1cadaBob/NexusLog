@@ -29,6 +29,8 @@ type mockAuthRepository struct {
 	findUserErr               error
 	refreshUser               repository.UserIdentityRecord
 	refreshUserErr            error
+	passwordResetUser         repository.UserIdentityRecord
+	passwordResetUserErr      error
 	createResetErr            error
 	confirmResetErr           error
 	confirmResetUser          uuid.UUID
@@ -113,6 +115,16 @@ func (m *mockAuthRepository) GetRefreshTokenUser(_ context.Context, _ uuid.UUID,
 		Email:    "user@example.com",
 		Status:   "active",
 	}, nil
+}
+
+func (m *mockAuthRepository) GetPasswordResetTokenUser(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {
+	if m.passwordResetUserErr != nil {
+		return repository.UserIdentityRecord{}, m.passwordResetUserErr
+	}
+	if m.passwordResetUser.UserID != uuid.Nil {
+		return m.passwordResetUser, nil
+	}
+	return repository.UserIdentityRecord{}, repository.ErrInvalidResetToken
 }
 
 func (m *mockAuthRepository) CreatePasswordResetToken(
@@ -795,6 +807,51 @@ func TestPasswordResetRequestValidationAndSuccess(t *testing.T) {
 	}
 }
 
+func TestPasswordResetRequestSkipsNonInteractiveSubject(t *testing.T) {
+	tenantID := uuid.NewString()
+	repoMock := &mockAuthRepository{
+		tenantExists: true,
+		findUser: repository.UserIdentityRecord{
+			UserID:   uuid.New(),
+			Username: reservedUsernameSystemAutomation,
+			Email:    "system-automation@nexuslog.local",
+			Status:   "active",
+		},
+	}
+	svc := NewAuthService(repoMock, "test-secret")
+
+	resp, err := svc.PasswordResetRequest(context.Background(), tenantID, model.PasswordResetRequestRequest{EmailOrUsername: reservedUsernameSystemAutomation}, "127.0.0.1", "ua")
+	if err != nil || !resp.Accepted {
+		t.Fatalf("expected accepted skip for non-interactive subject, resp=%#v err=%#v", resp, err)
+	}
+	if repoMock.createResetCall != 0 {
+		t.Fatalf("expected no reset token creation, got %d", repoMock.createResetCall)
+	}
+}
+
+func TestPasswordResetRequestFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+	tenantID := uuid.NewString()
+	repoMock := &mockAuthRepository{
+		tenantExists:              true,
+		reservedPolicyUnavailable: true,
+		findUser: repository.UserIdentityRecord{
+			UserID:   uuid.New(),
+			Username: "alice",
+			Email:    "alice@example.com",
+			Status:   "active",
+		},
+	}
+	svc := NewAuthService(repoMock, "test-secret")
+
+	_, err := svc.PasswordResetRequest(context.Background(), tenantID, model.PasswordResetRequestRequest{EmailOrUsername: "alice"}, "127.0.0.1", "ua")
+	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" || err.HTTPStatus != 503 {
+		t.Fatalf("expected authorization unavailable error, got %#v", err)
+	}
+	if repoMock.createResetCall != 0 {
+		t.Fatalf("expected no reset token creation, got %d", repoMock.createResetCall)
+	}
+}
+
 func TestPasswordResetConfirmValidationAndSuccess(t *testing.T) {
 	tenantID := uuid.NewString()
 	repoMock := &mockAuthRepository{tenantExists: true}
@@ -826,7 +883,7 @@ func TestPasswordResetConfirmValidationAndSuccess(t *testing.T) {
 		t.Fatalf("expected invalid argument for new password, got %#v", err)
 	}
 
-	repoMock.confirmResetErr = repository.ErrInvalidResetToken
+	repoMock.passwordResetUserErr = repository.ErrInvalidResetToken
 	_, err = svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
 		Token:       "token-2",
 		NewPassword: "Password123",
@@ -835,6 +892,13 @@ func TestPasswordResetConfirmValidationAndSuccess(t *testing.T) {
 		t.Fatalf("expected invalid token, got %#v", err)
 	}
 
+	repoMock.passwordResetUserErr = nil
+	repoMock.passwordResetUser = repository.UserIdentityRecord{
+		UserID:   uuid.New(),
+		Username: "alice",
+		Email:    "alice@example.com",
+		Status:   "active",
+	}
 	repoMock.confirmResetErr = errors.New("db failed")
 	_, err = svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
 		Token:       "token-3",
@@ -857,5 +921,56 @@ func TestPasswordResetConfirmValidationAndSuccess(t *testing.T) {
 	}
 	if repoMock.confirmResetCall == 0 {
 		t.Fatalf("expected confirm reset call")
+	}
+}
+
+func TestPasswordResetConfirmRejectsNonInteractiveSubject(t *testing.T) {
+	tenantID := uuid.NewString()
+	repoMock := &mockAuthRepository{
+		tenantExists: true,
+		passwordResetUser: repository.UserIdentityRecord{
+			UserID:   uuid.New(),
+			Username: reservedUsernameSystemAutomation,
+			Email:    "system-automation@nexuslog.local",
+			Status:   "active",
+		},
+	}
+	svc := NewAuthService(repoMock, "test-secret")
+
+	_, err := svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
+		Token:       "token-system",
+		NewPassword: "Password123",
+	})
+	if err == nil || err.Code != "AUTH_RESET_CONFIRM_INVALID_TOKEN" {
+		t.Fatalf("expected invalid token for non-interactive subject, got %#v", err)
+	}
+	if repoMock.confirmResetCall != 0 {
+		t.Fatalf("expected no confirm reset call, got %d", repoMock.confirmResetCall)
+	}
+}
+
+func TestPasswordResetConfirmFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+	tenantID := uuid.NewString()
+	repoMock := &mockAuthRepository{
+		tenantExists:              true,
+		reservedPolicyUnavailable: true,
+		passwordResetUser: repository.UserIdentityRecord{
+			UserID:   uuid.New(),
+			Username: "alice",
+			Email:    "alice@example.com",
+			Status:   "active",
+		},
+	}
+	svc := NewAuthService(repoMock, "test-secret")
+
+	_, err := svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
+		Token:       "token-closed",
+		NewPassword: "Password123",
+	})
+	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" || err.HTTPStatus != 503 {
+		t.Fatalf("expected authorization unavailable error, got %#v", err)
+	}
+	if repoMock.confirmResetCall != 0 {
+		t.Fatalf("expected no confirm reset call, got %d", repoMock.confirmResetCall)
 	}
 }

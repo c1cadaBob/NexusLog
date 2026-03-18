@@ -486,3 +486,74 @@ func TestUserServiceBatchUpdateUsersStatusRejectsInvalidUserID(t *testing.T) {
 		t.Fatalf("unexpected error: %+v", apiErr)
 	}
 }
+
+func TestUserServiceGetMeAppliesReservedPolicy(t *testing.T) {
+	tenantID := uuid.New()
+	userID := uuid.New()
+	now := time.Now()
+	repo := &mockUserRepository{
+		tenantExists: true,
+		getUser: &repository.UserRecord{
+			ID:          userID,
+			TenantID:    tenantID,
+			Username:    "tenant-automation",
+			Email:       "tenant-automation@example.com",
+			DisplayName: sql.NullString{String: "Tenant Automation", Valid: true},
+			Status:      "active",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+		getUserRoles: []repository.RoleRecord{{
+			ID:          uuid.New(),
+			TenantID:    tenantID,
+			Name:        "viewer",
+			Description: sql.NullString{String: "Viewer", Valid: true},
+			Permissions: []byte(`[]`),
+		}},
+	}
+	policyRepo := &mockUserReservedPolicyRepository{
+		policy: repository.ReservedSubjectPolicyRecord{
+			Found:                   true,
+			Reserved:                true,
+			InteractiveLoginAllowed: false,
+			SystemSubject:           false,
+		},
+	}
+
+	svc := NewUserService(repo, policyRepo)
+	resp, apiErr := svc.GetMe(context.Background(), tenantID.String(), userID.String())
+	if apiErr != nil {
+		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+	if !resp.ActorFlags["reserved"] || resp.ActorFlags["interactive_login_allowed"] {
+		t.Fatalf("unexpected actor flags: %+v", resp.ActorFlags)
+	}
+	if policyRepo.lastUsername != "tenant-automation" {
+		t.Fatalf("expected policy lookup for tenant-automation, got %q", policyRepo.lastUsername)
+	}
+}
+
+func TestUserServiceGetMeFailsClosedWhenReservedPolicyUnavailable(t *testing.T) {
+	tenantID := uuid.New()
+	userID := uuid.New()
+	now := time.Now()
+	repo := &mockUserRepository{
+		tenantExists: true,
+		getUser: &repository.UserRecord{
+			ID:        userID,
+			TenantID:  tenantID,
+			Username:  "alice",
+			Email:     "alice@example.com",
+			Status:    "active",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	}
+	policyRepo := &mockUserReservedPolicyRepository{unavailable: true}
+
+	svc := NewUserService(repo, policyRepo)
+	_, apiErr := svc.GetMe(context.Background(), tenantID.String(), userID.String())
+	if apiErr == nil || apiErr.Code != "AUTHORIZATION_UNAVAILABLE" || apiErr.HTTPStatus != 503 {
+		t.Fatalf("expected authorization unavailable error, got %+v", apiErr)
+	}
+}
