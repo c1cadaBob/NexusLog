@@ -12,6 +12,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func expectSharedAuthorizationRegistryQueries(mock sqlmock.Sqlmock, tenantID, userID string, authzEpoch int64) {
+	mock.ExpectQuery(`FROM legacy_permission_mapping`).
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery(`FROM authz_version`).
+		WithArgs(tenantID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(authzEpoch))
+}
+
 func TestRequireAuthenticatedIdentity_LoadsAuthorizationSnapshotFromDatabase(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
@@ -43,6 +51,7 @@ func TestRequireAuthenticatedIdentity_LoadsAuthorizationSnapshotFromDatabase(t *
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("sys-superadmin", "super_admin", []byte(`["*"]`)),
 		)
+	expectSharedAuthorizationRegistryQueries(mock, tenantID, userID, 1)
 	mock.ExpectQuery(`FROM subject_reserved_policy`).
 		WithArgs(tenantID, "sys-superadmin").
 		WillReturnRows(
@@ -134,6 +143,7 @@ func TestRequireAuthenticatedIdentity_RejectsSystemAutomationInteractiveAccess(t
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("system-automation", "system_automation", []byte(`["audit:write"]`)),
 		)
+	expectSharedAuthorizationRegistryQueries(mock, tenantID, userID, 1)
 	mock.ExpectQuery(`FROM subject_reserved_policy`).
 		WithArgs(tenantID, "system-automation").
 		WillReturnRows(
@@ -200,6 +210,7 @@ func TestRequireAuthenticatedIdentity_MapsCapabilitiesWithoutOverGranting(t *tes
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("viewer", "viewer", []byte(`["logs:read"]`)),
 		)
+	expectSharedAuthorizationRegistryQueries(mock, tenantID, userID, 1)
 
 	router := gin.New()
 	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
@@ -411,6 +422,7 @@ func TestRequireAuthenticatedIdentity_LoadsDirectCapabilitiesIntoRequestContext(
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("cross-tenant-reader", "viewer", []byte(`["log.query.read","all_tenants"]`)),
 		)
+	expectSharedAuthorizationRegistryQueries(mock, tenantID, userID, 1)
 
 	router := gin.New()
 	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))

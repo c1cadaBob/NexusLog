@@ -12,7 +12,7 @@ const defaultAuthzEpoch int64 = 1
 
 var allAuthorizationScopes = []string{"system", "all_tenants", "tenant_group", "tenant", "owned", "resource", "self"}
 
-var legacyPermissionCapabilityAliases = map[string][]string{
+var defaultLegacyPermissionCapabilityAliases = map[string][]string{
 	"users:read": {
 		"iam.role.read",
 		"iam.user.read",
@@ -87,7 +87,7 @@ var legacyPermissionCapabilityAliases = map[string][]string{
 	},
 }
 
-var legacyPermissionScopes = map[string][]string{
+var defaultLegacyPermissionScopes = map[string][]string{
 	"users:read":      {"tenant"},
 	"users:write":     {"tenant"},
 	"logs:read":       {"tenant", "owned"},
@@ -117,6 +117,13 @@ type authorizationContextRecord struct {
 	Roles       []string
 	Permissions []string
 	Snapshot    AuthorizationContextSnapshot
+}
+
+type AuthorizationContextOptions struct {
+	CapabilityAliases         map[string][]string
+	PermissionScopes          map[string][]string
+	UseExplicitLegacyMappings bool
+	AuthzEpoch                int64
 }
 
 type AuthorizationContextSnapshot struct {
@@ -199,7 +206,26 @@ func loadAuthorizationContext(ctx context.Context, db *sql.DB, tenantID, userID 
 	}
 	sort.Strings(roles)
 
-	snapshot := BuildAuthorizationContext(username, roles, permissions)
+	capabilityAliases, permissionScopes, explicitLegacyMappings, err := loadLegacyPermissionMappings(ctx, db)
+	if err != nil {
+		return authorizationContextRecord{}, err
+	}
+	authzEpoch, err := loadUserAuthzEpoch(ctx, db, tenantID, userID)
+	if err != nil {
+		return authorizationContextRecord{}, err
+	}
+
+	snapshot := BuildAuthorizationContextWithOptions(
+		username,
+		roles,
+		permissions,
+		AuthorizationContextOptions{
+			CapabilityAliases:         capabilityAliases,
+			PermissionScopes:          permissionScopes,
+			UseExplicitLegacyMappings: explicitLegacyMappings,
+			AuthzEpoch:                authzEpoch,
+		},
+	)
 	policy, err := lookupReservedSubjectPolicy(ctx, db, tenantID, username)
 	if err != nil {
 		return authorizationContextRecord{}, err
@@ -226,6 +252,22 @@ func parsePermissions(raw []byte) ([]string, error) {
 }
 
 func BuildAuthorizationContext(username string, roleNames []string, permissions []string) AuthorizationContextSnapshot {
+	return BuildAuthorizationContextWithOptions(username, roleNames, permissions, AuthorizationContextOptions{})
+}
+
+func BuildAuthorizationContextWithOptions(
+	username string,
+	roleNames []string,
+	permissions []string,
+	options AuthorizationContextOptions,
+) AuthorizationContextSnapshot {
+	capabilityAliases := effectiveLegacyPermissionMappings(defaultLegacyPermissionCapabilityAliases, options.CapabilityAliases, options.UseExplicitLegacyMappings)
+	permissionScopes := effectiveLegacyPermissionMappings(defaultLegacyPermissionScopes, options.PermissionScopes, options.UseExplicitLegacyMappings)
+	authzEpoch := options.AuthzEpoch
+	if authzEpoch <= 0 {
+		authzEpoch = defaultAuthzEpoch
+	}
+
 	capabilitySet := make(map[string]struct{})
 	scopeSet := make(map[string]struct{})
 	actorFlags := map[string]bool{
@@ -255,10 +297,10 @@ func BuildAuthorizationContext(username string, roleNames []string, permissions 
 			hasWildcard = true
 			continue
 		}
-		for _, capability := range legacyPermissionCapabilityAliases[normalizedPermission] {
+		for _, capability := range capabilityAliases[normalizedPermission] {
 			capabilitySet[capability] = struct{}{}
 		}
-		for _, scope := range legacyPermissionScopes[normalizedPermission] {
+		for _, scope := range permissionScopes[normalizedPermission] {
 			scopeSet[scope] = struct{}{}
 		}
 		if isAuthorizationScopeName(normalizedPermission) {
@@ -313,7 +355,7 @@ func BuildAuthorizationContext(username string, roleNames []string, permissions 
 		Scopes:       sortedStringSet(scopeSet),
 		Entitlements: []string{},
 		FeatureFlags: []string{},
-		AuthzEpoch:   defaultAuthzEpoch,
+		AuthzEpoch:   authzEpoch,
 		ActorFlags:   actorFlags,
 	}
 }
@@ -368,6 +410,57 @@ func isDirectCapabilityPermission(value string) bool {
 		return false
 	}
 	return strings.Contains(trimmed, ".")
+}
+
+func effectiveLegacyPermissionMappings(
+	defaults map[string][]string,
+	overrides map[string][]string,
+	useExplicit bool,
+) map[string][]string {
+	if useExplicit {
+		return cloneStringSliceMap(overrides)
+	}
+	result := cloneStringSliceMap(defaults)
+	for permission, values := range overrides {
+		result[strings.TrimSpace(permission)] = cloneStringSlice(values)
+	}
+	return result
+}
+
+func cloneStringSliceMap(values map[string][]string) map[string][]string {
+	if len(values) == 0 {
+		return map[string][]string{}
+	}
+	cloned := make(map[string][]string, len(values))
+	for key, items := range values {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		cloned[trimmedKey] = cloneStringSlice(items)
+	}
+	return cloned
+}
+
+func cloneStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	cloned := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		cloned = append(cloned, trimmed)
+	}
+	sort.Strings(cloned)
+	return cloned
 }
 
 func isReservedUsername(username string) bool {

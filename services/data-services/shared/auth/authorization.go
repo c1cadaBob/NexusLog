@@ -97,7 +97,26 @@ func loadAuthorizationContext(ctx context.Context, db *sql.DB, tenantID, userID 
 	}
 	sort.Strings(roles)
 
-	snapshot := BuildAuthorizationContext(username, roles, permissions)
+	capabilityAliases, permissionScopes, explicitLegacyMappings, err := loadLegacyPermissionMappings(ctx, db)
+	if err != nil {
+		return authorizationContextRecord{}, err
+	}
+	authzEpoch, err := loadUserAuthzEpoch(ctx, db, tenantID, userID)
+	if err != nil {
+		return authorizationContextRecord{}, err
+	}
+
+	snapshot := BuildAuthorizationContextWithOptions(
+		username,
+		roles,
+		permissions,
+		AuthorizationContextOptions{
+			CapabilityAliases:         capabilityAliases,
+			PermissionScopes:          permissionScopes,
+			UseExplicitLegacyMappings: explicitLegacyMappings,
+			AuthzEpoch:                authzEpoch,
+		},
+	)
 	policy, err := lookupReservedSubjectPolicy(ctx, db, tenantID, username)
 	if err != nil {
 		return authorizationContextRecord{}, err

@@ -16,6 +16,14 @@ import (
 
 const testJWTSecret = "control-plane-auth-test-secret-20260314"
 
+func expectControlPlaneAuthorizationRegistryQueries(mock sqlmock.Sqlmock, tenantID, userID string, authzEpoch int64) {
+	mock.ExpectQuery(`FROM legacy_permission_mapping`).
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery(`FROM authz_version`).
+		WithArgs(tenantID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(authzEpoch))
+}
+
 func TestRequireAuthenticatedIdentity_PublicPathBypassesAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -178,6 +186,7 @@ func TestRequireAuthenticatedIdentity_LoadsAuthorizationSnapshotFromDatabase(t *
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("sys-superadmin", "super_admin", []byte(`["*"]`)),
 		)
+	expectControlPlaneAuthorizationRegistryQueries(mock, tenantID, userID, 1)
 	mock.ExpectQuery(`FROM subject_reserved_policy`).
 		WithArgs(tenantID, "sys-superadmin").
 		WillReturnRows(
@@ -269,6 +278,7 @@ func TestRequireAuthenticatedIdentity_RejectsSystemAutomationInteractiveAccess(t
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("system-automation", "system_automation", []byte(`["audit:write"]`)),
 		)
+	expectControlPlaneAuthorizationRegistryQueries(mock, tenantID, userID, 1)
 	mock.ExpectQuery(`FROM subject_reserved_policy`).
 		WithArgs(tenantID, "system-automation").
 		WillReturnRows(

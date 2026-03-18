@@ -58,6 +58,11 @@ func TestSilenceHandler_ListSilences_GlobalTenantRead(t *testing.T) {
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("cross-tenant-reader", "viewer", []byte(`["alert.silence.read","all_tenants"]`)),
 		)
+	mock.ExpectQuery("FROM legacy_permission_mapping").
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery("FROM authz_version").
+		WithArgs("10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001").
+		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(1))
 	mock.ExpectQuery("FROM alert_silences").
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "matchers", "reason", "starts_at", "ends_at", "created_by", "created_at", "updated_at"}).

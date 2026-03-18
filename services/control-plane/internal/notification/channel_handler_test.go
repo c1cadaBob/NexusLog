@@ -55,6 +55,11 @@ func TestChannelHandler_GetChannel_GlobalTenantRead(t *testing.T) {
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("cross-tenant-reader", "viewer", []byte(`["notification.channel.read_metadata","all_tenants"]`)),
 		)
+	mock.ExpectQuery("FROM legacy_permission_mapping").
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery("FROM authz_version").
+		WithArgs("10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001").
+		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(1))
 	mock.ExpectQuery("FROM notification_channels").
 		WithArgs("channel-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "name", "type", "config", "enabled", "created_by", "created_at", "updated_at"}).
@@ -91,6 +96,11 @@ func TestChannelHandler_ListChannels_GlobalTenantRead(t *testing.T) {
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("cross-tenant-reader", "viewer", []byte(`["notification.channel.read_metadata","all_tenants"]`)),
 		)
+	mock.ExpectQuery("FROM legacy_permission_mapping").
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery("FROM authz_version").
+		WithArgs("10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001").
+		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(1))
 	mock.ExpectQuery("SELECT COUNT\\(1\\) FROM notification_channels$").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery("FROM notification_channels").

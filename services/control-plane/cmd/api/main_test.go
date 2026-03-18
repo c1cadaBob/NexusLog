@@ -990,4 +990,9 @@ func expectAuthorizationContextLookup(mock sqlmock.Sqlmock, permissions ...strin
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow("route-user", "viewer", []byte(permissionJSON)),
 		)
+	mock.ExpectQuery(`FROM legacy_permission_mapping`).
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery(`FROM authz_version`).
+		WithArgs(testRouteTenantID, testRouteUserID).
+		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(1))
 }
