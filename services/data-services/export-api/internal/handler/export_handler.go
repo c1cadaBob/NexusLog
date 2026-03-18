@@ -19,6 +19,7 @@ import (
 const (
 	CodeOK                       = "OK"
 	CodeExportInvalidParams      = "EXPORT_INVALID_PARAMS"
+	CodeExportForbidden          = "EXPORT_FORBIDDEN"
 	CodeExportInternalError      = "EXPORT_INTERNAL_ERROR"
 	CodeExportNotFound           = "EXPORT_NOT_FOUND"
 	CodeExportServiceUnavailable = "EXPORT_SERVICE_UNAVAILABLE"
@@ -155,6 +156,8 @@ func writeServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, repository.ErrTenantContextRequired):
 		writeError(c, http.StatusUnauthorized, CodeExportInvalidParams, "tenant context is required")
+	case errors.Is(err, service.ErrExportPermissionDenied):
+		writeError(c, http.StatusForbidden, CodeExportForbidden, "insufficient capabilities")
 	case errors.Is(err, repository.ErrExportNotFound):
 		writeError(c, http.StatusNotFound, CodeExportNotFound, "export job not found")
 	case strings.Contains(err.Error(), "not completed"):
@@ -171,6 +174,7 @@ func resolveActor(c *gin.Context) service.RequestActor {
 		TenantID:        sharedauth.AuthenticatedTenantID(c),
 		UserID:          sharedauth.AuthenticatedUserID(c),
 		TenantReadScope: sharedauth.AuthenticatedTenantReadScope(c),
+		Capabilities:    sharedauth.AuthenticatedCapabilities(c),
 	}
 }
 

@@ -26,6 +26,9 @@ func TestResolveActor_UsesAuthenticatedTenantReadScope(t *testing.T) {
 	if actor.TenantReadScope != sharedauth.TenantReadScopeAllTenants {
 		t.Fatalf("resolveActor().TenantReadScope = %q, want %q", actor.TenantReadScope, sharedauth.TenantReadScopeAllTenants)
 	}
+	if len(actor.Capabilities) != 1 || actor.Capabilities[0] != "log.query.read" {
+		t.Fatalf("resolveActor().Capabilities = %#v, want log.query.read", actor.Capabilities)
+	}
 }
 
 func TestResolveActor_ReturnTypeMatchesServiceActor(t *testing.T) {

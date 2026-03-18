@@ -20,6 +20,7 @@ func TestNormalizeActor_NormalizesTenantReadScope(t *testing.T) {
 		TenantID:        " tenant-a ",
 		UserID:          " user-a ",
 		TenantReadScope: sharedauth.TenantReadScope("all_tenants"),
+		Capabilities:    []string{" export.job.read ", ""},
 	})
 	if err != nil {
 		t.Fatalf("normalizeActor() error = %v", err)
@@ -29,6 +30,25 @@ func TestNormalizeActor_NormalizesTenantReadScope(t *testing.T) {
 	}
 	if actor.TenantReadScope != sharedauth.TenantReadScopeAllTenants {
 		t.Fatalf("normalizeActor().TenantReadScope = %q, want %q", actor.TenantReadScope, sharedauth.TenantReadScopeAllTenants)
+	}
+	if len(actor.Capabilities) != 1 || actor.Capabilities[0] != CapabilityExportJobRead {
+		t.Fatalf("normalizeActor().Capabilities = %#v, want [%q]", actor.Capabilities, CapabilityExportJobRead)
+	}
+}
+
+func TestRequireActorCapability_AllowsExactAndWildcard(t *testing.T) {
+	if err := requireActorCapability(RequestActor{Capabilities: []string{CapabilityExportJobCreate}}, CapabilityExportJobCreate); err != nil {
+		t.Fatalf("requireActorCapability() error = %v, want nil", err)
+	}
+	if err := requireActorCapability(RequestActor{Capabilities: []string{"*"}}, CapabilityExportJobDownload); err != nil {
+		t.Fatalf("requireActorCapability() wildcard error = %v, want nil", err)
+	}
+}
+
+func TestRequireActorCapability_RejectsMissingCapability(t *testing.T) {
+	err := requireActorCapability(RequestActor{Capabilities: []string{CapabilityExportJobRead}}, CapabilityExportJobDownload)
+	if !errors.Is(err, ErrExportPermissionDenied) {
+		t.Fatalf("requireActorCapability() error = %v, want ErrExportPermissionDenied", err)
 	}
 }
 

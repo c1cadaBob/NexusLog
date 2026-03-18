@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -25,7 +26,12 @@ const (
 	exportJobTimedOutMessage      = "export job timed out"
 	exportJobCanceledMessage      = "export job was canceled"
 	exportServiceUnavailableError = "export service unavailable"
+	CapabilityExportJobCreate     = "export.job.create"
+	CapabilityExportJobRead       = "export.job.read"
+	CapabilityExportJobDownload   = "export.job.download"
 )
+
+var ErrExportPermissionDenied = errors.New("export permission denied")
 
 // CreateExportJobRequest 创建导出任务请求
 type CreateExportJobRequest struct {
@@ -60,6 +66,7 @@ type RequestActor struct {
 	TenantID        string
 	UserID          string
 	TenantReadScope sharedauth.TenantReadScope
+	Capabilities    []string
 }
 
 // ExportService 封装导出业务逻辑
@@ -84,6 +91,9 @@ func (s *ExportService) CreateExportJob(ctx context.Context, actor RequestActor,
 	}
 	actor, err := normalizeActor(actor)
 	if err != nil {
+		return "", err
+	}
+	if err := requireActorCapability(actor, CapabilityExportJobCreate); err != nil {
 		return "", err
 	}
 	format := strings.ToLower(strings.TrimSpace(req.Format))
@@ -289,6 +299,9 @@ func (s *ExportService) GetJob(ctx context.Context, actor RequestActor, jobID st
 	if err != nil {
 		return nil, err
 	}
+	if err := requireActorCapability(actor, CapabilityExportJobRead); err != nil {
+		return nil, err
+	}
 	job, err := s.exportRepo.GetJob(ctx, actor.TenantID, jobID)
 	if err != nil {
 		return nil, err
@@ -303,6 +316,9 @@ func (s *ExportService) ListJobs(ctx context.Context, actor RequestActor, page, 
 	}
 	actor, err := normalizeActor(actor)
 	if err != nil {
+		return ListExportJobsResult{}, err
+	}
+	if err := requireActorCapability(actor, CapabilityExportJobRead); err != nil {
 		return ListExportJobsResult{}, err
 	}
 	items, total, err := s.exportRepo.ListJobs(ctx, actor.TenantID, page, pageSize)
@@ -328,6 +344,9 @@ func (s *ExportService) GetDownloadPath(ctx context.Context, actor RequestActor,
 	}
 	actor, err := normalizeActor(actor)
 	if err != nil {
+		return "", "", err
+	}
+	if err := requireActorCapability(actor, CapabilityExportJobDownload); err != nil {
 		return "", "", err
 	}
 	job, err := s.exportRepo.GetJob(ctx, actor.TenantID, jobID)
@@ -368,11 +387,44 @@ func normalizeActor(actor RequestActor) (RequestActor, error) {
 		TenantID:        strings.TrimSpace(actor.TenantID),
 		UserID:          strings.TrimSpace(actor.UserID),
 		TenantReadScope: sharedauth.NormalizeTenantReadScope(actor.TenantReadScope),
+		Capabilities:    normalizeCapabilities(actor.Capabilities),
 	}
 	if normalized.TenantID == "" {
 		return RequestActor{}, repository.ErrTenantContextRequired
 	}
 	return normalized, nil
+}
+
+func normalizeCapabilities(capabilities []string) []string {
+	if len(capabilities) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(capabilities))
+	for _, capability := range capabilities {
+		trimmed := strings.TrimSpace(capability)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
+}
+
+func requireActorCapability(actor RequestActor, capability string) error {
+	if actorHasCapability(actor, capability) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrExportPermissionDenied, strings.TrimSpace(capability))
+}
+
+func actorHasCapability(actor RequestActor, capability string) bool {
+	required := strings.TrimSpace(capability)
+	for _, current := range actor.Capabilities {
+		if current == "*" || current == required {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ExportService) cleanupExpiredExports(ctx context.Context) {

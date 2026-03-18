@@ -53,10 +53,10 @@ func registerRoutes(r *gin.Engine, db *sql.DB, jwtSecret string, exportHandler *
 	r.Use(sharedauth.RequireAuthenticatedIdentity(db, jwtSecret))
 	v1 := r.Group("/api/v1/export")
 	{
-		v1.POST("/jobs", sharedauth.RequireCapability("export.job.create"), exportHandler.CreateExportJob)
-		v1.GET("/jobs", sharedauth.RequireCapability("export.job.read"), exportHandler.ListExportJobs)
-		v1.GET("/jobs/:id", sharedauth.RequireCapability("export.job.read"), exportHandler.GetExportJob)
-		v1.GET("/jobs/:id/download", sharedauth.RequireCapability("export.job.download"), exportHandler.DownloadExport)
+		v1.POST("/jobs", sharedauth.RequireCapability(service.CapabilityExportJobCreate), exportHandler.CreateExportJob)
+		v1.GET("/jobs", sharedauth.RequireCapability(service.CapabilityExportJobRead), exportHandler.ListExportJobs)
+		v1.GET("/jobs/:id", sharedauth.RequireCapability(service.CapabilityExportJobRead), exportHandler.GetExportJob)
+		v1.GET("/jobs/:id/download", sharedauth.RequireCapability(service.CapabilityExportJobDownload), exportHandler.DownloadExport)
 	}
 }
 
