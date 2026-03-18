@@ -77,10 +77,14 @@ func main() {
 		log.Printf("ingest store backend: memory")
 	}
 
-	router.Use(middleware.RequireAuthenticatedIdentity(pgDB, jwtSecret))
+	userRoutes := router.Group("/")
+	userRoutes.Use(middleware.RequireAuthenticatedUserIdentity(pgDB, jwtSecret))
 	if pgDB != nil {
-		router.Use(middleware.AuditMiddleware(pgDB))
+		userRoutes.Use(middleware.AuditMiddleware(pgDB))
 	}
+
+	agentRoutes := router.Group("/")
+	agentRoutes.Use(middleware.RequireAuthenticatedAgentIdentity(pgDB))
 
 	var pullCursorStore *ingest.PullCursorStore
 	if pgBackend != nil {
@@ -97,16 +101,16 @@ func main() {
 		Store:        pullCursorStore,
 		DefaultAgent: getEnv("INGESTV3_DEFAULT_AGENT_ID", "ingestv3-rewrite"),
 	}
-	registerIngestV3Routes(router, pgDB, v3CursorAdapter, v3CursorAdapter)
+	registerIngestV3Routes(userRoutes, pgDB, v3CursorAdapter, v3CursorAdapter)
 
-	if err := enablePullIngestRuntime(router, pgDB, workerCtx, pgBackend); err != nil {
+	if err := enablePullIngestRuntime(userRoutes, pgDB, workerCtx, pgBackend); err != nil {
 		log.Printf("pull ingest runtime unavailable, fallback to gone routes: %v", err)
-		registerLegacyPipelineRemovedRoutes(router, pgDB)
+		registerLegacyPipelineRemovedRoutes(userRoutes, pgDB)
 	}
 
 	// ES Snapshot Backup/Restore (W4-B3)
 	backupSvc := backup.NewService()
-	backup.RegisterAuthorizedRoutes(router, pgDB, backup.NewHandler(backupSvc))
+	backup.RegisterAuthorizedRoutes(userRoutes, pgDB, backup.NewHandler(backupSvc))
 
 	// Metrics report + query API (W3-B6, W3-B8)
 	if pgDB != nil {
@@ -117,12 +121,12 @@ func main() {
 		evaluator := resource.NewThresholdEvaluator(thresholdRepo, pgDB)
 		metricsSvc.WithEvaluator(evaluator)
 		metricsHandler := metrics.NewHandler(metricsSvc)
-		metrics.RegisterReportRoutes(router, metricsHandler)
-		metrics.RegisterAuthorizedQueryRoutes(router, pgDB, metricsHandler)
+		metrics.RegisterReportRoutes(agentRoutes, metricsHandler)
+		metrics.RegisterAuthorizedQueryRoutes(userRoutes, pgDB, metricsHandler)
 		// Background cleanup: delete metrics older than 30 days, run daily
 		metrics.StartCleanupJob(workerCtx, metricsRepo, 30, 24*time.Hour)
 		// Resource threshold CRUD (W3-B7)
-		resource.RegisterAuthorizedRoutes(router, pgDB, resource.NewThresholdHandler(thresholdRepo))
+		resource.RegisterAuthorizedRoutes(userRoutes, pgDB, resource.NewThresholdHandler(thresholdRepo))
 	}
 
 	// Alert rules API (requires PostgreSQL)
@@ -130,19 +134,19 @@ func main() {
 		alertRuleRepo := alert.NewRuleRepositoryPG(pgDB)
 		alertRuleService := alert.NewRuleService(alertRuleRepo)
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
-		alert.RegisterAuthorizedAlertRuleRoutes(router, pgDB, alertRuleHandler)
-		alert.RegisterAuthorizedAlertEventRoutes(router, pgDB, alert.NewEventHandler(pgDB))
+		alert.RegisterAuthorizedAlertRuleRoutes(userRoutes, pgDB, alertRuleHandler)
+		alert.RegisterAuthorizedAlertEventRoutes(userRoutes, pgDB, alert.NewEventHandler(pgDB))
 
 		// Alert silence policy (W4-B6)
 		silenceSvc := alert.NewSilenceService(pgDB)
-		alert.RegisterAuthorizedSilenceRoutes(router, pgDB, alert.NewSilenceHandler(silenceSvc))
+		alert.RegisterAuthorizedSilenceRoutes(userRoutes, pgDB, alert.NewSilenceHandler(silenceSvc))
 
 		// Incident API
 		incidentRepo := incident.NewRepositoryPG(pgDB)
 		incidentTimeline := incident.NewTimelineStorePG(pgDB)
 		incidentService := incident.NewService(incidentRepo, incidentTimeline)
 		incidentHandler := incident.NewHandler(incidentService)
-		incident.RegisterAuthorizedIncidentRoutes(router, pgDB, incidentHandler)
+		incident.RegisterAuthorizedIncidentRoutes(userRoutes, pgDB, incidentHandler)
 
 		if isTruthy(getEnv("ALERT_EVALUATOR_ENABLED", "false")) {
 			evaluatorInterval := parseDurationEnv("ALERT_EVALUATOR_INTERVAL", 30*time.Second)
@@ -198,7 +202,7 @@ func main() {
 	if pgDB != nil {
 		channelRepo := notification.NewChannelRepository(pgDB)
 		smtpSender := notification.NewSMTPSender()
-		notification.RegisterAuthorizedChannelRoutes(router, pgDB, channelRepo, smtpSender)
+		notification.RegisterAuthorizedChannelRoutes(userRoutes, pgDB, channelRepo, smtpSender)
 	}
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {

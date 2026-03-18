@@ -47,7 +47,7 @@ func TestRequireAuthenticatedIdentity_RejectsInvalidToken(t *testing.T) {
 	}
 }
 
-func TestRequireAuthenticatedIdentity_RejectsMetricsReportWithoutAgentKey(t *testing.T) {
+func TestRequireAuthenticatedAgentIdentity_RejectsMetricsReportWithoutAgentKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -56,7 +56,7 @@ func TestRequireAuthenticatedIdentity_RejectsMetricsReportWithoutAgentKey(t *tes
 	defer db.Close()
 
 	router := gin.New()
-	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
+	router.Use(RequireAuthenticatedAgentIdentity(db))
 	router.POST("/api/v1/metrics/report", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics/report", strings.NewReader(`{}`))
@@ -72,7 +72,7 @@ func TestRequireAuthenticatedIdentity_RejectsMetricsReportWithoutAgentKey(t *tes
 	}
 }
 
-func TestRequireAuthenticatedIdentity_SetsTenantFromAgentKeyForMetricsReport(t *testing.T) {
+func TestRequireAuthenticatedAgentIdentity_SetsTenantFromAgentKeyForMetricsReport(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -81,7 +81,7 @@ func TestRequireAuthenticatedIdentity_SetsTenantFromAgentKeyForMetricsReport(t *
 	defer db.Close()
 
 	router := gin.New()
-	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
+	router.Use(RequireAuthenticatedAgentIdentity(db))
 	router.POST("/api/v1/metrics/report", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"tenant_id": c.GetHeader("X-Tenant-ID"),

@@ -36,17 +36,13 @@ type authClaims struct {
 }
 
 func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc {
+	return RequireAuthenticatedUserIdentity(db, jwtSecret)
+}
+
+func RequireAuthenticatedUserIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 	jwtSecret = strings.TrimSpace(jwtSecret)
 	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions || isPublicControlPlanePath(c.Request.URL.Path) {
-			c.Next()
-			return
-		}
-		if isAgentControlPlanePath(c.Request.URL.Path) {
-			if !authenticateAgentIdentity(c, db) {
-				return
-			}
-			bindAuthorizationContext(c, false, emptyAuthorizationContextRecord())
 			c.Next()
 			return
 		}
@@ -100,18 +96,23 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 	}
 }
 
-func isPublicControlPlanePath(path string) bool {
-	switch strings.TrimSpace(path) {
-	case "/healthz", "/api/v1/health", "/metrics":
-		return true
-	default:
-		return false
+func RequireAuthenticatedAgentIdentity(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method == http.MethodOptions || isPublicControlPlanePath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+		if !authenticateAgentIdentity(c, db) {
+			return
+		}
+		bindAuthorizationContext(c, false, emptyAuthorizationContextRecord())
+		c.Next()
 	}
 }
 
-func isAgentControlPlanePath(path string) bool {
+func isPublicControlPlanePath(path string) bool {
 	switch strings.TrimSpace(path) {
-	case "/api/v1/metrics/report":
+	case "/healthz", "/api/v1/health", "/metrics":
 		return true
 	default:
 		return false

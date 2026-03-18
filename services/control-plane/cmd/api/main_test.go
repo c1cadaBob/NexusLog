@@ -943,9 +943,10 @@ func newMetricsQueryOperatorRouter(db *sql.DB) *gin.Engine {
 
 func newMetricsReportRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
-	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
+	agentRoutes := router.Group("/")
+	agentRoutes.Use(middleware.RequireAuthenticatedAgentIdentity(db))
 	metricsHandler := metrics.NewHandler(metrics.NewService(metrics.NewRepository(db)))
-	metrics.RegisterReportRoutes(router, metricsHandler)
+	metrics.RegisterReportRoutes(agentRoutes, metricsHandler)
 	return router
 }
 
