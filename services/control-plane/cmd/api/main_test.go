@@ -341,6 +341,33 @@ func TestIngestAdminRoutes_AllowAdminUser(t *testing.T) {
 	}
 }
 
+func TestIngestAdminRoutes_AllowCapabilityUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newIngestRuntimeRouter(t, db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-capability")
+
+	expectAuthenticatedSession(mock, "jti-ingest-capability")
+	expectAuthorizationContextLookup(mock, "ingest.source.read")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ingest/pull-sources", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func TestIngestReceiptRoute_RejectsNonOperatorUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
@@ -404,6 +431,34 @@ func TestIngestReceiptRoute_AllowsOperatorUser(t *testing.T) {
 	}
 	if body["code"] != ingest.ErrorCodeReceiptPackageNotFound {
 		t.Fatalf("unexpected response code: %#v", body["code"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestIngestReceiptRoute_AllowsCapabilityUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newIngestRuntimeRouter(t, db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingest-receipt-capability")
+
+	expectAuthenticatedSession(mock, "jti-ingest-receipt-capability")
+	expectAuthorizationContextLookup(mock, "ingest.receipt.create")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ingest/receipts", strings.NewReader(`{"package_id":"missing-package","status":"ack","checksum":"checksum-1"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%s", resp.Code, resp.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("expectations: %v", err)
@@ -510,6 +565,34 @@ func TestIngestV3Routes_AllowAdminUser(t *testing.T) {
 	}
 	if body["code"] != "OK" {
 		t.Fatalf("unexpected response code: %#v", body["code"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestIngestV3Routes_AllowCapabilityUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	router := newIngestV3AdminRouter(db)
+	token := mustIssueRouteToken(t, testRouteUserID, testRouteTenantID, "jti-ingestv3-capability")
+
+	expectAuthenticatedSession(mock, "jti-ingestv3-capability")
+	expectAuthorizationContextLookup(mock, "ingest.task.run")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/ingest/plans/resolve", strings.NewReader(`{"source_id":"source-1","file_paths":["/var/log/a.log"]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("expectations: %v", err)
@@ -771,11 +854,9 @@ func newIngestRuntimeRouter(t *testing.T, db *sql.DB) *gin.Engine {
 	t.Helper()
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
-	operatorRoutes := router.Group("", middleware.RequireOperatorRole(db))
-	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
 	workerCtx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	if err := enablePullIngestRuntime(operatorRoutes, adminRoutes, workerCtx, nil); err != nil {
+	if err := enablePullIngestRuntime(router, db, workerCtx, nil); err != nil {
 		t.Fatalf("enable pull ingest runtime: %v", err)
 	}
 	return router
@@ -784,7 +865,6 @@ func newIngestRuntimeRouter(t *testing.T, db *sql.DB) *gin.Engine {
 func newIngestV3AdminRouter(db *sql.DB) *gin.Engine {
 	router := gin.New()
 	router.Use(middleware.RequireAuthenticatedIdentity(db, testRouteJWTSecret))
-	adminRoutes := router.Group("", middleware.RequireAdminRole(db))
 	store := &ingestV3TestCursorStore{items: map[string]ingestv3.CursorEntry{
 		"source-1|/var/log/a.log": {
 			SourceID:   "source-1",
@@ -793,7 +873,7 @@ func newIngestV3AdminRouter(db *sql.DB) *gin.Engine {
 			LastOffset: 10,
 		},
 	}}
-	registerIngestV3Routes(adminRoutes, store, store)
+	registerIngestV3Routes(router, db, store, store)
 	return router
 }
 

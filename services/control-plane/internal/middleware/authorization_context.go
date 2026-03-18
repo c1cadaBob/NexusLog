@@ -254,6 +254,13 @@ func BuildAuthorizationContext(username string, roleNames []string, permissions 
 		for _, scope := range legacyPermissionScopes[normalizedPermission] {
 			scopeSet[scope] = struct{}{}
 		}
+		if isAuthorizationScopeName(normalizedPermission) {
+			scopeSet[normalizedPermission] = struct{}{}
+			continue
+		}
+		if isDirectCapabilityPermission(normalizedPermission) {
+			capabilitySet[normalizedPermission] = struct{}{}
+		}
 	}
 
 	for _, roleName := range roleNames {
@@ -336,6 +343,24 @@ func hasAuthorizationValue(values []string, required string) bool {
 		}
 	}
 	return false
+}
+
+func isAuthorizationScopeName(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	for _, scope := range allAuthorizationScopes {
+		if trimmed == scope {
+			return true
+		}
+	}
+	return false
+}
+
+func isDirectCapabilityPermission(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || strings.Contains(trimmed, ":") {
+		return false
+	}
+	return strings.Contains(trimmed, ".")
 }
 
 func isReservedUsername(username string) bool {

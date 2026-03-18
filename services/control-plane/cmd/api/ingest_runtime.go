@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/nexuslog/control-plane/internal/ingest"
+	"github.com/nexuslog/control-plane/internal/middleware"
 )
 
 const (
@@ -17,12 +19,9 @@ const (
 	minAgentSharedKeyLength   = 24
 )
 
-func enablePullIngestRuntime(operatorRoutes gin.IRouter, adminRoutes gin.IRouter, workerCtx context.Context, pgBackend *ingest.PGBackend) error {
-	if operatorRoutes == nil {
-		return fmt.Errorf("operator routes are nil")
-	}
-	if adminRoutes == nil {
-		return fmt.Errorf("admin routes are nil")
+func enablePullIngestRuntime(router gin.IRouter, db *sql.DB, workerCtx context.Context, pgBackend *ingest.PGBackend) error {
+	if router == nil {
+		return fmt.Errorf("router is nil")
 	}
 	if workerCtx == nil {
 		workerCtx = context.Background()
@@ -106,12 +105,16 @@ func enablePullIngestRuntime(operatorRoutes gin.IRouter, adminRoutes gin.IRouter
 	)
 	taskStore.SetExecutor(executor.Execute)
 
-	ingest.RegisterPullSourceRoutes(adminRoutes, sourceStore)
-	ingest.RegisterPullTaskRoutes(adminRoutes, sourceStore, taskStore)
-	ingest.RegisterPullPackageRoutes(adminRoutes, packageStore)
-	ingest.RegisterReceiptRoutes(operatorRoutes, packageStore, receiptStore, deadLetterStore)
-	ingest.RegisterDeadLetterRoutes(adminRoutes, deadLetterStore)
-	ingest.RegisterPullLatencyRoutes(adminRoutes, latencyMonitor)
+	registerAuthorizedPullIngestRuntimeRoutes(
+		router,
+		db,
+		sourceStore,
+		taskStore,
+		packageStore,
+		receiptStore,
+		deadLetterStore,
+		latencyMonitor,
+	)
 
 	scheduler := ingest.NewPullTaskScheduler(sourceStore, taskStore, ingest.PullTaskSchedulerConfig{
 		CheckInterval:           parseDurationSecondsEnv("INGEST_SCHEDULER_CHECK_INTERVAL_SEC", time.Second),
@@ -123,6 +126,43 @@ func enablePullIngestRuntime(operatorRoutes gin.IRouter, adminRoutes gin.IRouter
 
 	log.Printf("pull ingest runtime enabled: backend=%s es_index=%s", backendName, strings.TrimSpace(getEnv("INGEST_ES_INDEX", "nexuslog-logs-write-pull")))
 	return nil
+}
+
+func registerAuthorizedPullIngestRuntimeRoutes(
+	router gin.IRouter,
+	db *sql.DB,
+	sourceStore *ingest.PullSourceStore,
+	taskStore *ingest.PullTaskStore,
+	packageStore *ingest.PullPackageStore,
+	receiptStore *ingest.ReceiptStore,
+	deadLetterStore *ingest.DeadLetterStore,
+	latencyMonitor *ingest.PullLatencyMonitor,
+) {
+	if router == nil {
+		return
+	}
+
+	sourceHandler := ingest.NewPullSourceHandler(sourceStore)
+	router.GET("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.read"), sourceHandler.ListPullSources)
+	router.POST("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.create"), sourceHandler.CreatePullSource)
+	router.PUT("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.update"), sourceHandler.UpdatePullSourceByBody)
+	router.PUT("/api/v1/ingest/pull-sources/:source_id", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.update"), sourceHandler.UpdatePullSourceByPath)
+
+	taskHandler := ingest.NewPullTaskHandler(sourceStore, taskStore)
+	router.GET("/api/v1/ingest/pull-tasks", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.read"), taskHandler.ListPullTasks)
+	router.POST("/api/v1/ingest/pull-tasks/run", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.run"), taskHandler.RunPullTask)
+
+	packageHandler := ingest.NewPullPackageHandler(packageStore)
+	router.GET("/api/v1/ingest/packages", middleware.RequireCapabilityOrAdminRole(db, "ingest.package.read"), packageHandler.ListPullPackages)
+
+	receiptHandler := ingest.NewReceiptHandler(packageStore, receiptStore, deadLetterStore)
+	router.POST("/api/v1/ingest/receipts", middleware.RequireCapabilityOrOperatorRole(db, "ingest.receipt.create"), receiptHandler.CreateReceipt)
+
+	deadLetterHandler := ingest.NewDeadLetterHandler(deadLetterStore)
+	router.POST("/api/v1/ingest/dead-letters/replay", middleware.RequireCapabilityOrAdminRole(db, "ingest.dead_letter.replay"), deadLetterHandler.ReplayDeadLetters)
+
+	latencyHandler := ingest.NewPullLatencyHandler(latencyMonitor)
+	router.GET("/api/v1/ingest/metrics/latency", middleware.RequireCapabilityOrAdminRole(db, "metric.read"), latencyHandler.GetPullLatency)
 }
 
 func resolveDefaultAgentCredential() (string, string, error) {

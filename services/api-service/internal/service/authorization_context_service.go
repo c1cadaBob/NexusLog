@@ -158,6 +158,13 @@ func buildAuthorizationContextFromRoleNames(username string, roleNames []string,
 		for _, scope := range legacyPermissionScopes[normalizedPermission] {
 			scopeSet[scope] = struct{}{}
 		}
+		if isAuthorizationScopeName(normalizedPermission) {
+			scopeSet[normalizedPermission] = struct{}{}
+			continue
+		}
+		if isDirectCapabilityPermission(normalizedPermission) {
+			capabilitySet[normalizedPermission] = struct{}{}
+		}
 	}
 
 	for _, roleName := range roleNames {
@@ -206,6 +213,24 @@ func buildAuthorizationContextFromRoleNames(username string, roleNames []string,
 		AuthzEpoch:   defaultAuthzEpoch,
 		ActorFlags:   actorFlags,
 	}
+}
+
+func isAuthorizationScopeName(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	for _, scope := range allAuthorizationScopes {
+		if trimmed == scope {
+			return true
+		}
+	}
+	return false
+}
+
+func isDirectCapabilityPermission(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || strings.Contains(trimmed, ":") {
+		return false
+	}
+	return strings.Contains(trimmed, ".")
 }
 
 func sortedStringSet(values map[string]struct{}) []string {

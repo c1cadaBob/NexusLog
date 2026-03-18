@@ -1,11 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nexuslog/control-plane/internal/ingestv3"
+	"github.com/nexuslog/control-plane/internal/middleware"
 )
 
 type resolvePullPlansRequest struct {
@@ -18,13 +20,13 @@ type commitPullCursorsRequest struct {
 	Files    []ingestv3.PulledFile `json:"files"`
 }
 
-func registerIngestV3Routes(router gin.IRouter, lookup ingestv3.CursorLookup, writer ingestv3.CursorWriter) {
+func registerIngestV3Routes(router gin.IRouter, db *sql.DB, lookup ingestv3.CursorLookup, writer ingestv3.CursorWriter) {
 	if router == nil {
 		return
 	}
 
 	v2 := router.Group("/api/v2/ingest")
-	v2.POST("/plans/resolve", func(c *gin.Context) {
+	v2.POST("/plans/resolve", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.run"), func(c *gin.Context) {
 		var req resolvePullPlansRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -61,7 +63,7 @@ func registerIngestV3Routes(router gin.IRouter, lookup ingestv3.CursorLookup, wr
 		})
 	})
 
-	v2.POST("/cursors/commit", func(c *gin.Context) {
+	v2.POST("/cursors/commit", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.run"), func(c *gin.Context) {
 		var req commitPullCursorsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{

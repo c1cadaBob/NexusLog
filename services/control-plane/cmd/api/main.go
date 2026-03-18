@@ -99,11 +99,11 @@ func main() {
 		Store:        pullCursorStore,
 		DefaultAgent: getEnv("INGESTV3_DEFAULT_AGENT_ID", "ingestv3-rewrite"),
 	}
-	registerIngestV3Routes(adminRoutes, v3CursorAdapter, v3CursorAdapter)
+	registerIngestV3Routes(router, pgDB, v3CursorAdapter, v3CursorAdapter)
 
-	if err := enablePullIngestRuntime(operatorRoutes, adminRoutes, workerCtx, pgBackend); err != nil {
+	if err := enablePullIngestRuntime(router, pgDB, workerCtx, pgBackend); err != nil {
 		log.Printf("pull ingest runtime unavailable, fallback to gone routes: %v", err)
-		registerLegacyPipelineRemovedRoutes(operatorRoutes, adminRoutes)
+		registerLegacyPipelineRemovedRoutes(router, pgDB)
 	}
 
 	// ES Snapshot Backup/Restore (W4-B3)
@@ -273,7 +273,10 @@ func main() {
 	fmt.Println("Servers stopped")
 }
 
-func registerLegacyPipelineRemovedRoutes(operatorRoutes gin.IRouter, adminRoutes gin.IRouter) {
+func registerLegacyPipelineRemovedRoutes(router gin.IRouter, db *sql.DB) {
+	if router == nil {
+		return
+	}
 	respondGone := func(c *gin.Context) {
 		c.JSON(http.StatusGone, gin.H{
 			"code":       "LEGACY_PIPELINE_REMOVED",
@@ -283,21 +286,18 @@ func registerLegacyPipelineRemovedRoutes(operatorRoutes gin.IRouter, adminRoutes
 			"meta":       gin.H{},
 		})
 	}
-	if operatorRoutes != nil {
-		operatorRoutes.POST("/api/v1/ingest/receipts", respondGone)
-	}
-	if adminRoutes != nil {
-		adminRoutes.GET("/api/v1/ingest/pull-sources", respondGone)
-		adminRoutes.POST("/api/v1/ingest/pull-sources", respondGone)
-		adminRoutes.PUT("/api/v1/ingest/pull-sources", respondGone)
-		adminRoutes.PUT("/api/v1/ingest/pull-sources/:source_id", respondGone)
-		adminRoutes.GET("/api/v1/ingest/pull-tasks", respondGone)
-		adminRoutes.POST("/api/v1/ingest/pull-tasks/run", respondGone)
-		adminRoutes.GET("/api/v1/ingest/packages", respondGone)
-		adminRoutes.GET("/api/v1/ingest/dead-letters", respondGone)
-		adminRoutes.POST("/api/v1/ingest/dead-letters/replay", respondGone)
-		adminRoutes.GET("/api/v1/ingest/metrics/latency", respondGone)
-	}
+
+	router.GET("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.read"), respondGone)
+	router.POST("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.create"), respondGone)
+	router.PUT("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.update"), respondGone)
+	router.PUT("/api/v1/ingest/pull-sources/:source_id", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.update"), respondGone)
+	router.GET("/api/v1/ingest/pull-tasks", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.read"), respondGone)
+	router.POST("/api/v1/ingest/pull-tasks/run", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.run"), respondGone)
+	router.GET("/api/v1/ingest/packages", middleware.RequireCapabilityOrAdminRole(db, "ingest.package.read"), respondGone)
+	router.GET("/api/v1/ingest/dead-letters", middleware.RequireCapabilityOrAdminRole(db, "ingest.dead_letter.read"), respondGone)
+	router.POST("/api/v1/ingest/dead-letters/replay", middleware.RequireCapabilityOrAdminRole(db, "ingest.dead_letter.replay"), respondGone)
+	router.GET("/api/v1/ingest/metrics/latency", middleware.RequireCapabilityOrAdminRole(db, "metric.read"), respondGone)
+	router.POST("/api/v1/ingest/receipts", middleware.RequireCapabilityOrOperatorRole(db, "ingest.receipt.create"), respondGone)
 }
 
 func getEnv(key, fallback string) string {
