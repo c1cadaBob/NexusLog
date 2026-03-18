@@ -43,18 +43,28 @@ type userReservedPolicyRepository interface {
 	LookupReservedUsernamePolicyWithAvailability(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, bool, error)
 }
 
+type userAuthorizationContextRepository interface {
+	LoadLegacyPermissionMappings(ctx context.Context) (map[string][]string, map[string][]string, bool, error)
+	GetUserAuthzEpoch(ctx context.Context, tenantID, userID uuid.UUID) (int64, error)
+}
+
 // UserService handles user business logic.
 type UserService struct {
 	repo               userRepository
 	reservedPolicyRepo userReservedPolicyRepository
+	authzContextRepo   userAuthorizationContextRepository
 }
 
 func NewUserService(repo userRepository, reservedPolicyRepos ...userReservedPolicyRepository) *UserService {
 	var reservedPolicyRepo userReservedPolicyRepository
+	var authzContextRepo userAuthorizationContextRepository
 	if len(reservedPolicyRepos) > 0 {
 		reservedPolicyRepo = reservedPolicyRepos[0]
+		if provider, ok := reservedPolicyRepo.(userAuthorizationContextRepository); ok {
+			authzContextRepo = provider
+		}
 	}
-	return &UserService{repo: repo, reservedPolicyRepo: reservedPolicyRepo}
+	return &UserService{repo: repo, reservedPolicyRepo: reservedPolicyRepo, authzContextRepo: authzContextRepo}
 }
 
 // IsLoginLocked returns whether the username is locked due to 5 consecutive failed attempts.
@@ -559,7 +569,32 @@ func (s *UserService) GetMe(ctx context.Context, tenantHeader, userID string) (m
 	userData := userRecordToData(*u, roleData)
 
 	permissions := sortedUniquePermissions(userData.Roles)
-	authorizationContext := buildAuthorizationContext(userData.Username, userData.Roles, permissions)
+	authzOptions := AuthorizationContextOptions{}
+	if s.authzContextRepo != nil {
+		capabilityAliases, permissionScopes, explicitLegacyMappings, err := s.authzContextRepo.LoadLegacyPermissionMappings(ctx)
+		if err != nil {
+			return model.GetMeResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusServiceUnavailable,
+				Code:       "AUTHORIZATION_UNAVAILABLE",
+				Message:    "authorization backend unavailable",
+			}
+		}
+		authzEpoch, err := s.authzContextRepo.GetUserAuthzEpoch(ctx, tenantID, u.ID)
+		if err != nil {
+			return model.GetMeResponseData{}, &model.APIError{
+				HTTPStatus: http.StatusServiceUnavailable,
+				Code:       "AUTHORIZATION_UNAVAILABLE",
+				Message:    "authorization backend unavailable",
+			}
+		}
+		authzOptions = AuthorizationContextOptions{
+			CapabilityAliases:         capabilityAliases,
+			PermissionScopes:          permissionScopes,
+			UseExplicitLegacyMappings: explicitLegacyMappings,
+			AuthzEpoch:                authzEpoch,
+		}
+	}
+	authorizationContext := buildAuthorizationContextWithOptions(userData.Username, userData.Roles, permissions, authzOptions)
 	if s.reservedPolicyRepo != nil {
 		policy, policySourceAvailable, err := s.reservedPolicyRepo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, userData.Username)
 		if err != nil || !policySourceAvailable {

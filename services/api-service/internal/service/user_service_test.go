@@ -38,11 +38,17 @@ type mockUserRepository struct {
 }
 
 type mockUserReservedPolicyRepository struct {
-	policy       repository.ReservedSubjectPolicyRecord
-	err          error
-	unavailable  bool
-	lastTenantID uuid.UUID
-	lastUsername string
+	policy                 repository.ReservedSubjectPolicyRecord
+	err                    error
+	unavailable            bool
+	lastTenantID           uuid.UUID
+	lastUsername           string
+	capabilityAliases      map[string][]string
+	permissionScopes       map[string][]string
+	explicitLegacyMappings bool
+	mappingErr             error
+	authzEpoch             int64
+	authzEpochErr          error
 }
 
 func (m *mockUserReservedPolicyRepository) LookupReservedUsernamePolicy(_ context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, error) {
@@ -61,6 +67,20 @@ func (m *mockUserReservedPolicyRepository) LookupReservedUsernamePolicyWithAvail
 		return repository.ReservedSubjectPolicyRecord{}, false, m.err
 	}
 	return m.policy, !m.unavailable, nil
+}
+
+func (m *mockUserReservedPolicyRepository) LoadLegacyPermissionMappings(_ context.Context) (map[string][]string, map[string][]string, bool, error) {
+	if m.mappingErr != nil {
+		return nil, nil, false, m.mappingErr
+	}
+	return m.capabilityAliases, m.permissionScopes, m.explicitLegacyMappings, nil
+}
+
+func (m *mockUserReservedPolicyRepository) GetUserAuthzEpoch(_ context.Context, _, _ uuid.UUID) (int64, error) {
+	if m.authzEpochErr != nil {
+		return 0, m.authzEpochErr
+	}
+	return m.authzEpoch, nil
 }
 
 func (m *mockUserRepository) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
@@ -508,7 +528,7 @@ func TestUserServiceGetMeAppliesReservedPolicy(t *testing.T) {
 			TenantID:    tenantID,
 			Name:        "viewer",
 			Description: sql.NullString{String: "Viewer", Valid: true},
-			Permissions: []byte(`[]`),
+			Permissions: []byte(`["users:read","logs:read"]`),
 		}},
 	}
 	policyRepo := &mockUserReservedPolicyRepository{
@@ -550,6 +570,81 @@ func TestUserServiceGetMeFailsClosedWhenReservedPolicyUnavailable(t *testing.T) 
 		},
 	}
 	policyRepo := &mockUserReservedPolicyRepository{unavailable: true}
+
+	svc := NewUserService(repo, policyRepo)
+	_, apiErr := svc.GetMe(context.Background(), tenantID.String(), userID.String())
+	if apiErr == nil || apiErr.Code != "AUTHORIZATION_UNAVAILABLE" || apiErr.HTTPStatus != 503 {
+		t.Fatalf("expected authorization unavailable error, got %+v", apiErr)
+	}
+}
+
+func TestUserServiceGetMeUsesExplicitMappingsAndEpoch(t *testing.T) {
+	tenantID := uuid.New()
+	userID := uuid.New()
+	now := time.Now()
+	repo := &mockUserRepository{
+		tenantExists: true,
+		getUser: &repository.UserRecord{
+			ID:        userID,
+			TenantID:  tenantID,
+			Username:  "alice",
+			Email:     "alice@example.com",
+			Status:    "active",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		getUserRoles: []repository.RoleRecord{{
+			ID:          uuid.New(),
+			TenantID:    tenantID,
+			Name:        "viewer",
+			Description: sql.NullString{String: "Viewer", Valid: true},
+			Permissions: []byte(`["users:read","logs:read"]`),
+		}},
+	}
+	policyRepo := &mockUserReservedPolicyRepository{
+		capabilityAliases: map[string][]string{
+			"users:read": {"iam.user.read"},
+		},
+		permissionScopes: map[string][]string{
+			"users:read": {"tenant"},
+		},
+		explicitLegacyMappings: true,
+		authzEpoch:             7,
+	}
+
+	svc := NewUserService(repo, policyRepo)
+	resp, apiErr := svc.GetMe(context.Background(), tenantID.String(), userID.String())
+	if apiErr != nil {
+		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+	if resp.AuthzEpoch != 7 {
+		t.Fatalf("expected authz epoch 7, got %d", resp.AuthzEpoch)
+	}
+	if len(resp.Capabilities) != 1 || resp.Capabilities[0] != "iam.user.read" {
+		t.Fatalf("expected explicit mapped capability only, got %+v", resp.Capabilities)
+	}
+	if len(resp.Scopes) != 1 || resp.Scopes[0] != "tenant" {
+		t.Fatalf("expected explicit mapped scope only, got %+v", resp.Scopes)
+	}
+}
+
+func TestUserServiceGetMeFailsClosedWhenAuthzMappingUnavailable(t *testing.T) {
+	tenantID := uuid.New()
+	userID := uuid.New()
+	now := time.Now()
+	repo := &mockUserRepository{
+		tenantExists: true,
+		getUser: &repository.UserRecord{
+			ID:        userID,
+			TenantID:  tenantID,
+			Username:  "alice",
+			Email:     "alice@example.com",
+			Status:    "active",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	}
+	policyRepo := &mockUserReservedPolicyRepository{mappingErr: sql.ErrConnDone}
 
 	svc := NewUserService(repo, policyRepo)
 	_, apiErr := svc.GetMe(context.Background(), tenantID.String(), userID.String())
