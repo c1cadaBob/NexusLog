@@ -1,9 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +17,141 @@ import (
 )
 
 const routeTestJWTSecret = "router-test-secret"
+
+func TestRegisterRoutes_UserCreateAllowsLegacyUsersWriteAlias(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken := mustIssueRouteAccessToken(t, userID, tenantID, db, mock, "writer", []string{"users:write"})
+
+	router := gin.New()
+	registerRoutes(router, db, routeTestJWTSecret)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"username":`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestRegisterRoutes_UserCreateAllowsDirectCapabilityWithoutLegacyPermission(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken := mustIssueRouteAccessToken(t, userID, tenantID, db, mock, "cap-writer", []string{"iam.user.create"})
+
+	router := gin.New()
+	registerRoutes(router, db, routeTestJWTSecret)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"username":`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestRegisterRoutes_UserCreateRejectsMissingCapability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken := mustIssueRouteAccessToken(t, userID, tenantID, db, mock, "reader", []string{"users:read"})
+
+	router := gin.New()
+	registerRoutes(router, db, routeTestJWTSecret)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"username":`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestRegisterRoutes_RoleListAllowsDirectCapabilityWithoutLegacyPermission(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	tenantID := uuid.New()
+	accessToken := mustIssueRouteAccessToken(t, userID, tenantID, db, mock, "cap-reader", []string{"iam.role.read"})
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM obs\.tenant WHERE id = \$1 AND status = 'active'\)`).
+		WithArgs(tenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	readerPerms, _ := json.Marshal([]string{"users:read"})
+	mock.ExpectQuery("SELECT id, tenant_id, name, description, permissions FROM roles").
+		WithArgs(tenantID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "name", "description", "permissions"}).
+			AddRow(uuid.New(), tenantID, "viewer", nil, readerPerms))
+
+	router := gin.New()
+	registerRoutes(router, db, routeTestJWTSecret)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/roles", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tenant-ID", tenantID.String())
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
 
 func TestRegisterRoutes_UserMeDoesNotRequireUsersRead(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -96,6 +233,27 @@ func TestRegisterRoutes_UserMeDoesNotRequireUsersRead(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}
+}
+
+func mustIssueRouteAccessToken(t *testing.T, userID, tenantID uuid.UUID, _ *sql.DB, mock sqlmock.Sqlmock, username string, permissions []string) string {
+	t.Helper()
+	authSvc := service.NewAuthService(nil, routeTestJWTSecret)
+	accessToken, accessTokenJTI, err := authSvc.GenerateAccessTokenWithJTI(userID, tenantID, "")
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+
+	mock.ExpectQuery(`FROM user_sessions`).
+		WithArgs(tenantID.String(), userID.String(), accessTokenJTI, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery("SELECT .+ FROM users").
+		WithArgs(tenantID, userID).
+		WillReturnRows(newUserRows(userID, tenantID, username, username+"@nexuslog.local"))
+	mock.ExpectQuery("SELECT .+ FROM users u.+JOIN user_roles ur.+JOIN roles r").
+		WithArgs(tenantID, userID).
+		WillReturnRows(newRoleRows(userID, tenantID, permissions))
+
+	return accessToken
 }
 
 func newUserRows(userID, tenantID uuid.UUID, username, email string) *sqlmock.Rows {
