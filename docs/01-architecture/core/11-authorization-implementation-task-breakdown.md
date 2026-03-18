@@ -258,10 +258,10 @@
 | `services/data-services/shared/auth/middleware.go` | 解析 JWT、注入 `tenant_id/user_id`、加载 `permissions` | 增加 capability/scopes/authz_epoch 装载；保留 permissions 兼容；把 `authorization_ready` 与新上下文字段一起设置 |
 | `services/data-services/shared/auth/authorization.go` | `RequirePermission` 与旧权限加载 | 保留 `RequirePermission` 兼容；新增 `RequireCapability`、`RequireScope`；将 `globalLogAccessQuery` 从用户名/角色硬编码改为 capability + scope + reserved policy 组合判断 |
 | `services/data-services/shared/auth/identity_context.go` | 读取鉴权上下文 | 已提供 `AuthenticatedCapabilities()`、`AuthenticatedScopes()`、`AuthenticatedAuthzEpoch()`、`AuthenticatedActorFlags()`；跨租户读取统一通过 `AuthenticatedTenantReadScope()` 表达 |
-| `services/data-services/query-api/internal/handler/handler.go` | 将 Gin 上下文翻译成 Query actor | 已切到 `TenantReadScope`；下一步补 `authorizedTenants` / export 复用模型，避免 handler 仍只传单一租户或全租户两态 |
-| `services/data-services/query-api/internal/service/service.go` | Query actor 与查询权限聚合 | 当前只用 `{TenantID, UserID, CanReadAllLogs}` 表达查询权限，需要改成显式 capability/scope 上下文，支持 `tenant`、`owned`、`all_tenants` |
-| `services/data-services/query-api/internal/service/stats_service.go` | 统计聚合与告警摘要 | ES 侧已使用显式 `TenantReadScope`，告警摘要 SQL 也应统一避免 `tenant_id IS NULL = all_tenants` 这种隐式表达；后续继续补齐 authorized tenant set 等更细粒度范围 |
-| `services/data-services/query-api/internal/repository/repository.go` | ES 查询入参与 tenant bypass | 当前有 `BypassTenantScope` 语义，需要改成显式 scope/授权租户集合，避免 capability 迁移后继续保留布尔绕过 |
+| `services/data-services/query-api/internal/handler/handler.go` | 将 Gin 上下文翻译成 Query actor | 已切到 `TenantReadScope`；当前 actor 已支持 `authorized tenant set` 承载位，后续只需把正式授权租户列表接进 handler/context |
+| `services/data-services/query-api/internal/service/service.go` | Query actor 与查询权限聚合 | 已新增 `authorized tenant set` 兼容入口；日志检索链路已不再依赖“必须先有当前 tenant_id”的两态前提，并为 future tenant_group / delegated tenant 范围预留 actor 字段 |
+| `services/data-services/query-api/internal/service/stats_service.go` | 统计聚合与告警摘要 | ES 聚合与告警摘要 SQL 已统一复用显式授权租户集合；缓存 key 也已纳入租户范围，避免不同授权租户集合共享缓存 |
+| `services/data-services/query-api/internal/repository/repository.go` | ES 查询入参与 tenant bypass | 已支持 `authorized tenant set`：单租户继续走 term，授权多租户走 `terms` 过滤，全租户走显式 `all_tenants` 分支；后续只需把正式授权租户列表接入上游 |
 | `services/data-services/audit-api/internal/handler/audit_handler.go` | 将 Gin 上下文翻译成 Audit actor | 已切到 `TenantReadScope`；当前已去掉“必须先有 tenant_id 才能继续”的 handler 级短路，统一交给显式授权租户集合判定 |
 | `services/data-services/audit-api/internal/service/audit_service.go` | 审计 actor 与查询控制 | 已新增 `authorized tenant set` 兼容入口，先以 `tenant_id`/`all_tenants` 生成显式租户范围；后续只需把正式授权租户列表接进 actor 即可 |
 | `services/data-services/audit-api/internal/repository/audit_repository.go` | 审计查询仓储 | 已收口为显式 tenant where clause / all-tenant query 分支；当前已支持 `authorized tenant set -> tenant_id = ANY(...)` 契约，为后续 tenant_group / delegated tenant 范围预留落点 |

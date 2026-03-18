@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/nexuslog/data-services/query-api/internal/repository"
 )
 
@@ -93,8 +94,9 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 	defer cancel()
 
 	actor = normalizeActor(actor)
-	if actor.TenantID == "" {
-		return nil, ErrTenantContextRequired
+	authorizedTenantSet, err := resolveAuthorizedTenantSet(actor)
+	if err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()
@@ -116,14 +118,13 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 	from24h := now.Add(-24 * time.Hour).Format(time.RFC3339)
 	to := now.Format(time.RFC3339)
 
-	// Build base filter for tenant
-	filters := []map[string]any{
-		{"range": map[string]any{"@timestamp": map[string]any{"gte": from24h, "lte": to}}},
-	}
-	filters = appendTenantFilter(filters, actor)
-	query := map[string]any{
-		"bool": map[string]any{"filter": filters},
-	}
+	query := repository.BuildESQuery(repository.SearchLogsInput{
+		TenantID:            actor.TenantID,
+		TenantReadScope:     actor.TenantReadScope,
+		AuthorizedTenantIDs: authorizedTenantSet.TenantIDs(),
+		TimeRangeFrom:       from24h,
+		TimeRangeTo:         to,
+	})
 
 	// Single aggregation request for total, level_distribution, top_sources, log_trend
 	aggs := map[string]any{
@@ -267,8 +268,7 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 }
 
 func overviewStatsCacheKey(actor RequestActor) string {
-	actor = normalizeActor(actor)
-	return strings.TrimSpace(actor.TenantID) + "|" + string(actor.TenantReadScope)
+	return actorTenantAuthorizationCacheKey(actor)
 }
 
 func cloneOverviewStats(stats *OverviewStats) *OverviewStats {
@@ -353,12 +353,11 @@ func normalizeAggregateRequest(req AggregateRequest) AggregateRequest {
 }
 
 func aggregateCacheKey(actor RequestActor, req AggregateRequest) string {
-	actor = normalizeActor(actor)
 	filtersRaw, err := json.Marshal(req.Filters)
 	if err != nil {
 		filtersRaw = []byte("{}")
 	}
-	return strings.TrimSpace(actor.TenantID) + "|" + string(actor.TenantReadScope) + "|" + req.GroupBy + "|" + req.TimeRange + "|" + req.Keywords + "|" + string(filtersRaw)
+	return actorTenantAuthorizationCacheKey(actor) + "|" + req.GroupBy + "|" + req.TimeRange + "|" + req.Keywords + "|" + string(filtersRaw)
 }
 
 func (s *StatsService) getAggregateCache(cacheKey string, now time.Time) (*AggregateResult, bool) {
@@ -507,7 +506,10 @@ type AggregateBucket struct {
 }
 
 func buildAlertSummaryQuery(actor RequestActor) (string, []any, error) {
-	actor = normalizeActor(actor)
+	authorizedTenantSet, err := resolveAuthorizedTenantSet(actor)
+	if err != nil {
+		return "", nil, err
+	}
 	query := `
 SELECT 
   COUNT(*) as total,
@@ -516,14 +518,20 @@ SELECT
 FROM alert_events
 WHERE fired_at >= NOW() - INTERVAL '24 hours'
 `
-	if actorCanReadAllTenants(actor) {
+	if authorizedTenantSet.AllowsAllTenants() {
 		return query, nil, nil
 	}
-	if actor.TenantID == "" {
+	tenantIDs := authorizedTenantSet.TenantIDs()
+	switch len(tenantIDs) {
+	case 0:
 		return "", nil, ErrTenantContextRequired
+	case 1:
+		query += "  AND tenant_id = $1::uuid\n"
+		return query, []any{tenantIDs[0]}, nil
+	default:
+		query += "  AND tenant_id = ANY($1::uuid[])\n"
+		return query, []any{pq.Array(tenantIDs)}, nil
 	}
-	query += "  AND tenant_id = $1::uuid\n"
-	return query, []any{actor.TenantID}, nil
 }
 
 func resolveAggregateTimeRangeDuration(timeRange string) time.Duration {
@@ -549,8 +557,9 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 	defer cancel()
 
 	actor = normalizeActor(actor)
-	if actor.TenantID == "" {
-		return nil, ErrTenantContextRequired
+	authorizedTenantSet, err := resolveAuthorizedTenantSet(actor)
+	if err != nil {
+		return nil, err
 	}
 
 	req = normalizeAggregateRequest(req)
@@ -566,12 +575,13 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 	to := queryNow.Format(time.RFC3339)
 
 	query := repository.BuildESQuery(repository.SearchLogsInput{
-		TenantID:        actor.TenantID,
-		TenantReadScope: actor.TenantReadScope,
-		Keywords:        req.Keywords,
-		TimeRangeFrom:   from,
-		TimeRangeTo:     to,
-		Filters:         req.Filters,
+		TenantID:            actor.TenantID,
+		TenantReadScope:     actor.TenantReadScope,
+		AuthorizedTenantIDs: authorizedTenantSet.TenantIDs(),
+		Keywords:            req.Keywords,
+		TimeRangeFrom:       from,
+		TimeRangeTo:         to,
+		Filters:             req.Filters,
 	})
 	if boolQuery, ok := query["bool"].(map[string]any); ok {
 		query["bool"] = boolQuery
@@ -671,19 +681,34 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 }
 
 func appendTenantFilter(filters []map[string]any, actor RequestActor) []map[string]any {
-	actor = normalizeActor(actor)
-	if actorCanReadAllTenants(actor) {
+	authorizedTenantSet, err := resolveAuthorizedTenantSet(actor)
+	if err != nil {
+		return append(filters, map[string]any{"match_none": map[string]any{}})
+	}
+	if authorizedTenantSet.AllowsAllTenants() {
 		return filters
 	}
-	tenantID := strings.TrimSpace(actor.TenantID)
-	if tenantID == "" {
+	tenantIDs := authorizedTenantSet.TenantIDs()
+	if len(tenantIDs) == 0 {
 		return append(filters, map[string]any{"match_none": map[string]any{}})
+	}
+	if len(tenantIDs) == 1 {
+		tenantID := tenantIDs[0]
+		return append(filters, map[string]any{
+			"bool": map[string]any{
+				"should": []any{
+					map[string]any{"term": map[string]any{"tenant_id": tenantID}},
+					map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
+				},
+				"minimum_should_match": 1,
+			},
+		})
 	}
 	return append(filters, map[string]any{
 		"bool": map[string]any{
 			"should": []any{
-				map[string]any{"term": map[string]any{"tenant_id": tenantID}},
-				map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
+				map[string]any{"terms": map[string]any{"tenant_id": tenantIDs}},
+				map[string]any{"terms": map[string]any{"nexuslog.governance.tenant_id": tenantIDs}},
 			},
 			"minimum_should_match": 1,
 		},

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -244,6 +245,30 @@ func TestBuildAlertSummaryQuery_OmitsTenantPredicateForAllTenants(t *testing.T) 
 	}
 }
 
+func TestBuildAlertSummaryQuery_UsesAuthorizedTenantSetWhenPresent(t *testing.T) {
+	query, args, err := buildAlertSummaryQuery(RequestActor{AuthorizedTenantIDs: []string{"tenant-b", "tenant-a"}})
+	if err != nil {
+		t.Fatalf("buildAlertSummaryQuery() error = %v", err)
+	}
+	if !strings.Contains(query, "tenant_id = ANY($1::uuid[])") {
+		t.Fatalf("buildAlertSummaryQuery() query = %q, want ANY tenant predicate", query)
+	}
+	if len(args) != 1 {
+		t.Fatalf("buildAlertSummaryQuery() args len = %d, want 1", len(args))
+	}
+	valuer, ok := args[0].(driver.Valuer)
+	if !ok {
+		t.Fatalf("buildAlertSummaryQuery() arg[0] type = %T, want driver.Valuer", args[0])
+	}
+	encoded, err := valuer.Value()
+	if err != nil {
+		t.Fatalf("valuer.Value() error = %v", err)
+	}
+	if encoded != `{"tenant-a","tenant-b"}` {
+		t.Fatalf("valuer.Value() = %v, want normalized pq array", encoded)
+	}
+}
+
 func TestAppendTenantFilter_UsesMatchNoneWhenTenantMissing(t *testing.T) {
 	filters := appendTenantFilter(nil, RequestActor{})
 	if len(filters) != 1 {
@@ -261,6 +286,24 @@ func TestAppendTenantFilter_SkipsTenantScopeForGlobalAccess(t *testing.T) {
 	}
 	if _, ok := filters[0]["term"]; !ok {
 		t.Fatalf("appendTenantFilter() = %#v, want original filters only", filters)
+	}
+}
+
+func TestAppendTenantFilter_UsesAuthorizedTenantSetTermsFilter(t *testing.T) {
+	filters := appendTenantFilter(nil, RequestActor{AuthorizedTenantIDs: []string{"tenant-b", "tenant-a"}})
+	if len(filters) != 1 {
+		t.Fatalf("appendTenantFilter() len = %d, want 1", len(filters))
+	}
+	raw, err := json.Marshal(filters[0])
+	if err != nil {
+		t.Fatalf("marshal filter failed: %v", err)
+	}
+	body := string(raw)
+	if !strings.Contains(body, `"terms":{"tenant_id":["tenant-a","tenant-b"]}`) {
+		t.Fatalf("appendTenantFilter() = %s, want tenant terms filter", body)
+	}
+	if !strings.Contains(body, `"terms":{"nexuslog.governance.tenant_id":["tenant-a","tenant-b"]}`) {
+		t.Fatalf("appendTenantFilter() = %s, want governance tenant terms filter", body)
 	}
 }
 

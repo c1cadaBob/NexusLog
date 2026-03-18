@@ -189,6 +189,27 @@ func TestBuildESQuery_SkipsTenantFilterWhenBypassEnabled(t *testing.T) {
 	}
 }
 
+func TestBuildESQuery_UsesAuthorizedTenantSetWhenPresent(t *testing.T) {
+	query := BuildESQuery(SearchLogsInput{
+		TenantReadScope:     sharedauth.TenantReadScopeTenant,
+		AuthorizedTenantIDs: []string{"tenant-b", "tenant-a", "tenant-b"},
+		Keywords:            "error",
+	})
+
+	raw, err := json.Marshal(query)
+	if err != nil {
+		t.Fatalf("marshal query failed: %v", err)
+	}
+	encoded := string(raw)
+	assertContainsAll(t, encoded, []string{
+		`"terms":{"tenant_id":["tenant-a","tenant-b"]}`,
+		`"terms":{"nexuslog.governance.tenant_id":["tenant-a","tenant-b"]}`,
+	})
+	if strings.Contains(encoded, `"match_none"`) {
+		t.Fatalf("unexpected match_none query in %s", encoded)
+	}
+}
+
 func TestNormalizeFilterField_MapsFrontendAliasesToV2Fields(t *testing.T) {
 	tests := map[string]string{
 		"level":      "log.level",
@@ -752,6 +773,49 @@ func TestSearchLogs_MapsRepeatedTransientFailuresToBackendUnavailable(t *testing
 	if requestCount != 2 {
 		t.Fatalf("requestCount=%d, want 2", requestCount)
 	}
+}
+
+func TestSearchLogs_AcceptsAuthorizedTenantSetWithoutCurrentTenant(t *testing.T) {
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request body failed: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 1,
+			"timed_out": false,
+			"hits": {"total": {"value": 0}, "hits": []},
+			"aggregations": {}
+		}`))
+	}))
+	defer server.Close()
+
+	repo := &ElasticsearchRepository{
+		address: server.URL,
+		index:   "nexuslog-logs-read",
+		client:  server.Client(),
+	}
+	_, err := repo.SearchLogs(context.Background(), SearchLogsInput{
+		TenantReadScope:     sharedauth.TenantReadScopeTenant,
+		AuthorizedTenantIDs: []string{"tenant-b", "tenant-a"},
+		Page:                1,
+		PageSize:            20,
+	})
+	if err != nil {
+		t.Fatalf("SearchLogs() error = %v", err)
+	}
+
+	raw, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatalf("marshal captured request failed: %v", err)
+	}
+	encoded := string(raw)
+	assertContainsAll(t, encoded, []string{
+		`"terms":{"tenant_id":["tenant-a","tenant-b"]}`,
+		`"terms":{"nexuslog.governance.tenant_id":["tenant-a","tenant-b"]}`,
+	})
 }
 
 func TestSearchLogs_RejectsMissingTenantScope(t *testing.T) {

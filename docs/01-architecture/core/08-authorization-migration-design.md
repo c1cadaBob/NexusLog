@@ -487,8 +487,8 @@
 当前实施补充：
 
 - `data-services/shared/auth` 已提供 typed capability / scope / `TenantReadScope` 基础
-- `audit-api` 已先落一版 `authorized tenant set` 契约：以 `tenant_id` / `all_tenants` 生成显式租户范围，并为后续 tenant-group / delegated tenant 列表预留输入位
-- `query-api` 下一步沿用同一 helper，把 ES 查询从“单租户或全租户两态”继续收口到显式授权租户集合
+- `audit-api` 已落一版 `authorized tenant set` 契约：以 `tenant_id` / `all_tenants` 生成显式租户范围，并为后续 tenant-group / delegated tenant 列表预留输入位
+- `query-api` 已沿用同一 helper，把日志检索、ES 聚合、告警摘要 SQL 与相关缓存 key 从“单租户或全租户两态”继续收口到显式授权租户集合
 
 ### 7.4 Phase 3：治理能力落地
 

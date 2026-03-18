@@ -38,17 +38,18 @@ type SortField struct {
 
 // SearchLogsInput 定义检索日志请求参数。
 type SearchLogsInput struct {
-	TenantID        string
-	TenantReadScope sharedauth.TenantReadScope
-	Keywords        string
-	TimeRangeFrom   string
-	TimeRangeTo     string
-	Filters         map[string]any
-	Sort            []SortField
-	Page            int
-	PageSize        int
-	PITID           string
-	SearchAfter     []any
+	TenantID            string
+	TenantReadScope     sharedauth.TenantReadScope
+	AuthorizedTenantIDs []string
+	Keywords            string
+	TimeRangeFrom       string
+	TimeRangeTo         string
+	Filters             map[string]any
+	Sort                []SortField
+	Page                int
+	PageSize            int
+	PITID               string
+	SearchAfter         []any
 }
 
 // RawLogHit 表示 ES 返回的原始日志命中项。
@@ -136,9 +137,11 @@ func (r *ElasticsearchRepository) SearchLogs(ctx context.Context, in SearchLogsI
 		return SearchLogsResult{}, err
 	}
 	in.TenantID = strings.TrimSpace(in.TenantID)
-	if in.TenantID == "" && !sharedauth.TenantReadScopeAllowsAllTenants(in.TenantReadScope) {
+	authorizedTenantSet, err := sharedauth.ResolveAuthorizedTenantSet(in.TenantID, in.TenantReadScope, in.AuthorizedTenantIDs)
+	if err != nil {
 		return SearchLogsResult{}, ErrTenantScopeRequired
 	}
+	in.AuthorizedTenantIDs = authorizedTenantSet.TenantIDs()
 	if in.Page <= 0 {
 		in.Page = 1
 	}
@@ -575,12 +578,12 @@ func BuildESQuery(in SearchLogsInput) map[string]any {
 	filterClauses := make([]map[string]any, 0, 10)
 	mustClauses := make([]map[string]any, 0, 2)
 
-	tenantID := strings.TrimSpace(in.TenantID)
-	if !sharedauth.TenantReadScopeAllowsAllTenants(in.TenantReadScope) {
-		if tenantID == "" {
-			return tenantScopedMatchNoneQuery()
-		}
-		filterClauses = append(filterClauses, tenantScopeFilterClause(tenantID))
+	authorizedTenantSet, err := sharedauth.ResolveAuthorizedTenantSet(strings.TrimSpace(in.TenantID), in.TenantReadScope, in.AuthorizedTenantIDs)
+	if err != nil {
+		return tenantScopedMatchNoneQuery()
+	}
+	if !authorizedTenantSet.AllowsAllTenants() {
+		filterClauses = append(filterClauses, tenantScopeFilterClause(authorizedTenantSet.TenantIDs()))
 	}
 	mustNotClauses := make([]map[string]any, 0, 2)
 
@@ -682,12 +685,28 @@ func BuildESQuery(in SearchLogsInput) map[string]any {
 	}
 }
 
-func tenantScopeFilterClause(tenantID string) map[string]any {
+func tenantScopeFilterClause(tenantIDs []string) map[string]any {
+	normalizedTenantIDs := sharedauth.NormalizeAuthorizedTenantIDs(tenantIDs)
+	if len(normalizedTenantIDs) <= 1 {
+		tenantID := ""
+		if len(normalizedTenantIDs) == 1 {
+			tenantID = normalizedTenantIDs[0]
+		}
+		return map[string]any{
+			"bool": map[string]any{
+				"should": []any{
+					map[string]any{"term": map[string]any{"tenant_id": tenantID}},
+					map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
+				},
+				"minimum_should_match": 1,
+			},
+		}
+	}
 	return map[string]any{
 		"bool": map[string]any{
 			"should": []any{
-				map[string]any{"term": map[string]any{"tenant_id": tenantID}},
-				map[string]any{"term": map[string]any{"nexuslog.governance.tenant_id": tenantID}},
+				map[string]any{"terms": map[string]any{"tenant_id": normalizedTenantIDs}},
+				map[string]any{"terms": map[string]any{"nexuslog.governance.tenant_id": normalizedTenantIDs}},
 			},
 			"minimum_should_match": 1,
 		},

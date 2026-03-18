@@ -523,6 +523,16 @@ func TestSourcePathServiceHintCacheKey_UsesExplicitTenantReadScope(t *testing.T)
 	}
 }
 
+func TestSourcePathServiceHintCacheKey_IsolatesAuthorizedTenantSet(t *testing.T) {
+	sourcePath := "/var/log/app.log"
+	first := sourcePathServiceHintCacheKey(RequestActor{AuthorizedTenantIDs: []string{"tenant-a", "tenant-b"}}, sourcePath)
+	second := sourcePathServiceHintCacheKey(RequestActor{AuthorizedTenantIDs: []string{"tenant-a", "tenant-c"}}, sourcePath)
+
+	if first == second {
+		t.Fatalf("sourcePathServiceHintCacheKey() should differ by authorized tenant set, got %q", first)
+	}
+}
+
 func TestSearchLogs_CachesServiceHintsAndScopesHintLookupByTenant(t *testing.T) {
 	containerID := strings.Repeat("d", 64)
 	sourcePath := filepath.Join("/var/lib/docker/containers", containerID, containerID+"-json.log")

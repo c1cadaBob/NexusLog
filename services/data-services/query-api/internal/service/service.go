@@ -60,9 +60,10 @@ var (
 
 // RequestActor 描述一次查询请求的调用身份。
 type RequestActor struct {
-	TenantID        string
-	UserID          string
-	TenantReadScope sharedauth.TenantReadScope
+	TenantID            string
+	UserID              string
+	TenantReadScope     sharedauth.TenantReadScope
+	AuthorizedTenantIDs []string
 }
 
 // TimeRange 定义时间范围查询参数。
@@ -212,8 +213,9 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 	}
 
 	actor = normalizeActor(actor)
-	if actor.TenantID == "" {
-		return SearchLogsResult{}, ErrTenantContextRequired
+	authorizedTenantSet, err := resolveAuthorizedTenantSet(actor)
+	if err != nil {
+		return SearchLogsResult{}, err
 	}
 	page := req.Page
 	if page <= 0 {
@@ -237,17 +239,18 @@ func (s *QueryService) SearchLogs(ctx context.Context, actor RequestActor, req S
 	}
 
 	repoResult, err := s.logRepo.SearchLogs(ctx, repository.SearchLogsInput{
-		TenantID:        actor.TenantID,
-		TenantReadScope: actor.TenantReadScope,
-		Keywords:        strings.TrimSpace(req.Keywords),
-		TimeRangeFrom:   strings.TrimSpace(req.TimeRange.From),
-		TimeRangeTo:     strings.TrimSpace(req.TimeRange.To),
-		Filters:         req.Filters,
-		Sort:            toRepositorySort(req.Sort),
-		Page:            page,
-		PageSize:        pageSize,
-		PITID:           pitID,
-		SearchAfter:     searchAfter,
+		TenantID:            actor.TenantID,
+		TenantReadScope:     actor.TenantReadScope,
+		AuthorizedTenantIDs: authorizedTenantSet.TenantIDs(),
+		Keywords:            strings.TrimSpace(req.Keywords),
+		TimeRangeFrom:       strings.TrimSpace(req.TimeRange.From),
+		TimeRangeTo:         strings.TrimSpace(req.TimeRange.To),
+		Filters:             req.Filters,
+		Sort:                toRepositorySort(req.Sort),
+		Page:                page,
+		PageSize:            pageSize,
+		PITID:               pitID,
+		SearchAfter:         searchAfter,
 	})
 	if err != nil {
 		s.tryRecordQueryHistory(ctx, actor, req, SearchLogsResult{
@@ -649,14 +652,32 @@ func hashQueryPayload(req SearchLogsRequest) string {
 
 func normalizeActor(actor RequestActor) RequestActor {
 	return RequestActor{
-		TenantID:        strings.TrimSpace(actor.TenantID),
-		UserID:          strings.TrimSpace(actor.UserID),
-		TenantReadScope: sharedauth.NormalizeTenantReadScope(actor.TenantReadScope),
+		TenantID:            strings.TrimSpace(actor.TenantID),
+		UserID:              strings.TrimSpace(actor.UserID),
+		TenantReadScope:     sharedauth.NormalizeTenantReadScope(actor.TenantReadScope),
+		AuthorizedTenantIDs: sharedauth.NormalizeAuthorizedTenantIDs(actor.AuthorizedTenantIDs),
 	}
+}
+
+func resolveAuthorizedTenantSet(actor RequestActor) (sharedauth.AuthorizedTenantSet, error) {
+	actor = normalizeActor(actor)
+	authorizedTenantSet, err := sharedauth.ResolveAuthorizedTenantSet(actor.TenantID, actor.TenantReadScope, actor.AuthorizedTenantIDs)
+	if err != nil {
+		if errors.Is(err, sharedauth.ErrAuthorizedTenantSetRequired) {
+			return sharedauth.AuthorizedTenantSet{}, ErrTenantContextRequired
+		}
+		return sharedauth.AuthorizedTenantSet{}, err
+	}
+	return authorizedTenantSet, nil
 }
 
 func actorCanReadAllTenants(actor RequestActor) bool {
 	return sharedauth.TenantReadScopeAllowsAllTenants(actor.TenantReadScope)
+}
+
+func actorTenantAuthorizationCacheKey(actor RequestActor) string {
+	actor = normalizeActor(actor)
+	return string(actor.TenantReadScope) + "\u0000" + strings.TrimSpace(actor.TenantID) + "\u0000" + strings.Join(actor.AuthorizedTenantIDs, ",")
 }
 
 func parseOptionalTime(raw string) (*time.Time, error) {
@@ -1016,8 +1037,7 @@ func (s *QueryService) setSourcePathServiceHint(actor RequestActor, sourcePath, 
 }
 
 func sourcePathServiceHintCacheKey(actor RequestActor, sourcePath string) string {
-	actor = normalizeActor(actor)
-	return string(actor.TenantReadScope) + "\u0000" + strings.TrimSpace(actor.TenantID) + "\u0000" + strings.TrimSpace(sourcePath)
+	return actorTenantAuthorizationCacheKey(actor) + "\u0000" + strings.TrimSpace(sourcePath)
 }
 
 func buildSourcePathServiceHints(hits []repository.RawLogHit) map[string]string {
