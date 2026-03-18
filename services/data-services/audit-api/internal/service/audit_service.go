@@ -58,8 +58,9 @@ func NewAuditService(repo *repository.AuditRepository) *AuditService {
 
 // RequestActor 描述一次审计查询请求的调用身份。
 type RequestActor struct {
-	TenantID        string
-	TenantReadScope sharedauth.TenantReadScope
+	TenantID            string
+	TenantReadScope     sharedauth.TenantReadScope
+	AuthorizedTenantIDs []string
 }
 
 // ListAuditLogs 分页查询审计日志
@@ -68,8 +69,8 @@ func (s *AuditService) ListAuditLogs(ctx context.Context, actor RequestActor, re
 		return ListAuditLogsResult{}, fmt.Errorf("audit service is not configured")
 	}
 	actor = normalizeActor(actor)
-	if actor.TenantID == "" {
-		return ListAuditLogsResult{}, fmt.Errorf("tenant_id is required")
+	if _, err := sharedauth.ResolveAuthorizedTenantSet(actor.TenantID, actor.TenantReadScope, actor.AuthorizedTenantIDs); err != nil {
+		return ListAuditLogsResult{}, err
 	}
 	page := req.Page
 	if page <= 0 {
@@ -98,17 +99,18 @@ func (s *AuditService) ListAuditLogs(ctx context.Context, actor RequestActor, re
 	}
 
 	output, err := s.repo.ListAuditLogs(ctx, repository.ListAuditLogsInput{
-		TenantID:        actor.TenantID,
-		TenantReadScope: actor.TenantReadScope,
-		UserID:          userID,
-		Action:          action,
-		ResourceType:    resourceType,
-		FromTime:        fromTime,
-		ToTime:          toTime,
-		Page:            page,
-		PageSize:        pageSize,
-		SortBy:          strings.TrimSpace(req.SortBy),
-		SortOrder:       strings.TrimSpace(req.SortOrder),
+		TenantID:            actor.TenantID,
+		TenantReadScope:     actor.TenantReadScope,
+		AuthorizedTenantIDs: actor.AuthorizedTenantIDs,
+		UserID:              userID,
+		Action:              action,
+		ResourceType:        resourceType,
+		FromTime:            fromTime,
+		ToTime:              toTime,
+		Page:                page,
+		PageSize:            pageSize,
+		SortBy:              strings.TrimSpace(req.SortBy),
+		SortOrder:           strings.TrimSpace(req.SortOrder),
 	})
 	if err != nil {
 		return ListAuditLogsResult{}, err
@@ -139,8 +141,9 @@ func (s *AuditService) ListAuditLogs(ctx context.Context, actor RequestActor, re
 
 func normalizeActor(actor RequestActor) RequestActor {
 	return RequestActor{
-		TenantID:        strings.TrimSpace(actor.TenantID),
-		TenantReadScope: sharedauth.NormalizeTenantReadScope(actor.TenantReadScope),
+		TenantID:            strings.TrimSpace(actor.TenantID),
+		TenantReadScope:     sharedauth.NormalizeTenantReadScope(actor.TenantReadScope),
+		AuthorizedTenantIDs: sharedauth.NormalizeAuthorizedTenantIDs(actor.AuthorizedTenantIDs),
 	}
 }
 

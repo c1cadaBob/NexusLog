@@ -262,9 +262,9 @@
 | `services/data-services/query-api/internal/service/service.go` | Query actor 与查询权限聚合 | 当前只用 `{TenantID, UserID, CanReadAllLogs}` 表达查询权限，需要改成显式 capability/scope 上下文，支持 `tenant`、`owned`、`all_tenants` |
 | `services/data-services/query-api/internal/service/stats_service.go` | 统计聚合与告警摘要 | ES 侧已使用显式 `TenantReadScope`，告警摘要 SQL 也应统一避免 `tenant_id IS NULL = all_tenants` 这种隐式表达；后续继续补齐 authorized tenant set 等更细粒度范围 |
 | `services/data-services/query-api/internal/repository/repository.go` | ES 查询入参与 tenant bypass | 当前有 `BypassTenantScope` 语义，需要改成显式 scope/授权租户集合，避免 capability 迁移后继续保留布尔绕过 |
-| `services/data-services/audit-api/internal/handler/audit_handler.go` | 将 Gin 上下文翻译成 Audit actor | 已切到 `TenantReadScope`；下一步继续与 service/repository 一起消除 `nil tenantScope = all_tenants` 旧语义 |
-| `services/data-services/audit-api/internal/service/audit_service.go` | 审计 actor 与查询控制 | 当前用 `BypassTenantScope` 表达跨租户，需要改成 capability + scope 模型，并消除 service 层“要求 tenant 非空”与 repository 层“允许 nil tenantScope”之间的语义冲突 |
-| `services/data-services/audit-api/internal/repository/audit_repository.go` | 审计查询仓储 | 已收口为显式 tenant where clause / all-tenant query 分支；后续继续与 service 层一起统一跨租户访问契约 |
+| `services/data-services/audit-api/internal/handler/audit_handler.go` | 将 Gin 上下文翻译成 Audit actor | 已切到 `TenantReadScope`；当前已去掉“必须先有 tenant_id 才能继续”的 handler 级短路，统一交给显式授权租户集合判定 |
+| `services/data-services/audit-api/internal/service/audit_service.go` | 审计 actor 与查询控制 | 已新增 `authorized tenant set` 兼容入口，先以 `tenant_id`/`all_tenants` 生成显式租户范围；后续只需把正式授权租户列表接进 actor 即可 |
+| `services/data-services/audit-api/internal/repository/audit_repository.go` | 审计查询仓储 | 已收口为显式 tenant where clause / all-tenant query 分支；当前已支持 `authorized tenant set -> tenant_id = ANY(...)` 契约，为后续 tenant_group / delegated tenant 范围预留落点 |
 | `services/data-services/export-api/internal/handler/export_handler.go` | 构造导出 actor 并下发服务层 | 已显式传递 `TenantReadScope` 到 service actor；当前仍保持 tenant-scoped，不开放跨租户导出 |
 | `services/data-services/export-api/internal/service/export_service.go` | 导出任务创建/读取/下载服务 | 已切到显式 actor `{tenant_id,user_id,tenant_read_scope,capabilities,scopes}`，并下沉 `export.job.create/read/download` service 校验；读取链路已开始区分 `tenant` 与 `owned` scope |
 | `services/data-services/export-api/internal/repository/es_export_repository.go` | 导出 ES 查询过滤 | 已删除空租户 `match_none` 隐式兜底；当前仍保持 tenant-scoped，后续若支持受控跨租户导出，需要升级为显式 scope |

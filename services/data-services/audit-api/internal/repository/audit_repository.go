@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
@@ -33,17 +34,18 @@ type AuditLog struct {
 
 // ListAuditLogsInput 审计日志列表过滤参数
 type ListAuditLogsInput struct {
-	TenantID        string
-	TenantReadScope sharedauth.TenantReadScope
-	UserID          *string
-	Action          *string
-	ResourceType    *string
-	FromTime        *time.Time
-	ToTime          *time.Time
-	Page            int
-	PageSize        int
-	SortBy          string
-	SortOrder       string
+	TenantID            string
+	TenantReadScope     sharedauth.TenantReadScope
+	AuthorizedTenantIDs []string
+	UserID              *string
+	Action              *string
+	ResourceType        *string
+	FromTime            *time.Time
+	ToTime              *time.Time
+	Page                int
+	PageSize            int
+	SortBy              string
+	SortOrder           string
 }
 
 // ListAuditLogsOutput 审计日志列表输出
@@ -203,13 +205,22 @@ func buildAuditLogWhereClause(in ListAuditLogsInput) (string, []any, error) {
 	clauses := make([]string, 0, 6)
 	args := make([]any, 0, 6)
 
-	if !sharedauth.TenantReadScopeAllowsAllTenants(in.TenantReadScope) {
-		tenantID := strings.TrimSpace(in.TenantID)
-		if tenantID == "" {
-			return "", nil, fmt.Errorf("tenant_id is required")
+	authorizedTenantSet, err := sharedauth.ResolveAuthorizedTenantSet(in.TenantID, in.TenantReadScope, in.AuthorizedTenantIDs)
+	if err != nil {
+		return "", nil, err
+	}
+	if !authorizedTenantSet.AllowsAllTenants() {
+		tenantIDs := authorizedTenantSet.TenantIDs()
+		switch len(tenantIDs) {
+		case 0:
+			return "", nil, sharedauth.ErrAuthorizedTenantSetRequired
+		case 1:
+			args = append(args, tenantIDs[0])
+			clauses = append(clauses, fmt.Sprintf("tenant_id = $%d::uuid", len(args)))
+		default:
+			args = append(args, pq.Array(tenantIDs))
+			clauses = append(clauses, fmt.Sprintf("tenant_id = ANY($%d::uuid[])", len(args)))
 		}
-		args = append(args, tenantID)
-		clauses = append(clauses, fmt.Sprintf("tenant_id = $%d::uuid", len(args)))
 	}
 	if userID := nullableStringPtr(in.UserID); userID != nil {
 		args = append(args, userID)

@@ -484,6 +484,12 @@
 - Soft Enforce：对只读接口提示差异，对高风险写接口严格拦截
 - Hard Enforce：完全以 capability 中间件为准
 
+当前实施补充：
+
+- `data-services/shared/auth` 已提供 typed capability / scope / `TenantReadScope` 基础
+- `audit-api` 已先落一版 `authorized tenant set` 契约：以 `tenant_id` / `all_tenants` 生成显式租户范围，并为后续 tenant-group / delegated tenant 列表预留输入位
+- `query-api` 下一步沿用同一 helper，把 ES 查询从“单租户或全租户两态”继续收口到显式授权租户集合
+
 ### 7.4 Phase 3：治理能力落地
 
 优先顺序：

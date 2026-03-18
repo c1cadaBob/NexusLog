@@ -4,6 +4,7 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -35,10 +36,6 @@ func NewAuditHandler(svc *service.AuditService) *AuditHandler {
 // ListAuditLogs 处理 GET /api/v1/audit/logs
 func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 	actor := resolveActor(c)
-	if actor.TenantID == "" {
-		writeError(c, http.StatusUnauthorized, CodeAuditUnauthorized, "tenant context is required")
-		return
-	}
 	req := service.ListAuditLogsRequest{
 		UserID:       c.Query("user_id"),
 		Action:       c.Query("action"),
@@ -88,7 +85,7 @@ func writeError(c *gin.Context, status int, code, message string) {
 func writeServiceError(c *gin.Context, err error) {
 	errStr := err.Error()
 	switch {
-	case strings.Contains(errStr, "tenant_id is required"):
+	case errors.Is(err, sharedauth.ErrAuthorizedTenantSetRequired), strings.Contains(errStr, "tenant_id is required"):
 		writeError(c, http.StatusUnauthorized, CodeAuditUnauthorized, "tenant context is required")
 	case strings.Contains(errStr, "not configured"):
 		writeError(c, http.StatusServiceUnavailable, CodeAuditServiceUnavailable, "audit service is unavailable")
