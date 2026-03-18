@@ -280,7 +280,7 @@
 | `services/control-plane/internal/middleware/identity_context.go` | 控制面身份上下文读取 | 扩展 getter，支持新授权上下文字段 |
 | `services/control-plane/cmd/api/main.go` | control-plane 路由 wiring | 当前已拆出 `userRoutes` / `agentRoutes`：`/api/v1/metrics/report` 走显式 agent 鉴权，其余交互式 API 走用户鉴权；下一步继续把 `RequireOperatorRole/RequireAdminRole` 组合接线收口到 capability wiring |
 | `services/control-plane/cmd/api/ingest_runtime.go`、`services/control-plane/cmd/api/ingestv3_routes.go` | admin/operator 路由注册与边界声明 | 让注册函数接收“已授权 router”或显式 authz requirement，而不是在 bootstrap 里依赖 `adminRoutes/operatorRoutes` 隐式传递角色语义 |
-| `services/control-plane/internal/alert/event_handler.go`、`services/control-plane/internal/alert/silence_handler.go`、`services/control-plane/internal/alert/rule_handler.go`、`services/control-plane/internal/notification/channel_handler.go` | control-plane 业务 handler | `alert event/silence` 读取链路已开始改成显式 `ReadScope{tenant,global}`，不再在 handler 中用 `tenantScope=""` 表达全租户；后续继续把 `rule/channel` 同类入口与 repo/service 一并收口到 capability + scope 显式模型 |
+| `services/control-plane/internal/alert/event_handler.go`、`services/control-plane/internal/alert/silence_handler.go`、`services/control-plane/internal/alert/rule_handler.go`、`services/control-plane/internal/notification/channel_handler.go` | control-plane 业务 handler | `alert event/silence/rule` 与 `notification channel` 读取链路已切到显式 `TenantReadScope{tenant,global}`，不再在 handler 中用 `tenantScope=""` 表达全租户；后续继续把更多 repo/service 的跨租户读入口统一到 capability + scope 显式模型 |
 
 ### P1：服务入口路由
 

@@ -230,6 +230,24 @@ func TestRuleHandler_GetRule_NotFound(t *testing.T) {
 	}
 }
 
+func performAuthenticatedRequest(router *gin.Engine, method, path string, body any, tenantID, userID string) *httptest.ResponseRecorder {
+	var payload []byte
+	if body != nil {
+		payload, _ = json.Marshal(body)
+	}
+	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	if tenantID != "" {
+		req.Header.Set("X-Tenant-ID", tenantID)
+	}
+	if userID != "" {
+		req.Header.Set("X-User-ID", userID)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
 func TestRuleHandler_ListRules_GlobalTenantRead(t *testing.T) {
 	repo := newMockRuleRepo()
 	repo.globalTenantRead = true
@@ -240,7 +258,7 @@ func TestRuleHandler_ListRules_GlobalTenantRead(t *testing.T) {
 	r := newAlertTestRouter()
 	RegisterAlertRuleRoutes(r, handler)
 
-	rec := performRequest(r, http.MethodGet, "/api/v1/alert/rules?page=1&page_size=10", nil, "00000000-0000-0000-0000-000000000099")
+	rec := performAuthenticatedRequest(r, http.MethodGet, "/api/v1/alert/rules?page=1&page_size=10", nil, "00000000-0000-0000-0000-000000000099", "20000000-0000-0000-0000-000000000099")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -274,7 +292,7 @@ func TestRuleHandler_GetRule_GlobalTenantRead(t *testing.T) {
 	r := newAlertTestRouter()
 	RegisterAlertRuleRoutes(r, handler)
 
-	rec := performRequest(r, http.MethodGet, "/api/v1/alert/rules/rule-cross", nil, "00000000-0000-0000-0000-000000000099")
+	rec := performAuthenticatedRequest(r, http.MethodGet, "/api/v1/alert/rules/rule-cross", nil, "00000000-0000-0000-0000-000000000099", "20000000-0000-0000-0000-000000000099")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}

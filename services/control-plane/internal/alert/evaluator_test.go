@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 func TestEvaluator_checkKeyword(t *testing.T) {
@@ -16,9 +18,9 @@ func TestEvaluator_checkKeyword(t *testing.T) {
 	e := NewEvaluator(repo, mockES, db, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
-		ID:       "r1",
-		TenantID: "t1",
-		Name:     "test",
+		ID:        "r1",
+		TenantID:  "t1",
+		Name:      "test",
 		Condition: json.RawMessage(`{"type":"keyword","keyword":"error","field":"message","window_seconds":300}`),
 	}
 	matched, _, err := e.checkCondition(ctx, rule)
@@ -37,8 +39,8 @@ func TestEvaluator_checkKeyword_noMatch(t *testing.T) {
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
-		ID:       "r1",
-		TenantID: "t1",
+		ID:        "r1",
+		TenantID:  "t1",
 		Condition: json.RawMessage(`{"type":"keyword","keyword":"error"}`),
 	}
 	matched, _, err := e.checkCondition(ctx, rule)
@@ -57,8 +59,8 @@ func TestEvaluator_checkLevelCount(t *testing.T) {
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
-		ID:       "r1",
-		TenantID: "t1",
+		ID:        "r1",
+		TenantID:  "t1",
 		Condition: json.RawMessage(`{"type":"level_count","level":"error","threshold":5,"window_seconds":300}`),
 	}
 	matched, _, err := e.checkCondition(ctx, rule)
@@ -77,8 +79,8 @@ func TestEvaluator_checkLevelCount_noMatch(t *testing.T) {
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
-		ID:       "r1",
-		TenantID: "t1",
+		ID:        "r1",
+		TenantID:  "t1",
 		Condition: json.RawMessage(`{"type":"level_count","level":"error","threshold":5}`),
 	}
 	matched, _, err := e.checkCondition(ctx, rule)
@@ -97,8 +99,8 @@ func TestEvaluator_checkThreshold(t *testing.T) {
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
-		ID:       "r1",
-		TenantID: "t1",
+		ID:        "r1",
+		TenantID:  "t1",
 		Condition: json.RawMessage(`{"type":"threshold","metric":"count","operator":">","value":50}`),
 	}
 	matched, _, err := e.checkCondition(ctx, rule)
@@ -117,8 +119,8 @@ func TestEvaluator_checkThreshold_noMatch(t *testing.T) {
 	e := NewEvaluator(repo, mockES, nil, "logs").WithSuppressor(nil)
 
 	rule := &AlertRule{
-		ID:       "r1",
-		TenantID: "t1",
+		ID:        "r1",
+		TenantID:  "t1",
 		Condition: json.RawMessage(`{"type":"threshold","metric":"count","operator":">","value":50}`),
 	}
 	matched, _, err := e.checkCondition(ctx, rule)
@@ -137,7 +139,7 @@ func TestEvaluator_unknownType(t *testing.T) {
 	e := NewEvaluator(repo, mockES, nil, "logs")
 
 	rule := &AlertRule{
-		ID:       "r1",
+		ID:        "r1",
 		Condition: json.RawMessage(`{"type":"unknown"}`),
 	}
 	matched, _, err := e.checkCondition(ctx, rule)
@@ -180,11 +182,19 @@ func (m *evalMockRuleRepo) ListRules(ctx context.Context, tenantID string, page,
 	return nil, 0, nil
 }
 
+func (m *evalMockRuleRepo) ListRulesForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, page, pageSize int) ([]AlertRule, int, error) {
+	return nil, 0, nil
+}
+
 func (m *evalMockRuleRepo) ListEnabledRules(ctx context.Context) ([]AlertRule, error) {
 	return nil, nil
 }
 
 func (m *evalMockRuleRepo) GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error) {
+	return nil, nil
+}
+
+func (m *evalMockRuleRepo) GetRuleForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, ruleID string) (*AlertRule, error) {
 	return nil, nil
 }
 

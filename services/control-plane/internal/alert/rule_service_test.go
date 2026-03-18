@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 // mockRuleRepo is an in-memory RuleRepository for testing.
@@ -20,9 +22,17 @@ func newMockRuleRepo() *mockRuleRepo {
 }
 
 func (m *mockRuleRepo) ListRules(ctx context.Context, tenantID string, page, pageSize int) ([]AlertRule, int, error) {
+	scope := cpMiddleware.TenantReadScope{TenantID: tenantID}
+	if tenantID == "" {
+		scope.Global = true
+	}
+	return m.ListRulesForScope(ctx, scope, page, pageSize)
+}
+
+func (m *mockRuleRepo) ListRulesForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, page, pageSize int) ([]AlertRule, int, error) {
 	var items []AlertRule
 	for _, r := range m.rules {
-		if tenantID == "" || r.TenantID == tenantID {
+		if scope.Global || r.TenantID == scope.TenantID {
 			items = append(items, r)
 		}
 	}
@@ -49,11 +59,19 @@ func (m *mockRuleRepo) ListEnabledRules(ctx context.Context) ([]AlertRule, error
 }
 
 func (m *mockRuleRepo) GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error) {
+	scope := cpMiddleware.TenantReadScope{TenantID: tenantID}
+	if tenantID == "" {
+		scope.Global = true
+	}
+	return m.GetRuleForScope(ctx, scope, ruleID)
+}
+
+func (m *mockRuleRepo) GetRuleForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, ruleID string) (*AlertRule, error) {
 	r, ok := m.rules[ruleID]
 	if !ok {
 		return nil, ErrRuleNotFound
 	}
-	if tenantID != "" && r.TenantID != tenantID {
+	if !scope.Global && r.TenantID != scope.TenantID {
 		return nil, ErrRuleNotFound
 	}
 	return &r, nil

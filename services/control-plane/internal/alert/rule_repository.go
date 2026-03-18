@@ -20,8 +20,10 @@ var (
 // RuleRepository defines the interface for alert rule persistence.
 type RuleRepository interface {
 	ListRules(ctx context.Context, tenantID string, page, pageSize int) ([]AlertRule, int, error)
+	ListRulesForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, page, pageSize int) ([]AlertRule, int, error)
 	ListEnabledRules(ctx context.Context) ([]AlertRule, error)
 	GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error)
+	GetRuleForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, ruleID string) (*AlertRule, error)
 	CreateRule(ctx context.Context, rule *AlertRule) (string, error)
 	UpdateRule(ctx context.Context, tenantID, ruleID string, update *AlertRuleUpdate) error
 	DeleteRule(ctx context.Context, tenantID, ruleID string) error
@@ -65,7 +67,16 @@ func NewRuleRepositoryPG(db *sql.DB) *RuleRepositoryPG {
 
 // ListRules returns paginated alert rules for a tenant.
 func (r *RuleRepositoryPG) ListRules(ctx context.Context, tenantID string, page, pageSize int) ([]AlertRule, int, error) {
-	tenantID = strings.TrimSpace(tenantID)
+	scope := cpMiddleware.TenantReadScope{TenantID: tenantID}
+	if strings.TrimSpace(tenantID) == "" {
+		scope.Global = true
+	}
+	return r.ListRulesForScope(ctx, scope, page, pageSize)
+}
+
+// ListRulesForScope returns paginated alert rules for an explicit read scope.
+func (r *RuleRepositoryPG) ListRulesForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, page, pageSize int) ([]AlertRule, int, error) {
+	tenantID := strings.TrimSpace(scope.TenantID)
 
 	var (
 		total int
@@ -74,7 +85,7 @@ func (r *RuleRepositoryPG) ListRules(ctx context.Context, tenantID string, page,
 	)
 
 	offset := (page - 1) * pageSize
-	if tenantID == "" {
+	if scope.Global {
 		countQuery := `SELECT COUNT(1) FROM alert_rules`
 		if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
 			return nil, 0, fmt.Errorf("count rules: %w", err)
@@ -217,7 +228,15 @@ ORDER BY tenant_id, updated_at DESC
 
 // GetRule returns a single alert rule by ID.
 func (r *RuleRepositoryPG) GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error) {
-	tenantID = strings.TrimSpace(tenantID)
+	scope := cpMiddleware.TenantReadScope{TenantID: tenantID}
+	if strings.TrimSpace(tenantID) == "" {
+		scope.Global = true
+	}
+	return r.GetRuleForScope(ctx, scope, ruleID)
+}
+
+func (r *RuleRepositoryPG) GetRuleForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, ruleID string) (*AlertRule, error) {
+	tenantID := strings.TrimSpace(scope.TenantID)
 	ruleID = strings.TrimSpace(ruleID)
 	if ruleID == "" {
 		return nil, ErrRuleNotFound
@@ -227,7 +246,7 @@ func (r *RuleRepositoryPG) GetRule(ctx context.Context, tenantID, ruleID string)
 		query string
 		args  []any
 	)
-	if tenantID == "" {
+	if scope.Global {
 		query = `
 SELECT
     id::text,

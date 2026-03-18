@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 const (
@@ -39,12 +41,30 @@ func NewRuleService(repo RuleRepository) *RuleService {
 
 // ListRules returns paginated rules for a tenant.
 func (s *RuleService) ListRules(ctx context.Context, tenantID string, page, pageSize int) ([]AlertRule, int, error) {
-	return s.repo.ListRules(ctx, tenantID, page, pageSize)
+	scope := cpMiddleware.TenantReadScope{TenantID: tenantID}
+	if strings.TrimSpace(tenantID) == "" {
+		scope.Global = true
+	}
+	return s.repo.ListRulesForScope(ctx, scope, page, pageSize)
+}
+
+// ListRulesForScope returns paginated rules for an explicit read scope.
+func (s *RuleService) ListRulesForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, page, pageSize int) ([]AlertRule, int, error) {
+	return s.repo.ListRulesForScope(ctx, scope, page, pageSize)
 }
 
 // GetRule returns a single rule by ID.
 func (s *RuleService) GetRule(ctx context.Context, tenantID, ruleID string) (*AlertRule, error) {
-	return s.repo.GetRule(ctx, tenantID, ruleID)
+	scope := cpMiddleware.TenantReadScope{TenantID: tenantID}
+	if strings.TrimSpace(tenantID) == "" {
+		scope.Global = true
+	}
+	return s.repo.GetRuleForScope(ctx, scope, ruleID)
+}
+
+// GetRuleForScope returns a single rule by ID for an explicit read scope.
+func (s *RuleService) GetRuleForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, ruleID string) (*AlertRule, error) {
+	return s.repo.GetRuleForScope(ctx, scope, ruleID)
 }
 
 // CreateRule creates a new alert rule after validation.

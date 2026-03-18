@@ -63,6 +63,7 @@
 - 对高风险写操作 fail-closed
 - 对只读页面可根据场景降级或显式提示“授权后端不可用”
 - 当 `authorization_ready=false` 时，不信任请求上下文中的 `permissions/capabilities/scopes` 快照；兼容守卫与全租户读判定都只能回查数据库事实源，无法回查时返回 `503 AUTHORIZATION_UNAVAILABLE`
+- 控制面多租户读取链路应使用显式 `TenantReadScope{tenant,global}` 传递授权边界，避免再用空字符串或缺省值表达“全租户”语义
 
 ## 3. 当前基础与约束
 

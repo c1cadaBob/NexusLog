@@ -38,6 +38,42 @@ func newChannelTestRouter(handler *ChannelHandler) *gin.Engine {
 	return router
 }
 
+func TestChannelHandler_GetChannel_GlobalTenantRead(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	handler := NewChannelHandler(NewChannelRepository(db), nil)
+	router := newChannelTestRouter(handler)
+	now := time.Now().UTC()
+
+	mock.ExpectQuery(regexp.QuoteMeta(cpAuthorizationContextQuery)).
+		WithArgs("20000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001").
+		WillReturnRows(
+			sqlmock.NewRows([]string{"username", "name", "permissions"}).
+				AddRow("cross-tenant-reader", "viewer", []byte(`["notification.channel.read_metadata","all_tenants"]`)),
+		)
+	mock.ExpectQuery("FROM notification_channels").
+		WithArgs("channel-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "name", "type", "config", "enabled", "created_by", "created_at", "updated_at"}).
+			AddRow("channel-1", "00000000-0000-0000-0000-000000000002", "cross-tenant-channel", "email", []byte(`{"smtp_host":"smtp.example.com"}`), true, "user-1", now.Add(-time.Hour), now))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/notification/channels/channel-1", nil)
+	req.Header.Set("X-Tenant-ID", "10000000-0000-0000-0000-000000000001")
+	req.Header.Set("X-User-ID", "20000000-0000-0000-0000-000000000001")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func TestChannelHandler_ListChannels_GlobalTenantRead(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

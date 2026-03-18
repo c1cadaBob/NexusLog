@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
 // Silence represents an alert silence policy.
@@ -34,11 +36,11 @@ func NewSilenceService(db *sql.DB) *SilenceService {
 
 // ListActive returns silences that are currently active (now between starts_at and ends_at).
 func (s *SilenceService) ListActive(ctx context.Context, tenantID string) ([]Silence, error) {
-	return s.ListActiveForScope(ctx, ReadScope{TenantID: tenantID})
+	return s.ListActiveForScope(ctx, cpMiddleware.TenantReadScope{TenantID: tenantID})
 }
 
 // ListActiveForScope returns active silences for an explicit read scope.
-func (s *SilenceService) ListActiveForScope(ctx context.Context, scope ReadScope) ([]Silence, error) {
+func (s *SilenceService) ListActiveForScope(ctx context.Context, scope cpMiddleware.TenantReadScope) ([]Silence, error) {
 	if s.db == nil {
 		return nil, nil
 	}

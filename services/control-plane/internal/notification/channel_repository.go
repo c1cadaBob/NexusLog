@@ -44,7 +44,16 @@ func NewChannelRepository(db *sql.DB) *ChannelRepository {
 
 // ListChannels returns channels for a tenant with pagination.
 func (r *ChannelRepository) ListChannels(ctx context.Context, tenantID string, page, pageSize int) ([]Channel, int, error) {
-	tenantID = strings.TrimSpace(tenantID)
+	scope := cpMiddleware.TenantReadScope{TenantID: tenantID}
+	if strings.TrimSpace(tenantID) == "" {
+		scope.Global = true
+	}
+	return r.ListChannelsForScope(ctx, scope, page, pageSize)
+}
+
+// ListChannelsForScope returns channels for an explicit read scope with pagination.
+func (r *ChannelRepository) ListChannelsForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, page, pageSize int) ([]Channel, int, error) {
+	tenantID := strings.TrimSpace(scope.TenantID)
 	if page < 1 {
 		page = 1
 	}
@@ -58,7 +67,7 @@ func (r *ChannelRepository) ListChannels(ctx context.Context, tenantID string, p
 		err   error
 	)
 	offset := (page - 1) * pageSize
-	if tenantID == "" {
+	if scope.Global {
 		countQuery := `SELECT COUNT(1) FROM notification_channels`
 		if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
 			return nil, 0, fmt.Errorf("count channels: %w", err)
@@ -118,7 +127,16 @@ OFFSET $2 LIMIT $3
 
 // GetChannel returns a channel by ID and tenant.
 func (r *ChannelRepository) GetChannel(ctx context.Context, tenantID, id string) (Channel, error) {
-	tenantID = strings.TrimSpace(tenantID)
+	scope := cpMiddleware.TenantReadScope{TenantID: tenantID}
+	if strings.TrimSpace(tenantID) == "" {
+		scope.Global = true
+	}
+	return r.GetChannelForScope(ctx, scope, id)
+}
+
+// GetChannelForScope returns a channel by ID for an explicit read scope.
+func (r *ChannelRepository) GetChannelForScope(ctx context.Context, scope cpMiddleware.TenantReadScope, id string) (Channel, error) {
+	tenantID := strings.TrimSpace(scope.TenantID)
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return Channel{}, fmt.Errorf("id is required")
@@ -128,7 +146,7 @@ func (r *ChannelRepository) GetChannel(ctx context.Context, tenantID, id string)
 		query string
 		args  []any
 	)
-	if tenantID == "" {
+	if scope.Global {
 		query = `
 SELECT id::text, tenant_id::text, name, type, config, enabled,
        created_by::text, created_at, updated_at
