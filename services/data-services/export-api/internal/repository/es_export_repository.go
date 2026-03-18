@@ -107,7 +107,10 @@ func (r *ESExportRepository) ScrollSearch(ctx context.Context, params ExportQuer
 		batchSize = maxRecords
 	}
 
-	query := buildExportESQuery(params)
+	query, err := buildExportESQuery(params)
+	if err != nil {
+		return err
+	}
 	sort := buildExportESSort(params.Sort)
 	payload := map[string]any{
 		"size":  batchSize,
@@ -210,17 +213,13 @@ type esScrollSearchResponse struct {
 	} `json:"hits"`
 }
 
-func buildExportESQuery(params ExportQueryParams) map[string]any {
+func buildExportESQuery(params ExportQueryParams) (map[string]any, error) {
 	filterClauses := make([]map[string]any, 0, 10)
 	mustClauses := make([]map[string]any, 0, 2)
 
 	tenantID := strings.TrimSpace(params.TenantID)
 	if tenantID == "" {
-		return map[string]any{
-			"bool": map[string]any{
-				"filter": []map[string]any{{"match_none": map[string]any{}}},
-			},
-		}
+		return nil, ErrTenantScopeRequired
 	}
 	filterClauses = append(filterClauses, map[string]any{
 		"bool": map[string]any{
@@ -266,7 +265,7 @@ func buildExportESQuery(params ExportQueryParams) map[string]any {
 	}
 
 	if len(mustClauses) == 0 && len(filterClauses) == 0 {
-		return map[string]any{"match_all": map[string]any{}}
+		return map[string]any{"match_all": map[string]any{}}, nil
 	}
 	boolQuery := map[string]any{}
 	if len(mustClauses) > 0 {
@@ -275,7 +274,7 @@ func buildExportESQuery(params ExportQueryParams) map[string]any {
 	if len(filterClauses) > 0 {
 		boolQuery["filter"] = filterClauses
 	}
-	return map[string]any{"bool": boolQuery}
+	return map[string]any{"bool": boolQuery}, nil
 }
 
 func buildExportESSort(sort []struct {

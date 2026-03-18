@@ -15,24 +15,25 @@ import (
 var uuidRegex = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
 
 var (
-	ErrExportNotFound = errors.New("export job not found")
+	ErrExportNotFound        = errors.New("export job not found")
+	ErrTenantContextRequired = errors.New("tenant context is required")
 )
 
 // ExportJob 表示导出任务记录
 type ExportJob struct {
-	ID             string
-	TenantID       string
-	QueryParams    map[string]any
-	Format         string
-	Status         string
-	TotalRecords   *int
-	FilePath       *string
-	FileSizeBytes  *int64
-	ErrorMessage   *string
-	CreatedBy      *string
-	CreatedAt      time.Time
-	CompletedAt    *time.Time
-	ExpiresAt      *time.Time
+	ID            string
+	TenantID      string
+	QueryParams   map[string]any
+	Format        string
+	Status        string
+	TotalRecords  *int
+	FilePath      *string
+	FileSizeBytes *int64
+	ErrorMessage  *string
+	CreatedBy     *string
+	CreatedAt     time.Time
+	CompletedAt   *time.Time
+	ExpiresAt     *time.Time
 }
 
 // CreateJobInput 创建导出任务的输入
@@ -63,6 +64,14 @@ func (r *ExportRepository) CreateJob(ctx context.Context, in CreateJobInput) (st
 	if !r.IsConfigured() {
 		return "", fmt.Errorf("export repository is not configured")
 	}
+	tenantID, err := normalizeRequiredUUID(in.TenantID, ErrTenantContextRequired)
+	if err != nil {
+		return "", err
+	}
+	createdBy, err := normalizeOptionalUUID(in.CreatedBy, "created_by")
+	if err != nil {
+		return "", err
+	}
 	paramsRaw, err := json.Marshal(in.QueryParams)
 	if err != nil {
 		return "", fmt.Errorf("marshal query params: %w", err)
@@ -74,10 +83,10 @@ RETURNING id::text
 `
 	var jobID string
 	err = r.db.QueryRowContext(ctx, query,
-		nullableUUID(in.TenantID),
+		tenantID,
 		paramsRaw,
 		strings.TrimSpace(in.Format),
-		nullableUUID(in.CreatedBy),
+		createdBy,
 	).Scan(&jobID)
 	if err != nil {
 		return "", fmt.Errorf("insert export job: %w", err)
@@ -89,6 +98,14 @@ RETURNING id::text
 func (r *ExportRepository) GetJob(ctx context.Context, tenantID, jobID string) (*ExportJob, error) {
 	if !r.IsConfigured() {
 		return nil, ErrExportNotFound
+	}
+	normalizedTenantID, err := normalizeRequiredUUID(tenantID, ErrTenantContextRequired)
+	if err != nil {
+		return nil, err
+	}
+	normalizedJobID, err := normalizeLookupUUID(jobID, ErrExportNotFound)
+	if err != nil {
+		return nil, err
 	}
 	query := `
 SELECT
@@ -111,7 +128,7 @@ WHERE id = $1::uuid AND tenant_id = $2::uuid
 	var job ExportJob
 	var paramsRaw []byte
 	var tenantIDOut sql.NullString
-	err := r.db.QueryRowContext(ctx, query, strings.TrimSpace(jobID), nullableUUID(tenantID)).Scan(
+	err = r.db.QueryRowContext(ctx, query, normalizedJobID, normalizedTenantID).Scan(
 		&job.ID,
 		&tenantIDOut,
 		&paramsRaw,
@@ -150,13 +167,17 @@ func (r *ExportRepository) ListJobs(ctx context.Context, tenantID string, page, 
 	if !r.IsConfigured() {
 		return nil, 0, fmt.Errorf("export repository is not configured")
 	}
+	normalizedTenantID, err := normalizeRequiredUUID(tenantID, ErrTenantContextRequired)
+	if err != nil {
+		return nil, 0, err
+	}
 	page = normalizePage(page)
 	pageSize = normalizePageSize(pageSize)
 	offset := (page - 1) * pageSize
 
 	countQuery := `SELECT COUNT(1) FROM export_jobs WHERE tenant_id = $1::uuid`
 	var total int64
-	if err := r.db.QueryRowContext(ctx, countQuery, nullableUUID(tenantID)).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, countQuery, normalizedTenantID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count export jobs: %w", err)
 	}
 
@@ -180,7 +201,7 @@ WHERE tenant_id = $1::uuid
 ORDER BY created_at DESC
 OFFSET $2 LIMIT $3
 `
-	rows, err := r.db.QueryContext(ctx, listQuery, nullableUUID(tenantID), offset, pageSize)
+	rows, err := r.db.QueryContext(ctx, listQuery, normalizedTenantID, offset, pageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list export jobs: %w", err)
 	}
@@ -271,12 +292,31 @@ func (r *ExportRepository) CleanupExpiredJobs(ctx context.Context) (int64, error
 	return result.RowsAffected()
 }
 
-func nullableUUID(raw string) any {
+func normalizeRequiredUUID(raw string, errOnInvalid error) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || !uuidRegex.MatchString(raw) {
-		return nil
+		return "", errOnInvalid
 	}
-	return raw
+	return strings.ToLower(raw), nil
+}
+
+func normalizeOptionalUUID(raw, field string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	if !uuidRegex.MatchString(raw) {
+		return "", fmt.Errorf("%s is invalid", strings.TrimSpace(field))
+	}
+	return strings.ToLower(raw), nil
+}
+
+func normalizeLookupUUID(raw string, errOnInvalid error) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !uuidRegex.MatchString(raw) {
+		return "", errOnInvalid
+	}
+	return strings.ToLower(raw), nil
 }
 
 func normalizePage(page int) int {

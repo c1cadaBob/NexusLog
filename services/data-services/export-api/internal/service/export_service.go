@@ -82,7 +82,7 @@ func (s *ExportService) CreateExportJob(ctx context.Context, tenantID, userID st
 		return "", fmt.Errorf("invalid format: must be csv or json")
 	}
 	if strings.TrimSpace(tenantID) == "" {
-		return "", fmt.Errorf("tenant context is required")
+		return "", repository.ErrTenantContextRequired
 	}
 	queryParams := req.QueryParams
 	if queryParams == nil {

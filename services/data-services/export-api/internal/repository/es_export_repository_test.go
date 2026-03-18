@@ -11,7 +11,7 @@ import (
 )
 
 func TestBuildExportESQuery_TreatsKeywordsAsLiteralTextAndDropsUnknownFilters(t *testing.T) {
-	query := buildExportESQuery(ExportQueryParams{
+	query, err := buildExportESQuery(ExportQueryParams{
 		TenantID: "tenant-a",
 		Keywords: `error OR *`,
 		Filters: map[string]any{
@@ -19,6 +19,9 @@ func TestBuildExportESQuery_TreatsKeywordsAsLiteralTextAndDropsUnknownFilters(t 
 			"service":       "query-api",
 		},
 	})
+	if err != nil {
+		t.Fatalf("buildExportESQuery() error = %v", err)
+	}
 
 	raw, err := json.Marshal(query)
 	if err != nil {
@@ -39,19 +42,10 @@ func TestBuildExportESQuery_TreatsKeywordsAsLiteralTextAndDropsUnknownFilters(t 
 	}
 }
 
-func TestBuildExportESQuery_UsesMatchNoneWhenTenantMissing(t *testing.T) {
-	query := buildExportESQuery(ExportQueryParams{Keywords: "error"})
-
-	raw, err := json.Marshal(query)
-	if err != nil {
-		t.Fatalf("marshal query failed: %v", err)
-	}
-	encoded := string(raw)
-	if !strings.Contains(encoded, `"match_none"`) {
-		t.Fatalf("expected match_none query, got %s", encoded)
-	}
-	if strings.Contains(encoded, `"tenant_id"`) {
-		t.Fatalf("unexpected tenant filter in %s", encoded)
+func TestBuildExportESQuery_RejectsMissingTenantScope(t *testing.T) {
+	_, err := buildExportESQuery(ExportQueryParams{Keywords: "error"})
+	if !errors.Is(err, ErrTenantScopeRequired) {
+		t.Fatalf("buildExportESQuery() error = %v, want ErrTenantScopeRequired", err)
 	}
 }
 
