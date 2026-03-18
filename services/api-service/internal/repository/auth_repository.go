@@ -201,12 +201,12 @@ func (r *AuthRepository) GetLoginUserByUsername(ctx context.Context, tenantID uu
 	return rec, nil
 }
 
-func (r *AuthRepository) GetReservedSubjectPolicy(ctx context.Context, tenantID uuid.UUID, username string) (ReservedSubjectPolicyRecord, error) {
-	if r == nil || r.db == nil {
+func (r *AuthRepository) LookupReservedUsernamePolicy(ctx context.Context, tenantID uuid.UUID, username string) (ReservedSubjectPolicyRecord, error) {
+	if r == nil || r.db == nil || tenantID == uuid.Nil {
 		return ReservedSubjectPolicyRecord{}, nil
 	}
-	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
-	if normalizedUsername != "sys-superadmin" && normalizedUsername != "system-automation" {
+	normalizedUsername := strings.TrimSpace(username)
+	if normalizedUsername == "" {
 		return ReservedSubjectPolicyRecord{}, nil
 	}
 	const q = `
@@ -238,6 +238,14 @@ func (r *AuthRepository) GetReservedSubjectPolicy(ctx context.Context, tenantID 
 
 	rec.Found = true
 	return rec, nil
+}
+
+func (r *AuthRepository) GetReservedSubjectPolicy(ctx context.Context, tenantID uuid.UUID, username string) (ReservedSubjectPolicyRecord, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername != "sys-superadmin" && normalizedUsername != "system-automation" {
+		return ReservedSubjectPolicyRecord{}, nil
+	}
+	return r.LookupReservedUsernamePolicy(ctx, tenantID, normalizedUsername)
 }
 
 func (r *AuthRepository) FindUserByEmailOrUsername(ctx context.Context, tenantID uuid.UUID, identifier string) (UserIdentityRecord, error) {

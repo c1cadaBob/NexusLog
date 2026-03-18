@@ -77,6 +77,13 @@ func (m *mockAuthRepository) GetReservedSubjectPolicy(_ context.Context, _ uuid.
 	return m.reservedPolicy, nil
 }
 
+func (m *mockAuthRepository) LookupReservedUsernamePolicy(_ context.Context, _ uuid.UUID, _ string) (repository.ReservedSubjectPolicyRecord, error) {
+	if m.reservedPolicyErr != nil {
+		return repository.ReservedSubjectPolicyRecord{}, m.reservedPolicyErr
+	}
+	return m.reservedPolicy, nil
+}
+
 func (m *mockAuthRepository) FindUserByEmailOrUsername(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {
 	if m.findUserErr != nil {
 		return repository.UserIdentityRecord{}, m.findUserErr
@@ -208,6 +215,27 @@ func TestRegisterValidationAndTenantErrors(t *testing.T) {
 	_, err = svc.Register(context.Background(), uuid.NewString(), model.RegisterRequest{Username: reservedUsernameSuperAdmin, Password: "Password123", Email: "a@example.com"})
 	if err == nil || err.Code != "AUTH_REGISTER_RESERVED_USERNAME" {
 		t.Fatalf("expected reserved username error, got %#v", err)
+	}
+}
+
+func TestRegisterRejectsUsernameReservedByPolicy(t *testing.T) {
+	tenantID := uuid.NewString()
+	svc := NewAuthService(&mockAuthRepository{
+		tenantExists: true,
+		reservedPolicy: repository.ReservedSubjectPolicyRecord{
+			Found:                   true,
+			Reserved:                true,
+			InteractiveLoginAllowed: false,
+		},
+	}, "test-secret")
+
+	_, err := svc.Register(context.Background(), tenantID, model.RegisterRequest{
+		Username: "tenant_root",
+		Password: "Password123",
+		Email:    "root@example.com",
+	})
+	if err == nil || err.Code != "AUTH_REGISTER_RESERVED_USERNAME" {
+		t.Fatalf("expected reserved username error from policy, got %#v", err)
 	}
 }
 

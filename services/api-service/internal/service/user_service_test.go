@@ -37,6 +37,22 @@ type mockUserRepository struct {
 	lastGetUserRolesTenant string
 }
 
+type mockUserReservedPolicyRepository struct {
+	policy       repository.ReservedSubjectPolicyRecord
+	err          error
+	lastTenantID uuid.UUID
+	lastUsername string
+}
+
+func (m *mockUserReservedPolicyRepository) LookupReservedUsernamePolicy(_ context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, error) {
+	m.lastTenantID = tenantID
+	m.lastUsername = username
+	if m.err != nil {
+		return repository.ReservedSubjectPolicyRecord{}, m.err
+	}
+	return m.policy, nil
+}
+
 func (m *mockUserRepository) CheckTenantExists(_ context.Context, _ uuid.UUID) (bool, error) {
 	return m.tenantExists, nil
 }
@@ -202,6 +218,29 @@ func TestUserServiceCreateUserRejectsReservedUsername(t *testing.T) {
 	}
 	if apiErr.HTTPStatus != 403 || apiErr.Code != "USER_CREATE_RESERVED_USERNAME" {
 		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+}
+
+func TestUserServiceCreateUserRejectsUsernameReservedByPolicy(t *testing.T) {
+	policyRepo := &mockUserReservedPolicyRepository{
+		policy: repository.ReservedSubjectPolicyRecord{Found: true, Reserved: true},
+	}
+	tenantID := uuid.NewString()
+	svc := NewUserService(&mockUserRepository{tenantExists: true}, policyRepo)
+	_, apiErr := svc.CreateUser(context.Background(), tenantID, model.CreateUserRequest{
+		Username: "tenant_root",
+		Password: "SecureP@ss1",
+		Email:    "root@example.com",
+	})
+	if apiErr == nil {
+		t.Fatal("expected reserved username error from policy")
+	}
+	if apiErr.HTTPStatus != 403 || apiErr.Code != "USER_CREATE_RESERVED_USERNAME" {
+		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+	parsedTenantID, _ := uuid.Parse(tenantID)
+	if policyRepo.lastTenantID != parsedTenantID || policyRepo.lastUsername != "tenant_root" {
+		t.Fatalf("unexpected lookup args tenant=%s username=%s", policyRepo.lastTenantID, policyRepo.lastUsername)
 	}
 }
 

@@ -170,6 +170,33 @@ func TestRotateSessionByRefreshToken_PreservesOriginalSessionTTL(t *testing.T) {
 	}
 }
 
+func TestLookupReservedUsernamePolicy_ReturnsPolicyForCustomUsername(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewAuthRepository(db)
+	tenantID := uuid.New()
+
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, "tenant_root").
+		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}).
+			AddRow(true, false, false, false, "policy"))
+
+	rec, err := repo.LookupReservedUsernamePolicy(context.Background(), tenantID, "tenant_root")
+	if err != nil {
+		t.Fatalf("LookupReservedUsernamePolicy() error = %v", err)
+	}
+	if !rec.Found || !rec.Reserved || rec.ManagedBy != "policy" {
+		t.Fatalf("unexpected policy record: %#v", rec)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestRotateSessionByRefreshToken_ReplayRevokesActiveFamilySessions(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

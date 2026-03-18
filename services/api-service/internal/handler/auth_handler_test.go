@@ -55,6 +55,10 @@ func (m *handlerRepoMock) GetReservedSubjectPolicy(_ context.Context, _ uuid.UUI
 	return m.reservedPolicy, nil
 }
 
+func (m *handlerRepoMock) LookupReservedUsernamePolicy(_ context.Context, _ uuid.UUID, _ string) (repository.ReservedSubjectPolicyRecord, error) {
+	return m.reservedPolicy, nil
+}
+
 func (m *handlerRepoMock) FindUserByEmailOrUsername(_ context.Context, _ uuid.UUID, _ string) (repository.UserIdentityRecord, error) {
 	if m.findUserErr != nil {
 		return repository.UserIdentityRecord{}, m.findUserErr

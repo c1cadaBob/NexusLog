@@ -38,13 +38,22 @@ type userRepository interface {
 	IsLoginLocked(ctx context.Context, tenantID, username string) (bool, time.Time, error)
 }
 
-// UserService handles user business logic.
-type UserService struct {
-	repo userRepository
+type userReservedPolicyRepository interface {
+	LookupReservedUsernamePolicy(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, error)
 }
 
-func NewUserService(repo userRepository) *UserService {
-	return &UserService{repo: repo}
+// UserService handles user business logic.
+type UserService struct {
+	repo               userRepository
+	reservedPolicyRepo userReservedPolicyRepository
+}
+
+func NewUserService(repo userRepository, reservedPolicyRepos ...userReservedPolicyRepository) *UserService {
+	var reservedPolicyRepo userReservedPolicyRepository
+	if len(reservedPolicyRepos) > 0 {
+		reservedPolicyRepo = reservedPolicyRepos[0]
+	}
+	return &UserService{repo: repo, reservedPolicyRepo: reservedPolicyRepo}
 }
 
 // IsLoginLocked returns whether the username is locked due to 5 consecutive failed attempts.
@@ -149,7 +158,11 @@ func (s *UserService) CreateUser(ctx context.Context, tenantHeader string, req m
 	if apiErr := validatePassword(normalized.Password); apiErr != nil {
 		return model.CreateUserResponseData{}, apiErr
 	}
-	if isReservedUsername(normalized.Username) {
+	reservedByPolicy, apiErr := s.isReservedUsernameBlocked(ctx, tenantID, normalized.Username)
+	if apiErr != nil {
+		return model.CreateUserResponseData{}, apiErr
+	}
+	if reservedByPolicy {
 		return model.CreateUserResponseData{}, forbiddenUser("USER_CREATE_RESERVED_USERNAME", "username is reserved", map[string]any{"field": "username"})
 	}
 
@@ -571,6 +584,23 @@ func (s *UserService) ListRoles(ctx context.Context, tenantHeader string) ([]mod
 		result = append(result, roleRecordToData(r))
 	}
 	return result, nil
+}
+
+func (s *UserService) isReservedUsernameBlocked(ctx context.Context, tenantID uuid.UUID, username string) (bool, *model.APIError) {
+	if s.reservedPolicyRepo != nil {
+		policy, err := s.reservedPolicyRepo.LookupReservedUsernamePolicy(ctx, tenantID, username)
+		if err != nil {
+			return false, &model.APIError{
+				HTTPStatus: http.StatusServiceUnavailable,
+				Code:       "AUTHORIZATION_UNAVAILABLE",
+				Message:    "authorization backend unavailable",
+			}
+		}
+		if policy.Reserved {
+			return true, nil
+		}
+	}
+	return isReservedUsername(username), nil
 }
 
 func parseAndCheckTenantUser(ctx context.Context, repo userRepository, tenantHeader, codePrefix string) (uuid.UUID, *model.APIError) {

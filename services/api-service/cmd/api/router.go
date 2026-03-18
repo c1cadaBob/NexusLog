@@ -19,7 +19,7 @@ func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
 	authRateLimiter := handler.NewDefaultAuthRateLimitMiddleware()
 
 	userRepo := repository.NewUserRepository(db)
-	userService := service.NewUserService(userRepo)
+	userService := service.NewUserService(userRepo, authRepo)
 	userHandler := handler.NewUserHandler(userService)
 
 	router.GET("/healthz", func(c *gin.Context) {

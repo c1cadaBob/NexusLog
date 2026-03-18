@@ -35,6 +35,7 @@ type authRepository interface {
 	RegisterUser(ctx context.Context, input repository.RegisterUserInput) (uuid.UUID, string, error)
 	GetLoginUserByUsername(ctx context.Context, tenantID uuid.UUID, username string) (repository.LoginUserRecord, error)
 	GetReservedSubjectPolicy(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, error)
+	LookupReservedUsernamePolicy(ctx context.Context, tenantID uuid.UUID, username string) (repository.ReservedSubjectPolicyRecord, error)
 	FindUserByEmailOrUsername(ctx context.Context, tenantID uuid.UUID, identifier string) (repository.UserIdentityRecord, error)
 	GetRefreshTokenUser(ctx context.Context, tenantID uuid.UUID, refreshToken string) (repository.UserIdentityRecord, error)
 	CreatePasswordResetToken(
@@ -132,6 +133,23 @@ func (s *AuthService) Register(ctx context.Context, tenantHeader string, req mod
 	normalizedReq, apiErr := normalizeAndValidate(req)
 	if apiErr != nil {
 		return model.RegisterResponseData{}, apiErr
+	}
+
+	reservedPolicy, err := s.repo.LookupReservedUsernamePolicy(ctx, tenantID, normalizedReq.Username)
+	if err != nil {
+		return model.RegisterResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusServiceUnavailable,
+			Code:       "AUTHORIZATION_UNAVAILABLE",
+			Message:    "authorization backend unavailable",
+		}
+	}
+	if reservedPolicy.Reserved || isReservedUsername(normalizedReq.Username) {
+		return model.RegisterResponseData{}, &model.APIError{
+			HTTPStatus: http.StatusForbidden,
+			Code:       "AUTH_REGISTER_RESERVED_USERNAME",
+			Message:    "username is reserved",
+			Details:    map[string]any{"field": "username"},
+		}
 	}
 
 	hashBytes, err := bcrypt.GenerateFromPassword([]byte(normalizedReq.Password), bcryptCost)
@@ -670,14 +688,6 @@ func normalizeAndValidate(req model.RegisterRequest) (model.RegisterRequest, *mo
 
 	if !usernamePattern.MatchString(req.Username) {
 		return model.RegisterRequest{}, invalidField("username", "AUTH_REGISTER_INVALID_ARGUMENT", "invalid request")
-	}
-	if isReservedUsername(req.Username) {
-		return model.RegisterRequest{}, &model.APIError{
-			HTTPStatus: http.StatusForbidden,
-			Code:       "AUTH_REGISTER_RESERVED_USERNAME",
-			Message:    "username is reserved",
-			Details:    map[string]any{"field": "username"},
-		}
 	}
 
 	if len(req.Password) < 8 || len(req.Password) > 72 {
