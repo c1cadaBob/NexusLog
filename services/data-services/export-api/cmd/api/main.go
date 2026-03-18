@@ -45,15 +45,19 @@ func main() {
 	exportHandler := handler.NewExportHandler(exportSvc)
 
 	server.Run(cfg, func(r *gin.Engine) {
-		r.Use(sharedauth.RequireAuthenticatedIdentity(db, jwtSecret))
-		v1 := r.Group("/api/v1/export", sharedauth.RequirePermission("logs:export"))
-		{
-			v1.POST("/jobs", sharedauth.RequireCapability("export.job.create"), exportHandler.CreateExportJob)
-			v1.GET("/jobs", sharedauth.RequireCapability("export.job.read"), exportHandler.ListExportJobs)
-			v1.GET("/jobs/:id", sharedauth.RequireCapability("export.job.read"), exportHandler.GetExportJob)
-			v1.GET("/jobs/:id/download", sharedauth.RequireCapability("export.job.download"), exportHandler.DownloadExport)
-		}
+		registerRoutes(r, db, jwtSecret, exportHandler)
 	})
+}
+
+func registerRoutes(r *gin.Engine, db *sql.DB, jwtSecret string, exportHandler *handler.ExportHandler) {
+	r.Use(sharedauth.RequireAuthenticatedIdentity(db, jwtSecret))
+	v1 := r.Group("/api/v1/export")
+	{
+		v1.POST("/jobs", sharedauth.RequireCapability("export.job.create"), exportHandler.CreateExportJob)
+		v1.GET("/jobs", sharedauth.RequireCapability("export.job.read"), exportHandler.ListExportJobs)
+		v1.GET("/jobs/:id", sharedauth.RequireCapability("export.job.read"), exportHandler.GetExportJob)
+		v1.GET("/jobs/:id/download", sharedauth.RequireCapability("export.job.download"), exportHandler.DownloadExport)
+	}
 }
 
 func newPostgresDBFromEnv() (*sql.DB, error) {

@@ -45,18 +45,22 @@ func main() {
 	statsHandler := handler.NewStatsHandler(statsSvc)
 
 	server.Run(cfg, func(r *gin.Engine) {
-		r.Use(sharedauth.RequireAuthenticatedIdentity(metadataDB, jwtSecret))
-		v1 := r.Group("/api/v1/query", sharedauth.RequirePermission("logs:read"))
-		v1.POST("/logs", sharedauth.RequireCapability("log.query.read"), queryHandler.SearchLogs)
-		v1.GET("/stats/overview", sharedauth.RequireCapability("log.query.aggregate"), statsHandler.GetOverviewStats)
-		v1.POST("/stats/aggregate", sharedauth.RequireCapability("log.query.aggregate"), statsHandler.Aggregate)
-		v1.GET("/history", sharedauth.RequireCapability("query.history.read"), queryHandler.ListQueryHistories)
-		v1.DELETE("/history/:history_id", sharedauth.RequireCapability("query.history.read"), queryHandler.DeleteQueryHistory)
-		v1.GET("/saved", sharedauth.RequireCapability("query.saved.read"), queryHandler.ListSavedQueries)
-		v1.POST("/saved", sharedauth.RequireCapability("query.saved.read"), queryHandler.CreateSavedQuery)
-		v1.PUT("/saved/:saved_query_id", sharedauth.RequireCapability("query.saved.read"), queryHandler.UpdateSavedQuery)
-		v1.DELETE("/saved/:saved_query_id", sharedauth.RequireCapability("query.saved.read"), queryHandler.DeleteSavedQuery)
+		registerRoutes(r, metadataDB, jwtSecret, queryHandler, statsHandler)
 	})
+}
+
+func registerRoutes(r *gin.Engine, metadataDB *sql.DB, jwtSecret string, queryHandler *handler.QueryHandler, statsHandler *handler.StatsHandler) {
+	r.Use(sharedauth.RequireAuthenticatedIdentity(metadataDB, jwtSecret))
+	v1 := r.Group("/api/v1/query")
+	v1.POST("/logs", sharedauth.RequireCapability("log.query.read"), queryHandler.SearchLogs)
+	v1.GET("/stats/overview", sharedauth.RequireCapability("log.query.aggregate"), statsHandler.GetOverviewStats)
+	v1.POST("/stats/aggregate", sharedauth.RequireCapability("log.query.aggregate"), statsHandler.Aggregate)
+	v1.GET("/history", sharedauth.RequireCapability("query.history.read"), queryHandler.ListQueryHistories)
+	v1.DELETE("/history/:history_id", sharedauth.RequireCapability("query.history.read"), queryHandler.DeleteQueryHistory)
+	v1.GET("/saved", sharedauth.RequireCapability("query.saved.read"), queryHandler.ListSavedQueries)
+	v1.POST("/saved", sharedauth.RequireCapability("query.saved.read"), queryHandler.CreateSavedQuery)
+	v1.PUT("/saved/:saved_query_id", sharedauth.RequireCapability("query.saved.read"), queryHandler.UpdateSavedQuery)
+	v1.DELETE("/saved/:saved_query_id", sharedauth.RequireCapability("query.saved.read"), queryHandler.DeleteSavedQuery)
 }
 
 func newPostgresDBFromEnv() (*sql.DB, error) {

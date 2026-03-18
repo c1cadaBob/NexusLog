@@ -42,12 +42,16 @@ func main() {
 	auditHandler := handler.NewAuditHandler(auditSvc)
 
 	server.Run(cfg, func(r *gin.Engine) {
-		r.Use(sharedauth.RequireAuthenticatedIdentity(db, jwtSecret))
-		v1 := r.Group("/api/v1/audit", sharedauth.RequirePermission("audit:read"))
-		{
-			v1.GET("/logs", sharedauth.RequireCapability("audit.log.read"), auditHandler.ListAuditLogs)
-		}
+		registerRoutes(r, db, jwtSecret, auditHandler)
 	})
+}
+
+func registerRoutes(r *gin.Engine, db *sql.DB, jwtSecret string, auditHandler *handler.AuditHandler) {
+	r.Use(sharedauth.RequireAuthenticatedIdentity(db, jwtSecret))
+	v1 := r.Group("/api/v1/audit")
+	{
+		v1.GET("/logs", sharedauth.RequireCapability("audit.log.read"), auditHandler.ListAuditLogs)
+	}
 }
 
 func newPostgresDBFromEnv() (*sql.DB, error) {
