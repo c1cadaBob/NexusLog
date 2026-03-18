@@ -237,7 +237,7 @@
 | 服务 | 当前入口 | 当前主要耦合点 | 本轮拆解重点 |
 |---|---|---|---|
 | `api-service` | `AuthRequired` + `RequirePermission` 位于 `services/api-service/internal/handler/auth_middleware.go`，路由挂载在 `services/api-service/cmd/api/router.go`，`/users/me` 通过 `services/api-service/internal/service/authorization_context_service.go` 聚合上下文 | `authorization_context_service.go` 内存 `legacyPermissionCapabilityAliases` 仍把 `users:write` 扩展到登录策略、系统设置、采集、存储、Webhook、插件市场等非 IAM 能力，导致 `/users/me` 继续传播过大的 capability 面 | 先把 `/users/me` 的能力事实源从“内存扩权别名”收敛到“正式兼容映射 + 保留主体策略”，再逐步让 API 路由切到 `RequireCapability` / `RequireScope` |
-| `data-services` | `RequireAuthenticatedIdentity` + `RequirePermission` 分别挂在 `query-api`、`audit-api`、`export-api` 的 `cmd/api/main.go` | `shared/auth` 已提供 typed capability/scope 与 `TenantReadScope`；`query-api` / `audit-api` 已切到显式 `TenantReadScope`，`export-api` 也已收口空租户转 `nil/match_none` 的旧语义，但仍未显式建模 export scope | 继续补齐 export 侧 actor 能力与 scope 模型，并把剩余跨租户范围收口到 authorized tenant set |
+| `data-services` | `RequireAuthenticatedIdentity` + `RequirePermission` 分别挂在 `query-api`、`audit-api`、`export-api` 的 `cmd/api/main.go` | `shared/auth` 已提供 typed capability/scope 与 `TenantReadScope`；`query-api` / `audit-api` 已切到显式 `TenantReadScope`，`export-api` 也已显式携带 actor scope 并收口空租户转 `nil/match_none` 的旧语义，但仍保持 tenant-scoped | 继续补齐 export 侧 capability/scope 契约，并把剩余跨租户范围收口到 authorized tenant set |
 | `control-plane` | `RequireAuthenticatedIdentity`、`RequireOperatorRole`、`RequireAdminRole` 在 `services/control-plane/cmd/api/main.go` 统一接线 | `RequireAdminRole` / `RequireOperatorRole` 直接查角色名；`global_tenant_access.go` 直接写死 `sys-superadmin` + `super_admin`；`/api/v1/metrics/report` 还靠 `auth_middleware.go` 的 path 特判分流 Agent 身份 | 先把 route group 改成 capability guard，再拆出显式 `agentRoutes`，最后清理 `tenantScope=""` 和角色名/用户名硬编码 |
 
 ### P0：api-service
@@ -265,8 +265,8 @@
 | `services/data-services/audit-api/internal/handler/audit_handler.go` | 将 Gin 上下文翻译成 Audit actor | 已切到 `TenantReadScope`；下一步继续与 service/repository 一起消除 `nil tenantScope = all_tenants` 旧语义 |
 | `services/data-services/audit-api/internal/service/audit_service.go` | 审计 actor 与查询控制 | 当前用 `BypassTenantScope` 表达跨租户，需要改成 capability + scope 模型，并消除 service 层“要求 tenant 非空”与 repository 层“允许 nil tenantScope”之间的语义冲突 |
 | `services/data-services/audit-api/internal/repository/audit_repository.go` | 审计查询仓储 | 已收口为显式 tenant where clause / all-tenant query 分支；后续继续与 service 层一起统一跨租户访问契约 |
-| `services/data-services/export-api/internal/handler/export_handler.go` | 构造导出 actor 并下发服务层 | 当前仍仅传 `tenantID/userID`，未显式声明 export 是否允许跨租户；需要补 capability/scope，或明确保持 tenant-scoped 并在 handler 层 fail-closed |
-| `services/data-services/export-api/internal/service/export_service.go` | 导出任务创建/读取/下载服务 | 已统一使用显式 tenant context 错误；下一步补 capability 粒度与 `owned vs tenant` scope |
+| `services/data-services/export-api/internal/handler/export_handler.go` | 构造导出 actor 并下发服务层 | 已显式传递 `TenantReadScope` 到 service actor；当前仍保持 tenant-scoped，不开放跨租户导出 |
+| `services/data-services/export-api/internal/service/export_service.go` | 导出任务创建/读取/下载服务 | 已切到显式 actor `{tenant_id,user_id,tenant_read_scope}`，并统一 tenant context 错误；下一步补 capability 粒度与 `owned vs tenant` scope |
 | `services/data-services/export-api/internal/repository/es_export_repository.go` | 导出 ES 查询过滤 | 已删除空租户 `match_none` 隐式兜底；当前保持 tenant-scoped，后续若支持受控跨租户导出，需要升级为显式 scope |
 
 ### P0：control-plane

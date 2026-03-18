@@ -46,7 +46,7 @@ func (h *ExportHandler) CreateExportJob(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, CodeExportInvalidParams, "tenant context is required")
 		return
 	}
-	jobID, err := h.svc.CreateExportJob(c.Request.Context(), actor.TenantID, actor.UserID, req)
+	jobID, err := h.svc.CreateExportJob(c.Request.Context(), actor, req)
 	if err != nil {
 		writeServiceError(c, err)
 		return
@@ -66,7 +66,7 @@ func (h *ExportHandler) ListExportJobs(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, CodeExportInvalidParams, "tenant context is required")
 		return
 	}
-	result, err := h.svc.ListJobs(c.Request.Context(), actor.TenantID, page, pageSize)
+	result, err := h.svc.ListJobs(c.Request.Context(), actor, page, pageSize)
 	if err != nil {
 		writeServiceError(c, err)
 		return
@@ -93,7 +93,7 @@ func (h *ExportHandler) GetExportJob(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, CodeExportInvalidParams, "tenant context is required")
 		return
 	}
-	item, err := h.svc.GetJob(c.Request.Context(), actor.TenantID, jobID)
+	item, err := h.svc.GetJob(c.Request.Context(), actor, jobID)
 	if err != nil {
 		writeServiceError(c, err)
 		return
@@ -115,7 +115,7 @@ func (h *ExportHandler) DownloadExport(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, CodeExportInvalidParams, "tenant context is required")
 		return
 	}
-	filePath, contentType, err := h.svc.GetDownloadPath(c.Request.Context(), actor.TenantID, jobID)
+	filePath, contentType, err := h.svc.GetDownloadPath(c.Request.Context(), actor, jobID)
 	if err != nil {
 		writeServiceError(c, err)
 		return
@@ -166,15 +166,11 @@ func writeServiceError(c *gin.Context, err error) {
 	}
 }
 
-type requestActor struct {
-	TenantID string
-	UserID   string
-}
-
-func resolveActor(c *gin.Context) requestActor {
-	return requestActor{
-		TenantID: sharedauth.AuthenticatedTenantID(c),
-		UserID:   sharedauth.AuthenticatedUserID(c),
+func resolveActor(c *gin.Context) service.RequestActor {
+	return service.RequestActor{
+		TenantID:        sharedauth.AuthenticatedTenantID(c),
+		UserID:          sharedauth.AuthenticatedUserID(c),
+		TenantReadScope: sharedauth.AuthenticatedTenantReadScope(c),
 	}
 }
 

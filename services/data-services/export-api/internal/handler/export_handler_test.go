@@ -1,0 +1,36 @@
+package handler
+
+import (
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/nexuslog/data-services/export-api/internal/service"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
+)
+
+func TestResolveActor_UsesAuthenticatedTenantReadScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set("tenant_id", "tenant-a")
+	c.Set("user_id", "user-a")
+	c.Set("user_capabilities", []string{"log.query.read"})
+	c.Set("user_scopes", []string{"all_tenants"})
+
+	actor := resolveActor(c)
+	if actor.TenantID != "tenant-a" || actor.UserID != "user-a" {
+		t.Fatalf("resolveActor() = %#v, want tenant/user from authenticated context", actor)
+	}
+	if actor.TenantReadScope != sharedauth.TenantReadScopeAllTenants {
+		t.Fatalf("resolveActor().TenantReadScope = %q, want %q", actor.TenantReadScope, sharedauth.TenantReadScopeAllTenants)
+	}
+}
+
+func TestResolveActor_ReturnTypeMatchesServiceActor(t *testing.T) {
+	var actor any = resolveActor(nil)
+	if _, ok := actor.(service.RequestActor); !ok {
+		t.Fatalf("resolveActor() type = %T, want service.RequestActor", actor)
+	}
+}

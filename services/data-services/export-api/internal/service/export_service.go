@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nexuslog/data-services/export-api/internal/repository"
+	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
 const (
@@ -54,6 +55,13 @@ type ListExportJobsResult struct {
 	PageSize int
 }
 
+// RequestActor 表示导出 API 当前认证主体。
+type RequestActor struct {
+	TenantID        string
+	UserID          string
+	TenantReadScope sharedauth.TenantReadScope
+}
+
 // ExportService 封装导出业务逻辑
 type ExportService struct {
 	exportRepo  *repository.ExportRepository
@@ -70,9 +78,13 @@ func NewExportService(exportRepo *repository.ExportRepository, esRepo *repositor
 }
 
 // CreateExportJob 创建异步导出任务
-func (s *ExportService) CreateExportJob(ctx context.Context, tenantID, userID string, req CreateExportJobRequest) (string, error) {
+func (s *ExportService) CreateExportJob(ctx context.Context, actor RequestActor, req CreateExportJobRequest) (string, error) {
 	if s == nil || s.exportRepo == nil || !s.exportRepo.IsConfigured() {
 		return "", fmt.Errorf("export service is not configured")
+	}
+	actor, err := normalizeActor(actor)
+	if err != nil {
+		return "", err
 	}
 	format := strings.ToLower(strings.TrimSpace(req.Format))
 	if format == "" {
@@ -81,30 +93,27 @@ func (s *ExportService) CreateExportJob(ctx context.Context, tenantID, userID st
 	if format != "csv" && format != "json" {
 		return "", fmt.Errorf("invalid format: must be csv or json")
 	}
-	if strings.TrimSpace(tenantID) == "" {
-		return "", repository.ErrTenantContextRequired
-	}
 	queryParams := req.QueryParams
 	if queryParams == nil {
 		queryParams = map[string]any{}
 	}
 
 	jobID, err := s.exportRepo.CreateJob(ctx, repository.CreateJobInput{
-		TenantID:    tenantID,
+		TenantID:    actor.TenantID,
 		QueryParams: queryParams,
 		Format:      format,
-		CreatedBy:   userID,
+		CreatedBy:   actor.UserID,
 	})
 	if err != nil {
 		return "", err
 	}
 
 	// 启动异步导出
-	go s.runExportJob(context.Background(), jobID, tenantID, queryParams, format)
+	go s.runExportJob(context.Background(), jobID, actor, queryParams, format)
 	return jobID, nil
 }
 
-func (s *ExportService) runExportJob(ctx context.Context, jobID, tenantID string, queryParams map[string]any, format string) {
+func (s *ExportService) runExportJob(ctx context.Context, jobID string, actor RequestActor, queryParams map[string]any, format string) {
 	// 1. 更新为 running
 	_ = s.exportRepo.UpdateJobStatus(ctx, jobID, "running", nil, nil, nil, nil)
 
@@ -117,7 +126,7 @@ func (s *ExportService) runExportJob(ctx context.Context, jobID, tenantID string
 	fileName := fmt.Sprintf("export-%s-%d.%s", jobID, time.Now().Unix(), format)
 	filePath := filepath.Join(exportDir, fileName)
 
-	exportParams := parseQueryParams(tenantID, queryParams)
+	exportParams := parseQueryParams(actor, queryParams)
 	totalRecords := 0
 	var writeErr error
 
@@ -146,8 +155,9 @@ func (s *ExportService) runExportJob(ctx context.Context, jobID, tenantID string
 	log.Printf("[export-api] job %s completed: %d records, %d bytes", jobID, totalRecords, fileSize)
 }
 
-func parseQueryParams(tenantID string, m map[string]any) repository.ExportQueryParams {
-	p := repository.ExportQueryParams{TenantID: strings.TrimSpace(tenantID)}
+func parseQueryParams(actor RequestActor, m map[string]any) repository.ExportQueryParams {
+	actor, _ = normalizeActor(actor)
+	p := repository.ExportQueryParams{TenantID: actor.TenantID}
 	if m == nil {
 		return p
 	}
@@ -271,11 +281,15 @@ func sourceToCSVRow(source map[string]any, headers []string) []string {
 }
 
 // GetJob 获取导出任务详情
-func (s *ExportService) GetJob(ctx context.Context, tenantID, jobID string) (*ExportJobItem, error) {
+func (s *ExportService) GetJob(ctx context.Context, actor RequestActor, jobID string) (*ExportJobItem, error) {
 	if s == nil || s.exportRepo == nil {
 		return nil, fmt.Errorf("export service is not configured")
 	}
-	job, err := s.exportRepo.GetJob(ctx, tenantID, jobID)
+	actor, err := normalizeActor(actor)
+	if err != nil {
+		return nil, err
+	}
+	job, err := s.exportRepo.GetJob(ctx, actor.TenantID, jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -283,11 +297,15 @@ func (s *ExportService) GetJob(ctx context.Context, tenantID, jobID string) (*Ex
 }
 
 // ListJobs 分页列出导出任务
-func (s *ExportService) ListJobs(ctx context.Context, tenantID string, page, pageSize int) (ListExportJobsResult, error) {
+func (s *ExportService) ListJobs(ctx context.Context, actor RequestActor, page, pageSize int) (ListExportJobsResult, error) {
 	if s == nil || s.exportRepo == nil {
 		return ListExportJobsResult{}, fmt.Errorf("export service is not configured")
 	}
-	items, total, err := s.exportRepo.ListJobs(ctx, tenantID, page, pageSize)
+	actor, err := normalizeActor(actor)
+	if err != nil {
+		return ListExportJobsResult{}, err
+	}
+	items, total, err := s.exportRepo.ListJobs(ctx, actor.TenantID, page, pageSize)
 	if err != nil {
 		return ListExportJobsResult{}, err
 	}
@@ -304,11 +322,15 @@ func (s *ExportService) ListJobs(ctx context.Context, tenantID string, page, pag
 }
 
 // GetDownloadPath 获取可下载文件路径，仅当任务完成且文件存在时返回
-func (s *ExportService) GetDownloadPath(ctx context.Context, tenantID, jobID string) (string, string, error) {
+func (s *ExportService) GetDownloadPath(ctx context.Context, actor RequestActor, jobID string) (string, string, error) {
 	if s == nil || s.exportRepo == nil {
 		return "", "", fmt.Errorf("export service is not configured")
 	}
-	job, err := s.exportRepo.GetJob(ctx, tenantID, jobID)
+	actor, err := normalizeActor(actor)
+	if err != nil {
+		return "", "", err
+	}
+	job, err := s.exportRepo.GetJob(ctx, actor.TenantID, jobID)
 	if err != nil {
 		return "", "", err
 	}
@@ -339,6 +361,18 @@ func (s *ExportService) StartCleanupLoop() {
 			}
 		}()
 	})
+}
+
+func normalizeActor(actor RequestActor) (RequestActor, error) {
+	normalized := RequestActor{
+		TenantID:        strings.TrimSpace(actor.TenantID),
+		UserID:          strings.TrimSpace(actor.UserID),
+		TenantReadScope: sharedauth.NormalizeTenantReadScope(actor.TenantReadScope),
+	}
+	if normalized.TenantID == "" {
+		return RequestActor{}, repository.ErrTenantContextRequired
+	}
+	return normalized, nil
 }
 
 func (s *ExportService) cleanupExpiredExports(ctx context.Context) {
