@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
@@ -38,9 +39,12 @@ func TestSilenceHandler_ListSilences_GlobalTenantRead(t *testing.T) {
 	router := newSilenceTestRouter(handler)
 
 	now := time.Now().UTC()
-	mock.ExpectQuery("FROM users u").
+	mock.ExpectQuery(regexp.QuoteMeta(cpAuthorizationContextQuery)).
 		WithArgs("20000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		WillReturnRows(
+			sqlmock.NewRows([]string{"username", "name", "permissions"}).
+				AddRow("cross-tenant-reader", "viewer", []byte(`["alert.silence.read","all_tenants"]`)),
+		)
 	mock.ExpectQuery("FROM alert_silences").
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "matchers", "reason", "starts_at", "ends_at", "created_by", "created_at", "updated_at"}).

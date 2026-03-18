@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"regexp"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -14,9 +15,15 @@ func TestHasGlobalTenantReadAccess(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery("SELECT EXISTS\\(").
+	mock.ExpectQuery(regexp.QuoteMeta(authorizationContextQuery)).
 		WithArgs("20000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		WillReturnRows(
+			sqlmock.NewRows([]string{"username", "name", "permissions"}).
+				AddRow("delegated-reader", "viewer", []byte(`[
+					"alert.rule.read",
+					"all_tenants"
+				]`)),
+		)
 
 	allowed, err := HasGlobalTenantReadAccess(context.Background(), db, "10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -32,6 +39,19 @@ func TestHasGlobalTenantReadAccess(t *testing.T) {
 
 func TestHasGlobalTenantReadAccess_AllowsContextBackedWildcardScope(t *testing.T) {
 	ctx := context.WithValue(context.Background(), authContextKeyUserCapabilities, []string{"*"})
+	ctx = context.WithValue(ctx, authContextKeyUserScopes, []string{"all_tenants", "tenant"})
+
+	allowed, err := HasGlobalTenantReadAccess(ctx, nil, "10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("HasGlobalTenantReadAccess() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("HasGlobalTenantReadAccess() = false, want true")
+	}
+}
+
+func TestHasGlobalTenantReadAccess_AllowsContextBackedReadCapabilityWithScope(t *testing.T) {
+	ctx := context.WithValue(context.Background(), authContextKeyUserCapabilities, []string{"notification.channel.read_metadata"})
 	ctx = context.WithValue(ctx, authContextKeyUserScopes, []string{"all_tenants", "tenant"})
 
 	allowed, err := HasGlobalTenantReadAccess(ctx, nil, "10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001")

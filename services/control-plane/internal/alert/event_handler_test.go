@@ -4,12 +4,23 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 )
+
+const cpAuthorizationContextQuery = `
+	SELECT u.username, COALESCE(r.name, ''), COALESCE(r.permissions, '[]'::jsonb)
+	FROM users u
+	LEFT JOIN user_roles ur ON ur.user_id = u.id
+	LEFT JOIN roles r ON r.id = ur.role_id AND r.tenant_id = u.tenant_id
+	WHERE u.id = $1::uuid
+	  AND u.tenant_id = $2::uuid
+	  AND u.status = 'active'
+`
 
 func newEventTestRouter(handler *EventHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
@@ -37,9 +48,12 @@ func TestEventHandler_ListEvents_GlobalTenantRead(t *testing.T) {
 	handler := NewEventHandler(db)
 	router := newEventTestRouter(handler)
 
-	mock.ExpectQuery("FROM users u").
+	mock.ExpectQuery(regexp.QuoteMeta(cpAuthorizationContextQuery)).
 		WithArgs("20000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		WillReturnRows(
+			sqlmock.NewRows([]string{"username", "name", "permissions"}).
+				AddRow("cross-tenant-reader", "viewer", []byte(`["alert.event.read","all_tenants"]`)),
+		)
 	mock.ExpectQuery("FROM alert_events").
 		WithArgs("").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))

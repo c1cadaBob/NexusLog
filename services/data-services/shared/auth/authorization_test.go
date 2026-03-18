@@ -307,3 +307,91 @@ func TestRequireCapability_FailsClosedWhenAuthorizationUnavailable(t *testing.T)
 		t.Fatalf("expected 503, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
+
+func TestRequireAuthenticatedIdentity_LoadsDirectCapabilitiesIntoRequestContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	tenantID := "10000000-0000-0000-0000-000000000001"
+	userID := "20000000-0000-0000-0000-000000000003"
+	accessTokenJTI := "jti-direct-capability"
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_sessions
+			WHERE tenant_id = $1::uuid
+			  AND user_id = $2::uuid
+			  AND access_token_jti = $3
+			  AND session_status = 'active'
+			  AND expires_at > $4
+		)
+	`)).
+		WithArgs(tenantID, userID, accessTokenJTI, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(authorizationContextQuery)).
+		WithArgs(userID, tenantID).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"username", "name", "permissions"}).
+				AddRow("cross-tenant-reader", "viewer", []byte(`["log.query.read","all_tenants"]`)),
+		)
+
+	router := gin.New()
+	router.Use(RequireAuthenticatedIdentity(db, testJWTSecret))
+	router.GET("/api/v1/query/logs", func(c *gin.Context) {
+		ctxCapabilities, _ := c.Request.Context().Value(contextKeyUserCapabilities).([]string)
+		ctxScopes, _ := c.Request.Context().Value(contextKeyUserScopes).([]string)
+		ctxReady, _ := c.Request.Context().Value(contextKeyAuthorizationReady).(bool)
+		ctxGlobalAccess, _ := c.Request.Context().Value(contextKeyGlobalLogAccess).(bool)
+		c.JSON(http.StatusOK, gin.H{
+			"capabilities":      AuthenticatedCapabilities(c),
+			"scopes":            AuthenticatedScopes(c),
+			"global_log_access": AuthenticatedGlobalLogAccess(c),
+			"ctx_capabilities":  ctxCapabilities,
+			"ctx_scopes":        ctxScopes,
+			"ctx_ready":         ctxReady,
+			"ctx_global_access": ctxGlobalAccess,
+		})
+	})
+
+	token := mustIssueToken(t, tenantID, userID, accessTokenJTI)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query/logs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Capabilities    []string `json:"capabilities"`
+		Scopes          []string `json:"scopes"`
+		GlobalLogAccess bool     `json:"global_log_access"`
+		CtxCapabilities []string `json:"ctx_capabilities"`
+		CtxScopes       []string `json:"ctx_scopes"`
+		CtxReady        bool     `json:"ctx_ready"`
+		CtxGlobalAccess bool     `json:"ctx_global_access"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !hasAuthorizationValue(body.Capabilities, "log.query.read") || !hasAuthorizationValue(body.CtxCapabilities, "log.query.read") {
+		t.Fatalf("unexpected capabilities: %#v %#v", body.Capabilities, body.CtxCapabilities)
+	}
+	if !hasAnyScope(body.Scopes, "all_tenants") || !hasAnyScope(body.CtxScopes, "all_tenants") {
+		t.Fatalf("unexpected scopes: %#v %#v", body.Scopes, body.CtxScopes)
+	}
+	if !body.GlobalLogAccess || !body.CtxGlobalAccess {
+		t.Fatalf("expected global log access, got body=%#v", body)
+	}
+	if !body.CtxReady {
+		t.Fatal("expected ctx_ready=true")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}

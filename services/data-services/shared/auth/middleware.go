@@ -56,6 +56,14 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 
 		authorizationReady := false
 		globalLogAccess := false
+		permissions := []string{}
+		roles := []string{}
+		capabilities := []string{}
+		scopes := []string{}
+		entitlements := []string{}
+		featureFlags := []string{}
+		actorFlags := map[string]bool{}
+		authzEpoch := int64(0)
 		if db != nil {
 			active, err := isAccessTokenSessionActive(c.Request.Context(), db, tenantID, userID, claims.ID)
 			if err != nil {
@@ -71,14 +79,17 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 				writeAuthError(c, http.StatusInternalServerError, "failed to load permissions")
 				return
 			}
-			c.Set(string(contextKeyUserPermissions), authzRecord.Permissions)
-			c.Set(string(contextKeyUserRoles), authzRecord.Roles)
-			c.Set(string(contextKeyUserCapabilities), authzRecord.Snapshot.Capabilities)
-			c.Set(string(contextKeyUserScopes), authzRecord.Snapshot.Scopes)
-			c.Set(string(contextKeyUserEntitlements), authzRecord.Snapshot.Entitlements)
-			c.Set(string(contextKeyUserFeatureFlags), authzRecord.Snapshot.FeatureFlags)
-			c.Set(string(contextKeyUserAuthzEpoch), authzRecord.Snapshot.AuthzEpoch)
-			c.Set(string(contextKeyUserActorFlags), authzRecord.Snapshot.ActorFlags)
+			permissions = append([]string{}, authzRecord.Permissions...)
+			roles = append([]string{}, authzRecord.Roles...)
+			capabilities = append([]string{}, authzRecord.Snapshot.Capabilities...)
+			scopes = append([]string{}, authzRecord.Snapshot.Scopes...)
+			entitlements = append([]string{}, authzRecord.Snapshot.Entitlements...)
+			featureFlags = append([]string{}, authzRecord.Snapshot.FeatureFlags...)
+			actorFlags = make(map[string]bool, len(authzRecord.Snapshot.ActorFlags))
+			for key, enabled := range authzRecord.Snapshot.ActorFlags {
+				actorFlags[key] = enabled
+			}
+			authzEpoch = authzRecord.Snapshot.AuthzEpoch
 			globalLogAccess = canBypassTenantScope(authzRecord.Snapshot)
 			authorizationReady = true
 		}
@@ -87,8 +98,29 @@ func RequireAuthenticatedIdentity(db *sql.DB, jwtSecret string) gin.HandlerFunc 
 		c.Set(string(contextKeyTenantID), tenantID)
 		c.Set(string(contextKeyAuthorizationReady), authorizationReady)
 		c.Set(string(contextKeyGlobalLogAccess), globalLogAccess)
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyUserID, userID))
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), contextKeyTenantID, tenantID))
+		c.Set(string(contextKeyUserPermissions), permissions)
+		c.Set(string(contextKeyUserRoles), roles)
+		c.Set(string(contextKeyUserCapabilities), capabilities)
+		c.Set(string(contextKeyUserScopes), scopes)
+		c.Set(string(contextKeyUserEntitlements), entitlements)
+		c.Set(string(contextKeyUserFeatureFlags), featureFlags)
+		c.Set(string(contextKeyUserAuthzEpoch), authzEpoch)
+		c.Set(string(contextKeyUserActorFlags), actorFlags)
+
+		ctx := c.Request.Context()
+		ctx = context.WithValue(ctx, contextKeyUserID, userID)
+		ctx = context.WithValue(ctx, contextKeyTenantID, tenantID)
+		ctx = context.WithValue(ctx, contextKeyAuthorizationReady, authorizationReady)
+		ctx = context.WithValue(ctx, contextKeyGlobalLogAccess, globalLogAccess)
+		ctx = context.WithValue(ctx, contextKeyUserPermissions, permissions)
+		ctx = context.WithValue(ctx, contextKeyUserRoles, roles)
+		ctx = context.WithValue(ctx, contextKeyUserCapabilities, capabilities)
+		ctx = context.WithValue(ctx, contextKeyUserScopes, scopes)
+		ctx = context.WithValue(ctx, contextKeyUserEntitlements, entitlements)
+		ctx = context.WithValue(ctx, contextKeyUserFeatureFlags, featureFlags)
+		ctx = context.WithValue(ctx, contextKeyUserAuthzEpoch, authzEpoch)
+		ctx = context.WithValue(ctx, contextKeyUserActorFlags, actorFlags)
+		c.Request = c.Request.WithContext(ctx)
 		c.Request.Header.Set("X-User-ID", userID)
 		c.Request.Header.Set("X-Tenant-ID", tenantID)
 		c.Next()

@@ -6,20 +6,15 @@ import (
 	"strings"
 )
 
-const globalTenantReadAccessQuery = `
-	SELECT EXISTS(
-		SELECT 1
-		FROM users u
-		JOIN user_roles ur ON ur.user_id = u.id
-		JOIN roles r ON r.id = ur.role_id
-		WHERE u.id = $1::uuid
-		  AND u.tenant_id = $2::uuid
-		  AND u.status = 'active'
-		  AND LOWER(u.username) = 'sys-superadmin'
-		  AND r.tenant_id = $2::uuid
-		  AND LOWER(r.name) = 'super_admin'
-	)
-`
+var globalTenantReadCapabilities = []string{
+	"alert.event.read",
+	"alert.rule.read",
+	"alert.silence.read",
+	"audit.log.read",
+	"log.query.aggregate",
+	"log.query.read",
+	"notification.channel.read_metadata",
+}
 
 func HasGlobalTenantReadAccess(ctx context.Context, db *sql.DB, tenantID, userID string) (bool, error) {
 	tenantID = strings.TrimSpace(tenantID)
@@ -30,20 +25,44 @@ func HasGlobalTenantReadAccess(ctx context.Context, db *sql.DB, tenantID, userID
 	if hasGlobalTenantReadAccessFromContext(ctx) {
 		return true, nil
 	}
+	if hasAuthorizationReadyFromContext(ctx) {
+		return false, nil
+	}
 	if db == nil {
 		return false, nil
 	}
-	var allowed bool
-	if err := db.QueryRowContext(ctx, globalTenantReadAccessQuery, userID, tenantID).Scan(&allowed); err != nil {
+	authzRecord, err := loadAuthorizationContext(ctx, db, tenantID, userID)
+	if err != nil {
 		return false, err
 	}
-	return allowed, nil
+	return hasGlobalTenantReadAccessFromSnapshot(authzRecord.Snapshot), nil
 }
 
 func hasGlobalTenantReadAccessFromContext(ctx context.Context) bool {
-	capabilities := authenticatedContextStringSlice(ctx, authContextKeyUserCapabilities)
-	if !hasAuthorizationValue(capabilities, "*") {
+	return hasGlobalTenantReadAccessValues(
+		authenticatedContextStringSlice(ctx, authContextKeyUserCapabilities),
+		authenticatedContextStringSlice(ctx, authContextKeyUserScopes),
+	)
+}
+
+func hasGlobalTenantReadAccessFromSnapshot(snapshot AuthorizationContextSnapshot) bool {
+	return hasGlobalTenantReadAccessValues(snapshot.Capabilities, snapshot.Scopes)
+}
+
+func hasAuthorizationReadyFromContext(ctx context.Context) bool {
+	if ctx == nil {
 		return false
 	}
-	return hasAnyScope(authenticatedContextStringSlice(ctx, authContextKeyUserScopes), "all_tenants", "system")
+	ready, ok := ctx.Value(authContextKeyAuthorizationReady).(bool)
+	return ok && ready
+}
+
+func hasGlobalTenantReadAccessValues(capabilities, scopes []string) bool {
+	if !hasAnyScope(scopes, "all_tenants", "system") {
+		return false
+	}
+	if hasAuthorizationValue(capabilities, "*") {
+		return true
+	}
+	return hasAnyCapability(capabilities, globalTenantReadCapabilities...)
 }

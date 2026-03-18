@@ -49,3 +49,30 @@ func TestBuildAuthorizationContextMapsLegacyPermissions(t *testing.T) {
 		t.Fatalf("unexpected authz epoch: %d", ctx.AuthzEpoch)
 	}
 }
+
+func TestBuildAuthorizationContextIncludesDirectCapabilitiesAndScopes(t *testing.T) {
+	ctx := BuildAuthorizationContext("alice", []string{"viewer"}, []string{"log.query.read", "all_tenants"})
+	assertContains := func(values []string, target string) {
+		t.Helper()
+		for _, value := range values {
+			if value == target {
+				return
+			}
+		}
+		t.Fatalf("expected %q in %#v", target, values)
+	}
+	assertNotContains := func(values []string, target string) {
+		t.Helper()
+		for _, value := range values {
+			if value == target {
+				t.Fatalf("did not expect %q in %#v", target, values)
+			}
+		}
+	}
+	assertContains(ctx.Capabilities, "log.query.read")
+	assertContains(ctx.Scopes, "all_tenants")
+	assertNotContains(ctx.Capabilities, "users:read")
+	if !canBypassTenantScope(ctx) {
+		t.Fatal("expected direct capability + scope to allow bypass")
+	}
+}
