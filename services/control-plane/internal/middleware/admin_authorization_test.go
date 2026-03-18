@@ -55,6 +55,7 @@ func TestRequireAdminRole_AllowsContextBackedAdministratorWithoutDatabase(t *tes
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
+		c.Set(authContextKeyAuthorizationReady, true)
 		c.Set(authContextKeyTenantID, testAdminTenantID)
 		c.Set(authContextKeyUserID, testAdminUserID)
 		c.Set(authContextKeyUserPermissions, []string{"users:write"})
@@ -128,6 +129,29 @@ func TestRequireAdminRole_FailsClosedWhenAuthorizationBackendUnavailable(t *test
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/backup/repositories", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRequireAdminRole_RejectsUntrustedAuthorizationSnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(authContextKeyTenantID, testAdminTenantID)
+		c.Set(authContextKeyUserID, testAdminUserID)
+		c.Set(authContextKeyUserPermissions, []string{"users:write"})
+		c.Set(authContextKeyUserCapabilities, []string{"iam.user.grant_role"})
+		c.Next()
+	})
+	router.Use(RequireAdminRole(nil))
+	router.GET("/api/v1/backup/repositories", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/backup/repositories", nil))
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", resp.Code, resp.Body.String())

@@ -35,11 +35,11 @@ func RequireCapabilityOrAdminRole(db *sql.DB, capability string) gin.HandlerFunc
 		if c == nil {
 			return
 		}
-		if required != "" && hasAuthorizationValue(AuthenticatedCapabilities(c), required) {
+		if required != "" && hasTrustedCapability(c, required) {
 			c.Next()
 			return
 		}
-		if hasContextBoolean(c, authContextKeyAdminRoleGranted) || hasAdminAuthorizationSnapshot(c) {
+		if hasContextBoolean(c, authContextKeyAdminRoleGranted) || hasTrustedAdminAuthorizationSnapshot(c) {
 			c.Next()
 			return
 		}
@@ -74,11 +74,11 @@ func RequireCapabilityOrOperatorRole(db *sql.DB, capability string) gin.HandlerF
 		if c == nil {
 			return
 		}
-		if required != "" && hasAuthorizationValue(AuthenticatedCapabilities(c), required) {
+		if required != "" && hasTrustedCapability(c, required) {
 			c.Next()
 			return
 		}
-		if hasContextBoolean(c, authContextKeyOperatorRoleGranted) || hasOperatorAuthorizationSnapshot(c) {
+		if hasContextBoolean(c, authContextKeyOperatorRoleGranted) || hasTrustedOperatorAuthorizationSnapshot(c) {
 			c.Next()
 			return
 		}
@@ -104,6 +104,27 @@ func RequireCapabilityOrOperatorRole(db *sql.DB, capability string) gin.HandlerF
 		markOperatorRoleGranted(c)
 		c.Next()
 	}
+}
+
+func hasTrustedCapability(c *gin.Context, capability string) bool {
+	if !isAuthorizationReady(c) {
+		return false
+	}
+	return hasAuthorizationValue(AuthenticatedCapabilities(c), strings.TrimSpace(capability))
+}
+
+func hasTrustedAdminAuthorizationSnapshot(c *gin.Context) bool {
+	if !isAuthorizationReady(c) {
+		return false
+	}
+	return hasAdminAuthorizationSnapshot(c)
+}
+
+func hasTrustedOperatorAuthorizationSnapshot(c *gin.Context) bool {
+	if !isAuthorizationReady(c) {
+		return false
+	}
+	return hasOperatorAuthorizationSnapshot(c)
 }
 
 func isAuthorizationReady(c *gin.Context) bool {

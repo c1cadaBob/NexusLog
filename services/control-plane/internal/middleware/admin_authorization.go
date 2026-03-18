@@ -56,7 +56,7 @@ func RequireAdminRole(db *sql.DB) gin.HandlerFunc {
 			writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "permission check failed: auth context missing")
 			return
 		}
-		if hasAdminAuthorizationSnapshot(c) {
+		if hasTrustedAdminAuthorizationSnapshot(c) {
 			markAdminRoleGranted(c)
 			c.Next()
 			return

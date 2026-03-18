@@ -135,6 +135,42 @@ func TestRequireCapabilityOrAdminRole_FallsBackToRoleQuery(t *testing.T) {
 	}
 }
 
+func TestRequireCapabilityOrAdminRole_RejectsUntrustedCapabilitySnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(authContextKeyAuthorizationReady, false)
+		c.Set(authContextKeyUserCapabilities, []string{"backup.read"})
+		c.Next()
+	})
+	router.Use(RequireCapabilityOrAdminRole(nil, "backup.read"))
+	router.GET("/protected", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/protected", nil))
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRequireCapabilityOrOperatorRole_RejectsUntrustedCapabilitySnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(authContextKeyAuthorizationReady, false)
+		c.Set(authContextKeyUserCapabilities, []string{"ingest.task.run"})
+		c.Next()
+	})
+	router.Use(RequireCapabilityOrOperatorRole(nil, "ingest.task.run"))
+	router.GET("/protected", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/protected", nil))
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestRequireCapabilityOrOperatorRole_FallsBackToRoleQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()

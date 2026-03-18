@@ -60,7 +60,7 @@ func RequireOperatorRole(db *sql.DB) gin.HandlerFunc {
 			writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "permission check failed: auth context missing")
 			return
 		}
-		if hasOperatorAuthorizationSnapshot(c) {
+		if hasTrustedOperatorAuthorizationSnapshot(c) {
 			markOperatorRoleGranted(c)
 			c.Next()
 			return

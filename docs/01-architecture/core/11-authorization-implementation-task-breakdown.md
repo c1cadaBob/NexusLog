@@ -274,8 +274,8 @@
 | 文件 | 当前职责 | 需要改动 |
 |---|---|---|
 | `services/control-plane/internal/middleware/auth_middleware.go` | 控制面认证入口 | 已拆成显式 `RequireAuthenticatedUserIdentity()` / `RequireAuthenticatedAgentIdentity()`；用户流不再靠 path 特判分流 Agent 身份，后续继续对齐 data-services 的 capabilities/scopes/authz_epoch 上下文 |
-| `services/control-plane/internal/middleware/admin_authorization.go` | 管理员回退授权与兼容层 | 已去掉 `role.name IN ('super_admin','system_admin')` 硬编码，改成从 `roles.permissions` 中匹配 `users:write` / `iam.user.*` 权限包；下一步再继续把 route wiring 全量切到 `RequireCapability*` |
-| `services/control-plane/internal/middleware/operator_authorization.go` | 操作员回退授权与兼容层 | 已去掉 `role.name IN (...)` 硬编码，改成从 `roles.permissions` 中匹配 `alerts:write` / `incidents:write` / `logs:export` / 相关 capability 包；下一步继续收紧为纯 capability 化 |
+| `services/control-plane/internal/middleware/admin_authorization.go` | 管理员回退授权与兼容层 | 已去掉 `role.name IN ('super_admin','system_admin')` 硬编码，改成从 `roles.permissions` 中匹配 `users:write` / `iam.user.*` 权限包；当前已收紧为仅信任 `authorization_ready=true` 的快照，上下文不可信时只回查 DB 真相；下一步再继续把 route wiring 全量切到 `RequireCapability*` |
+| `services/control-plane/internal/middleware/operator_authorization.go` | 操作员回退授权与兼容层 | 已去掉 `role.name IN (...)` 硬编码，改成从 `roles.permissions` 中匹配 `alerts:write` / `incidents:write` / `logs:export` / 相关 capability 包；当前已收紧为仅信任 `authorization_ready=true` 的快照，上下文不可信时只回查 DB 真相；下一步继续收紧为纯 capability 化 |
 | `services/control-plane/internal/middleware/global_tenant_access.go` | 跨租户读权限判定 | 已改为 `capability + scope(all_tenants/system)` 组合；后续再接正式 `subject_reserved_policy` 事实源 |
 | `services/control-plane/internal/middleware/identity_context.go` | 控制面身份上下文读取 | 扩展 getter，支持新授权上下文字段 |
 | `services/control-plane/cmd/api/main.go` | control-plane 路由 wiring | 当前已拆出 `userRoutes` / `agentRoutes`：`/api/v1/metrics/report` 走显式 agent 鉴权，其余交互式 API 走用户鉴权；下一步继续把 `RequireOperatorRole/RequireAdminRole` 组合接线收口到 capability wiring |
@@ -299,7 +299,7 @@
 | `services/data-services/shared/auth/identity_context_test.go` | 上下文 getter 测试 | 新增 capabilities / scopes / authz_epoch getter 测试 |
 | `services/data-services/shared/auth/middleware_test.go` | 鉴权中间件测试 | 新增上下文装载与 `X-Tenant-ID` 覆盖逻辑测试 |
 | `services/control-plane/cmd/api/main_test.go` | control-plane 鉴权与查询测试 | 去掉对保留主体/角色名字面量的依赖；当前已转向权限包查询断言，后续继续改测 capability/scope / reserved policy |
-| `services/control-plane/internal/middleware/*_test.go` | control-plane 中间件测试 | 对齐 capability 化后的判定结果 |
+| `services/control-plane/internal/middleware/*_test.go` | control-plane 中间件测试 | 对齐 capability 化后的判定结果，并补 `authorization_ready=false -> fail-closed` 的可信快照测试 |
 
 ### 5.3 建议的后端切换顺序（接口级）
 

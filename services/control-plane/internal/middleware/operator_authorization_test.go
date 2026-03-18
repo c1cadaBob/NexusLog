@@ -50,6 +50,7 @@ func TestRequireOperatorRole_AllowsContextBackedOperatorWithoutDatabase(t *testi
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
+		c.Set(authContextKeyAuthorizationReady, true)
 		c.Set(authContextKeyTenantID, testAdminTenantID)
 		c.Set(authContextKeyUserID, testAdminUserID)
 		c.Set(authContextKeyUserPermissions, []string{"alerts:write"})
@@ -123,6 +124,29 @@ func TestRequireOperatorRole_FailsClosedWhenAuthorizationBackendUnavailable(t *t
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/ingest/receipts", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRequireOperatorRole_RejectsUntrustedAuthorizationSnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(authContextKeyTenantID, testAdminTenantID)
+		c.Set(authContextKeyUserID, testAdminUserID)
+		c.Set(authContextKeyUserPermissions, []string{"alerts:write"})
+		c.Set(authContextKeyUserCapabilities, []string{"alert.rule.update"})
+		c.Next()
+	})
+	router.Use(RequireOperatorRole(nil))
+	router.POST("/api/v1/ingest/receipts", func(c *gin.Context) {
+		c.Status(http.StatusCreated)
+	})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/v1/ingest/receipts", nil))
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", resp.Code, resp.Body.String())
