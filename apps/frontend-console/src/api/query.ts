@@ -1110,7 +1110,7 @@ function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggre
       case 'source': {
         const host = String(log.host || log.fields?.host || 'unknown-host').trim() || 'unknown-host';
         const service = String(log.service || log.fields?.service_name || log.fields?.service || 'unknown-service').trim() || 'unknown-service';
-        key = `${host}\u001f${service}`;
+        key = String(log.fields?.source_path ?? log.fields?.source ?? '').trim() || `${host}\u001f${service}`;
         sourceBucketMeta.set(key, {
           host,
           service,

@@ -563,38 +563,12 @@ func resolveAggregateTimeRangeDuration(timeRange string) time.Duration {
 func buildAggregateSourceTermsAggregation() map[string]any {
 	return map[string]any{
 		"terms": map[string]any{
-			"script": map[string]any{
-				"lang": "painless",
-				"source": `String host = '';
-for (field in params.host_fields) {
-  if (doc.containsKey(field) && !doc[field].empty) {
-    host = doc[field].value.toString();
-    break;
-  }
-}
-String service = '';
-for (field in params.service_fields) {
-  if (doc.containsKey(field) && !doc[field].empty) {
-    service = doc[field].value.toString();
-    break;
-  }
-}
-if (host == '') {
-  host = params.unknown_host;
-}
-if (service == '') {
-  service = params.unknown_service;
-}
-return host + params.separator + service;`,
-				"params": map[string]any{
-					"host_fields": []string{"host.name", "host", "hostname", "syslog_hostname", "server_id", "agent.hostname"},
-					"service_fields": []string{"service.name", "service_name", "service", "app", "container.name", "service.instance.id", "source_id"},
-					"unknown_host": aggregateUnknownHost,
-					"unknown_service": aggregateUnknownService,
-					"separator": aggregateSourceKeySeparator,
-				},
+			"field":   "source.path",
+			"missing": "-",
+			"size":    10,
+			"order": map[string]any{
+				"_count": "desc",
 			},
-			"size": 50,
 		},
 		"aggs": map[string]any{
 			"sample_document": map[string]any{
@@ -672,7 +646,11 @@ func buildAggregateSourceLabel(host, service string) string {
 }
 
 func resolveAggregateSourceBucketDisplay(rawKey string, sampleSource map[string]any) (string, string, string) {
-	host, service := splitAggregateSourceKey(rawKey)
+	host := ""
+	service := ""
+	if strings.Contains(rawKey, aggregateSourceKeySeparator) {
+		host, service = splitAggregateSourceKey(rawKey)
+	}
 	if len(sampleSource) > 0 {
 		if resolvedHost := strings.TrimSpace(resolveDisplayHost(sampleSource)); resolvedHost != "" {
 			host = resolvedHost
@@ -680,6 +658,11 @@ func resolveAggregateSourceBucketDisplay(rawKey string, sampleSource map[string]
 		if resolvedService := strings.TrimSpace(resolveDisplayService(sampleSource)); resolvedService != "" {
 			service = resolvedService
 		}
+	}
+	if service == "" && strings.TrimSpace(rawKey) != "" && rawKey != "-" {
+		service = strings.TrimSpace(resolveDisplayService(map[string]any{
+			"source": map[string]any{"path": rawKey},
+		}))
 	}
 	if host == "" {
 		host = aggregateUnknownHost

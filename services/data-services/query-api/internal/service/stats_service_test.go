@@ -135,7 +135,7 @@ func TestStatsServiceAggregate_SourceBucketsExposeHostAndService(t *testing.T) {
 				"by_dim": {
 					"buckets": [
 						{
-							"key": "node-a\u001fnginx",
+							"key": "/var/log/nginx/access.log",
 							"doc_count": 9,
 							"sample_document": {
 								"hits": {
@@ -181,10 +181,13 @@ func TestStatsServiceAggregate_SourceBucketsExposeHostAndService(t *testing.T) {
 		t.Fatalf("marshal captured request failed: %v", err)
 	}
 	body := string(raw)
-	for _, fragment := range []string{"sample_document", "top_hits", "host.name", "service.name", "script"} {
+	for _, fragment := range []string{"sample_document", "top_hits", "source.path", "host.name", "service.name"} {
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("expected request body to contain %q, got %s", fragment, body)
 		}
+	}
+	if strings.Contains(body, "script") {
+		t.Fatalf("expected source aggregate request not to use script, got %s", body)
 	}
 }
 
