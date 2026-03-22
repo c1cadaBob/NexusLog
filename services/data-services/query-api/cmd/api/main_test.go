@@ -131,6 +131,42 @@ func TestRegisterRoutes_ClusterLogsAllowsDirectCapability(t *testing.T) {
 	}
 }
 
+func TestRegisterRoutes_DetectAnomaliesAllowsDirectCapability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	tenantID := "10000000-0000-0000-0000-000000000001"
+	userID := "20000000-0000-0000-0000-000000000004"
+	token := mustIssueToken(t, tenantID, userID, "jti-query-anomalies-capability")
+	expectAuthenticatedIdentity(mock, tenantID, userID, "jti-query-anomalies-capability", "anomaly-reader", []string{"log.query.aggregate"})
+
+	router := gin.New()
+	registerRoutes(
+		router,
+		db,
+		testJWTSecret,
+		handler.NewQueryHandler(service.NewQueryService(nil, nil)),
+		handler.NewStatsHandler(service.NewStatsService(nil, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/query/stats/anomalies", strings.NewReader(`{"time_range":`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func expectAuthenticatedIdentity(mock sqlmock.Sqlmock, tenantID, userID, jti, username string, permissions []string) {
 	mock.ExpectQuery(`FROM user_sessions`).
 		WithArgs(tenantID, userID, jti, sqlmock.AnyArg()).

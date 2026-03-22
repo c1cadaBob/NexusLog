@@ -1,153 +1,109 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Card, Tag, Select, Button, Statistic, Drawer, Descriptions, Progress, Space } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Descriptions,
+  Drawer,
+  Empty,
+  Progress,
+  Select,
+  Space,
+  Statistic,
+  Tag,
+} from 'antd';
+import type { EChartsCoreOption } from 'echarts/core';
+import ChartWrapper from '../../components/charts/ChartWrapper';
+import {
+  fetchAnomalyStats,
+  type DetectedAnomaly,
+  type FetchAnomalyStatsParams,
+  type FetchAnomalyStatsResult,
+} from '../../api/query';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
-import ChartWrapper from '../../components/charts/ChartWrapper';
-import type { EChartsCoreOption } from 'echarts/core';
 
-// ============================================================================
-// 类型定义
-// ============================================================================
+const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
 
-type AnomalySeverity = 'critical' | 'high' | 'medium' | 'low';
-type AnomalyStatus = 'active' | 'investigating' | 'resolved' | 'dismissed';
+type AnomalyTimeRange = FetchAnomalyStatsParams['timeRange'];
 
-interface Anomaly {
-  id: string;
-  title: string;
-  description: string;
-  severity: AnomalySeverity;
-  status: AnomalyStatus;
-  timestamp: string;
-  service: string;
-  confidence: number;
-  metric: string;
-  expectedValue: number;
-  actualValue: number;
-  rootCause?: string;
-}
-
-// ============================================================================
-// 模拟数据
-// ============================================================================
-
-const TIME_RANGES = [
+const TIME_RANGE_OPTIONS: Array<{ value: AnomalyTimeRange; label: string }> = [
   { value: '1h', label: '过去 1 小时' },
   { value: '6h', label: '过去 6 小时' },
   { value: '24h', label: '过去 24 小时' },
   { value: '7d', label: '过去 7 天' },
 ];
 
-const ANOMALY_CHART_DATA = [
-  { time: '00:00', value: 180, expected: 175, low: 160, high: 200 },
-  { time: '02:00', value: 175, expected: 170, low: 155, high: 195 },
-  { time: '04:00', value: 185, expected: 180, low: 160, high: 210 },
-  { time: '06:00', value: 170, expected: 175, low: 150, high: 200 },
-  { time: '08:00', value: 190, expected: 185, low: 165, high: 210 },
-  { time: '10:00', value: 200, expected: 195, low: 175, high: 220 },
-  { time: '12:00', value: 350, expected: 200, low: 180, high: 225, anomaly: true },
-  { time: '14:00', value: 210, expected: 205, low: 185, high: 230 },
-  { time: '16:00', value: 180, expected: 190, low: 170, high: 215 },
-  { time: '18:00', value: 165, expected: 175, low: 155, high: 200 },
-  { time: '20:00', value: 50, expected: 170, low: 150, high: 195, anomaly: true },
-  { time: '22:00', value: 175, expected: 170, low: 150, high: 195 },
-  { time: '24:00', value: 185, expected: 175, low: 155, high: 200 },
-];
+const TIME_RANGE_LABELS = Object.fromEntries(TIME_RANGE_OPTIONS.map((option) => [option.value, option.label])) as Record<AnomalyTimeRange, string>;
 
-const ANOMALIES: Anomaly[] = [
-  {
-    id: '1',
-    title: 'API 延迟激增',
-    description: 'Payment Gateway 服务的 API 响应时间突然增加到正常值的 3 倍',
-    severity: 'critical',
-    status: 'active',
-    timestamp: '14:32:01',
-    service: 'Payment-GW',
-    confidence: 98,
-    metric: 'response_time',
-    expectedValue: 200,
-    actualValue: 650,
-    rootCause: '数据库连接池耗尽导致请求排队',
+const EMPTY_RESULT: FetchAnomalyStatsResult = {
+  summary: {
+    total_anomalies: 0,
+    critical_count: 0,
+    health_score: 100,
+    anomalous_buckets: 0,
+    affected_services: 0,
   },
-  {
-    id: '2',
-    title: '异常错误率',
-    description: 'Auth Service 的错误率从 0.5% 上升到 5.2%',
-    severity: 'high',
-    status: 'investigating',
-    timestamp: '12:10:45',
-    service: 'Auth-Svc',
-    confidence: 85,
-    metric: 'error_rate',
-    expectedValue: 0.5,
-    actualValue: 5.2,
-  },
-  {
-    id: '3',
-    title: '流量突降',
-    description: 'Web Frontend 的请求量突然下降 70%',
-    severity: 'medium',
-    status: 'active',
-    timestamp: '09:15:22',
-    service: 'Web-Frontend',
-    confidence: 72,
-    metric: 'request_count',
-    expectedValue: 1000,
-    actualValue: 300,
-  },
-  {
-    id: '4',
-    title: '内存使用异常',
-    description: 'Order Service 内存使用率持续上升',
-    severity: 'low',
-    status: 'resolved',
-    timestamp: '08:45:10',
-    service: 'Order-Svc',
-    confidence: 65,
-    metric: 'memory_usage',
-    expectedValue: 60,
-    actualValue: 85,
-    rootCause: '内存泄漏已修复，服务已重启',
-  },
-];
+  trend: [],
+  anomalies: [],
+};
 
-// ============================================================================
-// 辅助函数
-// ============================================================================
-
-const SEVERITY_MAP: Record<AnomalySeverity, { color: string; tagColor: string; icon: string; label: string }> = {
+const SEVERITY_MAP: Record<DetectedAnomaly['severity'], { color: string; tagColor: string; icon: string; label: string }> = {
   critical: { color: COLORS.danger, tagColor: 'error', icon: 'error', label: '严重' },
   high: { color: COLORS.warning, tagColor: 'warning', icon: 'warning', label: '高' },
   medium: { color: COLORS.info, tagColor: 'processing', icon: 'info', label: '中' },
   low: { color: COLORS.success, tagColor: 'success', icon: 'info', label: '低' },
 };
 
-const STATUS_MAP: Record<AnomalyStatus, { tagColor: string; label: string }> = {
+const STATUS_MAP: Record<DetectedAnomaly['status'], { tagColor: string; label: string }> = {
   active: { tagColor: 'error', label: '活跃' },
   investigating: { tagColor: 'warning', label: '调查中' },
   resolved: { tagColor: 'success', label: '已解决' },
   dismissed: { tagColor: 'default', label: '已忽略' },
 };
 
-// ============================================================================
-// 主组件
-// ============================================================================
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
 
-const AnomalyDetection: React.FC = () => {
-  const isDark = useThemeStore((s) => s.isDark);
-  const [selectedTimeRange, setSelectedTimeRange] = useState('24h');
-  const [selectedAnomaly, setSelectedAnomaly] = useState<Anomaly | null>(null);
+function formatCount(value: number): string {
+  return NUMBER_FORMATTER.format(Number.isFinite(value) ? value : 0);
+}
 
-  const handleAnomalyClick = useCallback((anomaly: Anomaly) => {
-    setSelectedAnomaly(anomaly);
-  }, []);
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value || '-';
+  }
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
 
-  const activeCount = ANOMALIES.filter((a) => a.status === 'active' || a.status === 'investigating').length;
-  const criticalCount = ANOMALIES.filter((a) => a.severity === 'critical' && a.status === 'active').length;
+function formatAxisLabel(value: string, timeRange: AnomalyTimeRange): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  if (timeRange === '1h' || timeRange === '6h') {
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  }
+  if (timeRange === '24h') {
+    return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit' });
+  }
+  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit' });
+}
 
-  // 异常检测时间线图表
-  const timelineOption: EChartsCoreOption = useMemo(() => ({
-    grid: { top: 40, right: 16, bottom: 32, left: 48 },
+function buildTimelineOption(result: FetchAnomalyStatsResult, isDark: boolean, timeRange: AnomalyTimeRange): EChartsCoreOption {
+  const trend = result.trend;
+  return {
+    grid: { top: 40, right: 16, bottom: 36, left: 48 },
     legend: {
       show: true,
       top: 0,
@@ -155,246 +111,327 @@ const AnomalyDetection: React.FC = () => {
       textStyle: { fontSize: 10, color: isDark ? '#94a3b8' : '#475569' },
       data: ['实际值', '预期值', '正常范围'],
     },
-    xAxis: { type: 'category', data: ANOMALY_CHART_DATA.map((d) => d.time), boundaryGap: false },
-    yAxis: { type: 'value' },
+    tooltip: {
+      trigger: 'axis',
+      valueFormatter: (value: string | number | null | undefined) => `${value ?? ''}`,
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: trend.map((item) => formatAxisLabel(item.time, timeRange)),
+      axisLabel: { color: isDark ? '#94a3b8' : '#64748b', fontSize: 10 },
+      axisLine: { lineStyle: { color: isDark ? '#334155' : '#cbd5e1' } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: isDark ? '#94a3b8' : '#64748b', fontSize: 10 },
+      splitLine: { lineStyle: { color: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.2)' } },
+    },
     series: [
       {
         name: '正常范围',
         type: 'line',
-        data: ANOMALY_CHART_DATA.map((d) => d.high),
-        lineStyle: { opacity: 0 },
+        data: trend.map((item) => item.lower_bound),
         stack: 'range',
         symbol: 'none',
+        lineStyle: { opacity: 0 },
         areaStyle: { opacity: 0 },
       },
       {
         name: '正常范围',
         type: 'line',
-        data: ANOMALY_CHART_DATA.map((d) => d.high - d.low),
-        lineStyle: { opacity: 0 },
+        data: trend.map((item) => Math.max(0, item.upper_bound - item.lower_bound)),
         stack: 'range',
         symbol: 'none',
+        lineStyle: { opacity: 0 },
         areaStyle: { opacity: 0.15, color: COLORS.info },
       },
       {
         name: '预期值',
         type: 'line',
-        data: ANOMALY_CHART_DATA.map((d) => d.expected),
+        data: trend.map((item) => item.expected),
         smooth: true,
         symbol: 'none',
-        lineStyle: { width: 2, type: 'dashed', color: COLORS.success, opacity: 0.6 },
+        lineStyle: { width: 2, type: 'dashed', color: COLORS.success, opacity: 0.7 },
         itemStyle: { color: COLORS.success },
       },
       {
         name: '实际值',
         type: 'line',
-        data: ANOMALY_CHART_DATA.map((d) => d.value),
+        data: trend.map((item) => item.actual),
         smooth: true,
         symbol: 'none',
-        lineStyle: { width: 2, color: COLORS.info },
-        itemStyle: { color: COLORS.info },
+        lineStyle: { width: 2, color: COLORS.primary },
+        itemStyle: { color: COLORS.primary },
         markPoint: {
           symbol: 'circle',
           symbolSize: 12,
-          data: ANOMALY_CHART_DATA
-            .map((d, i) => d.anomaly ? { coord: [i, d.value], itemStyle: { color: COLORS.danger, borderColor: isDark ? '#1e293b' : '#fff', borderWidth: 2 } } : null)
-            .filter(Boolean) as any[],
+          data: trend
+            .map((item, index) => (item.is_anomaly
+              ? { coord: [index, item.actual], itemStyle: { color: COLORS.danger, borderColor: isDark ? '#1e293b' : '#ffffff', borderWidth: 2 } }
+              : null))
+            .filter(Boolean),
         },
       },
     ],
-    tooltip: { trigger: 'axis' },
-  }), [isDark]);
+  };
+}
+
+const AnomalyDetection: React.FC = () => {
+  const { message } = App.useApp();
+  const isDark = useThemeStore((state) => state.isDark);
+
+  const [selectedTimeRange, setSelectedTimeRange] = useState<AnomalyTimeRange>('7d');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [result, setResult] = useState<FetchAnomalyStatsResult>(EMPTY_RESULT);
+  const [selectedAnomaly, setSelectedAnomaly] = useState<DetectedAnomaly | null>(null);
+
+  const loadAnomalies = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError('');
+    try {
+      const nextResult = await fetchAnomalyStats({ timeRange: selectedTimeRange, signal });
+      if (signal?.aborted) {
+        return;
+      }
+      setResult(nextResult);
+    } catch (loadError) {
+      if (isAbortError(loadError)) {
+        return;
+      }
+      setResult(EMPTY_RESULT);
+      setError(loadError instanceof Error ? loadError.message : '异常检测加载失败，请稍后重试');
+    } finally {
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
+    }
+  }, [selectedTimeRange]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadAnomalies(controller.signal);
+    return () => controller.abort();
+  }, [loadAnomalies, refreshToken]);
+
+  const timelineOption = useMemo(
+    () => buildTimelineOption(result, isDark, selectedTimeRange),
+    [result, isDark, selectedTimeRange],
+  );
+
+  const handleRefresh = useCallback(() => {
+    setRefreshToken((current) => current + 1);
+  }, []);
+
+  const handleViewDetail = useCallback((anomaly: DetectedAnomaly) => {
+    setSelectedAnomaly(anomaly);
+  }, []);
+
+  const activeCount = useMemo(
+    () => result.anomalies.filter((item) => item.status === 'active' || item.status === 'investigating').length,
+    [result.anomalies],
+  );
+
+  const handleCreateAlert = useCallback(() => {
+    message.info('告警规则预填将在下一步接入');
+  }, [message]);
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 页面头部 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <h2 className="text-xl font-bold m-0">异常检测</h2>
-          <Tag color="success" style={{ margin: 0 }}>
+          <Tag color={result.summary.total_anomalies > 0 ? 'warning' : 'success'} style={{ margin: 0 }}>
             <span className="flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              实时监控中
+              {result.summary.total_anomalies > 0 ? '已检测到异常' : '实时监控中'}
             </span>
           </Tag>
         </div>
-        <Space>
+        <Space wrap>
           <Select
+            id="anomaly_time_range"
+            aria-label="异常检测时间范围"
             value={selectedTimeRange}
-            onChange={setSelectedTimeRange}
-            options={TIME_RANGES}
-            style={{ width: 140 }}
+            onChange={(value) => setSelectedTimeRange(value as AnomalyTimeRange)}
+            options={TIME_RANGE_OPTIONS}
+            style={{ width: 160 }}
             size="small"
           />
-          <Button
-            size="small"
-            icon={<span className="material-symbols-outlined text-sm">refresh</span>}
-          />
+          <Button onClick={handleRefresh} loading={loading} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+            刷新检测
+          </Button>
         </Space>
       </div>
 
-      {/* KPI 卡片 */}
+      {error && (
+        <Alert
+          type="error"
+          showIcon
+          message="异常检测加载失败"
+          description={error}
+        />
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <Statistic
-            title="今日异常总数"
-            value={ANOMALIES.length}
+            title="当前异常数"
+            value={formatCount(result.summary.total_anomalies)}
             prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.danger }}>warning</span>}
-            suffix={<span className="text-xs text-green-500 ml-1">↓ 12%</span>}
           />
         </Card>
         <Card>
           <Statistic
-            title="严重告警"
-            value={criticalCount}
+            title="严重异常"
+            value={formatCount(result.summary.critical_count)}
             prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.warning }}>priority_high</span>}
-            suffix={<span className="text-xs text-red-500 ml-1">↑ 1</span>}
           />
         </Card>
         <Card>
           <Statistic
             title="系统健康度"
-            value={92}
+            value={result.summary.health_score}
             suffix="%"
             prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.success }}>health_and_safety</span>}
           />
         </Card>
         <Card>
           <Statistic
-            title="平均修复时间"
-            value="15m"
-            prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.info }}>timer</span>}
-            suffix={<span className="text-xs text-green-500 ml-1">↓ 5m</span>}
+            title="异常时间桶"
+            value={formatCount(result.summary.anomalous_buckets)}
+            prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.info }}>timeline</span>}
           />
         </Card>
       </div>
 
-      {/* 主内容区域 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ minHeight: 400 }}>
-        {/* 时间线图表 */}
-        <div className="lg:col-span-2">
-          <ChartWrapper
-            title="日志量异常趋势"
-            subtitle="基于机器学习模型的实时预测分析"
-            option={timelineOption}
-            height={360}
-          />
-        </div>
+      <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.95fr] gap-4">
+        <ChartWrapper
+          title="日志量异常趋势"
+          subtitle={TIME_RANGE_LABELS[selectedTimeRange]}
+          loading={loading}
+          error={error || undefined}
+          empty={result.trend.length === 0}
+          option={timelineOption}
+          height={360}
+        />
 
-        {/* 异常事件列表 */}
         <Card
-          title={
-            <div className="flex items-center justify-between">
+          title={(
+            <div className="flex items-center justify-between gap-3">
               <span>检测到的异常</span>
               <Tag style={{ margin: 0 }}>{activeCount} Active</Tag>
             </div>
-          }
+          )}
           styles={{ body: { padding: '8px 12px', maxHeight: 360, overflowY: 'auto' } }}
         >
-          <div className="flex flex-col gap-2">
-            {ANOMALIES.map((anomaly, idx) => {
-              const sev = SEVERITY_MAP[anomaly.severity];
-              const isCritical = anomaly.severity === 'critical';
-              return (
-                <div
-                  key={anomaly.id}
-                  onClick={() => handleAnomalyClick(anomaly)}
-                  className="p-3 rounded-lg cursor-pointer transition-colors"
-                  style={{
-                    borderLeft: `3px solid ${sev.color}`,
-                    backgroundColor: isCritical
-                      ? (isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)')
-                      : (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
-                  }}
-                >
-                  <div className="flex items-start justify-between mb-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-base" style={{ color: sev.color }}>{sev.icon}</span>
-                      <span className="text-sm font-medium">{anomaly.title}</span>
-                      {idx < 2 && <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>NEW</Tag>}
+          {loading && result.anomalies.length === 0 ? (
+            <Card loading variant="borderless" styles={{ body: { padding: 0 } }} />
+          ) : result.anomalies.length === 0 ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前时间范围内未检测到显著异常。" />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {result.anomalies.map((anomaly) => {
+                const severity = SEVERITY_MAP[anomaly.severity];
+                const isCritical = anomaly.severity === 'critical';
+                return (
+                  <div
+                    key={anomaly.id}
+                    className="p-3 rounded-lg cursor-pointer transition-colors"
+                    onClick={() => handleViewDetail(anomaly)}
+                    style={{
+                      borderLeft: `3px solid ${severity.color}`,
+                      backgroundColor: isCritical
+                        ? (isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)')
+                        : (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
+                    }}
+                  >
+                    <div className="flex items-start justify-between mb-1.5 gap-4">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="material-symbols-outlined text-base" style={{ color: severity.color }}>{severity.icon}</span>
+                        <span className="text-sm font-medium">{anomaly.title}</span>
+                        {anomaly.status === 'active' && (
+                          <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>NEW</Tag>
+                        )}
+                      </div>
+                      <span className="text-xs opacity-50 font-mono">{formatDateTime(anomaly.timestamp)}</span>
                     </div>
-                    <span className="text-xs opacity-50 font-mono">{anomaly.timestamp}</span>
+                    <div className="text-xs opacity-70 mb-2">{anomaly.description}</div>
+                    <div className="flex items-center gap-4 text-xs opacity-60 mb-2 flex-wrap">
+                      <span>置信度: <strong>{anomaly.confidence}%</strong></span>
+                      <span>服务: <strong>{anomaly.service}</strong></span>
+                      <span>指标: <strong>{anomaly.metric}</strong></span>
+                    </div>
+                    <Button size="small" block type="default" className="text-xs">
+                      <span className="material-symbols-outlined text-sm mr-1">troubleshoot</span>
+                      查看异常详情
+                    </Button>
                   </div>
-                  <div className="flex items-center gap-4 text-xs opacity-60 mb-2">
-                    <span>置信度: <strong>{anomaly.confidence}%</strong></span>
-                    <span>服务: <strong>{anomaly.service}</strong></span>
-                  </div>
-                  <Button size="small" block type="default" className="text-xs">
-                    <span className="material-symbols-outlined text-sm mr-1">troubleshoot</span>
-                    分析根本原因
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
       </div>
 
-      {/* 异常详情抽屉 */}
       <Drawer
-        title={
-          selectedAnomaly ? (
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined" style={{ color: SEVERITY_MAP[selectedAnomaly.severity].color }}>
-                {SEVERITY_MAP[selectedAnomaly.severity].icon}
-              </span>
-              <span>{selectedAnomaly.title}</span>
-              <Tag color={SEVERITY_MAP[selectedAnomaly.severity].tagColor} style={{ margin: 0 }}>{SEVERITY_MAP[selectedAnomaly.severity].label}</Tag>
-              <Tag color={STATUS_MAP[selectedAnomaly.status].tagColor} style={{ margin: 0 }}>{STATUS_MAP[selectedAnomaly.status].label}</Tag>
-            </div>
-          ) : '异常详情'
-        }
-        open={!!selectedAnomaly}
+        title={selectedAnomaly ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="material-symbols-outlined" style={{ color: SEVERITY_MAP[selectedAnomaly.severity].color }}>
+              {SEVERITY_MAP[selectedAnomaly.severity].icon}
+            </span>
+            <span>{selectedAnomaly.title}</span>
+            <Tag color={SEVERITY_MAP[selectedAnomaly.severity].tagColor} style={{ margin: 0 }}>{SEVERITY_MAP[selectedAnomaly.severity].label}</Tag>
+            <Tag color={STATUS_MAP[selectedAnomaly.status].tagColor} style={{ margin: 0 }}>{STATUS_MAP[selectedAnomaly.status].label}</Tag>
+          </div>
+        ) : '异常详情'}
+        open={Boolean(selectedAnomaly)}
         onClose={() => setSelectedAnomaly(null)}
         width={480}
-        footer={
-          selectedAnomaly && (
-            <Space style={{ width: '100%' }}>
-              <Button type="primary" block>分析根本原因</Button>
-              <Button block>创建告警规则</Button>
-            </Space>
-          )
-        }
+        footer={selectedAnomaly ? (
+          <Space style={{ width: '100%' }}>
+            <Button type="primary" block onClick={handleCreateAlert}>创建告警规则</Button>
+            <Button block onClick={() => setSelectedAnomaly(null)}>关闭</Button>
+          </Space>
+        ) : null}
       >
         {selectedAnomaly && (
           <div className="flex flex-col gap-4">
-            {/* 描述 */}
             <div>
               <div className="text-xs font-medium opacity-50 mb-1">描述</div>
               <p className="text-sm m-0">{selectedAnomaly.description}</p>
             </div>
 
-            {/* 指标对比 */}
             <div className="grid grid-cols-2 gap-3">
               <Card size="small">
-                <Statistic title="预期值" value={selectedAnomaly.expectedValue} valueStyle={{ fontSize: 20 }} />
+                <Statistic title="预期值" value={selectedAnomaly.expected_value} valueStyle={{ fontSize: 20 }} />
               </Card>
               <Card size="small">
                 <Statistic
                   title="实际值"
-                  value={selectedAnomaly.actualValue}
+                  value={selectedAnomaly.actual_value}
                   valueStyle={{
                     fontSize: 20,
-                    color: selectedAnomaly.actualValue > selectedAnomaly.expectedValue ? COLORS.danger : COLORS.success,
+                    color: selectedAnomaly.actual_value > selectedAnomaly.expected_value ? COLORS.danger : COLORS.success,
                   }}
                 />
               </Card>
             </div>
 
-            {/* 详细信息 */}
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="服务">{selectedAnomaly.service}</Descriptions.Item>
               <Descriptions.Item label="指标">{selectedAnomaly.metric}</Descriptions.Item>
               <Descriptions.Item label="置信度">
-                <Progress percent={selectedAnomaly.confidence} size="small" style={{ margin: 0, width: 120 }} />
+                <Progress percent={selectedAnomaly.confidence} size="small" style={{ margin: 0, width: 140 }} />
               </Descriptions.Item>
               <Descriptions.Item label="检测时间">
-                <span className="font-mono text-xs">{selectedAnomaly.timestamp}</span>
+                <span className="font-mono text-xs">{formatDateTime(selectedAnomaly.timestamp)}</span>
               </Descriptions.Item>
             </Descriptions>
 
-            {/* 根本原因 */}
-            {selectedAnomaly.rootCause && (
+            {selectedAnomaly.root_cause && (
               <div
                 className="p-3 rounded-lg text-sm"
                 style={{
@@ -403,8 +440,8 @@ const AnomalyDetection: React.FC = () => {
                   color: COLORS.success,
                 }}
               >
-                <div className="text-xs font-medium mb-1 opacity-70">根本原因分析</div>
-                {selectedAnomaly.rootCause}
+                <div className="text-xs font-medium mb-1 opacity-70">处置建议</div>
+                {selectedAnomaly.root_cause}
               </div>
             )}
           </div>

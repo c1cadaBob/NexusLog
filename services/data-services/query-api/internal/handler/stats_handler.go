@@ -79,3 +79,26 @@ func (h *StatsHandler) ClusterLogs(c *gin.Context) {
 
 	writeSuccess(c, http.StatusOK, result, nil)
 }
+
+// DetectAnomalies POST /api/v1/query/stats/anomalies
+func (h *StatsHandler) DetectAnomalies(c *gin.Context) {
+	actor := resolveActor(c)
+	if actor.TenantID == "" {
+		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "tenant context is required")
+		return
+	}
+
+	var req service.AnomalyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, CodeQueryInvalidParams, "invalid request body")
+		return
+	}
+
+	result, err := h.svc.DetectAnomalies(c.Request.Context(), actor, req)
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+
+	writeSuccess(c, http.StatusOK, result, nil)
+}

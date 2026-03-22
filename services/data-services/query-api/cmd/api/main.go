@@ -55,6 +55,7 @@ func registerRoutes(r *gin.Engine, metadataDB *sql.DB, jwtSecret string, queryHa
 	v1.POST("/logs", sharedauth.RequireCapability("log.query.read"), queryHandler.SearchLogs)
 	v1.GET("/stats/overview", sharedauth.RequireCapability("log.query.aggregate"), statsHandler.GetOverviewStats)
 	v1.POST("/stats/aggregate", sharedauth.RequireCapability("log.query.aggregate"), statsHandler.Aggregate)
+	v1.POST("/stats/anomalies", sharedauth.RequireCapability("log.query.aggregate"), statsHandler.DetectAnomalies)
 	v1.POST("/stats/clusters", sharedauth.RequireCapability("log.query.aggregate"), statsHandler.ClusterLogs)
 	v1.GET("/history", sharedauth.RequireCapability("query.history.read"), queryHandler.ListQueryHistories)
 	v1.DELETE("/history/:history_id", sharedauth.RequireCapability("query.history.read"), queryHandler.DeleteQueryHistory)

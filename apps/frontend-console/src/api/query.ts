@@ -1380,6 +1380,219 @@ function buildLocalLogClusters(params: FetchLogClustersParams): FetchLogClusters
   };
 }
 
+function resolveAnomalyTimeRange(timeRange: FetchAnomalyStatsParams['timeRange']): { from: string; to: string } {
+  const now = new Date();
+  const durationMap: Record<FetchAnomalyStatsParams['timeRange'], number> = {
+    '1h': 60 * 60 * 1000,
+    '6h': 6 * 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+  };
+  return {
+    from: new Date(now.getTime() - durationMap[timeRange]).toISOString(),
+    to: now.toISOString(),
+  };
+}
+
+function resolveAnomalyBucketSize(timeRange: FetchAnomalyStatsParams['timeRange']): number {
+  switch (timeRange) {
+    case '1h':
+      return 5 * 60 * 1000;
+    case '6h':
+      return 30 * 60 * 1000;
+    case '7d':
+      return 12 * 60 * 60 * 1000;
+    case '24h':
+    default:
+      return 2 * 60 * 60 * 1000;
+  }
+}
+
+function computeMeanAndStd(values: number[]): { mean: number; std: number } {
+  if (values.length === 0) {
+    return { mean: 0, std: 0 };
+  }
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / values.length;
+  return { mean, std: Math.sqrt(variance) };
+}
+
+function computeRollingExpectation(values: number[], index: number, lookback = 4): { mean: number; std: number } {
+  if (index <= 0) {
+    return { mean: 0, std: 0 };
+  }
+  const start = Math.max(0, index - lookback);
+  return computeMeanAndStd(values.slice(start, index));
+}
+
+function roundMetric(value: number, digits = 2): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function classifyAnomalySeverity(changeRatio: number): DetectedAnomaly['severity'] {
+  if (changeRatio >= 2) {
+    return 'critical';
+  }
+  if (changeRatio >= 1.2) {
+    return 'high';
+  }
+  if (changeRatio >= 0.6) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function classifyAnomalyConfidence(changeRatio: number): number {
+  return Math.max(55, Math.min(99, 65 + Math.round(changeRatio * 20)));
+}
+
+function resolveAnomalyStatus(timestamp: string): DetectedAnomaly['status'] {
+  const ts = Date.parse(timestamp);
+  if (Number.isNaN(ts)) {
+    return 'investigating';
+  }
+  return Date.now() - ts <= 2 * 60 * 60 * 1000 ? 'active' : 'investigating';
+}
+
+function buildLocalAnomalyStats(params: FetchAnomalyStatsParams): FetchAnomalyStatsResult {
+  const timeRange = resolveAnomalyTimeRange(params.timeRange);
+  const logs = filterLocalDemoLogs({
+    keywords: params.keywords,
+    filters: params.filters,
+    timeRange,
+  });
+  const from = new Date(timeRange.from);
+  const to = new Date(timeRange.to);
+  const bucketSize = resolveAnomalyBucketSize(params.timeRange);
+  const buckets: Array<{ time: string; actual: number; errorCount: number }> = [];
+
+  for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += bucketSize) {
+    const time = new Date(cursor).toISOString();
+    buckets.push({ time, actual: 0, errorCount: 0 });
+  }
+
+  logs.forEach((log) => {
+    const ts = Date.parse(log.timestamp);
+    if (Number.isNaN(ts)) {
+      return;
+    }
+    const normalized = Math.floor((ts - from.getTime()) / bucketSize);
+    if (normalized < 0 || normalized >= buckets.length) {
+      return;
+    }
+    buckets[normalized].actual += 1;
+    if (['error', 'fatal', 'warn'].includes(log.level)) {
+      buckets[normalized].errorCount += 1;
+    }
+  });
+
+  const dominantService = logs.reduce<{ service: string; count: number }>((best, log) => {
+    const current = logs.filter((item) => item.service === log.service).length;
+    if (current > best.count) {
+      return { service: log.service || '全局', count: current };
+    }
+    return best;
+  }, { service: '全局', count: 0 }).service || '全局';
+
+  const actualValues = buckets.map((bucket) => bucket.actual);
+  const errorRates = buckets.map((bucket) => (bucket.actual > 0 ? (bucket.errorCount / bucket.actual) * 100 : 0));
+  const globalActualStats = computeMeanAndStd(actualValues);
+  const globalErrorStats = computeMeanAndStd(errorRates);
+  const trend: AnomalyTrendPoint[] = [];
+  const anomalies: DetectedAnomaly[] = [];
+
+  buckets.forEach((bucket, index) => {
+    const actual = bucket.actual;
+    const expectedStats = computeRollingExpectation(actualValues, index, 4);
+    const expected = expectedStats.mean > 0 ? expectedStats.mean : globalActualStats.mean;
+    const expectedStd = expectedStats.std > 0 ? expectedStats.std : globalActualStats.std;
+    const margin = Math.max(5, expected * 0.25, expectedStd * 2);
+    const lowerBound = Math.max(0, expected - margin);
+    const upperBound = expected + margin;
+    const errorRate = errorRates[index];
+    const errorStats = computeRollingExpectation(errorRates, index, 4);
+    const expectedError = errorStats.mean > 0 ? errorStats.mean : globalErrorStats.mean;
+    const errorStd = errorStats.std > 0 ? errorStats.std : globalErrorStats.std;
+    const errorMargin = Math.max(1.5, expectedError * 0.5, errorStd * 2);
+    const isVolumeAnomaly = actual > upperBound || actual < lowerBound;
+    const isErrorAnomaly = actual >= 20 && errorRate > expectedError + errorMargin;
+
+    trend.push({
+      time: bucket.time,
+      actual,
+      expected: roundMetric(expected),
+      lower_bound: roundMetric(lowerBound),
+      upper_bound: roundMetric(upperBound),
+      is_anomaly: isVolumeAnomaly || isErrorAnomaly,
+      error_rate: roundMetric(errorRate),
+    });
+
+    if (isVolumeAnomaly && (actual > 0 || expected > 0)) {
+      const changeRatio = expected > 0 ? Math.abs(actual - expected) / expected : 0;
+      const title = actual < lowerBound ? '流量突降' : '日志量激增';
+      anomalies.push({
+        id: `${bucket.time}-volume`,
+        title,
+        description: `${new Date(bucket.time).toLocaleString('zh-CN')} 的日志量为 ${actual}，基线约为 ${roundMetric(expected, 0)}。`,
+        severity: classifyAnomalySeverity(changeRatio),
+        status: resolveAnomalyStatus(bucket.time),
+        timestamp: bucket.time,
+        service: dominantService,
+        confidence: classifyAnomalyConfidence(changeRatio),
+        metric: 'log_volume',
+        expected_value: roundMetric(expected),
+        actual_value: roundMetric(actual),
+        root_cause: actual < lowerBound
+          ? '当前时间桶日志量显著低于历史基线，建议检查采集链路、Agent 在线状态和上游服务流量。'
+          : '当前时间桶日志量显著高于历史基线，建议检查异常重试、批量任务或噪声日志激增。',
+      });
+    }
+
+    if (isErrorAnomaly) {
+      const changeRatio = expectedError > 0 ? Math.abs(errorRate - expectedError) / expectedError : errorRate / 5;
+      anomalies.push({
+        id: `${bucket.time}-error-rate`,
+        title: '异常错误率',
+        description: `${new Date(bucket.time).toLocaleString('zh-CN')} 的错误日志占比达到 ${roundMetric(errorRate)}%，高于基线 ${roundMetric(expectedError)}%。`,
+        severity: classifyAnomalySeverity(changeRatio),
+        status: resolveAnomalyStatus(bucket.time),
+        timestamp: bucket.time,
+        service: dominantService,
+        confidence: classifyAnomalyConfidence(changeRatio),
+        metric: 'error_rate',
+        expected_value: roundMetric(expectedError),
+        actual_value: roundMetric(errorRate),
+        root_cause: '错误级别日志占比显著升高，建议结合聚类分析定位高频报错模式。',
+      });
+    }
+  });
+
+  const sortedAnomalies = anomalies.sort((left, right) => {
+    const severityOrder = { critical: 4, high: 3, medium: 2, low: 1 };
+    const severityDelta = severityOrder[right.severity] - severityOrder[left.severity];
+    if (severityDelta !== 0) {
+      return severityDelta;
+    }
+    return right.timestamp.localeCompare(left.timestamp);
+  });
+  const criticalCount = sortedAnomalies.filter((item) => item.severity === 'critical').length;
+  const anomalousBuckets = trend.filter((item) => item.is_anomaly).length;
+  const healthScore = Math.max(0, 100 - sortedAnomalies.length * 8 - criticalCount * 10);
+
+  return {
+    summary: {
+      total_anomalies: sortedAnomalies.length,
+      critical_count: criticalCount,
+      health_score: healthScore,
+      anomalous_buckets: anomalousBuckets,
+      affected_services: sortedAnomalies.length > 0 ? 1 : 0,
+    },
+    trend,
+    anomalies: sortedAnomalies.slice(0, 20),
+  };
+}
+
 function shouldFallbackToLocalStore(error: unknown): boolean {
   if (shouldUseEmergencyQueryFallback() && error instanceof QueryApiAuthError) {
     return true;
@@ -1904,6 +2117,52 @@ export async function fetchAggregateStats(params: FetchAggregateStatsParams): Pr
   }
 }
 
+export interface AnomalyTrendPoint {
+  time: string;
+  actual: number;
+  expected: number;
+  lower_bound: number;
+  upper_bound: number;
+  is_anomaly: boolean;
+  error_rate: number;
+}
+
+export interface DetectedAnomaly {
+  id: string;
+  title: string;
+  description: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  status: 'active' | 'investigating' | 'resolved' | 'dismissed';
+  timestamp: string;
+  service: string;
+  confidence: number;
+  metric: string;
+  expected_value: number;
+  actual_value: number;
+  root_cause?: string;
+}
+
+export interface AnomalySummary {
+  total_anomalies: number;
+  critical_count: number;
+  health_score: number;
+  anomalous_buckets: number;
+  affected_services: number;
+}
+
+export interface FetchAnomalyStatsParams {
+  timeRange: '1h' | '6h' | '24h' | '7d';
+  keywords?: string;
+  filters?: Record<string, unknown>;
+  signal?: AbortSignal;
+}
+
+export interface FetchAnomalyStatsResult {
+  summary: AnomalySummary;
+  trend: AnomalyTrendPoint[];
+  anomalies: DetectedAnomaly[];
+}
+
 export interface LogClusterTrendPoint {
   time: string;
   count: number;
@@ -1981,6 +2240,41 @@ export async function fetchLogClusters(params: FetchLogClustersParams): Promise<
   } catch (error) {
     if (shouldFallbackToLocalStore(error)) {
       return buildLocalLogClusters(params);
+    }
+    throw error;
+  }
+}
+
+export async function fetchAnomalyStats(params: FetchAnomalyStatsParams): Promise<FetchAnomalyStatsResult> {
+  if (shouldUseQueryCollectionFallback()) {
+    return buildLocalAnomalyStats(params);
+  }
+
+  try {
+    const envelope = await requestQueryApi<FetchAnomalyStatsResult>('/stats/anomalies', {
+      method: 'POST',
+      signal: params.signal,
+      body: {
+        time_range: params.timeRange,
+        keywords: params.keywords?.trim() ?? '',
+        filters: params.filters ?? {},
+      },
+    });
+
+    return {
+      summary: envelope.data?.summary ?? {
+        total_anomalies: 0,
+        critical_count: 0,
+        health_score: 100,
+        anomalous_buckets: 0,
+        affected_services: 0,
+      },
+      trend: envelope.data?.trend ?? [],
+      anomalies: envelope.data?.anomalies ?? [],
+    };
+  } catch (error) {
+    if (shouldFallbackToLocalStore(error)) {
+      return buildLocalAnomalyStats(params);
     }
     throw error;
   }
