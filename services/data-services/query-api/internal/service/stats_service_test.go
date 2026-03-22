@@ -507,27 +507,16 @@ func TestStatsServiceGetOverviewStats_ExtractsTopSourceHostAndService(t *testing
 			"hits": {"total": {"value": 12}, "hits": []},
 			"aggregations": {
 				"by_level": {"buckets": []},
-				"by_source": {
-					"buckets": [
-						{
-							"key": "/var/log/nginx/access.log",
-							"doc_count": 9,
-							"sample_document": {
-								"hits": {
-									"hits": [
-										{
-											"_source": {
-												"source": {"path": "/var/log/nginx/access.log"},
-												"host": {"name": "node-a"},
-												"service": {"name": "nginx"}
-											}
-										}
-									]
-								}
-							}
-						}
-					]
+				"by_source_service_name": {
+					"pairs": {
+						"buckets": [
+							{"key": ["node-a", "nginx", "/var/log/nginx/access.log"], "doc_count": 9}
+						]
+					}
 				},
+				"by_source_container_name": {"pairs": {"buckets": []}},
+				"by_source_instance_id": {"pairs": {"buckets": []}},
+				"by_source_log_path": {"pairs": {"buckets": []}},
 				"log_trend": {"buckets": []}
 			}
 		}`))
@@ -545,7 +534,7 @@ func TestStatsServiceGetOverviewStats_ExtractsTopSourceHostAndService(t *testing
 	if len(result.TopSources) != 1 {
 		t.Fatalf("GetOverviewStats() top sources len = %d, want 1", len(result.TopSources))
 	}
-	if got := result.TopSources[0]; got.Source != "/var/log/nginx/access.log" || got.Host != "node-a" || got.Service != "nginx" || got.Count != 9 {
+	if got := result.TopSources[0]; got.Source != "node-a / nginx" || got.Host != "node-a" || got.Service != "nginx" || got.Count != 9 {
 		t.Fatalf("unexpected top source: %+v", got)
 	}
 
@@ -554,9 +543,14 @@ func TestStatsServiceGetOverviewStats_ExtractsTopSourceHostAndService(t *testing
 		t.Fatalf("marshal captured request failed: %v", err)
 	}
 	body := string(raw)
-	for _, fragment := range []string{"sample_document", "top_hits", "host.name", "service.name"} {
+	for _, fragment := range []string{"multi_terms", "host.name", "service.name", "log.file.path"} {
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("expected request body to contain %q, got %s", fragment, body)
+		}
+	}
+	for _, fragment := range []string{"sample_document", "top_hits"} {
+		if strings.Contains(body, fragment) {
+			t.Fatalf("expected request body not to contain %q, got %s", fragment, body)
 		}
 	}
 }

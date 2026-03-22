@@ -47,8 +47,9 @@ describe('query api emergency fallback', () => {
     expect(result.top_sources[0]).toEqual(expect.objectContaining({
       host: expect.any(String),
       service: expect.any(String),
-      source: expect.any(String),
+      source: expect.stringContaining(' / '),
     }));
+    expect(result.top_sources.every((item) => !item.source.startsWith('/'))).toBe(true);
   });
 
   it('returns realtime logs locally for emergency access sessions', async () => {

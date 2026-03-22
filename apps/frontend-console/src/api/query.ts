@@ -976,18 +976,17 @@ function filterLocalDemoLogs(params: {
 function toOverviewTopSources(logs: LogEntry[]): DashboardTopSource[] {
   const buckets = new Map<string, DashboardTopSource>();
   logs.forEach((log) => {
-    const source = String(log.fields?.source_path ?? log.fields?.source ?? '').trim();
-    if (!source) {
-      return;
-    }
-    const current = buckets.get(source) ?? {
-      source,
-      host: log.host,
-      service: log.service,
+    const host = typeof log.host === 'string' && log.host.trim() ? log.host.trim() : 'unknown';
+    const service = typeof log.service === 'string' && log.service.trim() ? log.service.trim() : 'unknown';
+    const identity = buildDashboardTopSourceIdentity(host, service);
+    const current = buckets.get(identity) ?? {
+      source: buildDashboardTopSourceLabel(host, service),
+      host,
+      service,
       count: 0,
     };
     current.count += 1;
-    buckets.set(source, current);
+    buckets.set(identity, current);
   });
 
   return Array.from(buckets.values())
@@ -1299,26 +1298,53 @@ function shouldUseQueryCollectionFallback(): boolean {
   return !accessToken;
 }
 
-function deriveDashboardTopSourceService(source: string): string {
-  const normalized = source.trim().replace(/\\/g, '/');
+function deriveDashboardTopSourceHost(source: string): string {
+  const normalized = source.trim();
   if (!normalized) {
     return 'unknown';
   }
-  const segments = normalized.split('/').filter(Boolean);
-  const tail = segments[segments.length - 1] ?? normalized;
+  const parts = normalized.split(' / ').map((item) => item.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return parts[0] || 'unknown';
+  }
+  return 'unknown';
+}
+
+function deriveDashboardTopSourceService(source: string): string {
+  const normalized = source.trim();
+  if (!normalized) {
+    return 'unknown';
+  }
+  const pairParts = normalized.split(' / ').map((item) => item.trim()).filter(Boolean);
+  if (pairParts.length >= 2) {
+    return pairParts[pairParts.length - 1] || 'unknown';
+  }
+  const normalizedPath = normalized.replace(/\\/g, '/');
+  const segments = normalizedPath.split('/').filter(Boolean);
+  const tail = segments[segments.length - 1] ?? normalizedPath;
   const display = tail.replace(/\.(log|txt|out|jsonl?)$/i, '').trim();
   return display || tail || 'unknown';
 }
 
+function buildDashboardTopSourceLabel(host: string, service: string): string {
+  return `${host} / ${service}`;
+}
+
+function buildDashboardTopSourceIdentity(host: string, service: string): string {
+  return `${host}${SOURCE_AGGREGATE_KEY_SEPARATOR}${service}`;
+}
+
 function normalizeDashboardTopSource(source: Partial<DashboardTopSource> | null | undefined): DashboardTopSource {
   const rawSource = typeof source?.source === 'string' ? source.source.trim() : '';
-  const host = typeof source?.host === 'string' && source.host.trim() ? source.host.trim() : 'unknown';
+  const host = typeof source?.host === 'string' && source.host.trim()
+    ? source.host.trim()
+    : deriveDashboardTopSourceHost(rawSource);
   const service = typeof source?.service === 'string' && source.service.trim()
     ? source.service.trim()
     : deriveDashboardTopSourceService(rawSource);
 
   return {
-    source: rawSource,
+    source: rawSource || buildDashboardTopSourceLabel(host, service),
     host,
     service,
     count: Number(source?.count) || 0,

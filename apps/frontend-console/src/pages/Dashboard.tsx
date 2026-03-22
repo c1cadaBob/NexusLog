@@ -203,13 +203,30 @@ function buildSourceRows(overview: DashboardOverviewStats | null): ServiceStatus
     const service = normalizeIdentityValue(item.service, '未知服务');
     return {
       name: `${host} · ${service}`,
-      source: item.source || '',
+      source: item.source || `${host} / ${service}`,
       host,
       service,
       errorRate: count,
       status: ratio >= 0.75 ? 'critical' : ratio >= 0.35 ? 'warning' : 'healthy',
     };
   });
+}
+
+function escapeRealtimeQueryValue(value: string): string {
+  return value.replace(/"/g, '\\"');
+}
+
+function buildSourcePresetQuery(row: Pick<ServiceStatus, 'host' | 'service' | 'name'>): string {
+  const clauses: string[] = [];
+  const host = normalizeIdentityValue(row.host, '');
+  const service = normalizeIdentityValue(row.service, '');
+  if (host) {
+    clauses.push(`host:"${escapeRealtimeQueryValue(host)}"`);
+  }
+  if (service) {
+    clauses.push(`service:"${escapeRealtimeQueryValue(service)}"`);
+  }
+  return clauses.join(' AND ') || row.name;
 }
 
 function buildKpiData(overview: DashboardOverviewStats | null): KpiData[] {
@@ -978,10 +995,10 @@ const Dashboard: React.FC = () => {
               columns={serviceColumns}
               pagination={false}
               size="small"
-              rowKey={(record) => record.source || record.name}
+              rowKey={(record) => `${record.host || 'unknown-host'}::${record.service || 'unknown-service'}`}
               locale={{ emptyText: '暂无来源统计' }}
               onRow={(record) => ({
-                onClick: () => handleRealtimeSearchNavigate(record.source || record.service || record.host || record.name),
+                onClick: () => handleRealtimeSearchNavigate(buildSourcePresetQuery(record)),
                 style: {
                   cursor: dashboardEntryAccess.realtimeSearch.allowed ? 'pointer' : 'not-allowed',
                   opacity: dashboardEntryAccess.realtimeSearch.allowed ? 1 : 0.6,

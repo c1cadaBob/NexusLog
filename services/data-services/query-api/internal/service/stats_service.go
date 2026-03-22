@@ -137,44 +137,6 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 				"missing": "info",
 			},
 		},
-		"by_source": map[string]any{
-			"terms": map[string]any{
-				"field": "source.path",
-				"size":  10,
-				"order": map[string]any{"_count": "desc"},
-			},
-			"aggs": map[string]any{
-				"sample_document": map[string]any{
-					"top_hits": map[string]any{
-						"size": 1,
-						"sort": []map[string]any{{
-							"@timestamp": map[string]any{"order": "desc"},
-						}},
-						"_source": map[string]any{
-							"includes": []string{
-								"source.path",
-								"log.file.path",
-								"source_path",
-								"source",
-								"host.name",
-								"host",
-								"hostname",
-								"syslog_hostname",
-								"server_id",
-								"agent.hostname",
-								"service.name",
-								"service_name",
-								"service",
-								"app",
-								"container.name",
-								"service.instance.id",
-								"source_id",
-							},
-						},
-					},
-				},
-			},
-		},
 		"log_trend": map[string]any{
 			"date_histogram": map[string]any{
 				"field":             "@timestamp",
@@ -182,6 +144,9 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 				"min_doc_count":     0,
 			},
 		},
+	}
+	for name, aggregation := range buildAggregateSourceTermsAggregation() {
+		aggs[name] = aggregation
 	}
 
 	body := map[string]any{
@@ -226,15 +191,7 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 	}
 
 	// Parse top sources
-	if bySource, ok := result.Aggregations["by_source"].(map[string]any); ok {
-		if buckets, ok := bySource["buckets"].([]any); ok {
-			for _, b := range buckets {
-				if bucket, ok := b.(map[string]any); ok {
-					stats.TopSources = append(stats.TopSources, parseOverviewSourceBucket(bucket))
-				}
-			}
-		}
-	}
+	stats.TopSources = buildOverviewTopSources(result.Aggregations)
 
 	// Parse log trend (date_histogram returns key_as_string)
 	if logTrend, ok := result.Aggregations["log_trend"].(map[string]any); ok {
@@ -396,80 +353,29 @@ func (s *StatsService) setAggregateCache(cacheKey string, result *AggregateResul
 	s.aggregateCacheMu.Unlock()
 }
 
-func parseOverviewSourceBucket(bucket map[string]any) SourceCount {
-	source := normalizeSourcePathForDisplay(stringFromOverviewBucketValue(bucket["key"]))
-	count := int64FromOverviewBucketValue(bucket["doc_count"])
-	sampleSource := extractOverviewSampleSource(bucket)
+func buildOverviewTopSources(aggregations map[string]any) []SourceCount {
+	buckets := buildAggregateSourceBuckets(aggregations)
+	if len(buckets) == 0 {
+		return []SourceCount{}
+	}
+	if len(buckets) > 10 {
+		buckets = buckets[:10]
+	}
 
-	host := ""
-	service := ""
-	if len(sampleSource) > 0 {
-		if source == "" {
-			source = displaySourcePathFromSource(sampleSource)
+	topSources := make([]SourceCount, 0, len(buckets))
+	for _, bucket := range buckets {
+		label := strings.TrimSpace(bucket.Label)
+		if label == "" {
+			label = buildAggregateSourceLabel(bucket.Host, bucket.Service)
 		}
-		host = strings.TrimSpace(resolveDisplayHost(sampleSource))
-		service = strings.TrimSpace(resolveDisplayService(sampleSource))
+		topSources = append(topSources, SourceCount{
+			Source:  label,
+			Host:    bucket.Host,
+			Service: bucket.Service,
+			Count:   bucket.Count,
+		})
 	}
-	if source != "" && service == "" {
-		service = strings.TrimSpace(resolveDisplayService(map[string]any{
-			"source": map[string]any{"path": source},
-		}))
-	}
-	if host == "" {
-		host = "unknown"
-	}
-	if service == "" {
-		service = "unknown"
-	}
-
-	return SourceCount{
-		Source:  source,
-		Host:    host,
-		Service: service,
-		Count:   count,
-	}
-}
-
-func extractOverviewSampleSource(bucket map[string]any) map[string]any {
-	sampleDocument, ok := bucket["sample_document"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	hitsWrapper, ok := sampleDocument["hits"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	hits, ok := hitsWrapper["hits"].([]any)
-	if !ok || len(hits) == 0 {
-		return nil
-	}
-	firstHit, ok := hits[0].(map[string]any)
-	if !ok {
-		return nil
-	}
-	source, ok := firstHit["_source"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	return source
-}
-
-func int64FromOverviewBucketValue(raw any) int64 {
-	switch value := raw.(type) {
-	case float64:
-		return int64(value)
-	case int64:
-		return value
-	case int:
-		return int64(value)
-	default:
-		return 0
-	}
-}
-
-func stringFromOverviewBucketValue(raw any) string {
-	text, _ := raw.(string)
-	return strings.TrimSpace(text)
+	return topSources
 }
 
 func (s *StatsService) getAlertSummary(ctx context.Context, actor RequestActor) (*AlertSummary, error) {
