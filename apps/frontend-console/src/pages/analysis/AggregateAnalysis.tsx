@@ -1,28 +1,64 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Card, Select, Button, Space, message, Empty } from 'antd';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { Alert, App, Button, Card, Empty, Input, Select, Tag, Typography } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import ChartWrapper from '../../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
-import { fetchAggregateStats, type FetchAggregateStatsParams, type AggregateBucket } from '../../api/query';
+import {
+  fetchAggregateStats,
+  type AggregateBucket,
+  type FetchAggregateStatsParams,
+} from '../../api/query';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
 
-// ============================================================================
-// 常量
-// ============================================================================
+const { Text } = Typography;
 
-const GROUP_BY_OPTIONS = [
+type AggregateGroupBy = FetchAggregateStatsParams['groupBy'];
+type AggregateTimeRange = FetchAggregateStatsParams['timeRange'];
+
+interface AggregateFormState {
+  groupBy: AggregateGroupBy;
+  timeRange: AggregateTimeRange;
+  keywords: string;
+  service: string;
+}
+
+interface AggregateSummary {
+  totalCount: number;
+  bucketCount: number;
+  nonZeroBucketCount: number;
+  topBucket: AggregateBucket | null;
+  averagePerBucket: number;
+}
+
+const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
+const DECIMAL_FORMATTER = new Intl.NumberFormat('zh-CN', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 1,
+});
+
+const GROUP_BY_OPTIONS: Array<{ value: AggregateGroupBy; label: string }> = [
   { value: 'level', label: '按日志级别 (Level)' },
-  { value: 'source', label: '按来源 (Source)' },
-  { value: 'hour', label: '按小时 (Hour)' },
+  { value: 'source', label: '按日志来源 (Source)' },
+  { value: 'hour', label: '按小时趋势 (Hour)' },
+  { value: 'minute', label: '按分钟趋势 (Minute)' },
 ];
 
-const TIME_RANGE_OPTIONS = [
+const TIME_RANGE_OPTIONS: Array<{ value: AggregateTimeRange; label: string }> = [
+  { value: '30m', label: '最近 30 分钟' },
   { value: '1h', label: '最近 1 小时' },
   { value: '6h', label: '最近 6 小时' },
   { value: '24h', label: '最近 24 小时' },
   { value: '7d', label: '最近 7 天' },
 ];
+
+const TIME_RANGE_LABEL_MAP = Object.fromEntries(
+  TIME_RANGE_OPTIONS.map((option) => [option.value, option.label]),
+) as Record<AggregateTimeRange, string>;
+
+const GROUP_BY_LABEL_MAP = Object.fromEntries(
+  GROUP_BY_OPTIONS.map((option) => [option.value, option.label]),
+) as Record<AggregateGroupBy, string>;
 
 const LEVEL_COLORS: Record<string, string> = {
   error: COLORS.danger,
@@ -31,103 +67,474 @@ const LEVEL_COLORS: Record<string, string> = {
   info: COLORS.primary,
   debug: COLORS.purple,
   trace: COLORS.info,
-  fatal: COLORS.danger,
+  fatal: '#b91c1c',
+  panic: '#7f1d1d',
 };
 
-// ============================================================================
-// 主组件
-// ============================================================================
+const INITIAL_FORM_STATE: AggregateFormState = {
+  groupBy: 'level',
+  timeRange: '7d',
+  keywords: '',
+  service: '',
+};
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function isTemporalGroupBy(groupBy: AggregateGroupBy): boolean {
+  return groupBy === 'hour' || groupBy === 'minute';
+}
+
+function normalizeFormState(state: AggregateFormState): AggregateFormState {
+  return {
+    groupBy: state.groupBy,
+    timeRange: state.timeRange,
+    keywords: state.keywords.trim(),
+    service: state.service.trim(),
+  };
+}
+
+function buildAggregateFilters(service: string): Record<string, unknown> {
+  const trimmedService = service.trim();
+  if (!trimmedService) {
+    return {};
+  }
+  return { service: trimmedService };
+}
+
+function formatCount(value: number): string {
+  return NUMBER_FORMATTER.format(Number.isFinite(value) ? value : 0);
+}
+
+function formatAverage(value: number): string {
+  return DECIMAL_FORMATTER.format(Number.isFinite(value) ? value : 0);
+}
+
+function formatBucketDisplayValue(groupBy: AggregateGroupBy, rawKey: string): string {
+  const key = rawKey?.trim() || '-';
+  if (groupBy === 'level') {
+    return key.toUpperCase();
+  }
+  if (!isTemporalGroupBy(groupBy)) {
+    return key;
+  }
+  const date = new Date(key);
+  if (Number.isNaN(date.getTime())) {
+    return key;
+  }
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: groupBy === 'minute' ? '2-digit' : undefined,
+  });
+}
+
+function formatTimeAxisLabel(rawKey: string, groupBy: AggregateGroupBy, timeRange: AggregateTimeRange): string {
+  const date = new Date(rawKey);
+  if (Number.isNaN(date.getTime())) {
+    return rawKey;
+  }
+
+  if (groupBy === 'minute' || timeRange === '30m' || timeRange === '1h') {
+    return date.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+  });
+}
+
+function truncateLabel(label: string, maxLength: number): string {
+  if (label.length <= maxLength) {
+    return label;
+  }
+  return `${label.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function buildSummary(buckets: AggregateBucket[]): AggregateSummary {
+  const totalCount = buckets.reduce((sum, bucket) => sum + Number(bucket.count || 0), 0);
+  const bucketCount = buckets.length;
+  const nonZeroBucketCount = buckets.filter((bucket) => Number(bucket.count || 0) > 0).length;
+  const topBucket = buckets.reduce<AggregateBucket | null>((currentTop, bucket) => {
+    if (!currentTop || Number(bucket.count || 0) > Number(currentTop.count || 0)) {
+      return bucket;
+    }
+    return currentTop;
+  }, null);
+
+  return {
+    totalCount,
+    bucketCount,
+    nonZeroBucketCount,
+    topBucket,
+    averagePerBucket: bucketCount > 0 ? totalCount / bucketCount : 0,
+  };
+}
+
+function buildMainChartOption(
+  buckets: AggregateBucket[],
+  groupBy: AggregateGroupBy,
+  timeRange: AggregateTimeRange,
+): EChartsCoreOption {
+  if (isTemporalGroupBy(groupBy)) {
+    const labels = buckets.map((bucket) => formatTimeAxisLabel(bucket.key, groupBy, timeRange));
+    const values = buckets.map((bucket) => Number(bucket.count || 0));
+    const needsZoom = labels.length > 24;
+
+    return {
+      grid: { top: 36, right: 16, bottom: needsZoom ? 68 : 32, left: 52 },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: labels,
+        axisLabel: {
+          hideOverlap: true,
+        },
+      },
+      yAxis: {
+        type: 'value',
+        splitLine: {
+          lineStyle: { color: 'rgba(148, 163, 184, 0.15)' },
+        },
+      },
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: Array<{ axisValueLabel?: string; data?: number }>) => {
+          const first = params[0];
+          if (!first) {
+            return '';
+          }
+          return `${first.axisValueLabel ?? ''}<br />事件量：${formatCount(Number(first.data || 0))}`;
+        },
+      },
+      dataZoom: needsZoom
+        ? [
+            { type: 'inside', xAxisIndex: 0 },
+            {
+              type: 'slider',
+              xAxisIndex: 0,
+              height: 18,
+              bottom: 8,
+              startValue: 0,
+              endValue: Math.min(labels.length - 1, 23),
+            },
+          ]
+        : undefined,
+      series: [
+        {
+          type: 'line',
+          smooth: true,
+          showSymbol: labels.length <= 36,
+          symbolSize: 6,
+          lineStyle: { width: 2, color: COLORS.primary },
+          itemStyle: { color: COLORS.primary },
+          areaStyle: { color: 'rgba(14, 165, 233, 0.15)' },
+          data: values,
+        },
+      ],
+    };
+  }
+
+  const labels = buckets.map((bucket) => bucket.key || '-');
+  const values = buckets.map((bucket) => Number(bucket.count || 0));
+  const needsZoom = labels.length > 10;
+  const colors = groupBy === 'level'
+    ? labels.map((label) => LEVEL_COLORS[label.toLowerCase()] ?? COLORS.primary)
+    : undefined;
+
+  return {
+    grid: { top: 36, right: 16, bottom: needsZoom ? 76 : 52, left: 52 },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: {
+        interval: 0,
+        hideOverlap: false,
+        formatter: (value: string) => truncateLabel(String(value ?? ''), groupBy === 'source' ? 16 : 12),
+        rotate: groupBy === 'source' ? 24 : 0,
+      },
+    },
+    yAxis: {
+      type: 'value',
+      splitLine: {
+        lineStyle: { color: 'rgba(148, 163, 184, 0.15)' },
+      },
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params: Array<{ axisValueLabel?: string; data?: number }>) => {
+        const first = params[0];
+        if (!first) {
+          return '';
+        }
+        return `${first.axisValueLabel ?? ''}<br />事件量：${formatCount(Number(first.data || 0))}`;
+      },
+    },
+    dataZoom: needsZoom
+      ? [
+          { type: 'inside', xAxisIndex: 0 },
+          {
+            type: 'slider',
+            xAxisIndex: 0,
+            height: 18,
+            bottom: 8,
+            startValue: 0,
+            endValue: Math.min(labels.length - 1, 9),
+          },
+        ]
+      : undefined,
+    series: [
+      {
+        type: 'bar',
+        data: values,
+        barMaxWidth: 36,
+        itemStyle: colors
+          ? {
+              color: (params: { dataIndex: number }) => colors[params.dataIndex],
+              borderRadius: [6, 6, 0, 0],
+            }
+          : { color: COLORS.primary, borderRadius: [6, 6, 0, 0] },
+      },
+    ],
+  };
+}
+
+function buildPieChartOption(buckets: AggregateBucket[], groupBy: AggregateGroupBy): EChartsCoreOption {
+  const topBuckets = [...buckets]
+    .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
+    .slice(0, groupBy === 'source' ? 10 : buckets.length)
+    .map((bucket) => {
+      const key = bucket.key || '-';
+      const color = groupBy === 'level' ? LEVEL_COLORS[key.toLowerCase()] ?? COLORS.primary : undefined;
+      return {
+        name: key,
+        value: Number(bucket.count || 0),
+        itemStyle: color ? { color } : undefined,
+      };
+    });
+
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}<br />事件量：{c} ({d}%)' },
+    legend: {
+      type: 'scroll',
+      orient: 'vertical',
+      right: 12,
+      top: 'center',
+      bottom: 12,
+      formatter: (value: string) => truncateLabel(value, 18),
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['46%', '70%'],
+        center: ['38%', '50%'],
+        padAngle: 2,
+        itemStyle: { borderRadius: 4 },
+        label: {
+          formatter: '{d}%',
+          fontSize: 12,
+        },
+        data: topBuckets,
+      },
+    ],
+  };
+}
 
 const AggregateAnalysis: React.FC = () => {
-  const isDark = useThemeStore((s) => s.isDark);
+  const isDark = useThemeStore((state) => state.isDark);
+  const { message: messageApi } = App.useApp();
 
-  const [groupBy, setGroupBy] = useState<FetchAggregateStatsParams['groupBy']>('level');
-  const [timeRange, setTimeRange] = useState<FetchAggregateStatsParams['timeRange']>('24h');
+  const [formState, setFormState] = useState<AggregateFormState>(INITIAL_FORM_STATE);
+  const [queryState, setQueryState] = useState<AggregateFormState>(INITIAL_FORM_STATE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [buckets, setBuckets] = useState<AggregateBucket[]>([]);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (state: AggregateFormState) => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setError(null);
+
     try {
-      const result = await fetchAggregateStats({ groupBy, timeRange });
+      const result = await fetchAggregateStats({
+        groupBy: state.groupBy,
+        timeRange: state.timeRange,
+        keywords: state.keywords,
+        filters: buildAggregateFilters(state.service),
+        signal: controller.signal,
+      });
+
+      if (controller.signal.aborted) {
+        return;
+      }
+
       setBuckets(result.buckets ?? []);
+      setLastUpdatedAt(new Date());
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '聚合查询失败';
-      message.error(msg);
-      setError(msg);
-      setBuckets([]);
+      if (controller.signal.aborted || isAbortError(err)) {
+        return;
+      }
+
+      const nextError = err instanceof Error ? err.message : '聚合查询失败';
+      setError(nextError);
+      messageApi.error(nextError);
+      if (buckets.length === 0) {
+        setBuckets([]);
+      }
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
     }
-  }, [groupBy, timeRange]);
+  }, [buckets.length, messageApi]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadData(queryState);
+  }, [loadData, queryState]);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  const handleAnalyze = useCallback(() => {
+    setQueryState(normalizeFormState(formState));
+  }, [formState]);
 
   const handleRefresh = useCallback(() => {
-    loadData();
-  }, [loadData]);
+    void loadData(queryState);
+  }, [loadData, queryState]);
 
-  const isEmpty = !loading && buckets.length === 0 && !error;
+  const handleExpandToSevenDays = useCallback(() => {
+    const nextState = normalizeFormState({ ...formState, timeRange: '7d' });
+    setFormState(nextState);
+    setQueryState(nextState);
+  }, [formState]);
 
-  // ---- ECharts 配置 ----
+  const handleResetFilters = useCallback(() => {
+    const nextState = normalizeFormState({ ...formState, keywords: '', service: '' });
+    setFormState(nextState);
+    setQueryState(nextState);
+  }, [formState]);
 
-  const barOption: EChartsCoreOption = useMemo(() => {
-    const labels = buckets.map((b) => b.key || '-');
-    const values = buckets.map((b) => b.count);
-    const colors = groupBy === 'level'
-      ? labels.map((k) => LEVEL_COLORS[k.toLowerCase()] ?? COLORS.primary)
-      : undefined;
+  const timeRangeOptions = useMemo(() => {
+    return TIME_RANGE_OPTIONS.map((option) => ({
+      ...option,
+      disabled: formState.groupBy === 'minute' && option.value === '7d',
+      label: formState.groupBy === 'minute' && option.value === '7d'
+        ? '最近 7 天（分钟维度过大）'
+        : option.label,
+    }));
+  }, [formState.groupBy]);
 
-    return {
-      grid: { top: 40, right: 16, bottom: 32, left: 48 },
-      xAxis: { type: 'category', data: labels },
-      yAxis: { type: 'value' },
-      series: [{
-        type: 'bar',
-        data: values,
-        itemStyle: colors ? { color: (params: { dataIndex: number }) => colors[params.dataIndex] } : { color: COLORS.primary, borderRadius: [4, 4, 0, 0] },
-        barMaxWidth: 32,
-      }],
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    };
-  }, [buckets, groupBy, isDark]);
+  const isTemporal = isTemporalGroupBy(queryState.groupBy);
+  const isEmpty = !loading && !error && buckets.length === 0;
+  const hasActiveFilters = Boolean(queryState.keywords || queryState.service);
+  const summary = useMemo(() => buildSummary(buckets), [buckets]);
+  const topBuckets = useMemo(() => {
+    if (isTemporal) {
+      return [...buckets].sort((left, right) => Number(right.count || 0) - Number(left.count || 0)).slice(0, 5);
+    }
+    return [...buckets].sort((left, right) => Number(right.count || 0) - Number(left.count || 0));
+  }, [buckets, isTemporal]);
+  const displayBuckets = useMemo(() => (isTemporal ? buckets : topBuckets), [buckets, isTemporal, topBuckets]);
 
-  const pieOption: EChartsCoreOption = useMemo(() => {
-    const data = buckets.map((b) => {
-      const key = b.key || '-';
-      const color = groupBy === 'level' ? (LEVEL_COLORS[key.toLowerCase()] ?? COLORS.primary) : undefined;
-      return { name: key, value: b.count, itemStyle: color ? { color } : undefined };
-    });
+  const summaryCards = useMemo(() => {
+    return [
+      {
+        title: '总事件量',
+        value: formatCount(summary.totalCount),
+        helper: `${summary.bucketCount} 个分桶`,
+      },
+      {
+        title: '有效分桶',
+        value: formatCount(summary.nonZeroBucketCount),
+        helper: `非零结果 / 共 ${summary.bucketCount}`,
+      },
+      {
+        title: isTemporal ? '峰值时段' : '最高桶',
+        value: formatCount(Number(summary.topBucket?.count || 0)),
+        helper: summary.topBucket
+          ? formatBucketDisplayValue(queryState.groupBy, summary.topBucket.key)
+          : '暂无数据',
+      },
+      {
+        title: '平均每桶',
+        value: formatAverage(summary.averagePerBucket),
+        helper: `${TIME_RANGE_LABEL_MAP[queryState.timeRange]} 内平均值`,
+      },
+    ];
+  }, [queryState.groupBy, queryState.timeRange, summary]);
 
-    return {
-      legend: { orient: 'vertical', right: 16, top: 'center', textStyle: { fontSize: 12, color: isDark ? '#94a3b8' : '#475569' } },
-      series: [{
-        type: 'pie',
-        radius: ['45%', '70%'],
-        center: ['40%', '50%'],
-        padAngle: 3,
-        itemStyle: { borderRadius: 4 },
-        data,
-        label: { show: true, formatter: '{b}: {d}%', fontSize: 11, color: isDark ? '#94a3b8' : '#475569' },
-      }],
-      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-    };
-  }, [buckets, groupBy, isDark]);
+  const mainChartTitle = useMemo(() => {
+    if (queryState.groupBy === 'level') {
+      return '日志级别分布';
+    }
+    if (queryState.groupBy === 'source') {
+      return '日志来源分布';
+    }
+    return queryState.groupBy === 'minute' ? '分钟级事件趋势' : '小时级事件趋势';
+  }, [queryState.groupBy]);
 
-  const chartOption = barOption;
-  const chartTitle = groupBy === 'level' ? '日志级别分布' : groupBy === 'source' ? '来源分布' : '按小时分布';
+  const mainChartSubtitle = useMemo(() => {
+    const fragments = [TIME_RANGE_LABEL_MAP[queryState.timeRange], GROUP_BY_LABEL_MAP[queryState.groupBy]];
+    if (queryState.keywords) {
+      fragments.push(`关键词：${queryState.keywords}`);
+    }
+    if (queryState.service) {
+      fragments.push(`服务：${queryState.service}`);
+    }
+    return fragments.join(' · ');
+  }, [queryState]);
+
+  const mainChartOption = useMemo(
+    () => buildMainChartOption(buckets, queryState.groupBy, queryState.timeRange),
+    [buckets, queryState.groupBy, queryState.timeRange],
+  );
+
+  const pieChartOption = useMemo(
+    () => buildPieChartOption(buckets, queryState.groupBy),
+    [buckets, queryState.groupBy],
+  );
+
+  const resultLevel = error && buckets.length > 0 ? 'warning' : undefined;
+  const resultStatusTag = error && buckets.length > 0
+    ? <Tag color="warning">展示最近一次成功结果</Tag>
+    : <Tag color="processing">{TIME_RANGE_LABEL_MAP[queryState.timeRange]}</Tag>;
+
+  const shouldRenderResults = loading || buckets.length > 0 || Boolean(error && buckets.length > 0);
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 页面头部 */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-bold m-0">聚合分析</h2>
-          <span className="text-xs opacity-50">Log Analysis / Aggregation</span>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <span className="text-xs opacity-50">Log Analysis / Aggregation</span>
+            {lastUpdatedAt && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                最近更新：{lastUpdatedAt.toLocaleString('zh-CN')}
+              </Text>
+            )}
+            {error && buckets.length > 0 && <Tag color="warning">接口异常时保留上次成功结果</Tag>}
+          </div>
         </div>
         <Button
           icon={<span className="material-symbols-outlined text-sm">refresh</span>}
@@ -140,7 +547,6 @@ const AggregateAnalysis: React.FC = () => {
         </Button>
       </div>
 
-      {/* 查询构建器 */}
       <Card
         title={
           <span className="flex items-center gap-2">
@@ -148,95 +554,311 @@ const AggregateAnalysis: React.FC = () => {
             聚合查询
           </span>
         }
-        styles={{ body: { padding: '16px' } }}
+        styles={{ body: { padding: 16 } }}
       >
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex-1" style={{ minWidth: 170 }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+          <div>
             <div className="text-xs font-medium opacity-50 mb-1.5 uppercase tracking-wider">分组维度</div>
             <Select
-              value={groupBy}
-              onChange={(v) => setGroupBy(v as FetchAggregateStatsParams['groupBy'])}
+              value={formState.groupBy}
+              onChange={(value) => {
+                setFormState((current) => {
+                  const nextTimeRange = value === 'minute' && current.timeRange === '7d' ? '24h' : current.timeRange;
+                  return {
+                    ...current,
+                    groupBy: value,
+                    timeRange: nextTimeRange,
+                  };
+                });
+              }}
               options={GROUP_BY_OPTIONS}
               style={{ width: '100%' }}
-              size="middle"
             />
           </div>
-          <div className="flex-1" style={{ minWidth: 170 }}>
+          <div>
             <div className="text-xs font-medium opacity-50 mb-1.5 uppercase tracking-wider">时间范围</div>
             <Select
-              value={timeRange}
-              onChange={(v) => setTimeRange(v as FetchAggregateStatsParams['timeRange'])}
-              options={TIME_RANGE_OPTIONS}
+              value={formState.timeRange}
+              onChange={(value) => setFormState((current) => ({ ...current, timeRange: value }))}
+              options={timeRangeOptions}
               style={{ width: '100%' }}
-              size="middle"
             />
           </div>
-          <Button
-            type="primary"
-            loading={loading}
-            onClick={loadData}
-            icon={<span className="material-symbols-outlined text-sm">play_arrow</span>}
-          >
-            {loading ? '分析中...' : '开始分析'}
-          </Button>
+          <div>
+            <div className="text-xs font-medium opacity-50 mb-1.5 uppercase tracking-wider">关键词</div>
+            <Input
+              id="aggregate-analysis-keywords"
+              name="aggregateAnalysisKeywords"
+              allowClear
+              value={formState.keywords}
+              placeholder="例如 docker / error / timeout"
+              onChange={(event) => setFormState((current) => ({ ...current, keywords: event.target.value }))}
+              onPressEnter={handleAnalyze}
+            />
+          </div>
+          <div>
+            <div className="text-xs font-medium opacity-50 mb-1.5 uppercase tracking-wider">服务名</div>
+            <Input
+              id="aggregate-analysis-service"
+              name="aggregateAnalysisService"
+              allowClear
+              value={formState.service}
+              placeholder="例如 audit.log"
+              onChange={(event) => setFormState((current) => ({ ...current, service: event.target.value }))}
+              onPressEnter={handleAnalyze}
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              block
+              type="primary"
+              loading={loading}
+              onClick={handleAnalyze}
+              icon={<span className="material-symbols-outlined text-sm">play_arrow</span>}
+            >
+              {loading ? '分析中...' : '开始分析'}
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mt-3">
+          <Tag color="processing">{TIME_RANGE_LABEL_MAP[queryState.timeRange]}</Tag>
+          <Tag color="blue">{GROUP_BY_LABEL_MAP[queryState.groupBy]}</Tag>
+          {queryState.keywords && <Tag color="gold">关键词：{queryState.keywords}</Tag>}
+          {queryState.service && <Tag color="cyan">服务：{queryState.service}</Tag>}
+          {formState.groupBy === 'minute' && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              分钟维度默认限制在 24 小时以内，避免生成过大的时间桶。
+            </Text>
+          )}
         </div>
       </Card>
 
-      {/* 图表区域 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartWrapper
-          title={chartTitle}
-          subtitle={`按 ${groupBy} 分组 · ${timeRange}`}
-          option={chartOption}
-          height={340}
-          loading={loading}
-          error={error ?? undefined}
-          empty={isEmpty}
+      {error && buckets.length === 0 && (
+        <Alert
+          showIcon
+          type="error"
+          message="聚合查询失败"
+          description={error}
         />
-        {groupBy !== 'hour' && (
-          <ChartWrapper
-            title={`${chartTitle} (饼图)`}
-            subtitle={`按 ${groupBy} 分组 · ${timeRange}`}
-            option={pieOption}
-            height={340}
-            loading={loading}
-            error={error ?? undefined}
-            empty={isEmpty}
-          />
-        )}
-      </div>
+      )}
 
-      {/* 数据表格 */}
-      <Card title="详细数据">
-        {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
-            <InlineLoadingState tip="加载中..." />
+      {isEmpty && (
+        <Card>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              queryState.timeRange === '7d'
+                ? '当前筛选条件下暂无聚合结果，请尝试调整关键词、服务名或切换分组维度。'
+                : `当前 ${TIME_RANGE_LABEL_MAP[queryState.timeRange]} 内暂无结果，建议扩展到最近 7 天查看历史数据。`
+            }
+          >
+            <div className="flex flex-wrap justify-center gap-2">
+              {queryState.timeRange !== '7d' && (
+                <Button type="primary" onClick={handleExpandToSevenDays}>
+                  切换到最近 7 天
+                </Button>
+              )}
+              {hasActiveFilters && (
+                <Button onClick={handleResetFilters}>清空关键词和服务</Button>
+              )}
+            </div>
+          </Empty>
+        </Card>
+      )}
+
+      {shouldRenderResults && (
+        <>
+          {resultLevel && (
+            <Alert
+              showIcon
+              type="warning"
+              message="当前结果为最近一次成功查询的数据"
+              description={error ?? undefined}
+            />
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {summaryCards.map((item) => (
+              <Card key={item.title} size="small" styles={{ body: { padding: 16 } }}>
+                <div className="text-xs font-medium opacity-50 tracking-wider uppercase">{item.title}</div>
+                <div className="text-2xl font-semibold mt-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {item.value}
+                </div>
+                <div className="text-xs mt-2 opacity-60 break-all">{item.helper}</div>
+              </Card>
+            ))}
           </div>
-        ) : error ? (
-          <Empty description={error} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : buckets.length === 0 ? (
-          <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
-                  <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600 }}>{groupBy === 'level' ? '级别' : groupBy === 'source' ? '来源' : '时间'}</th>
-                  <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600 }}>数量</th>
-                </tr>
-              </thead>
-              <tbody>
-                {buckets.map((b, i) => (
-                  <tr key={i} style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
-                    <td style={{ padding: '8px 12px', fontFamily: 'JetBrains Mono, monospace' }}>{b.key || '-'}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{b.count.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+          <div className={`grid grid-cols-1 ${isTemporal ? 'xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]' : 'xl:grid-cols-2'} gap-4`}>
+            <ChartWrapper
+              title={mainChartTitle}
+              subtitle={mainChartSubtitle}
+              option={mainChartOption}
+              height={360}
+              loading={loading}
+              error={error && buckets.length === 0 ? error : undefined}
+              empty={isEmpty}
+              actions={resultStatusTag}
+            />
+
+            {isTemporal ? (
+              <Card
+                title="趋势洞察"
+                extra={<Tag color="purple">Top 5 高峰分桶</Tag>}
+                styles={{ body: { padding: 16 } }}
+              >
+                {loading && buckets.length === 0 ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
+                    <InlineLoadingState tip="加载中..." />
+                  </div>
+                ) : topBuckets.length === 0 ? (
+                  <Empty description="暂无可展示的时间桶" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {topBuckets.map((bucket, index) => {
+                      const count = Number(bucket.count || 0);
+                      const width = summary.totalCount > 0 ? Math.max(6, (count / summary.totalCount) * 100) : 0;
+                      return (
+                        <div key={`${bucket.key}-${index}`} className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between gap-3 text-sm">
+                            <span className="font-medium">{formatBucketDisplayValue(queryState.groupBy, bucket.key)}</span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCount(count)}</span>
+                          </div>
+                          <div
+                            style={{
+                              height: 8,
+                              borderRadius: 999,
+                              backgroundColor: isDark ? '#1e293b' : '#e2e8f0',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${width}%`,
+                                height: '100%',
+                                background: COLORS.primary,
+                                borderRadius: 999,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            ) : (
+              <ChartWrapper
+                title={queryState.groupBy === 'source' ? '来源占比（Top 10）' : '分布占比'}
+                subtitle={mainChartSubtitle}
+                option={pieChartOption}
+                height={360}
+                loading={loading}
+                error={error && buckets.length === 0 ? error : undefined}
+                empty={isEmpty}
+                actions={<Tag color="geekblue">按占比展示</Tag>}
+              />
+            )}
           </div>
-        )}
-      </Card>
+
+          <Card
+            title="详细数据"
+            extra={
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                共 {formatCount(displayBuckets.length)} 个分桶
+              </Text>
+            }
+          >
+            {loading && buckets.length === 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
+                <InlineLoadingState tip="加载中..." />
+              </div>
+            ) : displayBuckets.length === 0 ? (
+              <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+                      <th style={{ textAlign: 'left', padding: '10px 12px', width: 72, fontWeight: 600 }}>排名</th>
+                      <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600 }}>
+                        {isTemporal ? '时间桶' : queryState.groupBy === 'level' ? '日志级别' : '日志来源'}
+                      </th>
+                      <th style={{ textAlign: 'right', padding: '10px 12px', width: 140, fontWeight: 600 }}>事件量</th>
+                      <th style={{ textAlign: 'right', padding: '10px 12px', width: 180, fontWeight: 600 }}>占比</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayBuckets.map((bucket, index) => {
+                      const count = Number(bucket.count || 0);
+                      const share = summary.totalCount > 0 ? (count / summary.totalCount) * 100 : 0;
+                      const displayValue = formatBucketDisplayValue(queryState.groupBy, bucket.key);
+                      const levelColor = queryState.groupBy === 'level'
+                        ? LEVEL_COLORS[bucket.key.toLowerCase()] ?? COLORS.primary
+                        : COLORS.primary;
+
+                      return (
+                        <tr key={`${bucket.key}-${index}`} style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+                          <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}>#{index + 1}</td>
+                          <td style={{ padding: '10px 12px' }}>
+                            {queryState.groupBy === 'level' ? (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  padding: '2px 10px',
+                                  borderRadius: 999,
+                                  backgroundColor: `${levelColor}1f`,
+                                  color: levelColor,
+                                  fontWeight: 600,
+                                  fontVariantNumeric: 'tabular-nums',
+                                }}
+                              >
+                                {displayValue}
+                              </span>
+                            ) : (
+                              <div style={{ maxWidth: 520, wordBreak: 'break-all' }}>{displayValue}</div>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                            {formatCount(count)}
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <div className="flex items-center justify-end gap-3">
+                              <div
+                                style={{
+                                  width: 96,
+                                  height: 8,
+                                  borderRadius: 999,
+                                  backgroundColor: isDark ? '#1e293b' : '#e2e8f0',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: `${Math.min(100, Math.max(4, share))}%`,
+                                    height: '100%',
+                                    backgroundColor: queryState.groupBy === 'level' ? levelColor : COLORS.primary,
+                                    borderRadius: 999,
+                                  }}
+                                />
+                              </div>
+                              <span style={{ minWidth: 56, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                {share.toFixed(1)}%
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
     </div>
   );
 };
