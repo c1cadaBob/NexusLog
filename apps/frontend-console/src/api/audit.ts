@@ -22,6 +22,7 @@ const AUDIT_HOSTNAME_PATTERN = /\bhostname=([^\s'"]+)/;
 const AUDIT_COMM_PATTERN = /\bcomm="([^"]+)"/;
 const AUDIT_EXE_PATTERN = /\bexe="([^"]+)"/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DEFAULT_SYSTEM_AUDIT_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface RuntimeConfigWithTenant {
   apiBaseUrl: string;
@@ -396,8 +397,27 @@ function buildAuditKeywords(params: FetchAuditLogsParams): string {
   return tokens.join(' ');
 }
 
+function resolveSystemAuditQueryTimeRange(params: FetchAuditLogsParams): { from: string; to: string } {
+  const normalizedTo = params.to?.trim() || new Date().toISOString();
+  const normalizedFrom = params.from?.trim();
+  if (normalizedFrom) {
+    return {
+      from: normalizedFrom,
+      to: normalizedTo,
+    };
+  }
+
+  const upperBound = new Date(normalizedTo);
+  const resolvedUpperBound = Number.isNaN(upperBound.getTime()) ? new Date() : upperBound;
+  return {
+    from: new Date(resolvedUpperBound.getTime() - DEFAULT_SYSTEM_AUDIT_LOOKBACK_MS).toISOString(),
+    to: resolvedUpperBound.toISOString(),
+  };
+}
+
 async function fetchAuditLogsFromQueryPipeline(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
   const { page, pageSize } = resolveAuditFetchWindow(params);
+  const timeRange = resolveSystemAuditQueryTimeRange(params);
   const result = await queryRealtimeLogs({
     keywords: buildAuditKeywords(params),
     page: 1,
@@ -406,10 +426,7 @@ async function fetchAuditLogsFromQueryPipeline(params: FetchAuditLogsParams = {}
       service: 'audit.log',
       exclude_internal_noise: false,
     },
-    timeRange: {
-      from: params.from,
-      to: params.to,
-    },
+    timeRange,
     recordHistory: false,
   });
 
@@ -424,6 +441,7 @@ async function fetchAuditLogsFromQueryPipeline(params: FetchAuditLogsParams = {}
 
 async function fetchBoundedAuditLogsFromQueryPipeline(params: FetchAuditLogsParams = {}): Promise<FetchAuditLogsResult> {
   const { page, pageSize } = resolveAuditFetchWindow(params);
+  const timeRange = resolveSystemAuditQueryTimeRange(params);
   const cacheKey = buildAuditSourceCacheKey('query-pipeline-window', params, pageSize);
   let cacheEntry = touchAuditLogSourceCache(queryPipelinePageCache, cacheKey) ?? createAuditLogSourceCacheEntry();
 
@@ -438,10 +456,7 @@ async function fetchBoundedAuditLogsFromQueryPipeline(params: FetchAuditLogsPara
         service: 'audit.log',
         exclude_internal_noise: false,
       },
-      timeRange: {
-        from: params.from,
-        to: params.to,
-      },
+      timeRange,
       recordHistory: false,
     });
 

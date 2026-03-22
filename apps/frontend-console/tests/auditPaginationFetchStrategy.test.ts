@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { queryRealtimeLogsMock } = vi.hoisted(() => ({
   queryRealtimeLogsMock: vi.fn(),
@@ -59,6 +59,10 @@ describe('fetchAuditLogs pagination strategy', () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     window.localStorage.setItem('nexuslog-access-token', 'audit-pagination-test-token');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('uses incremental per-page fetches when the query has an explicit snapshot end time', async () => {
@@ -145,6 +149,65 @@ describe('fetchAuditLogs pagination strategy', () => {
       page: 1,
       pageSize: 20,
       timeRange: expect.objectContaining({ to: snapshotTo }),
+    }));
+  });
+
+  it('applies a bounded default time window for system audit queries when no range is provided', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-22T05:27:23.000Z'));
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://127.0.0.1:3000');
+      if (url.pathname !== '/api/v1/audit/logs') {
+        throw new Error(`unexpected request: ${url.pathname}`);
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'ok',
+          data: {
+            items: buildApplicationAuditItems(1, 5),
+          },
+          meta: {
+            total: 5,
+            has_next: false,
+          },
+        }),
+      } as Response;
+    });
+
+    queryRealtimeLogsMock.mockResolvedValue({
+      hits: buildSystemAuditHits(1, 5),
+      total: 5,
+      page: 1,
+      pageSize: 5,
+      hasNext: false,
+      queryTimeMS: 5,
+      timedOut: false,
+      aggregations: {},
+      totalIsLowerBound: false,
+    });
+
+    const { fetchAuditLogs } = await import('../src/api/audit');
+    await fetchAuditLogs({
+      page: 1,
+      page_size: 5,
+      sort_by: 'created_at',
+      sort_order: 'desc',
+    });
+
+    expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+    expect(queryRealtimeLogsMock.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      page: 1,
+      pageSize: 5,
+      timeRange: {
+        from: '2026-03-15T05:27:23.000Z',
+        to: '2026-03-22T05:27:23.000Z',
+      },
+      filters: expect.objectContaining({ service: 'audit.log' }),
     }));
   });
 });
