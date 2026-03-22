@@ -12,7 +12,8 @@ describe('realtime refresh policy', () => {
       queryText: ' level:error ',
       levelFilter: 'error',
       sourceFilter: 'api',
-    })).toBe('level:error\u0000error\u0000api');
+      extraFiltersKey: '{"host":"node-a"}',
+    })).toBe('level:error\u0000error\u0000api\u0000{"host":"node-a"}');
   });
 
   it('always refreshes when histogram data is empty', () => {

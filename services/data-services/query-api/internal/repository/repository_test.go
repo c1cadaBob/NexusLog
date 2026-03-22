@@ -95,6 +95,29 @@ func TestBuildESQuery_TreatsKeywordsAsLiteralTextAndDropsUnknownFilters(t *testi
 	}
 }
 
+func TestBuildESQuery_UsesHostCompatibilityFilterAlias(t *testing.T) {
+	query := BuildESQuery(SearchLogsInput{
+		TenantID: "tenant-a",
+		Filters: map[string]any{
+			"host": "dev-server-centos8",
+		},
+	})
+
+	raw, err := json.Marshal(query)
+	if err != nil {
+		t.Fatalf("marshal query failed: %v", err)
+	}
+	encoded := string(raw)
+
+	assertContainsAll(t, encoded, []string{
+		`"host.name":"dev-server-centos8"`,
+		`"hostname":"dev-server-centos8"`,
+		`"syslog_hostname":"dev-server-centos8"`,
+		`"server_id":"dev-server-centos8"`,
+		`"agent.hostname":"dev-server-centos8"`,
+	})
+}
+
 func TestBuildESQuery_ExcludesRealtimeInternalNoiseWhenRequested(t *testing.T) {
 	query := BuildESQuery(SearchLogsInput{
 		TenantID: "tenant-a",
@@ -213,6 +236,7 @@ func TestBuildESQuery_UsesAuthorizedTenantSetWhenPresent(t *testing.T) {
 func TestNormalizeFilterField_MapsFrontendAliasesToV2Fields(t *testing.T) {
 	tests := map[string]string{
 		"level":      "log.level",
+		"host":       "host.name",
 		"service":    "service.name",
 		"source":     "source.path",
 		"agent_id":   "agent.id",

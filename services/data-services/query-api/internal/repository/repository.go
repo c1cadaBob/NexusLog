@@ -1116,6 +1116,8 @@ func compatibilityFilterFields(rawKey, normalizedField string) []string {
 		return []string{"service.name", "service.instance.id", "container.name", "agent.id"}
 	case "source":
 		return []string{"source.path", "log.file.path"}
+	case "host":
+		return []string{"host.name", "hostname", "syslog_hostname", "server_id", "agent.hostname"}
 	default:
 		return []string{normalizedField}
 	}
@@ -1125,6 +1127,8 @@ func normalizeFilterField(raw string) string {
 	switch strings.TrimSpace(raw) {
 	case "level", "log.level":
 		return "log.level"
+	case "host", "host.name":
+		return "host.name"
 	case "service", "service.name":
 		return "service.name"
 	case "service.instance.id":

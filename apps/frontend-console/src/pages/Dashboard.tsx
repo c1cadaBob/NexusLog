@@ -11,10 +11,11 @@ import type { KpiData, ServiceStatus } from '../types/dashboard';
 import { resolveDashboardQuickActionAccess } from './dashboardAuthorization';
 import ChartWrapper from '../components/charts/ChartWrapper';
 import type { EChartsCoreOption } from 'echarts/core';
-import { fetchDashboardOverview, type DashboardOverviewStats } from '../api/query';
+import { fetchDashboardOverview, type DashboardOverviewRange, type DashboardOverviewStats } from '../api/query';
 import { fetchAuditLogs, type AuditLogItem } from '../api/audit';
 import { fetchMetricsOverview, type MetricsOverviewData } from '../api/metrics';
 import { persistPendingRealtimeStartupQuery } from './search/realtimeStartupQuery';
+import { buildRealtimePresetQuery } from './search/realtimePresetQuery';
 
 interface DashboardTrendPoint {
   time: string;
@@ -29,6 +30,11 @@ interface DashboardAuditRecord {
   type: 'update' | 'create' | 'delete';
 }
 
+interface DashboardRealtimeTimeRange {
+  from: string;
+  to: string;
+}
+
 function formatCompactCount(value: number): string {
   if (value >= 1_000_000) {
     return `${(value / 1_000_000).toFixed(1)}M`;
@@ -39,20 +45,27 @@ function formatCompactCount(value: number): string {
   return `${value}`;
 }
 
-function toDisplayTrendTime(value: string): string {
+function formatOverviewRangeLabel(range: DashboardOverviewRange): string {
+  return range === '7d' ? '近 7 天' : '近 24 小时';
+}
+
+function toDisplayTrendTime(value: string, range: DashboardOverviewRange = '24h'): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
+  if (range === '7d') {
+    return parsed.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+  }
   return parsed.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
 
-function buildTrendData(overview: DashboardOverviewStats | null): DashboardTrendPoint[] {
+function buildTrendData(overview: DashboardOverviewStats | null, range: DashboardOverviewRange): DashboardTrendPoint[] {
   if (!overview?.log_trend?.length) {
     return [];
   }
   return overview.log_trend.map((item) => ({
-    time: toDisplayTrendTime(item.time),
+    time: toDisplayTrendTime(item.time, range),
     count: Number(item.count) || 0,
   }));
 }
@@ -212,24 +225,34 @@ function buildSourceRows(overview: DashboardOverviewStats | null): ServiceStatus
   });
 }
 
-function escapeRealtimeQueryValue(value: string): string {
-  return value.replace(/"/g, '\\"');
-}
-
 function buildSourcePresetQuery(row: Pick<ServiceStatus, 'host' | 'service' | 'name'>): string {
-  const clauses: string[] = [];
   const host = normalizeIdentityValue(row.host, '');
   const service = normalizeIdentityValue(row.service, '');
+  const filters: Record<string, string> = {};
+
   if (host) {
-    clauses.push(`host:"${escapeRealtimeQueryValue(host)}"`);
+    filters.host = host;
   }
   if (service) {
-    clauses.push(`service:"${escapeRealtimeQueryValue(service)}"`);
+    filters.service = service;
   }
-  return clauses.join(' AND ') || row.name;
+
+  return buildRealtimePresetQuery({
+    queryText: '',
+    filters,
+  }) || row.name;
 }
 
-function buildKpiData(overview: DashboardOverviewStats | null): KpiData[] {
+function buildRealtimeTimeRangeForOverviewRange(overviewRange: DashboardOverviewRange): DashboardRealtimeTimeRange {
+  const to = new Date();
+  const from = new Date(to.getTime() - (overviewRange === '7d' ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+  };
+}
+
+function buildKpiData(overview: DashboardOverviewStats | null, overviewRange: DashboardOverviewRange): KpiData[] {
   const levelDistribution = overview?.level_distribution ?? {};
   const totalLogs = Number(overview?.total_logs) || 0;
   const errorLogs = Number(levelDistribution.error) || 0;
@@ -242,11 +265,13 @@ function buildKpiData(overview: DashboardOverviewStats | null): KpiData[] {
   const topSource = overview?.top_sources?.[0];
   const alertSummary = overview?.alert_summary ?? { total: 0, firing: 0, resolved: 0 };
 
+  const overviewRangeLabel = formatOverviewRangeLabel(overviewRange);
+
   return [
     {
       title: '总日志量',
       value: formatCompactCount(totalLogs),
-      trend: '近 24 小时',
+      trend: overviewRangeLabel,
       trendType: 'neutral',
       trendLabel: formatTopSourceLabel(topSource),
       icon: 'data_usage',
@@ -266,7 +291,7 @@ function buildKpiData(overview: DashboardOverviewStats | null): KpiData[] {
       value: `${alertSummary.firing}`,
       trend: `总计 ${alertSummary.total}`,
       trendType: alertSummary.firing > 0 ? 'up' : 'neutral',
-      trendLabel: '近 24 小时',
+      trendLabel: overviewRangeLabel,
       icon: 'notifications_active',
       color: 'warning',
     },
@@ -275,7 +300,7 @@ function buildKpiData(overview: DashboardOverviewStats | null): KpiData[] {
       value: `${alertSummary.resolved}`,
       trend: `${formatCompactCount(warnLogs)} warn`,
       trendType: 'neutral',
-      trendLabel: '近 24 小时',
+      trendLabel: overviewRangeLabel,
       icon: 'task_alt',
       color: 'success',
     },
@@ -301,6 +326,11 @@ function buildKpiData(overview: DashboardOverviewStats | null): KpiData[] {
 }
 
 /** 刷新间隔选项 */
+const OVERVIEW_RANGE_OPTIONS: Array<{ label: string; value: DashboardOverviewRange }> = [
+  { label: '最近 24 小时', value: '24h' },
+  { label: '最近 7 天', value: '7d' },
+];
+
 const REFRESH_INTERVAL_OPTIONS = [
   { label: '实时', value: 1000 },
   { label: '3秒', value: 3000 },
@@ -329,10 +359,22 @@ const RefreshControls: React.FC<{
   wsConnected: boolean;
   countdown: number;
   refreshInterval: number;
+  overviewRange: DashboardOverviewRange;
   isLoading: boolean;
   onRefresh: () => void;
   onIntervalChange: (v: number) => void;
-}> = React.memo(({ lastUpdated, wsConnected, countdown, refreshInterval, isLoading, onRefresh, onIntervalChange }) => {
+  onOverviewRangeChange: (value: DashboardOverviewRange) => void;
+}> = React.memo(({
+  lastUpdated,
+  wsConnected,
+  countdown,
+  refreshInterval,
+  overviewRange,
+  isLoading,
+  onRefresh,
+  onIntervalChange,
+  onOverviewRangeChange,
+}) => {
   const formatted = useMemo(
     () => new Date(lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     [lastUpdated],
@@ -349,10 +391,17 @@ const RefreshControls: React.FC<{
           </span>
         )}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap justify-end">
         {refreshInterval > 1000 && countdown > 0 && (
           <span className="text-xs opacity-60">{countdown}s 后刷新</span>
         )}
+        <Select<DashboardOverviewRange>
+          size="small"
+          value={overviewRange}
+          onChange={onOverviewRangeChange}
+          options={OVERVIEW_RANGE_OPTIONS}
+          style={{ width: 120 }}
+        />
         <Select
           size="small"
           value={refreshInterval}
@@ -653,6 +702,7 @@ const Dashboard: React.FC = () => {
   const authzReady = useAuthStore((s) => s.authzReady);
 
   const [overview, setOverview] = useState<DashboardOverviewStats | null>(null);
+  const [overviewRange, setOverviewRange] = useState<DashboardOverviewRange>('24h');
   const [metricsOverview, setMetricsOverview] = useState<MetricsOverviewData | null>(null);
   const [auditLogs, setAuditLogs] = useState<DashboardAuditRecord[]>([]);
   const [lastUpdated, setLastUpdated] = useState(Date.now());
@@ -678,11 +728,11 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
-  const kpiData = useMemo(() => buildKpiData(overview), [overview]);
+  const kpiData = useMemo(() => buildKpiData(overview, overviewRange), [overview, overviewRange]);
   const serviceData = useMemo(() => buildSourceRows(overview), [overview]);
-  const trendData = useMemo(() => buildTrendData(overview), [overview]);
+  const trendData = useMemo(() => buildTrendData(overview, overviewRange), [overview, overviewRange]);
 
-  const doRefresh = useCallback(async (silent: boolean) => {
+  const doRefresh = useCallback(async (silent: boolean, nextOverviewRange = overviewRange) => {
     if (refreshRequestRef.current) {
       return refreshRequestRef.current;
     }
@@ -691,7 +741,7 @@ const Dashboard: React.FC = () => {
     const refreshRequest = (async () => {
       try {
         const [overviewResult, metricsOverviewResult, auditLogsResult] = await Promise.allSettled([
-          fetchDashboardOverview(),
+          fetchDashboardOverview(nextOverviewRange),
           fetchMetricsOverview('24h', 4),
           fetchAuditLogs({ page: 1, page_size: 5 }),
         ]);
@@ -737,7 +787,7 @@ const Dashboard: React.FC = () => {
 
     refreshRequestRef.current = refreshRequest;
     return refreshRequest;
-  }, []);
+  }, [overviewRange]);
 
   const handleRefresh = useCallback(() => {
     void doRefresh(false);
@@ -745,6 +795,11 @@ const Dashboard: React.FC = () => {
       setCountdown(refreshInterval / 1000);
     }
   }, [doRefresh, refreshInterval]);
+
+  const handleOverviewRangeChange = useCallback((value: DashboardOverviewRange) => {
+    setOverviewRange(value);
+    void doRefresh(true, value);
+  }, [doRefresh]);
 
   const handleIntervalChange = useCallback((val: number) => {
     setRefreshIntervalLocal(val);
@@ -831,14 +886,14 @@ const Dashboard: React.FC = () => {
     navigate(path);
   }, [navigate]);
 
-  const handleRealtimeSearchNavigate = useCallback((presetQuery: string) => {
+  const handleRealtimeSearchNavigate = useCallback((presetQuery: string, timeRange?: DashboardRealtimeTimeRange) => {
     if (!dashboardEntryAccess.realtimeSearch.allowed) {
       message.warning(dashboardEntryAccess.realtimeSearch.deniedTooltip ?? '当前会话缺少日志查询权限');
       return;
     }
 
     persistPendingRealtimeStartupQuery(presetQuery);
-    navigate('/search/realtime', { state: { autoRun: true, presetQuery } });
+    navigate('/search/realtime', { state: { autoRun: true, presetQuery, timeRange } });
   }, [dashboardEntryAccess.realtimeSearch, navigate]);
 
   const serviceColumns: ColumnsType<ServiceStatus> = useMemo(() => [
@@ -862,7 +917,7 @@ const Dashboard: React.FC = () => {
       ),
     },
     {
-      title: '日志量 (24h)', dataIndex: 'errorRate', key: 'errorRate',
+      title: overviewRange === '7d' ? '日志量 (7d)' : '日志量 (24h)', dataIndex: 'errorRate', key: 'errorRate',
       render: (value: number, row: ServiceStatus) => (
         <span style={{ color: row.status === 'critical' ? COLORS.danger : row.status === 'warning' ? COLORS.warning : COLORS.success, fontWeight: 700 }}>
           {value.toLocaleString()}
@@ -878,7 +933,7 @@ const Dashboard: React.FC = () => {
         />
       ),
     },
-  ], []);
+  ], [overviewRange]);
 
   const logTrendOption: EChartsCoreOption = useMemo(() => ({
     legend: { show: false },
@@ -933,9 +988,11 @@ const Dashboard: React.FC = () => {
         wsConnected={false}
         countdown={countdown}
         refreshInterval={refreshInterval}
+        overviewRange={overviewRange}
         isLoading={isLoading}
         onRefresh={handleRefresh}
         onIntervalChange={handleIntervalChange}
+        onOverviewRangeChange={handleOverviewRangeChange}
       />
       {loadError && <Tag color="error" style={{ width: 'fit-content', margin: 0 }}>{loadError}</Tag>}
 
@@ -956,7 +1013,7 @@ const Dashboard: React.FC = () => {
         <Col xs={24} lg={16}>
           <ChartWrapper
             title="日志量趋势"
-            subtitle="近 24 小时 ES 聚合结果"
+            subtitle={`${formatOverviewRangeLabel(overviewRange)} ES 聚合结果`}
             option={logTrendOption}
             height={220}
             actions={
@@ -998,7 +1055,10 @@ const Dashboard: React.FC = () => {
               rowKey={(record) => `${record.host || 'unknown-host'}::${record.service || 'unknown-service'}`}
               locale={{ emptyText: '暂无来源统计' }}
               onRow={(record) => ({
-                onClick: () => handleRealtimeSearchNavigate(buildSourcePresetQuery(record)),
+                onClick: () => handleRealtimeSearchNavigate(
+                  buildSourcePresetQuery(record),
+                  buildRealtimeTimeRangeForOverviewRange(overviewRange),
+                ),
                 style: {
                   cursor: dashboardEntryAccess.realtimeSearch.allowed ? 'pointer' : 'not-allowed',
                   opacity: dashboardEntryAccess.realtimeSearch.allowed ? 1 : 0.6,

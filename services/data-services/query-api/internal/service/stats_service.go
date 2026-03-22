@@ -62,6 +62,45 @@ const (
 	aggregateQueryTimeout = 7 * time.Second
 )
 
+func normalizeOverviewTimeRange(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "7d":
+		return "7d"
+	case "24h":
+		fallthrough
+	default:
+		return "24h"
+	}
+}
+
+func resolveOverviewTimeRangeDuration(timeRange string) time.Duration {
+	switch normalizeOverviewTimeRange(timeRange) {
+	case "7d":
+		return 7 * 24 * time.Hour
+	default:
+		return 24 * time.Hour
+	}
+}
+
+func buildOverviewLogTrendAggregation(timeRange, from, to string) map[string]any {
+	dateHistogram := map[string]any{
+		"field":         "@timestamp",
+		"min_doc_count": 0,
+		"extended_bounds": map[string]any{
+			"min": from,
+			"max": to,
+		},
+	}
+	if normalizeOverviewTimeRange(timeRange) == "7d" {
+		dateHistogram["calendar_interval"] = "day"
+	} else {
+		dateHistogram["calendar_interval"] = "hour"
+	}
+	return map[string]any{
+		"date_histogram": dateHistogram,
+	}
+}
+
 // StatsService provides dashboard and aggregation stats.
 type StatsService struct {
 	esRepo                 *repository.ElasticsearchRepository
@@ -91,18 +130,19 @@ func NewStatsService(esRepo *repository.ElasticsearchRepository, db *sql.DB) *St
 }
 
 // GetOverviewStats returns overview stats for a tenant.
-func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor) (*OverviewStats, error) {
+func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor, timeRange string) (*OverviewStats, error) {
 	ctx, cancel := context.WithTimeout(ctx, overviewQueryTimeout)
 	defer cancel()
 
 	actor = normalizeActor(actor)
+	timeRange = normalizeOverviewTimeRange(timeRange)
 	authorizedTenantSet, err := resolveAuthorizedTenantSet(actor)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now().UTC()
-	cacheKey := overviewStatsCacheKey(actor)
+	cacheKey := overviewStatsCacheKey(actor, timeRange)
 	if cached, ok := s.getOverviewStatsCache(cacheKey, now); ok {
 		return cached, nil
 	}
@@ -116,20 +156,24 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 		LogTrend:     []LogTrendPoint{},
 	}
 
-	// Time range: last 24h
-	from24h := now.Add(-24 * time.Hour).Format(time.RFC3339)
+	from := now.Add(-resolveOverviewTimeRangeDuration(timeRange)).Format(time.RFC3339)
 	to := now.Format(time.RFC3339)
 
 	query := repository.BuildESQuery(repository.SearchLogsInput{
 		TenantID:            actor.TenantID,
 		TenantReadScope:     actor.TenantReadScope,
 		AuthorizedTenantIDs: authorizedTenantSet.TenantIDs(),
-		TimeRangeFrom:       from24h,
+		TimeRangeFrom:       from,
 		TimeRangeTo:         to,
 	})
 
 	// Single aggregation request for total, level_distribution, top_sources, log_trend
 	aggs := map[string]any{
+		"total_logs": map[string]any{
+			"value_count": map[string]any{
+				"field": "@timestamp",
+			},
+		},
 		"by_level": map[string]any{
 			"terms": map[string]any{
 				"field":   "log.level",
@@ -137,20 +181,14 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 				"missing": "info",
 			},
 		},
-		"log_trend": map[string]any{
-			"date_histogram": map[string]any{
-				"field":             "@timestamp",
-				"calendar_interval": "hour",
-				"min_doc_count":     0,
-			},
-		},
+		"log_trend": buildOverviewLogTrendAggregation(timeRange, from, to),
 	}
 	for name, aggregation := range buildAggregateSourceTermsAggregation() {
 		aggs[name] = aggregation
 	}
 
 	body := map[string]any{
-		"track_total_hits": true,
+		"track_total_hits": false,
 		"size":             0,
 		"query":            query,
 		"aggs":             aggs,
@@ -165,6 +203,11 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 	}
 
 	stats.TotalLogs = result.Total
+	if totalLogsAgg, ok := result.Aggregations["total_logs"].(map[string]any); ok {
+		if value, ok := totalLogsAgg["value"].(float64); ok {
+			stats.TotalLogs = int64(value)
+		}
+	}
 
 	// Parse level distribution
 	if byLevel, ok := result.Aggregations["by_level"].(map[string]any); ok {
@@ -226,8 +269,8 @@ func (s *StatsService) GetOverviewStats(ctx context.Context, actor RequestActor)
 	return stats, nil
 }
 
-func overviewStatsCacheKey(actor RequestActor) string {
-	return actorTenantAuthorizationCacheKey(actor)
+func overviewStatsCacheKey(actor RequestActor, timeRange string) string {
+	return actorTenantAuthorizationCacheKey(actor) + "|overview|" + normalizeOverviewTimeRange(timeRange)
 }
 
 func cloneOverviewStats(stats *OverviewStats) *OverviewStats {

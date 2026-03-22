@@ -6,6 +6,7 @@ interface BuildRealtimeHistogramRefreshKeyParams {
   queryText?: string;
   levelFilter?: string;
   sourceFilter?: string;
+  extraFiltersKey?: string;
 }
 
 interface ShouldRefreshRealtimeHistogramParams {
@@ -22,6 +23,7 @@ export function buildRealtimeHistogramRefreshKey(params: BuildRealtimeHistogramR
     params.queryText?.trim() ?? '',
     params.levelFilter?.trim() ?? '',
     params.sourceFilter?.trim() ?? '',
+    params.extraFiltersKey?.trim() ?? '',
   ].join('\u0000');
 }
 

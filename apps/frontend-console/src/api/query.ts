@@ -138,6 +138,8 @@ export interface SavedQueryUpsertPayload {
   filters?: Record<string, unknown>;
 }
 
+export type DashboardOverviewRange = '24h' | '7d';
+
 /** Dashboard top source summary from GET /api/v1/query/stats/overview */
 export interface DashboardTopSource {
   source: string;
@@ -1007,9 +1009,19 @@ function truncateDateToMinute(date: Date): Date {
   return next;
 }
 
-function buildLocalDashboardOverview(): DashboardOverviewStats {
+function truncateDateToDay(date: Date): Date {
+  const next = new Date(date.getTime());
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function resolveDashboardOverviewRangeDuration(range: DashboardOverviewRange): number {
+  return range === '7d' ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+}
+
+function buildLocalDashboardOverview(range: DashboardOverviewRange = '24h'): DashboardOverviewStats {
   const now = new Date();
-  const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const from = new Date(now.getTime() - resolveDashboardOverviewRangeDuration(range));
   const logs = filterLocalDemoLogs({
     timeRange: {
       from: from.toISOString(),
@@ -1030,14 +1042,25 @@ function buildLocalDashboardOverview(): DashboardOverviewStats {
   });
 
   const trendBuckets = new Map<string, number>();
-  for (let index = 23; index >= 0; index -= 1) {
-    const key = truncateDateToHour(new Date(now.getTime() - index * 60 * 60 * 1000)).toISOString();
-    trendBuckets.set(key, 0);
+  if (range === '7d') {
+    for (let index = 6; index >= 0; index -= 1) {
+      const key = truncateDateToDay(new Date(now.getTime() - index * 24 * 60 * 60 * 1000)).toISOString();
+      trendBuckets.set(key, 0);
+    }
+    logs.forEach((log) => {
+      const key = truncateDateToDay(new Date(log.timestamp)).toISOString();
+      trendBuckets.set(key, (trendBuckets.get(key) ?? 0) + 1);
+    });
+  } else {
+    for (let index = 23; index >= 0; index -= 1) {
+      const key = truncateDateToHour(new Date(now.getTime() - index * 60 * 60 * 1000)).toISOString();
+      trendBuckets.set(key, 0);
+    }
+    logs.forEach((log) => {
+      const key = truncateDateToHour(new Date(log.timestamp)).toISOString();
+      trendBuckets.set(key, (trendBuckets.get(key) ?? 0) + 1);
+    });
   }
-  logs.forEach((log) => {
-    const key = truncateDateToHour(new Date(log.timestamp)).toISOString();
-    trendBuckets.set(key, (trendBuckets.get(key) ?? 0) + 1);
-  });
 
   const firing = logs.filter((log) => log.level === 'error').length;
   const resolved = logs.filter((log) => log.level === 'warn').length;
@@ -1352,13 +1375,14 @@ function normalizeDashboardTopSource(source: Partial<DashboardTopSource> | null 
 }
 
 /** Fetch dashboard overview stats */
-export async function fetchDashboardOverview(): Promise<DashboardOverviewStats> {
+export async function fetchDashboardOverview(range: DashboardOverviewRange = '24h'): Promise<DashboardOverviewStats> {
   if (shouldUseQueryCollectionFallback()) {
-    return buildLocalDashboardOverview();
+    return buildLocalDashboardOverview(range);
   }
 
   try {
-    const envelope = await requestQueryApi<DashboardOverviewStats>('/stats/overview', { method: 'GET' });
+    const params = new URLSearchParams({ range });
+    const envelope = await requestQueryApi<DashboardOverviewStats>(`/stats/overview?${params.toString()}`, { method: 'GET' });
     const data = envelope.data;
     if (!data) {
       throw new QueryApiRequestError(500, 'QUERY_STATS_EMPTY', 'Overview stats empty');
@@ -1372,7 +1396,7 @@ export async function fetchDashboardOverview(): Promise<DashboardOverviewStats> 
     };
   } catch (error) {
     if (shouldFallbackToLocalStore(error)) {
-      return buildLocalDashboardOverview();
+      return buildLocalDashboardOverview(range);
     }
     throw error;
   }

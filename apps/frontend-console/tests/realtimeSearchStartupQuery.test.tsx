@@ -324,7 +324,7 @@ describe('RealtimeSearch startup query behavior', () => {
         value: 'service:vault time:[2026-03-16T05:10:26.361Z,2026-03-16T05:25:26.361Z]',
       },
     });
-    fireEvent.click(screen.getByRole('button', { name: /执行/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /执行/ })[0]);
 
     await waitFor(() => {
       expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
@@ -343,5 +343,55 @@ describe('RealtimeSearch startup query behavior', () => {
       }),
     );
     expect((queryInput as HTMLInputElement).value).toBe('service:vault');
+  });
+
+  it('applies filters-only startup preset as structured filters', async () => {
+    render(
+      <App>
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/search/realtime',
+              state: {
+                autoRun: true,
+                presetQuery: 'filters:{"host":"dev-server-centos8","service":"flink-taskmanager"}',
+                timeRange: {
+                  from: '2026-03-15T07:55:11.264Z',
+                  to: '2026-03-22T07:55:11.264Z',
+                },
+              },
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(1);
+      expect(fetchAggregateStatsMock).not.toHaveBeenCalled();
+    });
+
+    expect(queryRealtimeLogsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        keywords: '',
+        page: 1,
+        pageSize: 20,
+        filters: expect.objectContaining({
+          host: 'dev-server-centos8',
+          service: 'flink-taskmanager',
+        }),
+        timeRange: {
+          from: '2026-03-15T07:55:11.264Z',
+          to: '2026-03-22T07:55:11.264Z',
+        },
+      }),
+    );
+    expect(screen.getByText('结构化筛选:')).toBeTruthy();
+    expect(screen.getByText('host=dev-server-centos8')).toBeTruthy();
+    expect((screen.getByPlaceholderText('输入查询语句，例如: level:error AND service:"payment-service"') as HTMLInputElement).value).toBe('');
   });
 });

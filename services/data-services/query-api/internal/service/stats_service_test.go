@@ -473,7 +473,7 @@ func TestStatsServiceGetOverviewStats_SkipsTenantFilterForGlobalAccess(t *testin
 	_, err := svc.GetOverviewStats(context.Background(), RequestActor{
 		TenantID:        "11111111-1111-1111-1111-111111111111",
 		TenantReadScope: sharedauth.TenantReadScopeAllTenants,
-	})
+	}, "24h")
 	if err != nil {
 		t.Fatalf("GetOverviewStats() error = %v", err)
 	}
@@ -527,7 +527,7 @@ func TestStatsServiceGetOverviewStats_ExtractsTopSourceHostAndService(t *testing
 	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
 
 	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
-	result, err := svc.GetOverviewStats(context.Background(), RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"})
+	result, err := svc.GetOverviewStats(context.Background(), RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}, "24h")
 	if err != nil {
 		t.Fatalf("GetOverviewStats() error = %v", err)
 	}
@@ -552,6 +552,68 @@ func TestStatsServiceGetOverviewStats_ExtractsTopSourceHostAndService(t *testing
 		if strings.Contains(body, fragment) {
 			t.Fatalf("expected request body not to contain %q, got %s", fragment, body)
 		}
+	}
+}
+
+func TestStatsServiceGetOverviewStats_UsesSevenDayRangeAndDailyTrend(t *testing.T) {
+	t.Helper()
+
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request body failed: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 2,
+			"timed_out": false,
+			"hits": {"total": {"value": 42}, "hits": []},
+			"aggregations": {
+				"by_level": {"buckets": []},
+				"by_source_service_name": {"pairs": {"buckets": []}},
+				"by_source_container_name": {"pairs": {"buckets": []}},
+				"by_source_instance_id": {"pairs": {"buckets": []}},
+				"by_source_log_path": {"pairs": {"buckets": []}},
+				"log_trend": {
+					"buckets": [
+						{"key_as_string": "2026-03-10T00:00:00.000Z", "doc_count": 10},
+						{"key_as_string": "2026-03-11T00:00:00.000Z", "doc_count": 32}
+					]
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+
+	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
+	result, err := svc.GetOverviewStats(context.Background(), RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}, "7d")
+	if err != nil {
+		t.Fatalf("GetOverviewStats() error = %v", err)
+	}
+	if result.TotalLogs != 42 {
+		t.Fatalf("GetOverviewStats() total_logs = %d, want 42", result.TotalLogs)
+	}
+	if len(result.LogTrend) != 2 {
+		t.Fatalf("GetOverviewStats() log_trend len = %d, want 2", len(result.LogTrend))
+	}
+
+	raw, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatalf("marshal captured request failed: %v", err)
+	}
+	body := string(raw)
+	if !strings.Contains(body, `"calendar_interval":"day"`) {
+		t.Fatalf("expected 7d overview request to use day histogram, got %s", body)
+	}
+	if !strings.Contains(body, `"extended_bounds"`) {
+		t.Fatalf("expected 7d overview request to include extended bounds, got %s", body)
+	}
+	if !strings.Contains(body, `"gte"`) || !strings.Contains(body, `"lte"`) {
+		t.Fatalf("expected 7d overview request to include time range query, got %s", body)
 	}
 }
 
@@ -581,11 +643,11 @@ func TestStatsServiceGetOverviewStats_ReusesFreshCacheForBurstRequests(t *testin
 	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
 	actor := RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}
 
-	first, err := svc.GetOverviewStats(context.Background(), actor)
+	first, err := svc.GetOverviewStats(context.Background(), actor, "24h")
 	if err != nil {
 		t.Fatalf("first GetOverviewStats() error = %v", err)
 	}
-	second, err := svc.GetOverviewStats(context.Background(), actor)
+	second, err := svc.GetOverviewStats(context.Background(), actor, "24h")
 	if err != nil {
 		t.Fatalf("second GetOverviewStats() error = %v", err)
 	}
@@ -628,18 +690,18 @@ func TestStatsServiceGetOverviewStats_FallsBackToStaleCacheOnESError(t *testing.
 	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
 	actor := RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}
 
-	first, err := svc.GetOverviewStats(context.Background(), actor)
+	first, err := svc.GetOverviewStats(context.Background(), actor, "24h")
 	if err != nil {
 		t.Fatalf("first GetOverviewStats() error = %v", err)
 	}
-	cacheKey := overviewStatsCacheKey(actor)
+	cacheKey := overviewStatsCacheKey(actor, "24h")
 	svc.overviewCacheMu.Lock()
 	entry := svc.overviewCache[cacheKey]
 	entry.expiresAt = time.Now().Add(-time.Second)
 	svc.overviewCache[cacheKey] = entry
 	svc.overviewCacheMu.Unlock()
 
-	second, err := svc.GetOverviewStats(context.Background(), actor)
+	second, err := svc.GetOverviewStats(context.Background(), actor, "24h")
 	if err != nil {
 		t.Fatalf("second GetOverviewStats() should fall back to stale cache, got %v", err)
 	}

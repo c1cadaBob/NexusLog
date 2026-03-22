@@ -48,6 +48,27 @@ describe('normalizeRealtimePresetQuery', () => {
     })).toBe('error filters:{"level":"error","service":"vault"}');
   });
 
+  it('supports filters-only preset queries for structured navigation', () => {
+    const normalized = normalizeRealtimePresetQuery(
+      'filters:{"host":"dev-server-centos8","service":"flink-taskmanager"}',
+    );
+
+    expect(normalized).toMatchObject({
+      queryText: '',
+      filters: {
+        host: 'dev-server-centos8',
+        service: 'flink-taskmanager',
+      },
+      sourceFilter: 'flink-taskmanager',
+      extractedFilters: true,
+    });
+
+    expect(buildRealtimePresetQuery({
+      queryText: normalized.queryText,
+      filters: normalized.filters,
+    })).toBe('filters:{"host":"dev-server-centos8","service":"flink-taskmanager"}');
+  });
+
   it('normalizes nested filter values before rebuilding a preset query', () => {
     const normalized = normalizeRealtimePresetQuery(
       'error filters:{"service":" vault ","scope":{"env":" prod ","blank":" "},"targets":[" api ",{"zone":" hz-a ","empty":" "}]}',

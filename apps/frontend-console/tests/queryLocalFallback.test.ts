@@ -52,6 +52,31 @@ describe('query api emergency fallback', () => {
     expect(result.top_sources.every((item) => !item.source.startsWith('/'))).toBe(true);
   });
 
+  it('requests dashboard overview with explicit range when using query api', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, 'standard-demo-token');
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'ok',
+        data: {
+          total_logs: 7,
+          level_distribution: { debug: 0, info: 7, warn: 0, error: 0, fatal: 0 },
+          top_sources: [],
+          alert_summary: { total: 0, firing: 0, resolved: 0 },
+          log_trend: [],
+        },
+      }),
+    } as Response);
+
+    await fetchDashboardOverview('7d');
+
+    expect(globalThis.fetch).toHaveBeenCalled();
+    const [requestUrl] = vi.mocked(globalThis.fetch).mock.calls[0] ?? [];
+    expect(String(requestUrl)).toContain('/api/v1/query/stats/overview?range=7d');
+  });
+
   it('returns realtime logs locally for emergency access sessions', async () => {
     const result = await queryRealtimeLogs({
       keywords: 'service:payments',

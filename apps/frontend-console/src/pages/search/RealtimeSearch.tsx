@@ -66,6 +66,10 @@ import {
   type RealtimeHistogramRefreshMode,
 } from "./realtimeRefreshPolicy";
 import { normalizeRealtimePresetQuery } from "./realtimePresetQuery";
+import type {
+  RealtimeQueryFilters,
+  RealtimeQueryFilterValue,
+} from "./realtimeQueryFilterTypes";
 import {
   buildQueryCleanupFallbackFilters,
   buildQueryCleanupState,
@@ -141,6 +145,119 @@ function formatRealtimeExplicitTimeRange(
     ? new Date(normalized.to).toLocaleString("zh-CN")
     : "结束未限制";
   return `${fromText} ~ ${toText}`;
+}
+
+function normalizeRealtimeExtraFilterValue(
+  value: RealtimeQueryFilterValue,
+): RealtimeQueryFilterValue | null {
+  if (typeof value === "string") {
+    const trimmedValue = value.trim();
+    return trimmedValue ? trimmedValue : null;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const normalizedValues = value
+      .map((item) => normalizeRealtimeExtraFilterValue(item))
+      .filter((item): item is RealtimeQueryFilterValue => item != null);
+    return normalizedValues.length > 0 ? normalizedValues : null;
+  }
+  if (value && typeof value === "object") {
+    const normalizedObject = normalizeRealtimeExtraFilters(
+      value as RealtimeQueryFilters,
+    );
+    return Object.keys(normalizedObject).length > 0 ? normalizedObject : null;
+  }
+  return null;
+}
+
+function normalizeRealtimeExtraFilters(
+  filters?: RealtimeQueryFilters | null,
+): RealtimeQueryFilters {
+  return Object.entries(filters ?? {}).reduce<RealtimeQueryFilters>(
+    (result, [key, value]) => {
+      const normalizedKey = key.trim();
+      if (
+        !normalizedKey ||
+        normalizedKey === "level" ||
+        normalizedKey === "service" ||
+        normalizedKey === "source"
+      ) {
+        return result;
+      }
+      const normalizedValue = normalizeRealtimeExtraFilterValue(value);
+      if (normalizedValue == null) {
+        return result;
+      }
+      result[normalizedKey] = normalizedValue;
+      return result;
+    },
+    {},
+  );
+}
+
+function sortRealtimeFilterValue(
+  value: RealtimeQueryFilterValue,
+): RealtimeQueryFilterValue {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortRealtimeFilterValue(item));
+  }
+  if (value && typeof value === "object") {
+    const objectValue = value as RealtimeQueryFilters;
+    return Object.keys(objectValue)
+      .sort((left, right) => left.localeCompare(right))
+      .reduce<RealtimeQueryFilters>((result, key) => {
+        result[key] = sortRealtimeFilterValue(objectValue[key]);
+        return result;
+      }, {});
+  }
+  return value;
+}
+
+function serializeRealtimeExtraFilterState(
+  filters?: RealtimeQueryFilters | null,
+): string {
+  const normalizedFilters = normalizeRealtimeExtraFilters(filters);
+  if (Object.keys(normalizedFilters).length === 0) {
+    return "";
+  }
+  return JSON.stringify(sortRealtimeFilterValue(normalizedFilters));
+}
+
+function buildRealtimeFilterStateKey(params: {
+  levelFilter?: string;
+  sourceFilter?: string;
+  extraFilters?: RealtimeQueryFilters | null;
+}): string {
+  return [
+    params.levelFilter?.trim() ?? "",
+    params.sourceFilter?.trim() ?? "",
+    serializeRealtimeExtraFilterState(params.extraFilters),
+  ].join("\u0000");
+}
+
+function formatRealtimeFilterTagValue(value: RealtimeQueryFilterValue): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(sortRealtimeFilterValue(value));
+}
+
+function resolveRealtimeExtraFilterTags(
+  filters?: RealtimeQueryFilters | null,
+): Array<{ key: string; label: string; value: string }> {
+  const normalizedFilters = normalizeRealtimeExtraFilters(filters);
+  return Object.keys(normalizedFilters)
+    .sort((left, right) => left.localeCompare(right))
+    .map((key) => ({
+      key,
+      label: key,
+      value: formatRealtimeFilterTagValue(normalizedFilters[key]),
+    }));
 }
 
 function resolveRealtimeWindowDurationMS(liveWindow: LiveWindowOption): number {
@@ -617,6 +734,7 @@ const RealtimeSearch: React.FC = () => {
   // 筛选器
   const [levelFilter, setLevelFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
+  const [extraFilters, setExtraFilters] = useState<RealtimeQueryFilters>({});
   const normalizedCustomTimeRange = useMemo(
     () => normalizeRealtimeExplicitTimeRange(customTimeRange),
     [customTimeRange],
@@ -627,6 +745,18 @@ const RealtimeSearch: React.FC = () => {
   const customTimeRangeLabel = useMemo(
     () => formatRealtimeExplicitTimeRange(normalizedCustomTimeRange),
     [normalizedCustomTimeRange],
+  );
+  const normalizedExtraFilters = useMemo(
+    () => normalizeRealtimeExtraFilters(extraFilters),
+    [extraFilters],
+  );
+  const extraFilterStateKey = useMemo(
+    () => serializeRealtimeExtraFilterState(normalizedExtraFilters),
+    [normalizedExtraFilters],
+  );
+  const extraFilterTags = useMemo(
+    () => resolveRealtimeExtraFilterTags(normalizedExtraFilters),
+    [normalizedExtraFilters],
   );
   const livePollingDisabled = hasCustomTimeRange || liveWindow === "all";
   const histogramDisabled = hasCustomTimeRange || liveWindow === "all";
@@ -715,7 +845,13 @@ const RealtimeSearch: React.FC = () => {
   const pageSizeRef = useRef(pageSize);
   const currentPageRef = useRef(currentPage);
   const startupQueryTimerRef = useRef<number | null>(null);
-  const lastFilterStateRef = useRef(`${levelFilter}\u0000${sourceFilter}`);
+  const lastFilterStateRef = useRef(
+    buildRealtimeFilterStateKey({
+      levelFilter,
+      sourceFilter,
+      extraFilters,
+    }),
+  );
   const suppressNextLiveTickRef = useRef(false);
 
   const clearLiveTimer = useCallback(() => {
@@ -767,12 +903,14 @@ const RealtimeSearch: React.FC = () => {
       levelFilter,
       sourceFilter,
       queryText,
+      extraFilters: normalizedExtraFilters,
     });
     const shouldRelaxHistogramNoiseFilter =
       shouldRelaxRealtimeHistogramNoiseFilter({
         levelFilter,
         sourceFilter,
         queryText,
+        extraFilters: normalizedExtraFilters,
       });
     const histogramTimeRange = resolveRealtimeHistogramRequestTimeRange(
       liveWindow,
@@ -789,6 +927,7 @@ const RealtimeSearch: React.FC = () => {
       queryText,
       levelFilter,
       sourceFilter,
+      extraFiltersKey: extraFilterStateKey,
     });
     const totalHistogramController = registerAbortController(
       new AbortController(),
@@ -905,12 +1044,14 @@ const RealtimeSearch: React.FC = () => {
       }
     })();
   }, [
+    extraFilterStateKey,
     histogramData.length,
     histogramDisabled,
     levelFilter,
     liveWindow,
     message,
     normalizedCustomTimeRange,
+    normalizedExtraFilters,
     registerAbortController,
     sourceFilter,
     tableSnapshotTo,
@@ -932,6 +1073,7 @@ const RealtimeSearch: React.FC = () => {
       histogramRefreshMode?: RealtimeHistogramRefreshMode;
       levelFilterOverride?: string;
       sourceFilterOverride?: string;
+      extraFiltersOverride?: RealtimeQueryFilters;
     }): Promise<RealtimeExecuteQueryStatus> => {
       const requestID = latestQueryRequestRef.current + 1;
       latestQueryRequestRef.current = requestID;
@@ -949,6 +1091,9 @@ const RealtimeSearch: React.FC = () => {
       const effectiveLevelFilter = options.levelFilterOverride ?? levelFilter;
       const effectiveSourceFilter =
         options.sourceFilterOverride ?? sourceFilter;
+      const effectiveExtraFilters = normalizeRealtimeExtraFilters(
+        options.extraFiltersOverride ?? normalizedExtraFilters,
+      );
       const workingCursorMap = options.resetCursor
         ? new Map<number, RealtimePageCursor>()
         : cloneRealtimePageCursorMap(pageCursorMapRef.current);
@@ -977,17 +1122,20 @@ const RealtimeSearch: React.FC = () => {
           levelFilter: effectiveLevelFilter,
           sourceFilter: effectiveSourceFilter,
           queryText: options.queryText,
+          extraFilters: effectiveExtraFilters,
         });
         const histogramFilters = buildRealtimeHistogramFilters({
           levelFilter: effectiveLevelFilter,
           sourceFilter: effectiveSourceFilter,
           queryText: options.queryText,
+          extraFilters: effectiveExtraFilters,
         });
         const shouldRelaxHistogramNoiseFilter =
           shouldRelaxRealtimeHistogramNoiseFilter({
             levelFilter: effectiveLevelFilter,
             sourceFilter: effectiveSourceFilter,
             queryText: options.queryText,
+            extraFilters: effectiveExtraFilters,
           });
         const effectiveExplicitTimeRange = normalizeRealtimeExplicitTimeRange(
           options.timeRangeOverride ?? customTimeRange,
@@ -1005,6 +1153,9 @@ const RealtimeSearch: React.FC = () => {
           queryText: options.queryText,
           levelFilter: effectiveLevelFilter,
           sourceFilter: effectiveSourceFilter,
+          extraFiltersKey: serializeRealtimeExtraFilterState(
+            effectiveExtraFilters,
+          ),
         });
         shouldRefreshHistogram =
           histogramTimeRange != null &&
@@ -1289,6 +1440,7 @@ const RealtimeSearch: React.FC = () => {
       liveWindow,
       logs.length,
       message,
+      normalizedExtraFilters,
       registerAbortController,
       sourceFilter,
       unregisterAbortController,
@@ -1478,10 +1630,18 @@ const RealtimeSearch: React.FC = () => {
       const startupTimeRange = normalizeRealtimeExplicitTimeRange(
         startupAutoRunState.timeRange ?? normalizedPresetQuery.timeRange,
       );
-      lastFilterStateRef.current = `${normalizedPresetQuery.levelFilter}\u0000${normalizedPresetQuery.sourceFilter}`;
+      const nextExtraFilters = normalizeRealtimeExtraFilters(
+        normalizedPresetQuery.extractedFilters ? normalizedPresetQuery.filters : {},
+      );
+      lastFilterStateRef.current = buildRealtimeFilterStateKey({
+        levelFilter: normalizedPresetQuery.levelFilter,
+        sourceFilter: normalizedPresetQuery.sourceFilter,
+        extraFilters: nextExtraFilters,
+      });
       clearPendingRealtimeStartupQuery();
       setLevelFilter(normalizedPresetQuery.levelFilter);
       setSourceFilter(normalizedPresetQuery.sourceFilter);
+      setExtraFilters(nextExtraFilters);
       setQuery(normalizedPresetQuery.queryText);
       setActiveQuery(normalizedPresetQuery.queryText);
       setCustomTimeRange(startupTimeRange);
@@ -1501,6 +1661,7 @@ const RealtimeSearch: React.FC = () => {
         histogramRefreshMode: "force",
         levelFilterOverride: normalizedPresetQuery.levelFilter,
         sourceFilterOverride: normalizedPresetQuery.sourceFilter,
+        extraFiltersOverride: nextExtraFilters,
       });
     }, STARTUP_QUERY_DELAY_MS);
     return clearStartupQueryTimer;
@@ -1508,7 +1669,11 @@ const RealtimeSearch: React.FC = () => {
 
   // 筛选器变化时重新执行查询（仅在筛选值实际变化时触发，避免 StrictMode 首次挂载重复执行）
   useEffect(() => {
-    const nextFilterState = `${levelFilter}\u0000${sourceFilter}`;
+    const nextFilterState = buildRealtimeFilterStateKey({
+      levelFilter,
+      sourceFilter,
+      extraFilters: normalizedExtraFilters,
+    });
     if (lastFilterStateRef.current === nextFilterState) {
       return;
     }
@@ -1531,7 +1696,7 @@ const RealtimeSearch: React.FC = () => {
       resetCursor: true,
       histogramRefreshMode: "force",
     });
-  }, [levelFilter, sourceFilter]);
+  }, [extraFilterStateKey, levelFilter, normalizedExtraFilters, sourceFilter]);
 
   // 直方图数据
   const displayLogs = useMemo(() => aggregateRealtimeDisplayLogs(logs), [logs]);
@@ -1577,13 +1742,20 @@ const RealtimeSearch: React.FC = () => {
       const nextExplicitTimeRange = normalizeRealtimeExplicitTimeRange(
         normalizedQuery.timeRange,
       );
+      const nextExtraFilters = normalizedQuery.extractedFilters
+        ? normalizeRealtimeExtraFilters(normalizedQuery.filters)
+        : normalizedExtraFilters;
       const shouldRecordHistory = recordHistory && keyword !== "";
 
       if (shouldRecordHistory) {
         setRecentQueries(recordRealtimeRecentQuery(keyword));
       }
 
-      lastFilterStateRef.current = `${nextLevelFilter}\u0000${nextSourceFilter}`;
+      lastFilterStateRef.current = buildRealtimeFilterStateKey({
+        levelFilter: nextLevelFilter,
+        sourceFilter: nextSourceFilter,
+        extraFilters: nextExtraFilters,
+      });
       if (
         shouldSuppressNextLiveTickAfterInteractiveRefresh({
           isLive: isLiveRef.current,
@@ -1597,6 +1769,7 @@ const RealtimeSearch: React.FC = () => {
       if (normalizedQuery.extractedFilters) {
         setLevelFilter(nextLevelFilter);
         setSourceFilter(nextSourceFilter);
+        setExtraFilters(nextExtraFilters);
       }
       if (nextExplicitTimeRange) {
         isLiveRef.current = false;
@@ -1619,6 +1792,7 @@ const RealtimeSearch: React.FC = () => {
         histogramRefreshMode: "force",
         levelFilterOverride: nextLevelFilter,
         sourceFilterOverride: nextSourceFilter,
+        extraFiltersOverride: nextExtraFilters,
       });
     },
     [
@@ -1626,6 +1800,7 @@ const RealtimeSearch: React.FC = () => {
       executeQuery,
       levelFilter,
       normalizedCustomTimeRange,
+      normalizedExtraFilters,
       pageSize,
       sourceFilter,
     ],
@@ -1714,10 +1889,13 @@ const RealtimeSearch: React.FC = () => {
   const handleBookmarkCurrentQuery = useCallback(() => {
     const now = new Date();
     const rawQuery = query.trim();
-    const fallbackFilters = buildQueryCleanupFallbackFilters({
-      levelFilter,
-      sourceFilter,
-    });
+    const fallbackFilters = {
+      ...normalizedExtraFilters,
+      ...buildQueryCleanupFallbackFilters({
+        levelFilter,
+        sourceFilter,
+      }),
+    };
     const cleanupState = buildQueryCleanupState({
       rawQuery,
       fallbackFilters,
@@ -1771,7 +1949,7 @@ const RealtimeSearch: React.FC = () => {
         await persistBookmark();
       },
     });
-  }, [levelFilter, message, modal, query, sourceFilter]);
+  }, [levelFilter, message, modal, normalizedExtraFilters, query, sourceFilter]);
 
   // 执行检索（仅手动点击执行/回车时写入历史）
   const handleSearch = useCallback(
@@ -2373,6 +2551,27 @@ const RealtimeSearch: React.FC = () => {
             ]}
           />
         </Space>
+        {extraFilterTags.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs opacity-50">结构化筛选:</span>
+            {extraFilterTags.map((filterTag) => (
+              <Tag
+                key={filterTag.key}
+                closable
+                style={{ margin: 0 }}
+                onClose={() => {
+                  setExtraFilters((currentFilters) => {
+                    const nextFilters = { ...currentFilters };
+                    delete nextFilters[filterTag.key];
+                    return nextFilters;
+                  });
+                }}
+              >
+                {filterTag.label}={filterTag.value}
+              </Tag>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 事件量直方图 */}

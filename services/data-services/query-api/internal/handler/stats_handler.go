@@ -25,7 +25,7 @@ func (h *StatsHandler) GetOverviewStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.svc.GetOverviewStats(c.Request.Context(), actor)
+	stats, err := h.svc.GetOverviewStats(c.Request.Context(), actor, c.Query("range"))
 	if err != nil {
 		writeServiceError(c, err)
 		return
