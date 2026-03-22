@@ -1091,6 +1091,8 @@ function resolveAggregateTimeRange(timeRange: FetchAggregateStatsParams['timeRan
   };
 }
 
+const SOURCE_AGGREGATE_KEY_SEPARATOR = '\u001f';
+
 function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggregateStatsResult {
   const logs = filterLocalDemoLogs({
     keywords: params.keywords,
@@ -1110,7 +1112,7 @@ function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggre
       case 'source': {
         const host = String(log.host || log.fields?.host || 'unknown-host').trim() || 'unknown-host';
         const service = String(log.service || log.fields?.service_name || log.fields?.service || 'unknown-service').trim() || 'unknown-service';
-        key = String(log.fields?.source_path ?? log.fields?.source ?? '').trim() || `${host}\u001f${service}`;
+        key = `${host}${SOURCE_AGGREGATE_KEY_SEPARATOR}${service}`;
         sourceBucketMeta.set(key, {
           host,
           service,

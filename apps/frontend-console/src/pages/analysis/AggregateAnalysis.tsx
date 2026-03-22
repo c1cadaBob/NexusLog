@@ -78,6 +78,8 @@ const INITIAL_FORM_STATE: AggregateFormState = {
   service: '',
 };
 
+const SOURCE_BUCKET_KEY_SEPARATOR = '\u001f';
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
@@ -100,6 +102,40 @@ function resolveSourceBucketService(bucket: AggregateBucket): string {
 
 function resolveSourceBucketLabel(bucket: AggregateBucket): string {
   return bucket.label?.trim() || `${resolveSourceBucketHost(bucket)} / ${resolveSourceBucketService(bucket)}`;
+}
+
+function resolveSourceBucketIdentity(bucket: AggregateBucket): string {
+  return `${resolveSourceBucketHost(bucket)}${SOURCE_BUCKET_KEY_SEPARATOR}${resolveSourceBucketService(bucket)}`;
+}
+
+function resolveBucketIdentity(groupBy: AggregateGroupBy, bucket: AggregateBucket): string {
+  if (isSourceGroupBy(groupBy)) {
+    return resolveSourceBucketIdentity(bucket);
+  }
+  return bucket.key?.trim() || '-';
+}
+
+function resolveBucketDisplayValue(groupBy: AggregateGroupBy, bucket: AggregateBucket): string {
+  const key = resolveBucketIdentity(groupBy, bucket);
+  if (groupBy === 'level') {
+    return key.toUpperCase();
+  }
+  if (isSourceGroupBy(groupBy)) {
+    return resolveSourceBucketLabel(bucket);
+  }
+  if (!isTemporalGroupBy(groupBy)) {
+    return key;
+  }
+  const date = new Date(key);
+  if (Number.isNaN(date.getTime())) {
+    return key;
+  }
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: groupBy === 'minute' ? '2-digit' : undefined,
+  });
 }
 
 function normalizeFormState(state: AggregateFormState): AggregateFormState {
@@ -125,29 +161,6 @@ function formatCount(value: number): string {
 
 function formatAverage(value: number): string {
   return DECIMAL_FORMATTER.format(Number.isFinite(value) ? value : 0);
-}
-
-function formatBucketDisplayValue(groupBy: AggregateGroupBy, rawKey: string, bucket?: AggregateBucket): string {
-  const key = rawKey?.trim() || '-';
-  if (groupBy === 'level') {
-    return key.toUpperCase();
-  }
-  if (isSourceGroupBy(groupBy) && bucket) {
-    return resolveSourceBucketLabel(bucket);
-  }
-  if (!isTemporalGroupBy(groupBy)) {
-    return key;
-  }
-  const date = new Date(key);
-  if (Number.isNaN(date.getTime())) {
-    return key;
-  }
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: groupBy === 'minute' ? '2-digit' : undefined,
-  });
 }
 
 function formatTimeAxisLabel(rawKey: string, groupBy: AggregateGroupBy, timeRange: AggregateTimeRange): string {
@@ -261,7 +274,7 @@ function buildMainChartOption(
     };
   }
 
-  const labels = buckets.map((bucket) => formatBucketDisplayValue(groupBy, bucket.key, bucket));
+  const labels = buckets.map((bucket) => resolveBucketDisplayValue(groupBy, bucket));
   const values = buckets.map((bucket) => Number(bucket.count || 0));
   const needsZoom = labels.length > 10;
   const colors = groupBy === 'level'
@@ -331,10 +344,10 @@ function buildPieChartOption(buckets: AggregateBucket[], groupBy: AggregateGroup
     .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
     .slice(0, groupBy === 'source' ? 10 : buckets.length)
     .map((bucket) => {
-      const key = bucket.key || '-';
-      const color = groupBy === 'level' ? LEVEL_COLORS[key.toLowerCase()] ?? COLORS.primary : undefined;
+      const bucketIdentity = resolveBucketIdentity(groupBy, bucket);
+      const color = groupBy === 'level' ? LEVEL_COLORS[bucketIdentity.toLowerCase()] ?? COLORS.primary : undefined;
       return {
-        name: formatBucketDisplayValue(groupBy, key, bucket),
+        name: resolveBucketDisplayValue(groupBy, bucket),
         value: Number(bucket.count || 0),
         itemStyle: color ? { color } : undefined,
       };
@@ -491,7 +504,7 @@ const AggregateAnalysis: React.FC = () => {
         title: isTemporal ? '峰值时段' : '最高桶',
         value: formatCount(Number(summary.topBucket?.count || 0)),
         helper: summary.topBucket
-          ? formatBucketDisplayValue(queryState.groupBy, summary.topBucket.key, summary.topBucket)
+          ? resolveBucketDisplayValue(queryState.groupBy, summary.topBucket)
           : '暂无数据',
       },
       {
@@ -739,9 +752,9 @@ const AggregateAnalysis: React.FC = () => {
                       const count = Number(bucket.count || 0);
                       const width = summary.totalCount > 0 ? Math.max(6, (count / summary.totalCount) * 100) : 0;
                       return (
-                        <div key={`${bucket.key}-${index}`} className="flex flex-col gap-1">
+                        <div key={`${resolveBucketIdentity(queryState.groupBy, bucket)}-${index}`} className="flex flex-col gap-1">
                           <div className="flex items-center justify-between gap-3 text-sm">
-                            <span className="font-medium">{formatBucketDisplayValue(queryState.groupBy, bucket.key)}</span>
+                            <span className="font-medium">{resolveBucketDisplayValue(queryState.groupBy, bucket)}</span>
                             <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCount(count)}</span>
                           </div>
                           <div
@@ -819,15 +832,16 @@ const AggregateAnalysis: React.FC = () => {
                     {displayBuckets.map((bucket, index) => {
                       const count = Number(bucket.count || 0);
                       const share = summary.totalCount > 0 ? (count / summary.totalCount) * 100 : 0;
-                      const displayValue = formatBucketDisplayValue(queryState.groupBy, bucket.key, bucket);
+                      const displayValue = resolveBucketDisplayValue(queryState.groupBy, bucket);
+                      const bucketIdentity = resolveBucketIdentity(queryState.groupBy, bucket);
                       const levelColor = queryState.groupBy === 'level'
-                        ? LEVEL_COLORS[bucket.key.toLowerCase()] ?? COLORS.primary
+                        ? LEVEL_COLORS[bucketIdentity.toLowerCase()] ?? COLORS.primary
                         : COLORS.primary;
                       const sourceHost = resolveSourceBucketHost(bucket);
                       const sourceService = resolveSourceBucketService(bucket);
 
                       return (
-                        <tr key={`${bucket.key}-${index}`} style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+                        <tr key={`${bucketIdentity}-${index}`} style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
                           <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}>#{index + 1}</td>
                           {queryState.groupBy === 'source' ? (
                             <>

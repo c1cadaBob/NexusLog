@@ -77,6 +77,24 @@ describe('query api emergency fallback', () => {
     expect(result.buckets[0]?.key).toContain('T');
   });
 
+  it('uses stable host-service keys for local source aggregates', async () => {
+    const result = await fetchAggregateStats({
+      groupBy: 'source',
+      timeRange: '7d',
+      keywords: '',
+    });
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(result.buckets.length).toBeGreaterThan(0);
+    expect(result.buckets[0]).toEqual(expect.objectContaining({
+      host: expect.any(String),
+      service: expect.any(String),
+      label: expect.stringContaining(' / '),
+    }));
+    expect(result.buckets.every((bucket) => bucket.key.includes('\u001f'))).toBe(true);
+    expect(result.buckets.every((bucket) => !bucket.key.startsWith('/'))).toBe(true);
+  });
+
   it('parses lower-bound totals from query api metadata', async () => {
     window.localStorage.setItem(ACCESS_TOKEN_KEY, 'standard-demo-token');
     globalThis.fetch = vi.fn().mockResolvedValue({

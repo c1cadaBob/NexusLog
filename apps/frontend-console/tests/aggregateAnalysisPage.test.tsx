@@ -198,7 +198,7 @@ describe('AggregateAnalysis page', () => {
       .mockResolvedValueOnce({
         buckets: [
           {
-            key: 'node-a\u001fnginx',
+            key: '/var/log/nginx/access.log',
             count: 9,
             label: 'node-a / nginx',
             host: 'node-a',
@@ -225,5 +225,7 @@ describe('AggregateAnalysis page', () => {
       expect(screen.getByRole('columnheader', { name: '主机名' })).toBeTruthy();
       expect(screen.getByRole('columnheader', { name: '服务名' })).toBeTruthy();
     });
+
+    expect(screen.queryByText('/var/log/nginx/access.log')).toBeNull();
   });
 });
