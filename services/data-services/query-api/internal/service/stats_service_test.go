@@ -204,6 +204,55 @@ func TestStatsServiceAggregate_SourceBucketsExposeHostAndService(t *testing.T) {
 	}
 }
 
+func TestStatsServiceAggregate_SourceBucketsFallbackToLogPathForBogusServiceValues(t *testing.T) {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 3,
+			"timed_out": false,
+			"hits": {"total": {"value": 0}, "hits": []},
+			"aggregations": {
+				"by_source_service_name": {
+					"pairs": {
+						"buckets": [
+							{"key": ["node-a", "Mar", "/var/log/messages"], "doc_count": 5},
+							{"key": ["node-b", "2026", "/var/log/audit/audit.log"], "doc_count": 3},
+							{"key": ["node-c", "query-api", "/var/log/query-api/current.log"], "doc_count": 2}
+						]
+					}
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+
+	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
+	result, err := svc.Aggregate(context.Background(), RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}, AggregateRequest{
+		GroupBy:   "source",
+		TimeRange: "7d",
+	})
+	if err != nil {
+		t.Fatalf("Aggregate() error = %v", err)
+	}
+	if len(result.Buckets) != 3 {
+		t.Fatalf("Aggregate() buckets len = %d, want 3", len(result.Buckets))
+	}
+	if got := result.Buckets[0]; got.Host != "node-a" || got.Service != "messages" || got.Label != "node-a / messages" || got.Count != 5 {
+		t.Fatalf("unexpected month-name fallback bucket: %+v", got)
+	}
+	if got := result.Buckets[1]; got.Host != "node-b" || got.Service != "audit.log" || got.Label != "node-b / audit.log" || got.Count != 3 {
+		t.Fatalf("unexpected numeric fallback bucket: %+v", got)
+	}
+	if got := result.Buckets[2]; got.Host != "node-c" || got.Service != "query-api" || got.Label != "node-c / query-api" || got.Count != 2 {
+		t.Fatalf("unexpected preserved service bucket: %+v", got)
+	}
+}
+
 func TestStatsServiceAggregate_UsesFreshCacheForIdenticalRequests(t *testing.T) {
 	t.Helper()
 

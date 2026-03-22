@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/lib/pq"
 	"github.com/nexuslog/data-services/query-api/internal/repository"
@@ -619,16 +620,20 @@ func buildAggregateSourceTermsAggregation() map[string]any {
 }
 
 func buildAggregateSourcePartitionAggregation(filter map[string]any, serviceField string) map[string]any {
+	terms := []map[string]any{
+		{"field": "host.name", "missing": aggregateUnknownHost},
+		{"field": serviceField, "missing": aggregateUnknownService},
+	}
+	if serviceField != "log.file.path" {
+		terms = append(terms, map[string]any{"field": "log.file.path", "missing": aggregateUnknownService})
+	}
 	return map[string]any{
 		"filter": filter,
 		"aggs": map[string]any{
 			aggregateSourcePairsAgg: map[string]any{
 				"multi_terms": map[string]any{
-					"terms": []map[string]any{
-						{"field": "host.name", "missing": aggregateUnknownHost},
-						{"field": serviceField, "missing": aggregateUnknownService},
-					},
-					"size": 50,
+					"terms": terms,
+					"size":  50,
 				},
 			},
 		},
@@ -643,20 +648,52 @@ func normalizeAggregateSourceValue(raw, fallback string) string {
 	return value
 }
 
-func normalizeAggregateSourceServiceValue(serviceField, raw string) string {
+func normalizeAggregateSourcePathService(raw string) string {
 	value := normalizeAggregateSourceValue(raw, aggregateUnknownService)
-	if serviceField != "log.file.path" {
-		return value
-	}
-	value = strings.TrimRight(value, `/\\`)
-	if value == "" || value == aggregateUnknownService {
+	if value == aggregateUnknownService {
 		return aggregateUnknownService
 	}
-	index := strings.LastIndexAny(value, `/\\`)
-	if index >= 0 && index+1 < len(value) {
-		return value[index+1:]
+	if resolved := resolveDisplayService(map[string]any{"log.file.path": value}); resolved != "" && resolved != "unknown" {
+		return resolved
 	}
-	return value
+	return aggregateUnknownService
+}
+
+func isAggregateSourceServiceNoise(raw string) bool {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return true
+	}
+	hasDigit := false
+	for _, char := range value {
+		if unicode.IsDigit(char) {
+			hasDigit = true
+			continue
+		}
+		switch char {
+		case '-', '/', '_', '.', ':', ' ':
+			continue
+		default:
+			return false
+		}
+	}
+	return hasDigit
+}
+
+func normalizeAggregateSourceServiceValue(serviceField, raw, rawPath string) string {
+	if serviceField == "log.file.path" {
+		return normalizeAggregateSourcePathService(raw)
+	}
+	if value := sanitizeDisplayServiceName(raw); value != "" && !isAggregateSourceServiceNoise(value) {
+		return value
+	}
+	if value := normalizeAggregateSourcePathService(rawPath); value != aggregateUnknownService {
+		return value
+	}
+	if value := normalizeAggregateSourcePathService(raw); value != aggregateUnknownService {
+		return value
+	}
+	return aggregateUnknownService
 }
 
 func buildAggregateSourceBuckets(aggregations map[string]any) []AggregateBucket {
@@ -697,7 +734,11 @@ func buildAggregateSourceBuckets(aggregations map[string]any) []AggregateBucket 
 				continue
 			}
 			host := normalizeAggregateSourceValue(fmt.Sprint(keyValues[0]), aggregateUnknownHost)
-			service := normalizeAggregateSourceServiceValue(spec.serviceField, fmt.Sprint(keyValues[1]))
+			rawPath := ""
+			if len(keyValues) > 2 {
+				rawPath = fmt.Sprint(keyValues[2])
+			}
+			service := normalizeAggregateSourceServiceValue(spec.serviceField, fmt.Sprint(keyValues[1]), rawPath)
 			count := int64(0)
 			if rawCount, ok := bucket["doc_count"].(float64); ok {
 				count = int64(rawCount)
