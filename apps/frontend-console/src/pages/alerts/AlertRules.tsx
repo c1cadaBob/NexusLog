@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Input, Select, Table, Tag, Button, Card, Space, Modal, Form, Switch, message, Spin, Empty } from 'antd';
+import { useLocation } from 'react-router-dom';
+import { App, Input, Select, Table, Tag, Button, Card, Space, Modal, Form, Switch, Spin, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
@@ -14,6 +15,7 @@ import {
   disableAlertRule,
   type CreateAlertRulePayload,
 } from '../../api/alert';
+import { consumePendingAlertRuleDraft, type PendingAlertRuleDraft } from '../../utils/alertRulePrefill';
 
 const severityTagColor: Record<AlertSeverity, string> = {
   critical: 'error',
@@ -39,6 +41,8 @@ const formatTimeAgo = (timestamp: number): string => {
 };
 
 const AlertRules: React.FC = () => {
+  const { message } = App.useApp();
+  const location = useLocation();
   const isDark = useThemeStore((s) => s.isDark);
   const [form] = Form.useForm();
 
@@ -53,6 +57,7 @@ const AlertRules: React.FC = () => {
   const [currentRule, setCurrentRule] = useState<AlertRule | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [ruleType, setRuleType] = useState<'keyword' | 'level_count' | 'threshold'>('keyword');
+  const [pendingPrefillDraft, setPendingPrefillDraft] = useState<PendingAlertRuleDraft | null>(null);
 
   const loadRules = useCallback(async () => {
     setLoading(true);
@@ -95,19 +100,41 @@ const AlertRules: React.FC = () => {
     [rules],
   );
 
-  const openCreate = useCallback(() => {
+  const openCreate = useCallback((draft?: PendingAlertRuleDraft | null) => {
+    const nextRuleType = draft?.ruleType ?? 'keyword';
     setModalMode('create');
     setCurrentRule(null);
-    setRuleType('keyword');
+    setRuleType(nextRuleType);
     form.resetFields();
     form.setFieldsValue({
-      ruleType: 'keyword',
-      severity: 'medium',
+      ruleType: nextRuleType,
+      severity: draft?.severity ?? 'medium',
       evaluationInterval: 60,
-      conditionOperator: 'gt',
+      conditionOperator: draft?.conditionOperator ?? 'gt',
+      name: draft?.name ?? '',
+      description: draft?.description ?? '',
+      conditionMetric: draft?.conditionMetric ?? '',
+      conditionThreshold: draft?.conditionThreshold ?? undefined,
     });
     setModalOpen(true);
   }, [form]);
+
+  useEffect(() => {
+    const draft = consumePendingAlertRuleDraft();
+    if (!draft) {
+      return;
+    }
+    setPendingPrefillDraft(draft);
+  }, [location.key]);
+
+  useEffect(() => {
+    if (!pendingPrefillDraft || loading) {
+      return;
+    }
+    openCreate(pendingPrefillDraft);
+    setPendingPrefillDraft(null);
+    message.info('已根据异常检测结果预填告警规则，请确认后保存');
+  }, [loading, message, openCreate, pendingPrefillDraft]);
 
   const openEdit = useCallback(
     (rule: AlertRule) => {
@@ -458,7 +485,7 @@ const AlertRules: React.FC = () => {
           <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
             帮助文档
           </Button>
-          <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>} onClick={openCreate}>
+          <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>} onClick={() => openCreate()}>
             新建规则
           </Button>
         </Space>

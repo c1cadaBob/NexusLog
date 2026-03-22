@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   App,
@@ -23,6 +24,7 @@ import {
 } from '../../api/query';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
+import { buildAlertRuleDraftFromAnomaly, savePendingAlertRuleDraft } from '../../utils/alertRulePrefill';
 
 const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
 
@@ -179,6 +181,7 @@ function buildTimelineOption(result: FetchAnomalyStatsResult, isDark: boolean, t
 
 const AnomalyDetection: React.FC = () => {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const isDark = useThemeStore((state) => state.isDark);
 
   const [selectedTimeRange, setSelectedTimeRange] = useState<AnomalyTimeRange>('7d');
@@ -235,8 +238,14 @@ const AnomalyDetection: React.FC = () => {
   );
 
   const handleCreateAlert = useCallback(() => {
-    message.info('告警规则预填将在下一步接入');
-  }, [message]);
+    if (!selectedAnomaly) {
+      return;
+    }
+    savePendingAlertRuleDraft(buildAlertRuleDraftFromAnomaly(selectedAnomaly));
+    setSelectedAnomaly(null);
+    navigate('/alerts/rules');
+    message.success('已根据当前异常预填告警规则，请确认后保存');
+  }, [message, navigate, selectedAnomaly]);
 
   return (
     <div className="flex flex-col gap-4">

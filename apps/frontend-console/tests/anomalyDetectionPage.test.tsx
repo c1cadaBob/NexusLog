@@ -4,7 +4,9 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from 'antd';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import AnomalyDetection from '../src/pages/analysis/AnomalyDetection';
+import { consumePendingAlertRuleDraft } from '../src/utils/alertRulePrefill';
 
 const fetchAnomalyStatsMock = vi.fn();
 
@@ -72,9 +74,11 @@ function installDomMocks() {
 
 function renderPage() {
   return render(
-    <App>
-      <AnomalyDetection />
-    </App>,
+    <MemoryRouter initialEntries={['/analysis/anomaly']}>
+      <App>
+        <AnomalyDetection />
+      </App>
+    </MemoryRouter>,
   );
 }
 
@@ -142,12 +146,14 @@ function buildMockResult() {
 describe('AnomalyDetection page', () => {
   beforeEach(() => {
     installDomMocks();
+    window.sessionStorage.clear();
     fetchAnomalyStatsMock.mockReset();
     fetchAnomalyStatsMock.mockResolvedValue(buildMockResult());
   });
 
   afterEach(() => {
     cleanup();
+    window.sessionStorage.clear();
     vi.clearAllMocks();
   });
 
@@ -191,5 +197,32 @@ describe('AnomalyDetection page', () => {
       expect(screen.getAllByText('order-api').length).toBeGreaterThan(0);
       expect(screen.getByText('建议检查最近的发布、重试与上游流量变化。')).toBeTruthy();
     });
+  });
+
+  it('stores a prefilled alert rule draft from anomaly detail', async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(fetchAnomalyStatsMock).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(await screen.findAllByRole('button', { name: /查看异常详情/ }).then((buttons) => buttons[0]));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '创建告警规则' })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '创建告警规则' }));
+
+    const draft = consumePendingAlertRuleDraft();
+    expect(draft).toMatchObject({
+      source: 'anomaly_detection',
+      severity: 'critical',
+      conditionMetric: 'log_volume',
+      conditionOperator: 'gte',
+      conditionThreshold: 120,
+    });
+    expect(draft?.name).toContain('日志量激增');
+    expect(draft?.description).toContain('来源：异常检测');
   });
 });
