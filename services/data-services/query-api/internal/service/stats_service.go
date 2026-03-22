@@ -501,8 +501,11 @@ type AggregateResult struct {
 
 // AggregateBucket represents a single bucket.
 type AggregateBucket struct {
-	Key   string `json:"key"`
-	Count int64  `json:"count"`
+	Key     string `json:"key"`
+	Label   string `json:"label,omitempty"`
+	Host    string `json:"host,omitempty"`
+	Service string `json:"service,omitempty"`
+	Count   int64  `json:"count"`
 }
 
 func buildAlertSummaryQuery(actor RequestActor) (string, []any, error) {
@@ -534,6 +537,12 @@ WHERE fired_at >= NOW() - INTERVAL '24 hours'
 	}
 }
 
+const (
+	aggregateSourceKeySeparator = "\u001f"
+	aggregateUnknownHost        = "unknown-host"
+	aggregateUnknownService     = "unknown-service"
+)
+
 func resolveAggregateTimeRangeDuration(timeRange string) time.Duration {
 	switch timeRange {
 	case "30m":
@@ -549,6 +558,136 @@ func resolveAggregateTimeRangeDuration(timeRange string) time.Duration {
 	default:
 		return 24 * time.Hour
 	}
+}
+
+func buildAggregateSourceTermsAggregation() map[string]any {
+	return map[string]any{
+		"terms": map[string]any{
+			"script": map[string]any{
+				"lang": "painless",
+				"source": `String host = '';
+for (field in params.host_fields) {
+  if (doc.containsKey(field) && !doc[field].empty) {
+    host = doc[field].value.toString();
+    break;
+  }
+}
+String service = '';
+for (field in params.service_fields) {
+  if (doc.containsKey(field) && !doc[field].empty) {
+    service = doc[field].value.toString();
+    break;
+  }
+}
+if (host == '') {
+  host = params.unknown_host;
+}
+if (service == '') {
+  service = params.unknown_service;
+}
+return host + params.separator + service;`,
+				"params": map[string]any{
+					"host_fields": []string{"host.name", "host", "hostname", "syslog_hostname", "server_id", "agent.hostname"},
+					"service_fields": []string{"service.name", "service_name", "service", "app", "container.name", "service.instance.id", "source_id"},
+					"unknown_host": aggregateUnknownHost,
+					"unknown_service": aggregateUnknownService,
+					"separator": aggregateSourceKeySeparator,
+				},
+			},
+			"size": 50,
+		},
+		"aggs": map[string]any{
+			"sample_document": map[string]any{
+				"top_hits": map[string]any{
+					"size": 1,
+					"sort": []map[string]any{{
+						"@timestamp": map[string]any{"order": "desc"},
+					}},
+					"_source": map[string]any{
+						"includes": []string{
+							"source.path",
+							"log.file.path",
+							"source_path",
+							"source",
+							"host.name",
+							"host",
+							"hostname",
+							"syslog_hostname",
+							"server_id",
+							"agent.hostname",
+							"service.name",
+							"service_name",
+							"service",
+							"app",
+							"container.name",
+							"service.instance.id",
+							"source_id",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func extractAggregateSampleDocument(bucket map[string]any) map[string]any {
+	sampleDocument, ok := bucket["sample_document"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	hitsWrapper, ok := sampleDocument["hits"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	hitsList, ok := hitsWrapper["hits"].([]any)
+	if !ok || len(hitsList) == 0 {
+		return nil
+	}
+	firstHit, ok := hitsList[0].(map[string]any)
+	if !ok {
+		return nil
+	}
+	source, ok := firstHit["_source"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return source
+}
+
+func splitAggregateSourceKey(rawKey string) (string, string) {
+	parts := strings.SplitN(strings.TrimSpace(rawKey), aggregateSourceKeySeparator, 2)
+	host := aggregateUnknownHost
+	service := aggregateUnknownService
+	if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+		host = strings.TrimSpace(parts[0])
+	}
+	if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+		service = strings.TrimSpace(parts[1])
+	}
+	return host, service
+}
+
+func buildAggregateSourceLabel(host, service string) string {
+	return host + " / " + service
+}
+
+func resolveAggregateSourceBucketDisplay(rawKey string, sampleSource map[string]any) (string, string, string) {
+	host, service := splitAggregateSourceKey(rawKey)
+	if len(sampleSource) > 0 {
+		if resolvedHost := strings.TrimSpace(resolveDisplayHost(sampleSource)); resolvedHost != "" {
+			host = resolvedHost
+		}
+		if resolvedService := strings.TrimSpace(resolveDisplayService(sampleSource)); resolvedService != "" {
+			service = resolvedService
+		}
+	}
+	if host == "" {
+		host = aggregateUnknownHost
+	}
+	if service == "" {
+		service = aggregateUnknownService
+	}
+	return host, service, buildAggregateSourceLabel(host, service)
 }
 
 // Aggregate returns aggregated data based on group_by dimension.
@@ -625,6 +764,8 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 		aggs["by_dim"] = map[string]any{
 			"date_histogram": histogram,
 		}
+	} else if req.GroupBy == "source" {
+		aggs["by_dim"] = buildAggregateSourceTermsAggregation()
 	} else {
 		aggs["by_dim"] = map[string]any{
 			"terms": map[string]any{
@@ -669,7 +810,16 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 					if c, ok := bucket["doc_count"].(float64); ok {
 						count = int64(c)
 					}
-					buckets = append(buckets, AggregateBucket{Key: key, Count: count})
+
+					aggregateBucket := AggregateBucket{Key: key, Count: count}
+					if req.GroupBy == "source" {
+						sampleSource := extractAggregateSampleDocument(bucket)
+						host, service, label := resolveAggregateSourceBucketDisplay(key, sampleSource)
+						aggregateBucket.Host = host
+						aggregateBucket.Service = service
+						aggregateBucket.Label = label
+					}
+					buckets = append(buckets, aggregateBucket)
 				}
 			}
 		}

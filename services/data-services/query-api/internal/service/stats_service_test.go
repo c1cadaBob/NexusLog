@@ -117,6 +117,77 @@ func TestStatsServiceAggregate_UsesMinuteHistogramAndStructuredQuery(t *testing.
 	}
 }
 
+func TestStatsServiceAggregate_SourceBucketsExposeHostAndService(t *testing.T) {
+	t.Helper()
+
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request body failed: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"took": 3,
+			"timed_out": false,
+			"hits": {"total": {"value": 0}, "hits": []},
+			"aggregations": {
+				"by_dim": {
+					"buckets": [
+						{
+							"key": "node-a\u001fnginx",
+							"doc_count": 9,
+							"sample_document": {
+								"hits": {
+									"hits": [
+										{
+											"_source": {
+												"host": {"name": "node-a"},
+												"service": {"name": "nginx"},
+												"source": {"path": "/var/log/nginx/access.log"}
+											}
+										}
+									]
+								}
+							}
+						}
+					]
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("DATABASE_ELASTICSEARCH_ADDRESSES", server.URL)
+	t.Setenv("QUERY_LOGS_INDEX", "nexuslog-logs-read")
+
+	svc := NewStatsService(repository.NewElasticsearchRepositoryFromEnv(), nil)
+	result, err := svc.Aggregate(context.Background(), RequestActor{TenantID: "11111111-1111-1111-1111-111111111111"}, AggregateRequest{
+		GroupBy:   "source",
+		TimeRange: "7d",
+	})
+	if err != nil {
+		t.Fatalf("Aggregate() error = %v", err)
+	}
+	if len(result.Buckets) != 1 {
+		t.Fatalf("Aggregate() buckets len = %d, want 1", len(result.Buckets))
+	}
+	if got := result.Buckets[0]; got.Host != "node-a" || got.Service != "nginx" || got.Label != "node-a / nginx" || got.Count != 9 {
+		t.Fatalf("unexpected source aggregate bucket: %+v", got)
+	}
+
+	raw, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatalf("marshal captured request failed: %v", err)
+	}
+	body := string(raw)
+	for _, fragment := range []string{"sample_document", "top_hits", "host.name", "service.name", "script"} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("expected request body to contain %q, got %s", fragment, body)
+		}
+	}
+}
+
 func TestStatsServiceAggregate_UsesFreshCacheForIdenticalRequests(t *testing.T) {
 	t.Helper()
 

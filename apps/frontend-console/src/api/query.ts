@@ -1099,15 +1099,25 @@ function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggre
   });
   const buckets = new Map<string, number>();
 
+  const sourceBucketMeta = new Map<string, { label: string; host: string; service: string }>();
+
   logs.forEach((log) => {
     let key = '';
     switch (params.groupBy) {
       case 'level':
         key = log.level;
         break;
-      case 'source':
-        key = String(log.fields?.source_path ?? log.fields?.source ?? '').trim() || '-';
+      case 'source': {
+        const host = String(log.host || log.fields?.host || 'unknown-host').trim() || 'unknown-host';
+        const service = String(log.service || log.fields?.service_name || log.fields?.service || 'unknown-service').trim() || 'unknown-service';
+        key = `${host}\u001f${service}`;
+        sourceBucketMeta.set(key, {
+          host,
+          service,
+          label: `${host} / ${service}`,
+        });
         break;
+      }
       case 'hour':
         key = truncateDateToHour(new Date(log.timestamp)).toISOString();
         break;
@@ -1120,7 +1130,19 @@ function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggre
     buckets.set(key, (buckets.get(key) ?? 0) + 1);
   });
 
-  const items = Array.from(buckets.entries()).map(([key, count]) => ({ key, count }));
+  const items = Array.from(buckets.entries()).map(([key, count]) => {
+    if (params.groupBy !== 'source') {
+      return { key, count };
+    }
+    const sourceMeta = sourceBucketMeta.get(key);
+    return {
+      key,
+      count,
+      label: sourceMeta?.label,
+      host: sourceMeta?.host,
+      service: sourceMeta?.service,
+    };
+  });
   if (params.groupBy === 'hour' || params.groupBy === 'minute') {
     items.sort((left, right) => left.key.localeCompare(right.key));
   } else {
@@ -1587,6 +1609,9 @@ export interface FetchAggregateStatsParams {
 export interface AggregateBucket {
   key: string;
   count: number;
+  label?: string;
+  host?: string;
+  service?: string;
 }
 
 /** Aggregate stats result */

@@ -191,4 +191,39 @@ describe('AggregateAnalysis page', () => {
 
     expect(screen.queryByText('切换到最近 7 天')).toBeNull();
   });
+
+  it('renders source aggregation as host and service columns', async () => {
+    fetchAggregateStatsMock
+      .mockResolvedValueOnce({ buckets: [{ key: 'info', count: 12 }] })
+      .mockResolvedValueOnce({
+        buckets: [
+          {
+            key: 'node-a\u001fnginx',
+            count: 9,
+            label: 'node-a / nginx',
+            host: 'node-a',
+            service: 'nginx',
+          },
+        ],
+      });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await chooseOption(0, '按主机 / 服务 (Source)');
+    fireEvent.click(await waitForAnalyzeButton());
+
+    await waitFor(() => {
+      expect(fetchAggregateStatsMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(fetchAggregateStatsMock.mock.calls.at(-1)?.[0]).toMatchObject({ groupBy: 'source' });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('columnheader', { name: '主机名' })).toBeTruthy();
+      expect(screen.getByRole('columnheader', { name: '服务名' })).toBeTruthy();
+    });
+  });
 });

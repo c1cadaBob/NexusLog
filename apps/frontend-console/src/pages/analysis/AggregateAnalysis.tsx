@@ -39,7 +39,7 @@ const DECIMAL_FORMATTER = new Intl.NumberFormat('zh-CN', {
 
 const GROUP_BY_OPTIONS: Array<{ value: AggregateGroupBy; label: string }> = [
   { value: 'level', label: '按日志级别 (Level)' },
-  { value: 'source', label: '按日志来源 (Source)' },
+  { value: 'source', label: '按主机 / 服务 (Source)' },
   { value: 'hour', label: '按小时趋势 (Hour)' },
   { value: 'minute', label: '按分钟趋势 (Minute)' },
 ];
@@ -86,6 +86,22 @@ function isTemporalGroupBy(groupBy: AggregateGroupBy): boolean {
   return groupBy === 'hour' || groupBy === 'minute';
 }
 
+function isSourceGroupBy(groupBy: AggregateGroupBy): boolean {
+  return groupBy === 'source';
+}
+
+function resolveSourceBucketHost(bucket: AggregateBucket): string {
+  return bucket.host?.trim() || 'unknown-host';
+}
+
+function resolveSourceBucketService(bucket: AggregateBucket): string {
+  return bucket.service?.trim() || 'unknown-service';
+}
+
+function resolveSourceBucketLabel(bucket: AggregateBucket): string {
+  return bucket.label?.trim() || `${resolveSourceBucketHost(bucket)} / ${resolveSourceBucketService(bucket)}`;
+}
+
 function normalizeFormState(state: AggregateFormState): AggregateFormState {
   return {
     groupBy: state.groupBy,
@@ -111,10 +127,13 @@ function formatAverage(value: number): string {
   return DECIMAL_FORMATTER.format(Number.isFinite(value) ? value : 0);
 }
 
-function formatBucketDisplayValue(groupBy: AggregateGroupBy, rawKey: string): string {
+function formatBucketDisplayValue(groupBy: AggregateGroupBy, rawKey: string, bucket?: AggregateBucket): string {
   const key = rawKey?.trim() || '-';
   if (groupBy === 'level') {
     return key.toUpperCase();
+  }
+  if (isSourceGroupBy(groupBy) && bucket) {
+    return resolveSourceBucketLabel(bucket);
   }
   if (!isTemporalGroupBy(groupBy)) {
     return key;
@@ -242,7 +261,7 @@ function buildMainChartOption(
     };
   }
 
-  const labels = buckets.map((bucket) => bucket.key || '-');
+  const labels = buckets.map((bucket) => formatBucketDisplayValue(groupBy, bucket.key, bucket));
   const values = buckets.map((bucket) => Number(bucket.count || 0));
   const needsZoom = labels.length > 10;
   const colors = groupBy === 'level'
@@ -257,8 +276,8 @@ function buildMainChartOption(
       axisLabel: {
         interval: 0,
         hideOverlap: false,
-        formatter: (value: string) => truncateLabel(String(value ?? ''), groupBy === 'source' ? 16 : 12),
-        rotate: groupBy === 'source' ? 24 : 0,
+        formatter: (value: string) => truncateLabel(String(value ?? ''), groupBy === 'source' ? 18 : 12),
+        rotate: groupBy === 'source' ? 18 : 0,
       },
     },
     yAxis: {
@@ -315,7 +334,7 @@ function buildPieChartOption(buckets: AggregateBucket[], groupBy: AggregateGroup
       const key = bucket.key || '-';
       const color = groupBy === 'level' ? LEVEL_COLORS[key.toLowerCase()] ?? COLORS.primary : undefined;
       return {
-        name: key,
+        name: formatBucketDisplayValue(groupBy, key, bucket),
         value: Number(bucket.count || 0),
         itemStyle: color ? { color } : undefined,
       };
@@ -472,7 +491,7 @@ const AggregateAnalysis: React.FC = () => {
         title: isTemporal ? '峰值时段' : '最高桶',
         value: formatCount(Number(summary.topBucket?.count || 0)),
         helper: summary.topBucket
-          ? formatBucketDisplayValue(queryState.groupBy, summary.topBucket.key)
+          ? formatBucketDisplayValue(queryState.groupBy, summary.topBucket.key, summary.topBucket)
           : '暂无数据',
       },
       {
@@ -488,7 +507,7 @@ const AggregateAnalysis: React.FC = () => {
       return '日志级别分布';
     }
     if (queryState.groupBy === 'source') {
-      return '日志来源分布';
+      return '主机 / 服务分布';
     }
     return queryState.groupBy === 'minute' ? '分钟级事件趋势' : '小时级事件趋势';
   }, [queryState.groupBy]);
@@ -750,7 +769,7 @@ const AggregateAnalysis: React.FC = () => {
               </Card>
             ) : (
               <ChartWrapper
-                title={queryState.groupBy === 'source' ? '来源占比（Top 10）' : '分布占比'}
+                title={queryState.groupBy === 'source' ? '主机 / 服务占比（Top 10）' : '分布占比'}
                 subtitle={mainChartSubtitle}
                 option={pieChartOption}
                 height={360}
@@ -782,9 +801,16 @@ const AggregateAnalysis: React.FC = () => {
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
                       <th style={{ textAlign: 'left', padding: '10px 12px', width: 72, fontWeight: 600 }}>排名</th>
-                      <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600 }}>
-                        {isTemporal ? '时间桶' : queryState.groupBy === 'level' ? '日志级别' : '日志来源'}
-                      </th>
+                      {queryState.groupBy === 'source' ? (
+                        <>
+                          <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600 }}>主机名</th>
+                          <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600 }}>服务名</th>
+                        </>
+                      ) : (
+                        <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600 }}>
+                          {isTemporal ? '时间桶' : '日志级别'}
+                        </th>
+                      )}
                       <th style={{ textAlign: 'right', padding: '10px 12px', width: 140, fontWeight: 600 }}>事件量</th>
                       <th style={{ textAlign: 'right', padding: '10px 12px', width: 180, fontWeight: 600 }}>占比</th>
                     </tr>
@@ -793,34 +819,47 @@ const AggregateAnalysis: React.FC = () => {
                     {displayBuckets.map((bucket, index) => {
                       const count = Number(bucket.count || 0);
                       const share = summary.totalCount > 0 ? (count / summary.totalCount) * 100 : 0;
-                      const displayValue = formatBucketDisplayValue(queryState.groupBy, bucket.key);
+                      const displayValue = formatBucketDisplayValue(queryState.groupBy, bucket.key, bucket);
                       const levelColor = queryState.groupBy === 'level'
                         ? LEVEL_COLORS[bucket.key.toLowerCase()] ?? COLORS.primary
                         : COLORS.primary;
+                      const sourceHost = resolveSourceBucketHost(bucket);
+                      const sourceService = resolveSourceBucketService(bucket);
 
                       return (
                         <tr key={`${bucket.key}-${index}`} style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
                           <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}>#{index + 1}</td>
-                          <td style={{ padding: '10px 12px' }}>
-                            {queryState.groupBy === 'level' ? (
-                              <span
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  padding: '2px 10px',
-                                  borderRadius: 999,
-                                  backgroundColor: `${levelColor}1f`,
-                                  color: levelColor,
-                                  fontWeight: 600,
-                                  fontVariantNumeric: 'tabular-nums',
-                                }}
-                              >
-                                {displayValue}
-                              </span>
-                            ) : (
-                              <div style={{ maxWidth: 520, wordBreak: 'break-all' }}>{displayValue}</div>
-                            )}
-                          </td>
+                          {queryState.groupBy === 'source' ? (
+                            <>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ maxWidth: 260, wordBreak: 'break-all', fontWeight: 500 }}>{sourceHost}</div>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ maxWidth: 260, wordBreak: 'break-all' }}>{sourceService}</div>
+                              </td>
+                            </>
+                          ) : (
+                            <td style={{ padding: '10px 12px' }}>
+                              {queryState.groupBy === 'level' ? (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    padding: '2px 10px',
+                                    borderRadius: 999,
+                                    backgroundColor: `${levelColor}1f`,
+                                    color: levelColor,
+                                    fontWeight: 600,
+                                    fontVariantNumeric: 'tabular-nums',
+                                  }}
+                                >
+                                  {displayValue}
+                                </span>
+                              ) : (
+                                <div style={{ maxWidth: 520, wordBreak: 'break-all' }}>{displayValue}</div>
+                              )}
+                            </td>
+                          )}
                           <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                             {formatCount(count)}
                           </td>
