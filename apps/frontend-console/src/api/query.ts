@@ -1114,6 +1114,18 @@ function resolveAggregateTimeRange(timeRange: FetchAggregateStatsParams['timeRan
 }
 
 const SOURCE_AGGREGATE_KEY_SEPARATOR = '\u001f';
+const CLUSTER_TREND_BUCKET_COUNT = 8;
+const CLUSTER_IP_PATTERN = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+const CLUSTER_UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
+const CLUSTER_EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const CLUSTER_PORT_PATTERN = /\bport\s+(\d{2,5})\b/gi;
+const CLUSTER_DURATION_PATTERN = /\b\d+(?:\.\d+)?\s?(?:ms|s|sec|secs|seconds?|m|min|mins|minutes?|h|hr|hrs|hours?)\b/gi;
+const CLUSTER_USER_PATTERN = /\b(user)\s+([A-Za-z0-9._:@-]+)/gi;
+const CLUSTER_REQUEST_PATTERN = /\b(request)\s+([A-Za-z0-9._:@-]+)/gi;
+const CLUSTER_JOB_PATTERN = /\b(job)\s+([A-Za-z0-9._:@-]+)/gi;
+const CLUSTER_IDENTIFIER_PATTERN = /\b[a-f0-9]{12,}\b/gi;
+const CLUSTER_LONG_NUMBER_PATTERN = /\b\d{3,}\b/g;
+const CLUSTER_PLACEHOLDER_PATTERN = /\{[A-Z_]+\}/g;
 
 function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggregateStatsResult {
   const logs = filterLocalDemoLogs({
@@ -1173,6 +1185,199 @@ function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggre
     items.sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
   }
   return { buckets: items };
+}
+
+function resolveClusterTimeRange(timeRange: FetchLogClustersParams['timeRange']): { from: string; to: string } {
+  const now = new Date();
+  const durationMap: Record<FetchLogClustersParams['timeRange'], number> = {
+    '1h': 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+  };
+  return {
+    from: new Date(now.getTime() - durationMap[timeRange]).toISOString(),
+    to: now.toISOString(),
+  };
+}
+
+function replaceLocalClusterPattern(
+  source: string,
+  pattern: RegExp,
+  placeholder: string,
+  variables: Record<string, string>,
+): string {
+  return source.replace(pattern, (match) => {
+    const value = match.trim();
+    if (value && !variables[placeholder]) {
+      variables[placeholder] = value;
+    }
+    return `{${placeholder}}`;
+  });
+}
+
+function replaceLocalClusterKeywordPattern(
+  source: string,
+  pattern: RegExp,
+  placeholder: string,
+  variables: Record<string, string>,
+): string {
+  return source.replace(pattern, (_match, keyword: string, value: string) => {
+    const normalizedValue = String(value ?? '').trim();
+    if (normalizedValue && !variables[placeholder]) {
+      variables[placeholder] = normalizedValue;
+    }
+    return `${String(keyword ?? '').trim() || placeholder.toLowerCase()} {${placeholder}}`;
+  });
+}
+
+function normalizeLocalClusterTemplate(message: string): { template: string; variables: Record<string, string> } {
+  const variables: Record<string, string> = {};
+  let template = String(message ?? '').trim();
+  if (!template) {
+    return { template: '', variables };
+  }
+
+  template = replaceLocalClusterKeywordPattern(template, CLUSTER_USER_PATTERN, 'USER_ID', variables);
+  template = replaceLocalClusterKeywordPattern(template, CLUSTER_REQUEST_PATTERN, 'REQUEST_ID', variables);
+  template = replaceLocalClusterKeywordPattern(template, CLUSTER_JOB_PATTERN, 'JOB_ID', variables);
+  template = template.replace(CLUSTER_PORT_PATTERN, (_match, port: string) => {
+    const normalizedPort = String(port ?? '').trim();
+    if (normalizedPort && !variables.PORT) {
+      variables.PORT = normalizedPort;
+    }
+    return 'port {PORT}';
+  });
+  template = replaceLocalClusterPattern(template, CLUSTER_DURATION_PATTERN, 'DURATION', variables);
+  template = replaceLocalClusterPattern(template, CLUSTER_UUID_PATTERN, 'UUID', variables);
+  template = replaceLocalClusterPattern(template, CLUSTER_IP_PATTERN, 'IP_ADDRESS', variables);
+  template = replaceLocalClusterPattern(template, CLUSTER_EMAIL_PATTERN, 'EMAIL', variables);
+  template = replaceLocalClusterPattern(template, CLUSTER_IDENTIFIER_PATTERN, 'IDENTIFIER', variables);
+  template = replaceLocalClusterPattern(template, CLUSTER_LONG_NUMBER_PATTERN, 'NUMBER', variables);
+  template = template.replace(/\s+/g, ' ').trim();
+  return { template, variables };
+}
+
+function resolveLocalClusterTrendBucket(timestamp: string, from: Date, to: Date): number {
+  const ts = new Date(timestamp);
+  if (Number.isNaN(ts.getTime())) {
+    return CLUSTER_TREND_BUCKET_COUNT - 1;
+  }
+  const totalWindow = to.getTime() - from.getTime();
+  if (totalWindow <= 0) {
+    return CLUSTER_TREND_BUCKET_COUNT - 1;
+  }
+  const offset = Math.max(0, Math.min(totalWindow, ts.getTime() - from.getTime()));
+  const index = Math.floor((offset / totalWindow) * CLUSTER_TREND_BUCKET_COUNT);
+  return Math.max(0, Math.min(CLUSTER_TREND_BUCKET_COUNT - 1, index));
+}
+
+function buildLocalClusterTrend(counts: number[], from: Date, to: Date): LogClusterTrendPoint[] {
+  const totalWindow = Math.max(60_000, to.getTime() - from.getTime());
+  const bucketWidth = Math.max(60_000, Math.floor(totalWindow / CLUSTER_TREND_BUCKET_COUNT));
+  return Array.from({ length: CLUSTER_TREND_BUCKET_COUNT }, (_, index) => ({
+    time: new Date(from.getTime() + index * bucketWidth).toISOString(),
+    count: counts[index] ?? 0,
+  }));
+}
+
+function estimateLocalClusterSimilarity(template: string): number {
+  const words = template.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return 100;
+  }
+  const placeholders = template.match(CLUSTER_PLACEHOLDER_PATTERN)?.length ?? 0;
+  if (placeholders === 0) {
+    return 100;
+  }
+  const score = Math.round(100 - (placeholders / words.length) * 45);
+  return Math.max(72, Math.min(100, score));
+}
+
+function buildLocalLogClusters(params: FetchLogClustersParams): FetchLogClustersResult {
+  const timeRange = resolveClusterTimeRange(params.timeRange);
+  const allLogs = filterLocalDemoLogs({
+    keywords: params.keywords,
+    filters: params.filters,
+    timeRange,
+  });
+  const sampleSize = Math.max(1, Math.min(params.sampleSize ?? 400, 1000));
+  const limit = Math.max(1, Math.min(params.limit ?? 20, 50));
+  const sampledLogs = allLogs.slice(0, sampleSize);
+  const from = new Date(timeRange.from);
+  const to = new Date(timeRange.to);
+  const patternMap = new Map<string, {
+    id: string;
+    template: string;
+    level: string;
+    occurrences: number;
+    firstSeen: string;
+    lastSeen: string;
+    samples: LogClusterSample[];
+    trend: number[];
+  }>();
+
+  sampledLogs.forEach((log) => {
+    const { template, variables } = normalizeLocalClusterTemplate(log.message || log.rawLog || '');
+    if (!template) {
+      return;
+    }
+    const key = `${String(log.level).toLowerCase()}\u0000${template.toLowerCase()}`;
+    const existing = patternMap.get(key) ?? {
+      id: key,
+      template,
+      level: log.level,
+      occurrences: 0,
+      firstSeen: log.timestamp,
+      lastSeen: log.timestamp,
+      samples: [],
+      trend: Array.from({ length: CLUSTER_TREND_BUCKET_COUNT }, () => 0),
+    };
+    existing.occurrences += 1;
+    if (log.timestamp < existing.firstSeen) {
+      existing.firstSeen = log.timestamp;
+    }
+    if (log.timestamp > existing.lastSeen) {
+      existing.lastSeen = log.timestamp;
+    }
+    const bucketIndex = resolveLocalClusterTrendBucket(log.timestamp, from, to);
+    existing.trend[bucketIndex] += 1;
+    if (existing.samples.length < 3) {
+      existing.samples.push({
+        timestamp: log.timestamp,
+        message: log.message,
+        variables,
+        host: log.host,
+        service: log.service,
+        level: log.level,
+      });
+    }
+    patternMap.set(key, existing);
+  });
+
+  const newPatternCutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const patterns = Array.from(patternMap.values())
+    .map((pattern) => ({
+      id: pattern.id,
+      template: pattern.template,
+      similarity: estimateLocalClusterSimilarity(pattern.template),
+      occurrences: pattern.occurrences,
+      first_seen: pattern.firstSeen,
+      last_seen: pattern.lastSeen,
+      level: pattern.level,
+      trend: buildLocalClusterTrend(pattern.trend, from, to),
+      samples: pattern.samples,
+    }))
+    .sort((left, right) => right.occurrences - left.occurrences || right.last_seen.localeCompare(left.last_seen) || left.template.localeCompare(right.template));
+
+  return {
+    summary: {
+      analyzed_logs_total: allLogs.length,
+      sampled_logs: sampledLogs.length,
+      unique_patterns: patternMap.size,
+      new_patterns_today: patterns.filter((pattern) => Date.parse(pattern.first_seen) >= newPatternCutoff).length,
+    },
+    patterns: patterns.slice(0, limit),
+  };
 }
 
 function shouldFallbackToLocalStore(error: unknown): boolean {
@@ -1694,6 +1899,88 @@ export async function fetchAggregateStats(params: FetchAggregateStatsParams): Pr
   } catch (error) {
     if (shouldFallbackToLocalStore(error)) {
       return buildLocalAggregateStats(params);
+    }
+    throw error;
+  }
+}
+
+export interface LogClusterTrendPoint {
+  time: string;
+  count: number;
+}
+
+export interface LogClusterSample {
+  timestamp: string;
+  message: string;
+  variables: Record<string, string>;
+  host?: string;
+  service?: string;
+  level?: string;
+}
+
+export interface LogClusterPattern {
+  id: string;
+  template: string;
+  similarity: number;
+  occurrences: number;
+  first_seen: string;
+  last_seen: string;
+  level: string;
+  trend: LogClusterTrendPoint[];
+  samples: LogClusterSample[];
+}
+
+export interface LogClusterSummary {
+  analyzed_logs_total: number;
+  sampled_logs: number;
+  unique_patterns: number;
+  new_patterns_today: number;
+}
+
+export interface FetchLogClustersParams {
+  timeRange: '1h' | '24h' | '7d';
+  keywords?: string;
+  filters?: Record<string, unknown>;
+  limit?: number;
+  sampleSize?: number;
+  signal?: AbortSignal;
+}
+
+export interface FetchLogClustersResult {
+  summary: LogClusterSummary;
+  patterns: LogClusterPattern[];
+}
+
+export async function fetchLogClusters(params: FetchLogClustersParams): Promise<FetchLogClustersResult> {
+  if (shouldUseQueryCollectionFallback()) {
+    return buildLocalLogClusters(params);
+  }
+
+  try {
+    const envelope = await requestQueryApi<FetchLogClustersResult>('/stats/clusters', {
+      method: 'POST',
+      signal: params.signal,
+      body: {
+        time_range: params.timeRange,
+        keywords: params.keywords?.trim() ?? '',
+        filters: params.filters ?? {},
+        limit: params.limit ?? 20,
+        sample_size: params.sampleSize ?? 400,
+      },
+    });
+
+    return {
+      summary: envelope.data?.summary ?? {
+        analyzed_logs_total: 0,
+        sampled_logs: 0,
+        unique_patterns: 0,
+        new_patterns_today: 0,
+      },
+      patterns: envelope.data?.patterns ?? [],
+    };
+  } catch (error) {
+    if (shouldFallbackToLocalStore(error)) {
+      return buildLocalLogClusters(params);
     }
     throw error;
   }

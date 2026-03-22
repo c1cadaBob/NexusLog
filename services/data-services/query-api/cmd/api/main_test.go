@@ -95,6 +95,42 @@ func TestRegisterRoutes_SearchLogsRejectsMissingCapability(t *testing.T) {
 	}
 }
 
+func TestRegisterRoutes_ClusterLogsAllowsDirectCapability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	tenantID := "10000000-0000-0000-0000-000000000001"
+	userID := "20000000-0000-0000-0000-000000000003"
+	token := mustIssueToken(t, tenantID, userID, "jti-query-clusters-capability")
+	expectAuthenticatedIdentity(mock, tenantID, userID, "jti-query-clusters-capability", "cluster-reader", []string{"log.query.aggregate"})
+
+	router := gin.New()
+	registerRoutes(
+		router,
+		db,
+		testJWTSecret,
+		handler.NewQueryHandler(service.NewQueryService(nil, nil)),
+		handler.NewStatsHandler(service.NewStatsService(nil, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/query/stats/clusters", strings.NewReader(`{"time_range":`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func expectAuthenticatedIdentity(mock sqlmock.Sqlmock, tenantID, userID, jti, username string, permissions []string) {
 	mock.ExpectQuery(`FROM user_sessions`).
 		WithArgs(tenantID, userID, jti, sqlmock.AnyArg()).
@@ -106,6 +142,17 @@ func expectAuthenticatedIdentity(mock sqlmock.Sqlmock, tenantID, userID, jti, us
 		WillReturnRows(
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow(username, "viewer", rawPermissions),
+		)
+	mock.ExpectQuery(`FROM legacy_permission_mapping`).
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery(`FROM authz_version`).
+		WithArgs(tenantID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(1))
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, username).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}).
+				AddRow(false, true, false, false, "test"),
 		)
 }
 

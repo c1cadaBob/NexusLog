@@ -56,3 +56,26 @@ func (h *StatsHandler) Aggregate(c *gin.Context) {
 
 	writeSuccess(c, http.StatusOK, result, nil)
 }
+
+// ClusterLogs POST /api/v1/query/stats/clusters
+func (h *StatsHandler) ClusterLogs(c *gin.Context) {
+	actor := resolveActor(c)
+	if actor.TenantID == "" {
+		writeError(c, http.StatusUnauthorized, CodeQueryUnauthorized, "tenant context is required")
+		return
+	}
+
+	var req service.ClusterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, CodeQueryInvalidParams, "invalid request body")
+		return
+	}
+
+	result, err := h.svc.ClusterLogs(c.Request.Context(), actor, req)
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+
+	writeSuccess(c, http.StatusOK, result, nil)
+}

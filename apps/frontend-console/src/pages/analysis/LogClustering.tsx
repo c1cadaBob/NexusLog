@@ -1,99 +1,57 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Card, Tag, Input, Button, Statistic, Drawer, Tabs, Space, Segmented, Descriptions } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Descriptions,
+  Drawer,
+  Empty,
+  Input,
+  Segmented,
+  Space,
+  Statistic,
+  Tabs,
+  Tag,
+} from 'antd';
+import {
+  fetchLogClusters,
+  type FetchLogClustersParams,
+  type FetchLogClustersResult,
+  type LogClusterPattern,
+  type LogClusterSample,
+} from '../../api/query';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 
-// ============================================================================
-// 类型定义
-// ============================================================================
+const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
 
-interface LogSample {
-  timestamp: string;
-  message: string;
-  variables: Record<string, string>;
-}
+type ClusterTimeRange = FetchLogClustersParams['timeRange'];
+type LevelFilter = 'all' | 'error' | 'warn' | 'info' | 'debug';
 
-interface LogPattern {
-  id: string;
-  template: string;
-  similarity: number;
-  occurrences: number;
-  trend: number[];
-  firstSeen: string;
-  lastSeen: string;
-  level: 'error' | 'warn' | 'info' | 'debug';
-  samples: LogSample[];
-}
+const EMPTY_RESULT: FetchLogClustersResult = {
+  summary: {
+    analyzed_logs_total: 0,
+    sampled_logs: 0,
+    unique_patterns: 0,
+    new_patterns_today: 0,
+  },
+  patterns: [],
+};
 
-// ============================================================================
-// 模拟数据
-// ============================================================================
-
-const LOG_PATTERNS: LogPattern[] = [
-  {
-    id: '1',
-    template: 'Error: Connection timed out to database {IP_ADDRESS} at port {PORT}',
-    similarity: 98,
-    occurrences: 15240,
-    trend: [20, 40, 30, 60, 45, 80, 90, 100],
-    firstSeen: '2023-10-27 10:00:01',
-    lastSeen: '刚刚',
-    level: 'error',
-    samples: [
-      { timestamp: 'Oct 27 10:45:01', message: 'Error: Connection timed out to database 192.168.1.100 at port 5432', variables: { IP_ADDRESS: '192.168.1.100', PORT: '5432' } },
-      { timestamp: 'Oct 27 10:45:05', message: 'Error: Connection timed out to database 192.168.1.101 at port 5432', variables: { IP_ADDRESS: '192.168.1.101', PORT: '5432' } },
-      { timestamp: 'Oct 27 10:46:12', message: 'Error: Connection timed out to database 10.0.0.50 at port 3306', variables: { IP_ADDRESS: '10.0.0.50', PORT: '3306' } },
-    ],
-  },
-  {
-    id: '2',
-    template: 'User {USER_ID} failed login attempt from {SOURCE_IP}',
-    similarity: 100,
-    occurrences: 340,
-    trend: [20, 20, 20, 25, 20, 20, 20, 20],
-    firstSeen: '2023-10-26 14:20:00',
-    lastSeen: '2 分钟前',
-    level: 'warn',
-    samples: [
-      { timestamp: 'Oct 27 10:45:01', message: 'User admin_01 failed login attempt from 192.168.1.105', variables: { USER_ID: 'admin_01', SOURCE_IP: '192.168.1.105' } },
-      { timestamp: 'Oct 27 10:45:05', message: 'User guest_user failed login attempt from 10.0.0.52', variables: { USER_ID: 'guest_user', SOURCE_IP: '10.0.0.52' } },
-      { timestamp: 'Oct 27 10:46:12', message: 'User service_acc failed login attempt from 172.16.254.1', variables: { USER_ID: 'service_acc', SOURCE_IP: '172.16.254.1' } },
-    ],
-  },
-  {
-    id: '3',
-    template: 'INFO: Batch job {JOB_ID} completed in {DURATION} ms',
-    similarity: 85,
-    occurrences: 8902,
-    trend: [50, 50, 50, 50, 50, 50, 50, 50],
-    firstSeen: '2023-10-20 08:00:00',
-    lastSeen: '1 小时前',
-    level: 'info',
-    samples: [
-      { timestamp: 'Oct 27 09:00:00', message: 'INFO: Batch job job_001 completed in 1234 ms', variables: { JOB_ID: 'job_001', DURATION: '1234' } },
-      { timestamp: 'Oct 27 09:15:00', message: 'INFO: Batch job job_002 completed in 2345 ms', variables: { JOB_ID: 'job_002', DURATION: '2345' } },
-      { timestamp: 'Oct 27 09:30:00', message: 'INFO: Batch job job_003 completed in 987 ms', variables: { JOB_ID: 'job_003', DURATION: '987' } },
-    ],
-  },
-  {
-    id: '4',
-    template: 'DEBUG: Processing request {REQUEST_ID} for user {USER_ID}',
-    similarity: 92,
-    occurrences: 45230,
-    trend: [60, 70, 65, 80, 75, 85, 90, 88],
-    firstSeen: '2023-10-15 00:00:00',
-    lastSeen: '刚刚',
-    level: 'debug',
-    samples: [
-      { timestamp: 'Oct 27 10:50:01', message: 'DEBUG: Processing request req_abc123 for user user_001', variables: { REQUEST_ID: 'req_abc123', USER_ID: 'user_001' } },
-      { timestamp: 'Oct 27 10:50:02', message: 'DEBUG: Processing request req_def456 for user user_002', variables: { REQUEST_ID: 'req_def456', USER_ID: 'user_002' } },
-    ],
-  },
+const TIME_RANGE_OPTIONS: Array<{ value: ClusterTimeRange; label: string }> = [
+  { value: '1h', label: '1 小时' },
+  { value: '24h', label: '24 小时' },
+  { value: '7d', label: '7 天' },
 ];
 
-// ============================================================================
-// 辅助函数
-// ============================================================================
+const LEVEL_FILTER_OPTIONS: Array<{ value: LevelFilter; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'error', label: 'ERROR' },
+  { value: 'warn', label: 'WARN' },
+  { value: 'info', label: 'INFO' },
+  { value: 'debug', label: 'DEBUG' },
+];
 
 const LEVEL_CONFIG: Record<string, { color: string; tagColor: string; label: string }> = {
   error: { color: COLORS.danger, tagColor: 'error', label: 'ERROR' },
@@ -102,89 +60,277 @@ const LEVEL_CONFIG: Record<string, { color: string; tagColor: string; label: str
   debug: { color: COLORS.purple, tagColor: 'purple', label: 'DEBUG' },
 };
 
-/** 渲染模板字符串，高亮变量占位符 */
-const renderTemplate = (template: string) =>
-  template.split(/(\{[^}]+\})/).map((part, i) =>
-    part.match(/\{[^}]+\}/) ? (
-      <Tag key={i} color="blue" style={{ margin: '0 2px', fontSize: 11, lineHeight: '18px', padding: '0 4px' }}>{part}</Tag>
-    ) : (
-      <span key={i}>{part}</span>
-    ),
-  );
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
 
-/** 渲染样本消息，高亮变量值 */
-const renderSampleMessage = (message: string) =>
-  message.split(/(\b\d+\.\d+\.\d+\.\d+\b|\b[a-zA-Z_]+_\d+\b|\b\d{3,}\b)/).map((part, i) =>
-    part.match(/\d+\.\d+\.\d+\.\d+/) || part.match(/[a-zA-Z_]+_\d+/) || part.match(/^\d{3,}$/) ? (
-      <span key={i} style={{ color: COLORS.warning }}>{part}</span>
-    ) : (
-      <span key={i}>{part}</span>
-    ),
-  );
+function formatCount(value: number): string {
+  return NUMBER_FORMATTER.format(Number.isFinite(value) ? value : 0);
+}
 
-// ============================================================================
-// 主组件
-// ============================================================================
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value || '-';
+  }
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function buildRequestFilters(levelFilter: LevelFilter): Record<string, unknown> {
+  if (levelFilter === 'all') {
+    return {};
+  }
+  return { level: levelFilter };
+}
+
+function renderTemplate(template: string) {
+  return template.split(/(\{[^}]+\})/).map((part, index) => (
+    /\{[^}]+\}/.test(part)
+      ? (
+        <Tag key={`${part}-${index}`} color="blue" style={{ margin: '0 2px', fontSize: 11, lineHeight: '18px', padding: '0 4px' }}>
+          {part}
+        </Tag>
+      )
+      : <span key={`${part}-${index}`}>{part}</span>
+  ));
+}
+
+function renderSampleMessage(message: string, sample: LogClusterSample) {
+  let segments: Array<{ text: string; highlighted: boolean }> = [{ text: message, highlighted: false }];
+  Object.values(sample.variables ?? {}).forEach((rawValue) => {
+    const value = String(rawValue ?? '').trim();
+    if (!value) {
+      return;
+    }
+    segments = segments.flatMap((segment) => {
+      if (segment.highlighted || !segment.text.includes(value)) {
+        return [segment];
+      }
+      const parts = segment.text.split(value);
+      return parts.flatMap((part, index) => {
+        const items: Array<{ text: string; highlighted: boolean }> = [];
+        if (part) {
+          items.push({ text: part, highlighted: false });
+        }
+        if (index < parts.length - 1) {
+          items.push({ text: value, highlighted: true });
+        }
+        return items;
+      });
+    });
+  });
+
+  return segments.map((segment, index) => (
+    segment.highlighted
+      ? <span key={`${segment.text}-${index}`} style={{ color: COLORS.warning }}>{segment.text}</span>
+      : <span key={`${segment.text}-${index}`}>{segment.text}</span>
+  ));
+}
+
+function renderTrendBars(pattern: LogClusterPattern, isDark: boolean, height = 56) {
+  const maxCount = Math.max(1, ...pattern.trend.map((point) => Number(point.count || 0)));
+  return (
+    <div>
+      <div className="flex items-end gap-1" style={{ height }}>
+        {pattern.trend.map((point, index) => {
+          const value = Number(point.count || 0);
+          const percentage = Math.max(6, Math.round((value / maxCount) * 100));
+          return (
+            <div
+              key={`${pattern.id}-${point.time}-${index}`}
+              style={{
+                flex: 1,
+                height: `${percentage}%`,
+                borderRadius: '8px 8px 0 0',
+                backgroundColor: value === maxCount ? COLORS.primary : `${COLORS.primary}80`,
+                minHeight: value > 0 ? 8 : 4,
+              }}
+              title={`${formatDateTime(point.time)}：${formatCount(value)} 条`}
+            />
+          );
+        })}
+      </div>
+      <div className="flex items-center justify-between mt-2 text-xs" style={{ opacity: 0.55 }}>
+        <span>{formatDateTime(pattern.trend[0]?.time ?? '')}</span>
+        <span>{formatDateTime(pattern.trend[pattern.trend.length - 1]?.time ?? '')}</span>
+      </div>
+    </div>
+  );
+}
+
+function downloadAsJson(filename: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.URL.revokeObjectURL(url);
+}
 
 const LogClustering: React.FC = () => {
-  const isDark = useThemeStore((s) => s.isDark);
+  const { message } = App.useApp();
+  const isDark = useThemeStore((state) => state.isDark);
 
-  const [expandedId, setExpandedId] = useState<string | null>('2');
-  const [selectedPattern, setSelectedPattern] = useState<LogPattern | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [levelFilter, setLevelFilter] = useState<string>('all');
-  const [timeRange, setTimeRange] = useState('24h');
+  const [timeRange, setTimeRange] = useState<ClusterTimeRange>('7d');
+  const [keywordInput, setKeywordInput] = useState('');
+  const [keywords, setKeywords] = useState('');
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>('all');
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<FetchLogClustersResult>(EMPTY_RESULT);
+  const [selectedPatternID, setSelectedPatternID] = useState<string | null>(null);
+  const [hiddenPatternIDs, setHiddenPatternIDs] = useState<string[]>([]);
 
-  const handleToggle = useCallback((id: string) => {
-    setExpandedId((prev) => (prev === id ? null : id));
-  }, []);
+  const requestFilters = useMemo(() => buildRequestFilters(levelFilter), [levelFilter]);
 
-  // 过滤模式
-  const filteredPatterns = useMemo(() => {
-    return LOG_PATTERNS.filter((p) => {
-      const matchSearch = !searchQuery || p.template.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchLevel = levelFilter === 'all' || p.level === levelFilter;
-      return matchSearch && matchLevel;
-    });
-  }, [searchQuery, levelFilter]);
-
-  // 统计
-  const totalLogs = LOG_PATTERNS.reduce((sum, p) => sum + p.occurrences, 0);
-
-  // 下钻面板中提取所有变量
-  const allVariables = useMemo(() => {
-    if (!selectedPattern) return {};
-    return selectedPattern.samples.reduce((acc, sample) => {
-      Object.entries(sample.variables).forEach(([key, value]) => {
-        if (!acc[key]) acc[key] = new Set<string>();
-        acc[key].add(value);
+  const loadClusters = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError('');
+    try {
+      const nextResult = await fetchLogClusters({
+        timeRange,
+        keywords,
+        filters: requestFilters,
+        limit: 24,
+        sampleSize: 400,
+        signal,
       });
-      return acc;
+      if (signal?.aborted) {
+        return;
+      }
+      setResult(nextResult);
+    } catch (loadError) {
+      if (isAbortError(loadError)) {
+        return;
+      }
+      setResult(EMPTY_RESULT);
+      setError(loadError instanceof Error ? loadError.message : '聚类分析加载失败，请稍后重试');
+    } finally {
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
+    }
+  }, [keywords, requestFilters, timeRange]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadClusters(controller.signal);
+    return () => controller.abort();
+  }, [loadClusters, refreshToken]);
+
+  const visiblePatterns = useMemo(
+    () => result.patterns.filter((pattern) => !hiddenPatternIDs.includes(pattern.id)),
+    [hiddenPatternIDs, result.patterns],
+  );
+
+  const selectedPattern = useMemo(
+    () => visiblePatterns.find((pattern) => pattern.id === selectedPatternID) ?? null,
+    [selectedPatternID, visiblePatterns],
+  );
+
+  useEffect(() => {
+    if (selectedPatternID && !visiblePatterns.some((pattern) => pattern.id === selectedPatternID)) {
+      setSelectedPatternID(null);
+    }
+  }, [selectedPatternID, visiblePatterns]);
+
+  const selectedVariables = useMemo<Record<string, Set<string>>>(() => {
+    if (!selectedPattern) {
+      return {} as Record<string, Set<string>>;
+    }
+    return selectedPattern.samples.reduce<Record<string, Set<string>>>((accumulator, sample) => {
+      Object.entries(sample.variables ?? {}).forEach(([name, value]) => {
+        if (!accumulator[name]) {
+          accumulator[name] = new Set<string>();
+        }
+        accumulator[name].add(String(value ?? '').trim());
+      });
+      return accumulator;
     }, {} as Record<string, Set<string>>);
   }, [selectedPattern]);
 
+  const selectedVariableEntries = useMemo(
+    () => Object.entries(selectedVariables).map(([name, values]) => [name, Array.from(values).filter(Boolean)] as const),
+    [selectedVariables],
+  );
+
+  const handleRefresh = useCallback(() => {
+    setRefreshToken((current) => current + 1);
+  }, []);
+
+  const handleApplySearch = useCallback((value: string) => {
+    const normalized = value.trim();
+    setKeywordInput(value);
+    setKeywords(normalized);
+  }, []);
+
+  const handleExportReport = useCallback(() => {
+    if (visiblePatterns.length === 0) {
+      message.info('当前没有可导出的聚类结果');
+      return;
+    }
+    downloadAsJson(`log-clustering-${Date.now()}.json`, {
+      filters: {
+        timeRange,
+        keywords,
+        levelFilter,
+      },
+      summary: result.summary,
+      patterns: visiblePatterns,
+    });
+    message.success('已导出当前聚类报告');
+  }, [keywords, levelFilter, message, result.summary, timeRange, visiblePatterns]);
+
+  const handleExportPattern = useCallback((pattern: LogClusterPattern | null) => {
+    if (!pattern) {
+      return;
+    }
+    downloadAsJson(`log-cluster-${pattern.id}.json`, pattern);
+    message.success('已导出当前模式详情');
+  }, [message]);
+
+  const handleExcludePattern = useCallback((pattern: LogClusterPattern | null) => {
+    if (!pattern) {
+      return;
+    }
+    setHiddenPatternIDs((current) => (current.includes(pattern.id) ? current : [...current, pattern.id]));
+    setSelectedPatternID(null);
+    message.success('已在当前会话中隐藏该模式');
+  }, [message]);
+
+  const handleCreateAlert = useCallback(() => {
+    message.info('告警规则预填入口将在下一步接入');
+  }, [message]);
+
   return (
     <div className="flex flex-col gap-4">
-      {/* 页面头部 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-bold m-0">聚类分析</h2>
-          <span className="text-xs opacity-50">Log Clustering</span>
+          <span className="text-xs" style={{ opacity: 0.55 }}>基于真实日志样本的模式聚合与相似分析</span>
         </div>
         <Space wrap>
           <Segmented
             value={timeRange}
-            onChange={(v) => setTimeRange(v as string)}
-            options={[
-              { value: '1h', label: '1 小时' },
-              { value: '24h', label: '24 小时' },
-              { value: '7d', label: '7 天' },
-            ]}
+            onChange={(value) => setTimeRange(value as ClusterTimeRange)}
+            options={TIME_RANGE_OPTIONS}
             size="small"
           />
+          <Button onClick={handleRefresh} loading={loading}>刷新分析</Button>
           <Button
             type="primary"
-            size="small"
+            onClick={handleExportReport}
             icon={<span className="material-symbols-outlined text-sm">download</span>}
           >
             导出报告
@@ -192,263 +338,189 @@ const LogClustering: React.FC = () => {
         </Space>
       </div>
 
-      {/* KPI 卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {hiddenPatternIDs.length > 0 && (
+        <Alert
+          type="info"
+          showIcon
+          message={`当前会话已隐藏 ${hiddenPatternIDs.length} 个模式，可点击“刷新分析”重新拉取全部结果。`}
+        />
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <Statistic
-            title="分析日志总量"
-            value={`${(totalLogs / 1000000).toFixed(1)}M`}
-            prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.primary }}>data_usage</span>}
-            suffix={<span className="text-xs text-green-500 ml-1">↑ 2.4%</span>}
+            title="匹配事件总量"
+            value={formatCount(result.summary.analyzed_logs_total)}
+            prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.primary }}>monitoring</span>}
+          />
+        </Card>
+        <Card>
+          <Statistic
+            title="已分析样本"
+            value={formatCount(result.summary.sampled_logs)}
+            prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.purple }}>data_usage</span>}
           />
         </Card>
         <Card>
           <Statistic
             title="唯一模式数"
-            value={LOG_PATTERNS.length}
-            prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.purple }}>category</span>}
+            value={formatCount(result.summary.unique_patterns)}
+            prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.info }}>category</span>}
           />
         </Card>
         <Card>
           <Statistic
-            title="今日新增模式"
-            value="+15"
+            title="近 24h 新模式"
+            value={formatCount(result.summary.new_patterns_today)}
             prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.warning }}>new_releases</span>}
-            suffix={<span className="text-xs text-red-500 ml-1">↑ 5.2%</span>}
           />
         </Card>
       </div>
 
-      {/* 模式列表 */}
       <Card
-        title={
+        title={(
           <div>
             <div className="text-base font-bold">日志模式</div>
-            <div className="text-xs opacity-50 font-normal mt-0.5">自动将数百万条日志聚合为模式模板</div>
+            <div className="text-xs font-normal mt-0.5" style={{ opacity: 0.55 }}>
+              对最近时间窗内的真实日志做模板归一化，并输出高频模式、样本和趋势
+            </div>
           </div>
-        }
-        extra={
+        )}
+        extra={(
           <Space wrap>
             <Input.Search
-              placeholder="搜索模式内容..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ width: 240 }}
+              name="cluster_keywords"
+              placeholder="输入关键词后回车，例如 timeout / login / audit"
+              value={keywordInput}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setKeywordInput(nextValue);
+                if (!nextValue.trim()) {
+                  setKeywords('');
+                }
+              }}
+              onSearch={handleApplySearch}
+              style={{ width: 320 }}
               size="small"
               allowClear
             />
             <Segmented
               value={levelFilter}
-              onChange={(v) => setLevelFilter(v as string)}
-              options={[
-                { value: 'all', label: '全部' },
-                { value: 'error', label: 'ERROR' },
-                { value: 'warn', label: 'WARN' },
-                { value: 'info', label: 'INFO' },
-                { value: 'debug', label: 'DEBUG' },
-              ]}
+              onChange={(value) => setLevelFilter(value as LevelFilter)}
+              options={LEVEL_FILTER_OPTIONS}
               size="small"
             />
           </Space>
-        }
-        styles={{ body: { padding: 0 } }}
+        )}
+        styles={{ body: { padding: visiblePatterns.length === 0 ? 24 : 16 } }}
       >
-        {filteredPatterns.map((pattern) => {
-          const levelCfg = LEVEL_CONFIG[pattern.level];
-          const isExpanded = expandedId === pattern.id;
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            message="聚类分析加载失败"
+            description={error}
+            style={{ marginBottom: 16 }}
+          />
+        )}
 
-          return (
-            <div key={pattern.id}>
-              {/* 模式行 */}
-              <div
-                onClick={() => handleToggle(pattern.id)}
-                className="flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors"
-                style={{
-                  borderBottom: `1px solid ${isDark ? '#334155' : '#f0f0f0'}`,
-                  backgroundColor: isExpanded ? (isDark ? 'rgba(19,91,236,0.04)' : 'rgba(19,91,236,0.02)') : 'transparent',
-                }}
-              >
-                {/* 展开箭头 */}
-                <span
-                  className="material-symbols-outlined text-base opacity-40 mt-0.5 transition-transform"
-                  style={{ transform: isExpanded ? 'rotate(90deg)' : 'none' }}
-                >
-                  chevron_right
-                </span>
+        {loading && result.patterns.length === 0 ? (
+          <Card loading variant="borderless" styles={{ body: { padding: 0 } }} />
+        ) : visiblePatterns.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="当前条件下暂无可展示的聚类模式，请尝试切换时间范围、级别或关键词。"
+          />
+        ) : (
+          <div className="flex flex-col gap-4">
+            {visiblePatterns.map((pattern) => {
+              const levelConfig = LEVEL_CONFIG[pattern.level] ?? LEVEL_CONFIG.info;
+              return (
+                <Card key={pattern.id} size="small">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="flex-1 min-w-[280px]">
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        <Tag color={levelConfig.tagColor}>{levelConfig.label}</Tag>
+                        <span className="text-xs" style={{ opacity: 0.55 }}>相似度 {pattern.similarity}%</span>
+                        <span className="text-xs" style={{ opacity: 0.55 }}>首次出现 {formatDateTime(pattern.first_seen)}</span>
+                        <span className="text-xs" style={{ opacity: 0.55 }}>最后出现 {formatDateTime(pattern.last_seen)}</span>
+                      </div>
 
-                {/* 级别标签 */}
-                <Tag color={levelCfg.tagColor} style={{ margin: 0, fontSize: 10, flexShrink: 0 }}>{levelCfg.label}</Tag>
+                      <div
+                        className="font-mono text-sm break-all leading-relaxed p-3 rounded-lg"
+                        style={{
+                          backgroundColor: isDark ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.03)',
+                          border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                        }}
+                      >
+                        {renderTemplate(pattern.template)}
+                      </div>
 
-                {/* 模板内容 */}
-                <div className="flex-1 min-w-0">
-                  <div className="font-mono text-sm break-all leading-relaxed">
-                    {renderTemplate(pattern.template)}
-                  </div>
-                  <div className="text-xs opacity-40 mt-1">
-                    首次: {pattern.firstSeen} · 最后: {pattern.lastSeen}
-                  </div>
-                </div>
+                      <div className="mt-3">
+                        {renderTrendBars(pattern, isDark)}
+                      </div>
 
-                {/* 相似度 */}
-                <div className="flex items-center gap-1.5 flex-shrink-0" style={{ width: 80 }}>
-                  <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: isDark ? '#334155' : '#e2e8f0' }}>
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${pattern.similarity}%`,
-                        backgroundColor: pattern.similarity >= 95 ? COLORS.success : pattern.similarity >= 80 ? COLORS.warning : COLORS.danger,
-                      }}
-                    />
-                  </div>
-                  <span className="text-xs">{pattern.similarity}%</span>
-                </div>
-
-                {/* 出现次数 */}
-                <div className="text-sm font-medium flex-shrink-0" style={{ width: 70, textAlign: 'right' }}>
-                  {pattern.occurrences.toLocaleString()}
-                </div>
-
-                {/* 趋势迷你图 */}
-                <div className="flex items-end gap-0.5 h-6 flex-shrink-0" style={{ width: 64 }}>
-                  {pattern.trend.map((h, i) => (
-                    <div
-                      key={i}
-                      className="flex-1 rounded-sm"
-                      style={{ height: `${h}%`, backgroundColor: h > 50 ? COLORS.primary : `${COLORS.primary}80` }}
-                    />
-                  ))}
-                </div>
-
-                {/* 操作按钮 */}
-                <Space size={4} className="flex-shrink-0">
-                  <Button
-                    type="text"
-                    size="small"
-                    onClick={(e) => { e.stopPropagation(); setSelectedPattern(pattern); }}
-                    icon={<span className="material-symbols-outlined text-base">zoom_in</span>}
-                    title="下钻分析"
-                  />
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<span className="material-symbols-outlined text-base">notifications_active</span>}
-                    title="创建告警"
-                  />
-                </Space>
-              </div>
-
-              {/* 展开的样本面板 */}
-              {isExpanded && (
-                <div
-                  className="px-4 py-3"
-                  style={{
-                    backgroundColor: isDark ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)',
-                    borderBottom: `1px solid ${isDark ? '#334155' : '#f0f0f0'}`,
-                  }}
-                >
-                  <div className="ml-8">
-                    <Card
-                      size="small"
-                      title={
-                        <span className="flex items-center gap-1.5 text-xs">
-                          <span className="material-symbols-outlined text-sm" style={{ color: COLORS.primary }}>list_alt</span>
-                          模式 #{pattern.id} 的原始日志样本
-                        </span>
-                      }
-                      extra={
-                        <Button type="link" size="small" onClick={() => setSelectedPattern(pattern)}>
-                          查看全部日志
-                        </Button>
-                      }
-                    >
-                      <div className="flex flex-col gap-1.5">
-                        {pattern.samples.slice(0, 3).map((sample, idx) => (
+                      {pattern.samples.length > 0 && (
+                        <div className="mt-3 text-xs" style={{ opacity: 0.8 }}>
+                          <div style={{ marginBottom: 8 }}>样本预览</div>
                           <div
-                            key={idx}
-                            className="flex gap-3 p-2 rounded text-xs font-mono"
+                            className="font-mono rounded-lg p-3"
                             style={{
-                              backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
+                              backgroundColor: isDark ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.02)',
                               border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                             }}
                           >
-                            <span className="opacity-40 whitespace-nowrap">{sample.timestamp}</span>
-                            <span className="break-all">{renderSampleMessage(sample.message)}</span>
+                            {renderSampleMessage(pattern.samples[0].message, pattern.samples[0])}
                           </div>
-                        ))}
-                      </div>
-                      <div
-                        className="flex items-center justify-between mt-3 pt-3 text-xs"
-                        style={{ borderTop: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}
-                      >
-                        <span className="opacity-40">
-                          显示 {Math.min(3, pattern.samples.length)} / {pattern.occurrences.toLocaleString()} 条
-                        </span>
-                        <Space size={8}>
-                          <Button size="small" type="default">创建告警规则</Button>
-                          <Button size="small" type="default">排除此模式</Button>
-                        </Space>
-                      </div>
-                    </Card>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+                        </div>
+                      )}
+                    </div>
 
-        {/* 底部分页信息 */}
-        <div
-          className="flex items-center justify-between px-4 py-3 text-sm"
-          style={{ borderTop: `1px solid ${isDark ? '#334155' : '#f0f0f0'}` }}
-        >
-          <span className="opacity-50">
-            显示 {filteredPatterns.length} / {LOG_PATTERNS.length} 个模式
-          </span>
-        </div>
+                    <div style={{ width: 180, minWidth: 160 }}>
+                      <Card size="small" styles={{ body: { padding: 12 } }}>
+                        <Statistic title="出现次数" value={formatCount(pattern.occurrences)} valueStyle={{ fontSize: 24, color: levelConfig.color }} />
+                      </Card>
+                      <div className="flex flex-col gap-2 mt-3">
+                        <Button type="primary" onClick={() => setSelectedPatternID(pattern.id)}>查看详情</Button>
+                        <Button onClick={() => handleExcludePattern(pattern)}>隐藏模式</Button>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </Card>
 
-      {/* 下钻详情抽屉 */}
       <Drawer
-        title={
-          selectedPattern ? (
-            <div className="flex items-center gap-2">
-              <Tag color={LEVEL_CONFIG[selectedPattern.level].tagColor} style={{ margin: 0 }}>
-                {LEVEL_CONFIG[selectedPattern.level].label}
-              </Tag>
-              <span className="text-xs opacity-50">Pattern #{selectedPattern.id}</span>
-            </div>
-          ) : '模式详情'
-        }
-        open={!!selectedPattern}
-        onClose={() => setSelectedPattern(null)}
+        title={selectedPattern ? '模式详情' : '模式详情'}
+        open={Boolean(selectedPattern)}
+        onClose={() => setSelectedPatternID(null)}
         width={560}
-        footer={
-          selectedPattern && (
-            <Space style={{ width: '100%' }}>
-              <Button type="primary" block>创建告警规则</Button>
-              <Button block>排除此模式</Button>
-              <Button icon={<span className="material-symbols-outlined text-sm">download</span>} />
-            </Space>
-          )
-        }
+        footer={selectedPattern ? (
+          <Space style={{ width: '100%' }}>
+            <Button type="primary" block onClick={handleCreateAlert}>创建告警规则</Button>
+            <Button block onClick={() => handleExcludePattern(selectedPattern)}>排除此模式</Button>
+            <Button onClick={() => handleExportPattern(selectedPattern)} icon={<span className="material-symbols-outlined text-sm">download</span>} />
+          </Space>
+        ) : null}
       >
         {selectedPattern && (
           <div className="flex flex-col gap-4">
-            {/* 模板 */}
             <div
               className="p-3 rounded-lg font-mono text-sm break-all leading-relaxed"
               style={{
-                backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
+                backgroundColor: isDark ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.03)',
                 border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
               }}
             >
               {renderTemplate(selectedPattern.template)}
             </div>
 
-            {/* 统计信息 */}
             <div className="grid grid-cols-2 gap-3">
               <Card size="small">
-                <Statistic title="出现次数" value={selectedPattern.occurrences.toLocaleString()} valueStyle={{ fontSize: 18 }} />
+                <Statistic title="出现次数" value={formatCount(selectedPattern.occurrences)} valueStyle={{ fontSize: 18 }} />
               </Card>
               <Card size="small">
                 <Statistic title="相似度" value={selectedPattern.similarity} suffix="%" valueStyle={{ fontSize: 18 }} />
@@ -456,11 +528,12 @@ const LogClustering: React.FC = () => {
             </div>
 
             <Descriptions column={2} size="small" bordered>
-              <Descriptions.Item label="首次出现">{selectedPattern.firstSeen}</Descriptions.Item>
-              <Descriptions.Item label="最后出现">{selectedPattern.lastSeen}</Descriptions.Item>
+              <Descriptions.Item label="日志级别">{(LEVEL_CONFIG[selectedPattern.level] ?? LEVEL_CONFIG.info).label}</Descriptions.Item>
+              <Descriptions.Item label="样本数量">{selectedPattern.samples.length}</Descriptions.Item>
+              <Descriptions.Item label="首次出现">{formatDateTime(selectedPattern.first_seen)}</Descriptions.Item>
+              <Descriptions.Item label="最后出现">{formatDateTime(selectedPattern.last_seen)}</Descriptions.Item>
             </Descriptions>
 
-            {/* Tabs: 日志样本 / 变量分析 / 时间线 */}
             <Tabs
               defaultActiveKey="samples"
               size="small"
@@ -470,24 +543,27 @@ const LogClustering: React.FC = () => {
                   label: '日志样本',
                   children: (
                     <div className="flex flex-col gap-2">
-                      <div className="flex items-center justify-between text-xs opacity-50 mb-1">
+                      <div className="flex items-center justify-between text-xs mb-1" style={{ opacity: 0.55 }}>
                         <span>原始日志样本</span>
-                        <span>显示 {selectedPattern.samples.length} / {selectedPattern.occurrences.toLocaleString()} 条</span>
+                        <span>显示 {selectedPattern.samples.length} / {formatCount(selectedPattern.occurrences)} 条</span>
                       </div>
-                      {selectedPattern.samples.map((sample, idx) => (
+                      {selectedPattern.samples.map((sample, index) => (
                         <div
-                          key={idx}
+                          key={`${selectedPattern.id}-sample-${index}`}
                           className="p-3 rounded-lg font-mono text-xs break-all"
                           style={{
-                            backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
+                            backgroundColor: isDark ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.03)',
                             border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                           }}
                         >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="opacity-40">{sample.timestamp}</span>
-                            <Button type="link" size="small" style={{ fontSize: 11, padding: 0, height: 'auto' }}>复制</Button>
+                          <div className="flex items-center justify-between mb-1.5 gap-4 flex-wrap">
+                            <span style={{ opacity: 0.45 }}>{formatDateTime(sample.timestamp)}</span>
+                            <Space size={4}>
+                              {sample.host && <Tag style={{ margin: 0 }}>{sample.host}</Tag>}
+                              {sample.service && <Tag style={{ margin: 0 }}>{sample.service}</Tag>}
+                            </Space>
                           </div>
-                          <div>{renderSampleMessage(sample.message)}</div>
+                          <div>{renderSampleMessage(sample.message, sample)}</div>
                         </div>
                       ))}
                     </div>
@@ -496,13 +572,22 @@ const LogClustering: React.FC = () => {
                 {
                   key: 'variables',
                   label: '变量分析',
-                  children: (
+                  children: selectedVariableEntries.length === 0 ? (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该模式未提取到变量占位符。" />
+                  ) : (
                     <div className="flex flex-col gap-3">
-                      {Object.entries(allVariables).map(([varName, values]) => (
-                        <Card key={varName} size="small" title={<span style={{ color: COLORS.primary }}>{`{${varName}}`}</span>} extra={<span className="text-xs opacity-50">{values.size} 个唯一值</span>}>
+                      {selectedVariableEntries.map(([name, values]) => (
+                        <Card
+                          key={name}
+                          size="small"
+                          title={<span style={{ color: COLORS.primary }}>{`{${name}}`}</span>}
+                          extra={<span className="text-xs" style={{ opacity: 0.55 }}>{values.length} 个唯一值</span>}
+                        >
                           <div className="flex flex-wrap gap-1.5">
-                            {Array.from(values).map((value, idx) => (
-                              <Tag key={idx} style={{ margin: 0 }}><span className="font-mono text-xs">{value}</span></Tag>
+                            {values.map((value) => (
+                              <Tag key={`${name}-${value}`} style={{ margin: 0 }}>
+                                <span className="font-mono text-xs">{value}</span>
+                              </Tag>
                             ))}
                           </div>
                         </Card>
@@ -515,27 +600,15 @@ const LogClustering: React.FC = () => {
                   label: '时间线',
                   children: (
                     <div>
-                      <div className="text-xs opacity-50 mb-2">出现频率趋势</div>
+                      <div className="text-xs mb-2" style={{ opacity: 0.55 }}>模式出现频率趋势</div>
                       <div
                         className="p-4 rounded-lg"
                         style={{
-                          backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
+                          backgroundColor: isDark ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.03)',
                           border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                         }}
                       >
-                        <div className="flex items-end gap-1 h-32">
-                          {selectedPattern.trend.map((h, i) => (
-                            <div
-                              key={i}
-                              className="flex-1 rounded-t transition-colors"
-                              style={{ height: `${h}%`, backgroundColor: h > 50 ? COLORS.primary : `${COLORS.primary}80` }}
-                            />
-                          ))}
-                        </div>
-                        <div className="flex justify-between mt-2 text-xs opacity-40">
-                          <span>24h 前</span>
-                          <span>现在</span>
-                        </div>
+                        {renderTrendBars(selectedPattern, isDark, 120)}
                       </div>
                     </div>
                   ),
