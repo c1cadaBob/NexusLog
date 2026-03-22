@@ -38,6 +38,24 @@ interface BackendAlertRule {
   updated_at: string;
 }
 
+function normalizeNotificationChannelIDs(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return Array.from(new Set(raw.map((item) => String(item ?? '').trim()).filter(Boolean)));
+  }
+  if (typeof raw === 'string') {
+    const normalized = raw.trim();
+    if (!normalized) {
+      return [];
+    }
+    try {
+      return normalizeNotificationChannelIDs(JSON.parse(normalized) as unknown);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 /** Backend alert event response */
 interface BackendAlertEvent {
   id: string;
@@ -163,7 +181,7 @@ function mapBackendRuleToFrontend(r: BackendAlertRule): AlertRule {
     conditions: [{ metric: metric || 'value', operator, threshold }],
     labels: {},
     annotations: {},
-    actions: [],
+    actions: normalizeNotificationChannelIDs(r.notification_channels),
     createdBy: r.created_by || '',
     createdAt,
     updatedAt,
@@ -207,6 +225,7 @@ export interface CreateAlertRulePayload {
   };
   severity?: string;
   enabled?: boolean;
+  notificationChannelIDs?: string[];
 }
 
 function buildCondition(payload: CreateAlertRulePayload): Record<string, unknown> {
@@ -251,7 +270,7 @@ export async function createAlertRule(data: CreateAlertRulePayload): Promise<Ale
       condition,
       severity: data.severity || 'medium',
       enabled: data.enabled ?? true,
-      notification_channels: [],
+      notification_channels: data.notificationChannelIDs ?? [],
     },
   });
 
@@ -276,6 +295,7 @@ export interface UpdateAlertRulePayload {
   condition?: Record<string, unknown>;
   severity?: string;
   enabled?: boolean;
+  notificationChannelIDs?: string[];
 }
 
 /** Update an existing alert rule */
@@ -312,6 +332,7 @@ export async function updateAlertRule(id: string, data: UpdateAlertRulePayload):
       ...(condition != null && { condition }),
       ...(data.severity != null && { severity: data.severity }),
       ...(data.enabled != null && { enabled: data.enabled }),
+      ...(data.notificationChannelIDs !== undefined && { notification_channels: data.notificationChannelIDs }),
     },
   });
 

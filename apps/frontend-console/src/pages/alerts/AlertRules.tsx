@@ -4,7 +4,7 @@ import { App, Input, Select, Table, Tag, Button, Card, Space, Modal, Form, Switc
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
-import type { AlertRule, AlertSeverity, RuleStatus } from '../../types/alert';
+import type { AlertRule, AlertSeverity, NotificationChannel, RuleStatus } from '../../types/alert';
 import { ALERT_SEVERITY_CONFIG } from '../../types/alert';
 import {
   fetchAlertRules,
@@ -15,7 +15,14 @@ import {
   disableAlertRule,
   type CreateAlertRulePayload,
 } from '../../api/alert';
-import { consumePendingAlertRuleDraft, type PendingAlertRuleDraft } from '../../utils/alertRulePrefill';
+import { fetchNotificationChannels } from '../../api/notification';
+import {
+  composeAlertRuleDescription,
+  consumePendingAlertRuleDraft,
+  parseAlertRuleDescription,
+  resolveSuggestedNotificationChannelIDs,
+  type PendingAlertRuleDraft,
+} from '../../utils/alertRulePrefill';
 
 const severityTagColor: Record<AlertSeverity, string> = {
   critical: 'error',
@@ -58,6 +65,8 @@ const AlertRules: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [ruleType, setRuleType] = useState<'keyword' | 'level_count' | 'threshold'>('keyword');
   const [pendingPrefillDraft, setPendingPrefillDraft] = useState<PendingAlertRuleDraft | null>(null);
+  const [availableChannels, setAvailableChannels] = useState<NotificationChannel[]>([]);
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
 
   const loadRules = useCallback(async () => {
     setLoading(true);
@@ -78,6 +87,32 @@ const AlertRules: React.FC = () => {
   useEffect(() => {
     loadRules();
   }, [loadRules]);
+
+  useEffect(() => {
+    let active = true;
+    const loadChannels = async () => {
+      try {
+        const items = await fetchNotificationChannels();
+        if (!active) {
+          return;
+        }
+        setAvailableChannels(items);
+      } catch {
+        if (!active) {
+          return;
+        }
+        setAvailableChannels([]);
+      } finally {
+        if (active) {
+          setChannelsLoaded(true);
+        }
+      }
+    };
+    void loadChannels();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filteredRules = useMemo(() => {
     return rules.filter((rule) => {
@@ -113,11 +148,14 @@ const AlertRules: React.FC = () => {
       conditionOperator: draft?.conditionOperator ?? 'gt',
       name: draft?.name ?? '',
       description: draft?.description ?? '',
+      owner: draft?.owner ?? '',
+      labels: draft?.labels ?? [],
+      notificationChannelIDs: draft ? resolveSuggestedNotificationChannelIDs(draft, availableChannels) : [],
       conditionMetric: draft?.conditionMetric ?? '',
       conditionThreshold: draft?.conditionThreshold ?? undefined,
     });
     setModalOpen(true);
-  }, [form]);
+  }, [availableChannels, form]);
 
   useEffect(() => {
     const draft = consumePendingAlertRuleDraft();
@@ -128,19 +166,20 @@ const AlertRules: React.FC = () => {
   }, [location.key]);
 
   useEffect(() => {
-    if (!pendingPrefillDraft || loading) {
+    if (!pendingPrefillDraft || loading || !channelsLoaded) {
       return;
     }
     openCreate(pendingPrefillDraft);
     setPendingPrefillDraft(null);
     message.info('已根据异常检测结果预填告警规则，请确认后保存');
-  }, [loading, message, openCreate, pendingPrefillDraft]);
+  }, [channelsLoaded, loading, message, openCreate, pendingPrefillDraft]);
 
   const openEdit = useCallback(
     (rule: AlertRule) => {
       setModalMode('edit');
       setCurrentRule(rule);
       const cond = rule.conditions[0];
+      const parsedDescription = parseAlertRuleDescription(rule.description);
       let rt: 'keyword' | 'level_count' | 'threshold' = 'keyword';
       if (rule.query.includes('count(level=')) rt = 'level_count';
       else if (cond?.metric && cond.metric !== 'value' && cond.metric !== 'level_count') rt = 'threshold';
@@ -148,7 +187,10 @@ const AlertRules: React.FC = () => {
 
       form.setFieldsValue({
         name: rule.name,
-        description: rule.description,
+        description: parsedDescription.body,
+        owner: parsedDescription.owner,
+        labels: parsedDescription.labels,
+        notificationChannelIDs: rule.actions,
         query: rule.query,
         ruleType: rt,
         severity: rule.severity,
@@ -173,17 +215,26 @@ const AlertRules: React.FC = () => {
       const field = values.keywordField || 'message';
       return {
         name: values.name,
-        description: values.description,
+        description: composeAlertRuleDescription({
+          body: values.description,
+          owner: values.owner,
+          labels: values.labels,
+        }),
         conditionType: 'keyword',
         condition: { keyword, field },
         severity: values.severity,
         enabled: true,
+        notificationChannelIDs: values.notificationChannelIDs ?? [],
       };
     }
     if (values.ruleType === 'level_count') {
       return {
         name: values.name,
-        description: values.description,
+        description: composeAlertRuleDescription({
+          body: values.description,
+          owner: values.owner,
+          labels: values.labels,
+        }),
         conditionType: 'level_count',
         condition: {
           level: values.level || 'ERROR',
@@ -192,11 +243,16 @@ const AlertRules: React.FC = () => {
         },
         severity: values.severity,
         enabled: true,
+        notificationChannelIDs: values.notificationChannelIDs ?? [],
       };
     }
     return {
       name: values.name,
-      description: values.description,
+      description: composeAlertRuleDescription({
+        body: values.description,
+        owner: values.owner,
+        labels: values.labels,
+      }),
       conditionType: 'threshold',
       condition: {
         metric: values.conditionMetric || '',
@@ -205,6 +261,7 @@ const AlertRules: React.FC = () => {
       },
       severity: values.severity,
       enabled: true,
+      notificationChannelIDs: values.notificationChannelIDs ?? [],
     };
   }, [form]);
 
@@ -224,7 +281,11 @@ const AlertRules: React.FC = () => {
         const values = form.getFieldsValue();
         const update: Parameters<typeof updateAlertRule>[1] = {
           name: values.name,
-          description: values.description,
+          description: composeAlertRuleDescription({
+            body: values.description,
+            owner: values.owner,
+            labels: values.labels,
+          }),
           severity: values.severity,
         };
         if (values.ruleType === 'keyword') {
@@ -248,6 +309,7 @@ const AlertRules: React.FC = () => {
             value: values.conditionThreshold ?? 0,
           };
         }
+        update.notificationChannelIDs = values.notificationChannelIDs ?? [];
         await updateAlertRule(currentRule.id, update);
         message.success(`规则 "${values.name}" 已更新`);
       }
@@ -618,6 +680,31 @@ const AlertRules: React.FC = () => {
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea id="description" placeholder="输入规则描述" rows={2} />
+          </Form.Item>
+          <Form.Item name="owner" label="负责人">
+            <Input id="owner" placeholder="例如：service-oncall / 团队负责人" />
+          </Form.Item>
+          <Form.Item name="labels" label="标签">
+            <Select
+              mode="tags"
+              aria-label="规则标签"
+              tokenSeparators={[',', '，']}
+              placeholder="例如：source:anomaly_detection, service:order-api"
+              options={[]}
+            />
+          </Form.Item>
+          <Form.Item name="notificationChannelIDs" label="通知渠道">
+            <Select
+              mode="multiple"
+              aria-label="通知渠道"
+              placeholder={availableChannels.length > 0 ? '选择通知渠道' : '暂无可用通知渠道'}
+              options={availableChannels.map((channel) => ({
+                value: channel.id,
+                label: `${channel.name}${channel.enabled ? '' : '（已禁用）'}`,
+              }))}
+              optionFilterProp="label"
+              allowClear
+            />
           </Form.Item>
           <Form.Item name="ruleType" label="规则类型" initialValue="keyword">
             <Select

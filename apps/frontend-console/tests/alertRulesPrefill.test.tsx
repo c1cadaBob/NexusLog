@@ -14,6 +14,7 @@ const updateAlertRuleMock = vi.fn();
 const deleteAlertRuleMock = vi.fn();
 const enableAlertRuleMock = vi.fn();
 const disableAlertRuleMock = vi.fn();
+const fetchNotificationChannelsMock = vi.fn();
 
 vi.mock('../src/api/alert', () => ({
   fetchAlertRules: (...args: unknown[]) => fetchAlertRulesMock(...args),
@@ -22,6 +23,10 @@ vi.mock('../src/api/alert', () => ({
   deleteAlertRule: (...args: unknown[]) => deleteAlertRuleMock(...args),
   enableAlertRule: (...args: unknown[]) => enableAlertRuleMock(...args),
   disableAlertRule: (...args: unknown[]) => disableAlertRuleMock(...args),
+}));
+
+vi.mock('../src/api/notification', () => ({
+  fetchNotificationChannels: (...args: unknown[]) => fetchNotificationChannelsMock(...args),
 }));
 
 vi.mock('../src/stores/themeStore', () => ({
@@ -90,7 +95,28 @@ describe('AlertRules prefill', () => {
     deleteAlertRuleMock.mockReset();
     enableAlertRuleMock.mockReset();
     disableAlertRuleMock.mockReset();
+    fetchNotificationChannelsMock.mockReset();
     fetchAlertRulesMock.mockResolvedValue({ items: [], total: 0 });
+    fetchNotificationChannelsMock.mockResolvedValue([
+      {
+        id: 'channel-anomaly',
+        name: '异常告警群',
+        type: 'dingtalk',
+        config: {},
+        enabled: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      {
+        id: 'channel-mail',
+        name: '邮件通知',
+        type: 'email',
+        config: {},
+        enabled: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
   });
 
   afterEach(() => {
@@ -109,12 +135,16 @@ describe('AlertRules prefill', () => {
       conditionMetric: 'error_rate',
       conditionOperator: 'gte',
       conditionThreshold: 25,
+      owner: 'order-api',
+      labels: ['source:anomaly_detection', 'service:order-api'],
+      notificationChannelIDs: ['channel-anomaly'],
     });
 
     renderPage();
 
     await waitFor(() => {
       expect(fetchAlertRulesMock).toHaveBeenCalledTimes(1);
+      expect(fetchNotificationChannelsMock).toHaveBeenCalledTimes(1);
     });
 
     await waitFor(() => {
@@ -123,8 +153,11 @@ describe('AlertRules prefill', () => {
 
     expect((document.getElementById('name') as HTMLInputElement | null)?.value).toBe('[异常检测] 异常错误率 - order-api');
     expect((document.getElementById('description') as HTMLTextAreaElement | null)?.value).toContain('来源：异常检测');
+    expect((document.getElementById('owner') as HTMLInputElement | null)?.value).toBe('order-api');
     expect((document.getElementById('conditionMetric') as HTMLInputElement | null)?.value).toBe('error_rate');
     expect((document.getElementById('conditionThreshold') as HTMLInputElement | null)?.value).toBe('25');
+    expect(screen.getByText('service:order-api')).toBeTruthy();
+    expect(screen.getByText('异常告警群')).toBeTruthy();
     expect(consumePendingAlertRuleDraft()).toBeNull();
   });
 });
