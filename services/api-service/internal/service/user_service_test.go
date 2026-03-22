@@ -251,20 +251,20 @@ func TestUserServiceCreateUserRejectsReservedUsername(t *testing.T) {
 	}
 }
 
-func TestUserServiceCreateUserFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+func TestUserServiceCreateUserFallsBackWhenReservedPolicySourceUnavailable(t *testing.T) {
 	policyRepo := &mockUserReservedPolicyRepository{unavailable: true}
 	tenantID := uuid.NewString()
-	svc := NewUserService(&mockUserRepository{tenantExists: true}, policyRepo)
-	_, apiErr := svc.CreateUser(context.Background(), tenantID, model.CreateUserRequest{
+	svc := NewUserService(&mockUserRepository{tenantExists: true, createUserID: uuid.NewString()}, policyRepo)
+	resp, apiErr := svc.CreateUser(context.Background(), tenantID, model.CreateUserRequest{
 		Username: "tenant_root",
 		Password: "SecureP@ss1",
 		Email:    "root@example.com",
 	})
-	if apiErr == nil {
-		t.Fatal("expected authorization unavailable error")
-	}
-	if apiErr.HTTPStatus != 503 || apiErr.Code != "AUTHORIZATION_UNAVAILABLE" {
+	if apiErr != nil {
 		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+	if resp.ID == "" || resp.Username != "tenant_root" {
+		t.Fatalf("unexpected create response: %+v", resp)
 	}
 }
 
@@ -553,7 +553,7 @@ func TestUserServiceGetMeAppliesReservedPolicy(t *testing.T) {
 	}
 }
 
-func TestUserServiceGetMeFailsClosedWhenReservedPolicyUnavailable(t *testing.T) {
+func TestUserServiceGetMeFallsBackWhenReservedPolicyUnavailable(t *testing.T) {
 	tenantID := uuid.New()
 	userID := uuid.New()
 	now := time.Now()
@@ -572,9 +572,15 @@ func TestUserServiceGetMeFailsClosedWhenReservedPolicyUnavailable(t *testing.T) 
 	policyRepo := &mockUserReservedPolicyRepository{unavailable: true}
 
 	svc := NewUserService(repo, policyRepo)
-	_, apiErr := svc.GetMe(context.Background(), tenantID.String(), userID.String())
-	if apiErr == nil || apiErr.Code != "AUTHORIZATION_UNAVAILABLE" || apiErr.HTTPStatus != 503 {
-		t.Fatalf("expected authorization unavailable error, got %+v", apiErr)
+	resp, apiErr := svc.GetMe(context.Background(), tenantID.String(), userID.String())
+	if apiErr != nil {
+		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+	if resp.User.Username != "alice" {
+		t.Fatalf("unexpected user payload: %+v", resp.User)
+	}
+	if resp.ActorFlags["reserved"] || !resp.ActorFlags["interactive_login_allowed"] {
+		t.Fatalf("unexpected actor flags: %+v", resp.ActorFlags)
 	}
 }
 

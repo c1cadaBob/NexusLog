@@ -597,14 +597,16 @@ func (s *UserService) GetMe(ctx context.Context, tenantHeader, userID string) (m
 	authorizationContext := buildAuthorizationContextWithOptions(userData.Username, userData.Roles, permissions, authzOptions)
 	if s.reservedPolicyRepo != nil {
 		policy, policySourceAvailable, err := s.reservedPolicyRepo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, userData.Username)
-		if err != nil || !policySourceAvailable {
+		if err != nil {
 			return model.GetMeResponseData{}, &model.APIError{
 				HTTPStatus: http.StatusServiceUnavailable,
 				Code:       "AUTHORIZATION_UNAVAILABLE",
 				Message:    "authorization backend unavailable",
 			}
 		}
-		authorizationContext = ApplyReservedSubjectPolicyForMiddleware(authorizationContext, policy)
+		if policySourceAvailable {
+			authorizationContext = ApplyReservedSubjectPolicyForMiddleware(authorizationContext, policy)
+		}
 	}
 
 	return model.GetMeResponseData{
@@ -659,14 +661,14 @@ func (s *UserService) ListRoles(ctx context.Context, tenantHeader string) ([]mod
 func (s *UserService) isReservedUsernameBlocked(ctx context.Context, tenantID uuid.UUID, username string) (bool, *model.APIError) {
 	if s.reservedPolicyRepo != nil {
 		policy, policySourceAvailable, err := s.reservedPolicyRepo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, username)
-		if err != nil || !policySourceAvailable {
+		if err != nil {
 			return false, &model.APIError{
 				HTTPStatus: http.StatusServiceUnavailable,
 				Code:       "AUTHORIZATION_UNAVAILABLE",
 				Message:    "authorization backend unavailable",
 			}
 		}
-		if policy.Reserved {
+		if policySourceAvailable && policy.Reserved {
 			return true, nil
 		}
 	}

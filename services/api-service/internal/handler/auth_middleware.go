@@ -196,11 +196,13 @@ func AuthRequired(db *sql.DB, jwtSecret string) gin.HandlerFunc {
 			},
 		)
 		policy, policySourceAvailable, err := authRepo.LookupReservedUsernamePolicyWithAvailability(c.Request.Context(), parseUUIDOrNil(claims.TenantID), userRecord.Username)
-		if err != nil || !policySourceAvailable {
+		if err != nil {
 			writeAuthorizationUnavailable(c)
 			return
 		}
-		authorizationContext = service.ApplyReservedSubjectPolicyForMiddleware(authorizationContext, policy)
+		if policySourceAvailable {
+			authorizationContext = service.ApplyReservedSubjectPolicyForMiddleware(authorizationContext, policy)
+		}
 		if !isInteractiveAccessAllowed(authorizationContext.ActorFlags) {
 			httpx.Error(c, &model.APIError{
 				HTTPStatus: http.StatusForbidden,

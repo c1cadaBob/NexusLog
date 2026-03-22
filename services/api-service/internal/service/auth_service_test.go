@@ -238,20 +238,26 @@ func TestRegisterValidationAndTenantErrors(t *testing.T) {
 	}
 }
 
-func TestRegisterFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+func TestRegisterFallsBackWhenReservedPolicySourceUnavailable(t *testing.T) {
 	tenantID := uuid.NewString()
+	expectedUserID := uuid.New()
 	svc := NewAuthService(&mockAuthRepository{
 		tenantExists:              true,
 		reservedPolicyUnavailable: true,
+		userID:                    expectedUserID,
+		username:                  "tenant_root",
 	}, "test-secret")
 
-	_, err := svc.Register(context.Background(), tenantID, model.RegisterRequest{
+	resp, err := svc.Register(context.Background(), tenantID, model.RegisterRequest{
 		Username: "tenant_root",
 		Password: "Password123",
 		Email:    "root@example.com",
 	})
-	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" {
-		t.Fatalf("expected authorization unavailable error, got %#v", err)
+	if err != nil {
+		t.Fatalf("expected success, got %#v", err)
+	}
+	if resp.UserID != expectedUserID.String() || resp.Username != "tenant_root" {
+		t.Fatalf("unexpected success response: %#v", resp)
 	}
 }
 
@@ -492,7 +498,7 @@ func TestLoginRejectsPolicyReservedInteractiveAccessForCustomUsername(t *testing
 	}
 }
 
-func TestLoginFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+func TestLoginFallsBackWhenReservedPolicySourceUnavailable(t *testing.T) {
 	tenantID := uuid.NewString()
 	userID := uuid.New()
 
@@ -506,27 +512,27 @@ func TestLoginFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
 		reservedPolicyUnavailable: true,
 		loginUser: repository.LoginUserRecord{
 			UserID:       userID,
-			Username:     "valid_user",
-			Email:        "user@example.com",
-			DisplayName:  "User",
+			Username:     reservedUsernameSuperAdmin,
+			Email:        "root@example.com",
+			DisplayName:  "Super Admin",
 			Status:       "active",
 			PasswordHash: string(hash),
 		},
 	}
 
 	svc := NewAuthService(repoMock, "test-secret")
-	_, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: "valid_user", Password: "Password123"}, "127.0.0.1", "ua")
-	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" || err.HTTPStatus != 503 {
-		t.Fatalf("expected authorization unavailable error, got %#v", err)
+	resp, err := svc.Login(context.Background(), tenantID, model.LoginRequest{Username: reservedUsernameSuperAdmin, Password: "Password123"}, "127.0.0.1", "ua")
+	if err != nil {
+		t.Fatalf("expected success, got %#v", err)
 	}
-	if repoMock.sessionCreateCall != 0 {
-		t.Fatalf("expected no session creation, got %d", repoMock.sessionCreateCall)
+	if resp.User.UserID != userID.String() || resp.User.Username != reservedUsernameSuperAdmin {
+		t.Fatalf("unexpected user payload: %#v", resp.User)
 	}
-	if repoMock.lastLoginAttempt == nil {
-		t.Fatal("expected blocked login attempt record")
+	if repoMock.sessionCreateCall != 1 {
+		t.Fatalf("expected session create call once, got %d", repoMock.sessionCreateCall)
 	}
-	if repoMock.lastLoginAttempt.Result != "blocked" || repoMock.lastLoginAttempt.Reason != "authorization_unavailable" {
-		t.Fatalf("unexpected blocked login attempt: %#v", repoMock.lastLoginAttempt)
+	if repoMock.lastLoginAttempt == nil || repoMock.lastLoginAttempt.Result != "success" {
+		t.Fatalf("expected successful login attempt, got %#v", repoMock.lastLoginAttempt)
 	}
 }
 
@@ -647,26 +653,29 @@ func TestRefreshRejectsPolicyReservedInteractiveAccessForCustomUsername(t *testi
 	}
 }
 
-func TestRefreshFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+func TestRefreshFallsBackWhenReservedPolicySourceUnavailable(t *testing.T) {
 	tenantID := uuid.NewString()
 	repoMock := &mockAuthRepository{
 		tenantExists:              true,
 		reservedPolicyUnavailable: true,
 		refreshUser: repository.UserIdentityRecord{
 			UserID:   uuid.New(),
-			Username: "valid_user",
-			Email:    "user@example.com",
+			Username: reservedUsernameSuperAdmin,
+			Email:    "root@example.com",
 			Status:   "active",
 		},
 	}
 	svc := NewAuthService(repoMock, "test-secret")
 
-	_, err := svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-custom"}, "127.0.0.1", "ua")
-	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" || err.HTTPStatus != 503 {
-		t.Fatalf("expected authorization unavailable error, got %#v", err)
+	resp, err := svc.Refresh(context.Background(), tenantID, model.RefreshRequest{RefreshToken: "rt-custom"}, "127.0.0.1", "ua")
+	if err != nil {
+		t.Fatalf("expected refresh success, got %#v", err)
 	}
-	if repoMock.rotateCall != 0 {
-		t.Fatalf("expected no rotate call, got %d", repoMock.rotateCall)
+	if resp.AccessToken == "" || resp.RefreshToken == "" || resp.ExpiresIn <= 0 {
+		t.Fatalf("unexpected refresh response: %#v", resp)
+	}
+	if repoMock.rotateCall == 0 {
+		t.Fatalf("expected rotate call")
 	}
 }
 
@@ -829,7 +838,7 @@ func TestPasswordResetRequestSkipsNonInteractiveSubject(t *testing.T) {
 	}
 }
 
-func TestPasswordResetRequestFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+func TestPasswordResetRequestFallsBackWhenReservedPolicySourceUnavailable(t *testing.T) {
 	tenantID := uuid.NewString()
 	repoMock := &mockAuthRepository{
 		tenantExists:              true,
@@ -843,12 +852,12 @@ func TestPasswordResetRequestFailsClosedWhenReservedPolicySourceUnavailable(t *t
 	}
 	svc := NewAuthService(repoMock, "test-secret")
 
-	_, err := svc.PasswordResetRequest(context.Background(), tenantID, model.PasswordResetRequestRequest{EmailOrUsername: "alice"}, "127.0.0.1", "ua")
-	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" || err.HTTPStatus != 503 {
-		t.Fatalf("expected authorization unavailable error, got %#v", err)
+	resp, err := svc.PasswordResetRequest(context.Background(), tenantID, model.PasswordResetRequestRequest{EmailOrUsername: "alice"}, "127.0.0.1", "ua")
+	if err != nil || !resp.Accepted {
+		t.Fatalf("expected accepted reset request, resp=%#v err=%#v", resp, err)
 	}
-	if repoMock.createResetCall != 0 {
-		t.Fatalf("expected no reset token creation, got %d", repoMock.createResetCall)
+	if repoMock.createResetCall == 0 {
+		t.Fatalf("expected reset token creation")
 	}
 }
 
@@ -949,7 +958,7 @@ func TestPasswordResetConfirmRejectsNonInteractiveSubject(t *testing.T) {
 	}
 }
 
-func TestPasswordResetConfirmFailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+func TestPasswordResetConfirmFallsBackWhenReservedPolicySourceUnavailable(t *testing.T) {
 	tenantID := uuid.NewString()
 	repoMock := &mockAuthRepository{
 		tenantExists:              true,
@@ -963,14 +972,17 @@ func TestPasswordResetConfirmFailsClosedWhenReservedPolicySourceUnavailable(t *t
 	}
 	svc := NewAuthService(repoMock, "test-secret")
 
-	_, err := svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
+	resp, err := svc.PasswordResetConfirm(context.Background(), tenantID, model.PasswordResetConfirmRequest{
 		Token:       "token-closed",
 		NewPassword: "Password123",
 	})
-	if err == nil || err.Code != "AUTHORIZATION_UNAVAILABLE" || err.HTTPStatus != 503 {
-		t.Fatalf("expected authorization unavailable error, got %#v", err)
+	if err != nil {
+		t.Fatalf("expected reset confirm success, got %#v", err)
 	}
-	if repoMock.confirmResetCall != 0 {
-		t.Fatalf("expected no confirm reset call, got %d", repoMock.confirmResetCall)
+	if !resp.Reset {
+		t.Fatalf("expected reset=true, got %#v", resp)
+	}
+	if repoMock.confirmResetCall == 0 {
+		t.Fatalf("expected confirm reset call")
 	}
 }

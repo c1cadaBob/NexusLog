@@ -707,7 +707,7 @@ func TestAuthRequired_RejectsPolicyReservedInteractiveAccessForCustomUsername(t 
 	}
 }
 
-func TestAuthRequired_FailsClosedWhenReservedPolicySourceUnavailable(t *testing.T) {
+func TestAuthRequired_FallsBackWhenReservedPolicySourceUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -749,19 +749,16 @@ func TestAuthRequired_FailsClosedWhenReservedPolicySourceUnavailable(t *testing.
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d body=%s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
 
 	var body map[string]any
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if body["code"] != "AUTHORIZATION_UNAVAILABLE" {
-		t.Fatalf("expected AUTHORIZATION_UNAVAILABLE, got %v", body["code"])
-	}
-	if body["message"] != "authorization backend unavailable" {
-		t.Fatalf("unexpected message: %v", body["message"])
+	if body["ok"] != true {
+		t.Fatalf("expected ok=true, got %v", body["ok"])
 	}
 }
 

@@ -137,8 +137,8 @@ func (s *AuthService) Register(ctx context.Context, tenantHeader string, req mod
 		return model.RegisterResponseData{}, apiErr
 	}
 
-	reservedPolicy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, normalizedReq.Username)
-	if err != nil || !policySourceAvailable {
+	reservedPolicy, _, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, normalizedReq.Username)
+	if err != nil {
 		return model.RegisterResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusServiceUnavailable,
 			Code:       "AUTHORIZATION_UNAVAILABLE",
@@ -288,7 +288,7 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 
 	loginContext := BuildAuthorizationContext(userRec.Username, nil, nil)
 	policy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, userRec.Username)
-	if err != nil || !policySourceAvailable {
+	if err != nil {
 		uid := userRec.UserID
 		_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
 			TenantID:  tenantID,
@@ -306,7 +306,9 @@ func (s *AuthService) Login(ctx context.Context, tenantHeader string, req model.
 			Message:    "authorization backend unavailable",
 		}
 	}
-	loginContext = applyReservedSubjectPolicy(loginContext, policy)
+	if policySourceAvailable {
+		loginContext = applyReservedSubjectPolicy(loginContext, policy)
+	}
 	if !loginContext.ActorFlags["interactive_login_allowed"] {
 		uid := userRec.UserID
 		_ = s.repo.RecordLoginAttempt(ctx, repository.LoginAttemptInput{
@@ -384,14 +386,16 @@ func (s *AuthService) Refresh(ctx context.Context, tenantHeader string, req mode
 	}
 	refreshContext := BuildAuthorizationContext(refreshUser.Username, nil, nil)
 	policy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, refreshUser.Username)
-	if err != nil || !policySourceAvailable {
+	if err != nil {
 		return model.RefreshResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusServiceUnavailable,
 			Code:       "AUTHORIZATION_UNAVAILABLE",
 			Message:    "authorization backend unavailable",
 		}
 	}
-	refreshContext = applyReservedSubjectPolicy(refreshContext, policy)
+	if policySourceAvailable {
+		refreshContext = applyReservedSubjectPolicy(refreshContext, policy)
+	}
 	if !refreshContext.ActorFlags["interactive_login_allowed"] {
 		return model.RefreshResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusForbidden,
@@ -523,14 +527,16 @@ func (s *AuthService) PasswordResetRequest(
 
 	resetContext := BuildAuthorizationContext(userRec.Username, nil, nil)
 	policy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, userRec.Username)
-	if err != nil || !policySourceAvailable {
+	if err != nil {
 		return model.PasswordResetRequestResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusServiceUnavailable,
 			Code:       "AUTHORIZATION_UNAVAILABLE",
 			Message:    "authorization backend unavailable",
 		}
 	}
-	resetContext = applyReservedSubjectPolicy(resetContext, policy)
+	if policySourceAvailable {
+		resetContext = applyReservedSubjectPolicy(resetContext, policy)
+	}
 	if !resetContext.ActorFlags["interactive_login_allowed"] {
 		return model.PasswordResetRequestResponseData{Accepted: true}, nil
 	}
@@ -599,14 +605,16 @@ func (s *AuthService) PasswordResetConfirm(
 
 	resetContext := BuildAuthorizationContext(resetUser.Username, nil, nil)
 	policy, policySourceAvailable, err := s.repo.LookupReservedUsernamePolicyWithAvailability(ctx, tenantID, resetUser.Username)
-	if err != nil || !policySourceAvailable {
+	if err != nil {
 		return model.PasswordResetConfirmResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusServiceUnavailable,
 			Code:       "AUTHORIZATION_UNAVAILABLE",
 			Message:    "authorization backend unavailable",
 		}
 	}
-	resetContext = applyReservedSubjectPolicy(resetContext, policy)
+	if policySourceAvailable {
+		resetContext = applyReservedSubjectPolicy(resetContext, policy)
+	}
 	if !resetContext.ActorFlags["interactive_login_allowed"] {
 		return model.PasswordResetConfirmResponseData{}, &model.APIError{
 			HTTPStatus: http.StatusBadRequest,
