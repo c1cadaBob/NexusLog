@@ -132,26 +132,34 @@ func TestStatsServiceAggregate_SourceBucketsExposeHostAndService(t *testing.T) {
 			"timed_out": false,
 			"hits": {"total": {"value": 0}, "hits": []},
 			"aggregations": {
-				"by_dim": {
-					"buckets": [
-						{
-							"key": "/var/log/nginx/access.log",
-							"doc_count": 9,
-							"sample_document": {
-								"hits": {
-									"hits": [
-										{
-											"_source": {
-												"host": {"name": "node-a"},
-												"service": {"name": "nginx"},
-												"source": {"path": "/var/log/nginx/access.log"}
-											}
-										}
-									]
-								}
-							}
-						}
-					]
+				"by_source_service_name": {
+					"pairs": {
+						"buckets": [
+							{"key": ["node-a", "nginx"], "doc_count": 5},
+							{"key": ["node-b", "api"], "doc_count": 3}
+						]
+					}
+				},
+				"by_source_container_name": {
+					"pairs": {
+						"buckets": [
+							{"key": ["node-a", "nginx"], "doc_count": 4}
+						]
+					}
+				},
+				"by_source_instance_id": {
+					"pairs": {
+						"buckets": [
+							{"key": ["node-c", "instance-1"], "doc_count": 2}
+						]
+					}
+				},
+				"by_source_log_path": {
+					"pairs": {
+						"buckets": [
+							{"key": ["node-d", "/var/log/audit/audit.log"], "doc_count": 7}
+						]
+					}
 				}
 			}
 		}`))
@@ -169,11 +177,14 @@ func TestStatsServiceAggregate_SourceBucketsExposeHostAndService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Aggregate() error = %v", err)
 	}
-	if len(result.Buckets) != 1 {
-		t.Fatalf("Aggregate() buckets len = %d, want 1", len(result.Buckets))
+	if len(result.Buckets) != 4 {
+		t.Fatalf("Aggregate() buckets len = %d, want 4", len(result.Buckets))
 	}
 	if got := result.Buckets[0]; got.Host != "node-a" || got.Service != "nginx" || got.Label != "node-a / nginx" || got.Count != 9 {
-		t.Fatalf("unexpected source aggregate bucket: %+v", got)
+		t.Fatalf("unexpected merged source aggregate bucket: %+v", got)
+	}
+	if got := result.Buckets[1]; got.Host != "node-d" || got.Service != "audit.log" || got.Label != "node-d / audit.log" || got.Count != 7 {
+		t.Fatalf("unexpected log-path fallback bucket: %+v", got)
 	}
 
 	raw, err := json.Marshal(captured)
@@ -181,13 +192,15 @@ func TestStatsServiceAggregate_SourceBucketsExposeHostAndService(t *testing.T) {
 		t.Fatalf("marshal captured request failed: %v", err)
 	}
 	body := string(raw)
-	for _, fragment := range []string{"sample_document", "top_hits", "source.path", "host.name", "service.name"} {
+	for _, fragment := range []string{"multi_terms", "host.name", "service.name", "container.name", "service.instance.id", "log.file.path"} {
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("expected request body to contain %q, got %s", fragment, body)
 		}
 	}
-	if strings.Contains(body, "script") {
-		t.Fatalf("expected source aggregate request not to use script, got %s", body)
+	for _, fragment := range []string{"top_hits", "sample_document", "script"} {
+		if strings.Contains(body, fragment) {
+			t.Fatalf("expected source aggregate request not to contain %q, got %s", fragment, body)
+		}
 	}
 }
 

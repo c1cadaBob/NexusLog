@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -541,6 +542,12 @@ const (
 	aggregateSourceKeySeparator = "\u001f"
 	aggregateUnknownHost        = "unknown-host"
 	aggregateUnknownService     = "unknown-service"
+
+	aggregateSourceServiceNameAgg   = "by_source_service_name"
+	aggregateSourceContainerNameAgg = "by_source_container_name"
+	aggregateSourceInstanceIDAgg    = "by_source_instance_id"
+	aggregateSourceLogPathAgg       = "by_source_log_path"
+	aggregateSourcePairsAgg         = "pairs"
 )
 
 func resolveAggregateTimeRangeDuration(timeRange string) time.Duration {
@@ -562,46 +569,168 @@ func resolveAggregateTimeRangeDuration(timeRange string) time.Duration {
 
 func buildAggregateSourceTermsAggregation() map[string]any {
 	return map[string]any{
-		"terms": map[string]any{
-			"field":   "source.path",
-			"missing": "-",
-			"size":    10,
-			"order": map[string]any{
-				"_count": "desc",
-			},
-		},
-		"aggs": map[string]any{
-			"sample_document": map[string]any{
-				"top_hits": map[string]any{
-					"size": 1,
-					"sort": []map[string]any{{
-						"@timestamp": map[string]any{"order": "desc"},
-					}},
-					"_source": map[string]any{
-						"includes": []string{
-							"source.path",
-							"log.file.path",
-							"source_path",
-							"source",
-							"host.name",
-							"host",
-							"hostname",
-							"syslog_hostname",
-							"server_id",
-							"agent.hostname",
-							"service.name",
-							"service_name",
-							"service",
-							"app",
-							"container.name",
-							"service.instance.id",
-							"source_id",
-						},
+		aggregateSourceServiceNameAgg: buildAggregateSourcePartitionAggregation(
+			map[string]any{"exists": map[string]any{"field": "service.name"}},
+			"service.name",
+		),
+		aggregateSourceContainerNameAgg: buildAggregateSourcePartitionAggregation(
+			map[string]any{
+				"bool": map[string]any{
+					"must": []any{
+						map[string]any{"exists": map[string]any{"field": "container.name"}},
 					},
+					"must_not": []any{
+						map[string]any{"exists": map[string]any{"field": "service.name"}},
+					},
+				},
+			},
+			"container.name",
+		),
+		aggregateSourceInstanceIDAgg: buildAggregateSourcePartitionAggregation(
+			map[string]any{
+				"bool": map[string]any{
+					"must": []any{
+						map[string]any{"exists": map[string]any{"field": "service.instance.id"}},
+					},
+					"must_not": []any{
+						map[string]any{"exists": map[string]any{"field": "service.name"}},
+						map[string]any{"exists": map[string]any{"field": "container.name"}},
+					},
+				},
+			},
+			"service.instance.id",
+		),
+		aggregateSourceLogPathAgg: buildAggregateSourcePartitionAggregation(
+			map[string]any{
+				"bool": map[string]any{
+					"must": []any{
+						map[string]any{"exists": map[string]any{"field": "log.file.path"}},
+					},
+					"must_not": []any{
+						map[string]any{"exists": map[string]any{"field": "service.name"}},
+						map[string]any{"exists": map[string]any{"field": "container.name"}},
+						map[string]any{"exists": map[string]any{"field": "service.instance.id"}},
+					},
+				},
+			},
+			"log.file.path",
+		),
+	}
+}
+
+func buildAggregateSourcePartitionAggregation(filter map[string]any, serviceField string) map[string]any {
+	return map[string]any{
+		"filter": filter,
+		"aggs": map[string]any{
+			aggregateSourcePairsAgg: map[string]any{
+				"multi_terms": map[string]any{
+					"terms": []map[string]any{
+						{"field": "host.name", "missing": aggregateUnknownHost},
+						{"field": serviceField, "missing": aggregateUnknownService},
+					},
+					"size": 50,
 				},
 			},
 		},
 	}
+}
+
+func normalizeAggregateSourceValue(raw, fallback string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" || value == "-" || value == "<nil>" {
+		return fallback
+	}
+	return value
+}
+
+func normalizeAggregateSourceServiceValue(serviceField, raw string) string {
+	value := normalizeAggregateSourceValue(raw, aggregateUnknownService)
+	if serviceField != "log.file.path" {
+		return value
+	}
+	value = strings.TrimRight(value, `/\\`)
+	if value == "" || value == aggregateUnknownService {
+		return aggregateUnknownService
+	}
+	index := strings.LastIndexAny(value, `/\\`)
+	if index >= 0 && index+1 < len(value) {
+		return value[index+1:]
+	}
+	return value
+}
+
+func buildAggregateSourceBuckets(aggregations map[string]any) []AggregateBucket {
+	type sourceAggregationSpec struct {
+		name         string
+		serviceField string
+	}
+
+	specs := []sourceAggregationSpec{
+		{name: aggregateSourceServiceNameAgg, serviceField: "service.name"},
+		{name: aggregateSourceContainerNameAgg, serviceField: "container.name"},
+		{name: aggregateSourceInstanceIDAgg, serviceField: "service.instance.id"},
+		{name: aggregateSourceLogPathAgg, serviceField: "log.file.path"},
+	}
+
+	bucketMap := make(map[string]*AggregateBucket)
+	for _, spec := range specs {
+		aggWrapper, ok := aggregations[spec.name].(map[string]any)
+		if !ok {
+			continue
+		}
+		pairsWrapper, ok := aggWrapper[aggregateSourcePairsAgg].(map[string]any)
+		if !ok {
+			continue
+		}
+		bucketList, ok := pairsWrapper["buckets"].([]any)
+		if !ok {
+			continue
+		}
+
+		for _, rawBucket := range bucketList {
+			bucket, ok := rawBucket.(map[string]any)
+			if !ok {
+				continue
+			}
+			keyValues, ok := bucket["key"].([]any)
+			if !ok || len(keyValues) < 2 {
+				continue
+			}
+			host := normalizeAggregateSourceValue(fmt.Sprint(keyValues[0]), aggregateUnknownHost)
+			service := normalizeAggregateSourceServiceValue(spec.serviceField, fmt.Sprint(keyValues[1]))
+			count := int64(0)
+			if rawCount, ok := bucket["doc_count"].(float64); ok {
+				count = int64(rawCount)
+			}
+			bucketKey := host + aggregateSourceKeySeparator + service
+			if existing, ok := bucketMap[bucketKey]; ok {
+				existing.Count += count
+				continue
+			}
+			bucketMap[bucketKey] = &AggregateBucket{
+				Key:     bucketKey,
+				Label:   buildAggregateSourceLabel(host, service),
+				Host:    host,
+				Service: service,
+				Count:   count,
+			}
+		}
+	}
+
+	buckets := make([]AggregateBucket, 0, len(bucketMap))
+	for _, bucket := range bucketMap {
+		buckets = append(buckets, *bucket)
+	}
+	sort.SliceStable(buckets, func(i, j int) bool {
+		if buckets[i].Count == buckets[j].Count {
+			return buckets[i].Label < buckets[j].Label
+		}
+		return buckets[i].Count > buckets[j].Count
+	})
+	if len(buckets) > 50 {
+		buckets = buckets[:50]
+	}
+	return buckets
 }
 
 func extractAggregateSampleDocument(bucket map[string]any) map[string]any {
@@ -748,7 +877,7 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 			"date_histogram": histogram,
 		}
 	} else if req.GroupBy == "source" {
-		aggs["by_dim"] = buildAggregateSourceTermsAggregation()
+		aggs = buildAggregateSourceTermsAggregation()
 	} else {
 		aggs["by_dim"] = map[string]any{
 			"terms": map[string]any{
@@ -774,7 +903,9 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 	}
 
 	buckets := []AggregateBucket{}
-	if byDim, ok := result.Aggregations["by_dim"].(map[string]any); ok {
+	if req.GroupBy == "source" {
+		buckets = buildAggregateSourceBuckets(result.Aggregations)
+	} else if byDim, ok := result.Aggregations["by_dim"].(map[string]any); ok {
 		if bList, ok := byDim["buckets"].([]any); ok {
 			for _, b := range bList {
 				if bucket, ok := b.(map[string]any); ok {
@@ -794,15 +925,7 @@ func (s *StatsService) Aggregate(ctx context.Context, actor RequestActor, req Ag
 						count = int64(c)
 					}
 
-					aggregateBucket := AggregateBucket{Key: key, Count: count}
-					if req.GroupBy == "source" {
-						sampleSource := extractAggregateSampleDocument(bucket)
-						host, service, label := resolveAggregateSourceBucketDisplay(key, sampleSource)
-						aggregateBucket.Host = host
-						aggregateBucket.Service = service
-						aggregateBucket.Label = label
-					}
-					buckets = append(buckets, aggregateBucket)
+					buckets = append(buckets, AggregateBucket{Key: key, Count: count})
 				}
 			}
 		}
