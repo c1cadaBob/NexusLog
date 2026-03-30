@@ -115,6 +115,25 @@ export interface PullTaskStatusSummary {
   options?: Record<string, unknown>;
 }
 
+export interface PullTaskItem {
+  task_id: string;
+  source_id: string;
+  trigger_type: string;
+  options?: Record<string, unknown>;
+  status: string;
+  request_id?: string;
+  batch_id?: string;
+  retry_count?: number;
+  last_cursor?: string;
+  scheduled_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  error_code?: string;
+  error_message?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface PullCursorStatusSummary {
   agent_id?: string;
   source_ref?: string;
@@ -231,6 +250,10 @@ export interface RunPullTaskResponse {
 
 interface ListPullSourcesData {
   items: PullSource[];
+}
+
+interface ListPullTasksData {
+  items: PullTaskItem[];
 }
 
 interface ListAgentsData {
@@ -404,6 +427,38 @@ export async function fetchPullSourceStatus(range: '1h' | '6h' | '24h' | '7d' = 
     trend: [],
     range,
     last_refresh_at: '',
+  };
+}
+
+export async function fetchPullTasks(params: {
+  source_id: string;
+  status?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<{ items: PullTaskItem[]; total: number; hasNext: boolean }> {
+  const page = params.page ?? 1;
+  const pageSize = params.page_size ?? 20;
+  const sourceId = params.source_id.trim();
+  if (!sourceId) {
+    throw new Error('source_id 不能为空');
+  }
+
+  const status = params.status?.trim() || '';
+  const envelope = await requestIngestApi<ListPullTasksData>('/pull-tasks', {
+    method: 'GET',
+    query: {
+      source_id: sourceId,
+      page,
+      page_size: pageSize,
+      ...(status ? { status } : {}),
+    },
+  });
+
+  const items = envelope.data?.items ?? [];
+  return {
+    items,
+    total: Number(envelope.meta?.total ?? items.length),
+    hasNext: Boolean(envelope.meta?.has_next ?? false),
   };
 }
 

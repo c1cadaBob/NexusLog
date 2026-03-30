@@ -15,6 +15,7 @@ import {
   type UpdatePullSourcePayload,
 } from '../../api/ingest';
 import { hasAnyCapability } from '../../auth/routeAuthorization';
+import PullTaskHistoryDrawer from './PullTaskHistoryDrawer';
 import { useAuthStore } from '../../stores/authStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { COLORS } from '../../theme/tokens';
@@ -103,9 +104,11 @@ const SourceManagement: React.FC = () => {
   const [selectedSource, setSelectedSource] = useState<PullSource | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
+  const [taskHistorySource, setTaskHistorySource] = useState<PullSource | null>(null);
 
   const capabilities = useAuthStore((s) => s.capabilities);
   const canRunPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.run']), [capabilities]);
+  const canReadPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.read']), [capabilities]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes.sourceManagement ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -336,12 +339,15 @@ const SourceManagement: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 180,
+      width: 240,
       align: 'right',
       render: (_, source) => (
         <Space size={4}>
           <Button size="small" type="link" onClick={() => openEditModal(source)}>编辑</Button>
           <Button size="small" type="link" onClick={() => navigate('/ingestion/status')}>状态</Button>
+          {canReadPullTask ? (
+            <Button size="small" type="link" onClick={() => setTaskHistorySource(source)}>任务</Button>
+          ) : null}
           {canRunPullTask ? (
             <Button
               size="small"
@@ -470,6 +476,13 @@ const SourceManagement: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      <PullTaskHistoryDrawer
+        open={Boolean(taskHistorySource)}
+        sourceId={taskHistorySource?.source_id}
+        sourceName={taskHistorySource?.name}
+        onClose={() => setTaskHistorySource(null)}
+      />
     </div>
   );
 };

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import ChartWrapper from '../../components/charts/ChartWrapper';
 import { fetchPullSourceStatus, runPullTask, type PullSourceRuntimeStatusItem, type PullSourceStatusResponse } from '../../api/ingest';
 import { hasAnyCapability } from '../../auth/routeAuthorization';
+import PullTaskHistoryDrawer from './PullTaskHistoryDrawer';
 import { useAuthStore } from '../../stores/authStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { COLORS } from '../../theme/tokens';
@@ -104,9 +105,11 @@ const SourceStatus: React.FC = () => {
   const [selectedItem, setSelectedItem] = useState<PullSourceRuntimeStatusItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
+  const [taskHistoryItem, setTaskHistoryItem] = useState<PullSourceRuntimeStatusItem | null>(null);
 
   const capabilities = useAuthStore((s) => s.capabilities);
   const canRunPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.run']), [capabilities]);
+  const canReadPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.read']), [capabilities]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes.sourceStatus ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -314,11 +317,14 @@ const SourceStatus: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 180,
+      width: 240,
       align: 'right',
       render: (_, item) => (
         <Space size={4}>
           <Button size="small" type="link" onClick={() => { setSelectedItem(item); setDetailOpen(true); }}>详情</Button>
+          {canReadPullTask ? (
+            <Button size="small" type="link" onClick={() => setTaskHistoryItem(item)}>任务</Button>
+          ) : null}
           {canRunPullTask ? (
             <Button
               size="small"
@@ -424,7 +430,14 @@ const SourceStatus: React.FC = () => {
         title="数据源详情"
         open={detailOpen}
         onCancel={() => setDetailOpen(false)}
-        footer={<Button onClick={() => setDetailOpen(false)}>关闭</Button>}
+        footer={(
+          <Space>
+            {canReadPullTask && selectedItem ? (
+              <Button onClick={() => setTaskHistoryItem(selectedItem)}>查看任务历史</Button>
+            ) : null}
+            <Button onClick={() => setDetailOpen(false)}>关闭</Button>
+          </Space>
+        )}
         width={920}
       >
         {!selectedItem ? null : (
@@ -458,6 +471,13 @@ const SourceStatus: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      <PullTaskHistoryDrawer
+        open={Boolean(taskHistoryItem)}
+        sourceId={taskHistoryItem?.source_id}
+        sourceName={taskHistoryItem?.name}
+        onClose={() => setTaskHistoryItem(null)}
+      />
     </div>
   );
 };
