@@ -8,7 +8,6 @@ import {
   type GenerateDeploymentScriptResponse,
   type IngestAgentItem,
 } from '../../api/ingest';
-import { COLORS } from '../../theme/tokens';
 
 const SOURCE_TYPE_OPTIONS = [
   { label: '文本日志', value: 'custom', description: '任意应用日志目录或文件模式' },
@@ -26,6 +25,17 @@ const DEPLOY_TARGET_OPTIONS = [
   { label: 'Windows 启动任务', value: 'windows-startup-task' },
   { label: '网络设备 Syslog UDP', value: 'network-syslog-udp' },
   { label: '网络设备 Syslog TCP', value: 'network-syslog-tcp' },
+] as const;
+
+const RELEASE_PROVIDER_OPTIONS = [
+  { label: 'GitHub Release', value: 'github' },
+  { label: 'Gitee Release', value: 'gitee' },
+  { label: '自定义地址', value: 'custom' },
+] as const;
+
+const IMAGE_PROVIDER_OPTIONS = [
+  { label: 'GHCR', value: 'ghcr' },
+  { label: '自定义镜像', value: 'custom' },
 ] as const;
 
 const DEFAULTS_BY_SOURCE_TYPE: Record<string, { path: string; protocol: string }> = {
@@ -51,6 +61,37 @@ function parseHostPort(agentBaseUrl?: string) {
   }
 }
 
+function buildReleaseBaseUrl(
+  provider: 'github' | 'gitee' | 'custom',
+  owner: string,
+  repo: string,
+  version: string,
+  customUrl: string,
+) {
+  if (provider === 'custom') {
+    return customUrl.trim();
+  }
+  const safeOwner = owner.trim() || '<owner>';
+  const safeRepo = repo.trim() || '<repo>';
+  const host = provider === 'gitee' ? 'https://gitee.com' : 'https://github.com';
+  return `${host}/${safeOwner}/${safeRepo}/releases/download/${version}`;
+}
+
+function buildContainerImage(
+  provider: 'ghcr' | 'custom',
+  owner: string,
+  repo: string,
+  version: string,
+  customImage: string,
+) {
+  if (provider === 'custom') {
+    return customImage.trim();
+  }
+  const safeOwner = owner.trim() || '<owner>';
+  const safeRepo = repo.trim() || '<repo>';
+  return `ghcr.io/${safeOwner}/${safeRepo}/collector-agent:${version}`;
+}
+
 const AccessWizard: React.FC = () => {
   const navigate = useNavigate();
   const { message: messageApi } = App.useApp();
@@ -67,7 +108,12 @@ const AccessWizard: React.FC = () => {
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [agentBaseUrl, setAgentBaseUrl] = useState('http://127.0.0.1:9091');
   const [controlPlaneBaseUrl, setControlPlaneBaseUrl] = useState(window.location.origin);
+  const [releaseProvider, setReleaseProvider] = useState<'github' | 'gitee' | 'custom'>('github');
+  const [releaseOwner, setReleaseOwner] = useState('');
+  const [releaseRepo, setReleaseRepo] = useState('NexusLog');
+  const [releaseVersion, setReleaseVersion] = useState('');
   const [releaseBaseUrl, setReleaseBaseUrl] = useState('');
+  const [containerImageProvider, setContainerImageProvider] = useState<'ghcr' | 'custom'>('ghcr');
   const [containerImage, setContainerImage] = useState('');
   const [deploymentTarget, setDeploymentTarget] = useState<typeof DEPLOY_TARGET_OPTIONS[number]['value']>('linux-systemd');
   const [scriptResponse, setScriptResponse] = useState<GenerateDeploymentScriptResponse | null>(null);
@@ -75,6 +121,24 @@ const AccessWizard: React.FC = () => {
   const [scriptLoading, setScriptLoading] = useState(false);
   const [syslogBind, setSyslogBind] = useState('0.0.0.0:5514');
   const [syslogProtocol, setSyslogProtocol] = useState<'udp' | 'tcp'>('udp');
+
+  const normalizedVersion = useMemo(() => releaseVersion.trim() || 'latest', [releaseVersion]);
+  const resolvedReleaseBaseUrl = useMemo(
+    () => buildReleaseBaseUrl(releaseProvider, releaseOwner, releaseRepo, normalizedVersion, releaseBaseUrl),
+    [normalizedVersion, releaseBaseUrl, releaseOwner, releaseProvider, releaseRepo],
+  );
+  const resolvedContainerImage = useMemo(
+    () => buildContainerImage(containerImageProvider, releaseOwner, releaseRepo, normalizedVersion, containerImage),
+    [containerImage, containerImageProvider, normalizedVersion, releaseOwner, releaseRepo],
+  );
+  const releaseConfigUsesPlaceholder = useMemo(
+    () => resolvedReleaseBaseUrl.includes('<owner>') || resolvedReleaseBaseUrl.includes('<repo>'),
+    [resolvedReleaseBaseUrl],
+  );
+  const imageConfigUsesPlaceholder = useMemo(
+    () => resolvedContainerImage.includes('<owner>') || resolvedContainerImage.includes('<repo>'),
+    [resolvedContainerImage],
+  );
 
   const selectedAgent = useMemo(
     () => agents.find((item) => item.agent_id === selectedAgentId) ?? null,
@@ -109,10 +173,10 @@ const AccessWizard: React.FC = () => {
     setSourcePath(defaults.path);
     setProtocol(defaults.protocol);
     if (sourceType === 'syslog') {
-      setDeploymentTarget((current) => current.startsWith('network-syslog') ? current : 'linux-systemd');
+      setDeploymentTarget((current) => (current.startsWith('network-syslog') ? current : 'linux-systemd'));
       setSourcePath(`syslog://${syslogProtocol}/${syslogBind}`);
     }
-  }, [sourceType]);
+  }, [sourceType, syslogBind, syslogProtocol]);
 
   useEffect(() => {
     if (sourceType === 'syslog') {
@@ -127,10 +191,37 @@ const AccessWizard: React.FC = () => {
     }
   }, [selectedAgent?.agent_base_url, agentMode]);
 
-  const agentOptions = useMemo(() => agents.map((agent) => ({
-    label: `${agent.hostname || agent.host || agent.agent_id} (${agent.status})`,
-    value: agent.agent_id,
-  })), [agents]);
+  useEffect(() => {
+    setScriptResponse(null);
+  }, [
+    agentBaseUrl,
+    agentMode,
+    containerImage,
+    containerImageProvider,
+    controlPlaneBaseUrl,
+    deploymentTarget,
+    pullIntervalSec,
+    pullTimeoutSec,
+    releaseBaseUrl,
+    releaseOwner,
+    releaseProvider,
+    releaseRepo,
+    normalizedVersion,
+    selectedAgentId,
+    sourceName,
+    sourcePath,
+    sourceType,
+    syslogBind,
+    syslogProtocol,
+  ]);
+
+  const agentOptions = useMemo(
+    () => agents.map((agent) => ({
+      label: `${agent.hostname || agent.host || agent.agent_id} (${agent.status})`,
+      value: agent.agent_id,
+    })),
+    [agents],
+  );
 
   const validateStep = useCallback((step: number) => {
     if (step === 0) {
@@ -175,7 +266,9 @@ const AccessWizard: React.FC = () => {
     if (!validateStep(1)) return;
     setScriptLoading(true);
     try {
-      const includePaths = sourceType === 'syslog' ? [] : sourcePath.split(',').map((item) => item.trim()).filter(Boolean);
+      const includePaths = sourceType === 'syslog'
+        ? []
+        : sourcePath.split(',').map((item) => item.trim()).filter(Boolean);
       const result = await generateDeploymentScript({
         target_kind: deploymentTarget,
         source_name: sourceName.trim(),
@@ -183,8 +276,9 @@ const AccessWizard: React.FC = () => {
         agent_id: selectedAgentId || undefined,
         agent_base_url: agentBaseUrl.trim(),
         control_plane_base_url: controlPlaneBaseUrl.trim(),
-        release_base_url: releaseBaseUrl.trim() || undefined,
-        container_image: containerImage.trim() || undefined,
+        release_base_url: resolvedReleaseBaseUrl || undefined,
+        container_image: resolvedContainerImage || undefined,
+        version: normalizedVersion,
         include_paths: includePaths,
         exclude_paths: [],
         syslog_bind: sourceType === 'syslog' ? syslogBind : undefined,
@@ -197,7 +291,22 @@ const AccessWizard: React.FC = () => {
     } finally {
       setScriptLoading(false);
     }
-  }, [agentBaseUrl, controlPlaneBaseUrl, containerImage, deploymentTarget, messageApi, releaseBaseUrl, selectedAgentId, sourceName, sourcePath, sourceType, syslogBind, syslogProtocol, validateStep]);
+  }, [
+    agentBaseUrl,
+    controlPlaneBaseUrl,
+    deploymentTarget,
+    messageApi,
+    normalizedVersion,
+    resolvedContainerImage,
+    resolvedReleaseBaseUrl,
+    selectedAgentId,
+    sourceName,
+    sourcePath,
+    sourceType,
+    syslogBind,
+    syslogProtocol,
+    validateStep,
+  ]);
 
   const handleCreate = useCallback(async () => {
     if (!validateStep(1)) return;
@@ -236,7 +345,7 @@ const AccessWizard: React.FC = () => {
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <div>
           <div style={{ fontWeight: 500, marginBottom: 8 }}>数据源类型</div>
-          <Radio.Group value={sourceType} onChange={(event) => setSourceType(event.target.value)}>
+          <Radio.Group name="sourceType" value={sourceType} onChange={(event) => setSourceType(event.target.value)}>
             <Space direction="vertical">
               {SOURCE_TYPE_OPTIONS.map((item) => (
                 <Radio key={item.value} value={item.value}>
@@ -251,7 +360,12 @@ const AccessWizard: React.FC = () => {
         </div>
         <Form layout="vertical" name="access-wizard-step-one">
           <Form.Item label="数据源名称" required>
-            <Input name="sourceName" value={sourceName} onChange={(event) => setSourceName(event.target.value)} placeholder="例如：prod-nginx-access / branch-router-syslog" />
+            <Input
+              name="sourceName"
+              value={sourceName}
+              onChange={(event) => setSourceName(event.target.value)}
+              placeholder="例如：prod-nginx-access / branch-router-syslog"
+            />
           </Form.Item>
         </Form>
       </Space>
@@ -261,7 +375,7 @@ const AccessWizard: React.FC = () => {
   const renderStepTwo = () => (
     <Card title="2. 选择 Agent 与采集配置">
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <Radio.Group value={agentMode} onChange={(event) => setAgentMode(event.target.value)}>
+        <Radio.Group name="agentMode" value={agentMode} onChange={(event) => setAgentMode(event.target.value)}>
           <Space>
             <Radio value="existing">绑定现有 Agent</Radio>
             <Radio value="new">为新主机生成部署脚本</Radio>
@@ -287,22 +401,73 @@ const AccessWizard: React.FC = () => {
           </Card>
         ) : (
           <Card size="small" type="inner" title="新主机部署参数">
-            <Form layout="vertical" name="access-wizard-new-agent">
+            <Form layout="vertical" name="access-wizard-new-agent-basic">
               <Form.Item label="Agent 基础 URL" extra="创建采集源后，控制面会通过这个地址探活与拉取日志。">
                 <Input name="agentBaseUrl" value={agentBaseUrl} onChange={(event) => setAgentBaseUrl(event.target.value)} placeholder="例如：http://10.0.0.15:9091" />
               </Form.Item>
               <Form.Item label="控制面 URL" extra="Agent 用它上报系统资源指标，建议填写控制面可被被采集主机访问的地址。">
                 <Input name="controlPlaneBaseUrl" value={controlPlaneBaseUrl} onChange={(event) => setControlPlaneBaseUrl(event.target.value)} placeholder="例如：http://192.168.0.202:8080" />
               </Form.Item>
-              <Form.Item label="发布包基址" extra="例如 GitHub / Gitee Release 下载目录。Linux 包名默认 collector-agent-linux-amd64.tar.gz。">
-                <Input name="releaseBaseUrl" value={releaseBaseUrl} onChange={(event) => setReleaseBaseUrl(event.target.value)} placeholder="例如：https://github.com/<owner>/<repo>/releases/download/v0.1.0" />
-              </Form.Item>
-              <Form.Item label="容器镜像（Docker 目标可选）">
-                <Input name="containerImage" value={containerImage} onChange={(event) => setContainerImage(event.target.value)} placeholder="例如 ghcr.io/<owner>/<repo>/collector-agent:v0.1.0" />
-              </Form.Item>
             </Form>
           </Card>
         )}
+
+        <Card size="small" type="inner" title="部署产物配置">
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Card size="small" type="inner" title="发布源与版本">
+              <Form layout="vertical" name="access-wizard-release-config">
+                <Space align="start" wrap style={{ width: '100%' }}>
+                  <Form.Item label="发布源">
+                    <Select id="access-wizard-release-provider" value={releaseProvider} options={RELEASE_PROVIDER_OPTIONS.map((item) => ({ label: item.label, value: item.value }))} onChange={setReleaseProvider} style={{ width: 180 }} />
+                  </Form.Item>
+                  <Form.Item label="版本 / Tag" extra="例如 latest、v0.1.0、v2026.03.30">
+                    <Input name="releaseVersion" value={releaseVersion} onChange={(event) => setReleaseVersion(event.target.value)} style={{ width: 220 }} placeholder="latest 或 v0.1.0" />
+                  </Form.Item>
+                </Space>
+                {releaseProvider === 'custom' ? (
+                  <Form.Item label="发布包基址" extra="例如 GitHub / Gitee Release 下载目录；脚本会自动补上平台包名。">
+                    <Input name="releaseBaseUrl" value={releaseBaseUrl} onChange={(event) => setReleaseBaseUrl(event.target.value)} placeholder="例如：https://github.com/<owner>/<repo>/releases/download/v0.1.0" />
+                  </Form.Item>
+                ) : (
+                  <Space align="start" wrap style={{ width: '100%' }}>
+                    <Form.Item label="Owner / 组织">
+                      <Input name="releaseOwner" value={releaseOwner} onChange={(event) => setReleaseOwner(event.target.value)} placeholder="例如：your-org" style={{ width: 220 }} />
+                    </Form.Item>
+                    <Form.Item label="仓库名">
+                      <Input name="releaseRepo" value={releaseRepo} onChange={(event) => setReleaseRepo(event.target.value)} placeholder="例如：NexusLog" style={{ width: 220 }} />
+                    </Form.Item>
+                  </Space>
+                )}
+                <Alert
+                  type={releaseConfigUsesPlaceholder ? 'warning' : 'info'}
+                  showIcon
+                  message="发布地址预览"
+                  description={<Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedReleaseBaseUrl || '-'}</Typography.Text>}
+                />
+              </Form>
+            </Card>
+
+            <Card size="small" type="inner" title="容器镜像（Linux Docker 目标可选）">
+              <Form layout="vertical" name="access-wizard-image-config">
+                <Form.Item label="镜像来源">
+                  <Select id="access-wizard-image-provider" value={containerImageProvider} options={IMAGE_PROVIDER_OPTIONS.map((item) => ({ label: item.label, value: item.value }))} onChange={setContainerImageProvider} style={{ width: 180 }} />
+                </Form.Item>
+                {containerImageProvider === 'custom' ? (
+                  <Form.Item label="容器镜像">
+                    <Input name="containerImage" value={containerImage} onChange={(event) => setContainerImage(event.target.value)} placeholder="例如 ghcr.io/<owner>/<repo>/collector-agent:v0.1.0" />
+                  </Form.Item>
+                ) : (
+                  <Alert
+                    type={imageConfigUsesPlaceholder ? 'warning' : 'info'}
+                    showIcon
+                    message="镜像地址预览"
+                    description={<Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedContainerImage}</Typography.Text>}
+                  />
+                )}
+              </Form>
+            </Card>
+          </Space>
+        </Card>
 
         <Card size="small" type="inner" title="采集参数">
           <Form layout="vertical" name="access-wizard-source-config">
@@ -347,10 +512,23 @@ const AccessWizard: React.FC = () => {
           <Descriptions.Item label="数据源名称">{sourceName || '-'}</Descriptions.Item>
           <Descriptions.Item label="Agent 方式">{agentMode === 'existing' ? '绑定现有 Agent' : '生成新主机部署脚本'}</Descriptions.Item>
           <Descriptions.Item label="Agent URL">{agentBaseUrl || '-'}</Descriptions.Item>
-          <Descriptions.Item label="采集路径" span={2}><Typography.Text code>{sourcePath || '-'}</Typography.Text></Descriptions.Item>
+          <Descriptions.Item label="版本 / Tag">{normalizedVersion}</Descriptions.Item>
+          <Descriptions.Item label="发布源">{RELEASE_PROVIDER_OPTIONS.find((item) => item.value === releaseProvider)?.label ?? releaseProvider}</Descriptions.Item>
+          <Descriptions.Item label="发布地址" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedReleaseBaseUrl || '-'}</Typography.Text></Descriptions.Item>
+          <Descriptions.Item label="容器镜像" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedContainerImage || '-'}</Typography.Text></Descriptions.Item>
+          <Descriptions.Item label="采集路径" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{sourcePath || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="拉取间隔">{pullIntervalSec}s</Descriptions.Item>
           <Descriptions.Item label="拉取超时">{pullTimeoutSec}s</Descriptions.Item>
         </Descriptions>
+
+        {(releaseConfigUsesPlaceholder || (deploymentTarget === 'linux-docker' && imageConfigUsesPlaceholder)) ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="脚本仍包含占位仓库信息"
+            description="请补充 GitHub/Gitee 的 owner、repo 或自定义发布地址后再生成正式部署脚本。"
+          />
+        ) : null}
 
         <Alert
           type="info"

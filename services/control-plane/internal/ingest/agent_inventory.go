@@ -795,7 +795,7 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 	switch targetKind {
 	case "linux-systemd":
 		assetURL := strings.TrimRight(releaseBaseURL, "/") + "/collector-agent-linux-amd64.tar.gz"
-		script := buildLinuxSystemdScript(sourceName, agentBaseURL, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+		script := buildLinuxSystemdScript(sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
 		return GenerateDeploymentScriptResponse{
 			TargetKind:   targetKind,
 			ScriptKind:   "bash",
@@ -810,7 +810,7 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 			},
 		}, nil
 	case "linux-docker":
-		composeYAML := buildLinuxDockerCompose(sourceName, containerImage, controlPlaneBaseURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+		composeYAML := buildLinuxDockerCompose(sourceName, version, containerImage, controlPlaneBaseURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
 		command := "mkdir -p nexuslog-agent && cd nexuslog-agent && cat > docker-compose.agent.yml <<'EOF'\n" + composeYAML + "\nEOF\ndocker compose -f docker-compose.agent.yml up -d"
 		return GenerateDeploymentScriptResponse{
 			TargetKind:   targetKind,
@@ -826,7 +826,7 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 		}, nil
 	case "windows-startup-task", "windows-powershell":
 		assetURL := strings.TrimRight(releaseBaseURL, "/") + "/collector-agent-windows-amd64.zip"
-		ps1 := buildWindowsStartupScript(sourceName, assetURL, controlPlaneBaseURL, credential, includePaths, excludePaths, pathRuleJSON)
+		ps1 := buildWindowsStartupScript(sourceName, version, assetURL, controlPlaneBaseURL, credential, includePaths, excludePaths, pathRuleJSON)
 		return GenerateDeploymentScriptResponse{
 			TargetKind:   targetKind,
 			ScriptKind:   "powershell",
@@ -872,7 +872,7 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 	}
 }
 
-func buildLinuxSystemdScript(sourceName, agentBaseURL, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
+func buildLinuxSystemdScript(sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
 	lines := []string{
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
@@ -902,7 +902,7 @@ func buildLinuxSystemdScript(sourceName, agentBaseURL, controlPlaneBaseURL, asse
 		"cat <<EOF | sudo tee \"${ENV_FILE}\" >/dev/null",
 		"HTTP_PORT=9091",
 		"AGENT_ID=${AGENT_ID}",
-		"AGENT_VERSION=0.1.0",
+		"AGENT_VERSION=" + shellQuote(version),
 		"AGENT_API_KEY_ACTIVE_ID=${AGENT_API_KEY_ACTIVE_ID}",
 		"AGENT_API_KEY_ACTIVE=${AGENT_API_KEY_ACTIVE}",
 		"CHECKPOINT_DIR=${STATE_ROOT}/checkpoints",
@@ -950,7 +950,7 @@ func buildLinuxSystemdScript(sourceName, agentBaseURL, controlPlaneBaseURL, asse
 	return strings.Join(lines, "\n")
 }
 
-func buildLinuxDockerCompose(sourceName, containerImage, controlPlaneBaseURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
+func buildLinuxDockerCompose(sourceName, version, containerImage, controlPlaneBaseURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
 	mountRoots := mountRootsFromPaths(includePaths)
 	if len(mountRoots) == 0 {
 		mountRoots = []string{"/var/log"}
@@ -966,7 +966,7 @@ func buildLinuxDockerCompose(sourceName, containerImage, controlPlaneBaseURL str
 		"    environment:",
 		"      HTTP_PORT: \"9091\"",
 		"      AGENT_ID: \"" + sourceName + "-agent\"",
-		"      AGENT_VERSION: \"0.1.0\"",
+		"      AGENT_VERSION: \"" + escapeYAMLString(version) + "\"",
 		"      AGENT_API_KEY_ACTIVE_ID: \"" + firstNonEmptyValue(credential.KeyID, "active") + "\"",
 		"      AGENT_API_KEY_ACTIVE: \"" + escapeYAMLString(credential.Key) + "\"",
 		"      COLLECTOR_INCLUDE_PATHS: \"" + escapeYAMLString(strings.Join(includePaths, ",")) + "\"",
@@ -1000,7 +1000,7 @@ func buildLinuxDockerCompose(sourceName, containerImage, controlPlaneBaseURL str
 	return strings.Join(lines, "\n")
 }
 
-func buildWindowsStartupScript(sourceName, assetURL, controlPlaneBaseURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON string) string {
+func buildWindowsStartupScript(sourceName, version, assetURL, controlPlaneBaseURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON string) string {
 	return strings.Join([]string{
 		"$ErrorActionPreference = 'Stop'",
 		"$InstallRoot = 'C:\\Program Files\\NexusLog\\collector-agent'",
@@ -1015,7 +1015,7 @@ func buildWindowsStartupScript(sourceName, assetURL, controlPlaneBaseURL string,
 		"@'",
 		"$env:HTTP_PORT = '9091'",
 		"$env:AGENT_ID = '" + sourceName + "-agent'",
-		"$env:AGENT_VERSION = '0.1.0'",
+		"$env:AGENT_VERSION = '" + strings.ReplaceAll(version, "'", "''") + "'",
 		"$env:AGENT_API_KEY_ACTIVE_ID = '" + firstNonEmptyValue(credential.KeyID, "active") + "'",
 		"$env:AGENT_API_KEY_ACTIVE = '" + strings.ReplaceAll(credential.Key, "'", "''") + "'",
 		"$env:CHECKPOINT_DIR = 'C:\\ProgramData\\NexusLog\\collector-agent\\checkpoints'",
