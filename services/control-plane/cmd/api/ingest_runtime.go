@@ -169,6 +169,7 @@ func registerAuthorizedPullIngestRuntimeRoutes(
 	router.GET("/api/v1/ingest/packages", middleware.RequireCapabilityOrAdminRole(db, "ingest.package.read"), packageHandler.ListPullPackages)
 
 	receiptHandler := ingest.NewReceiptHandler(packageStore, receiptStore, deadLetterStore)
+	router.GET("/api/v1/ingest/receipts", middleware.RequireCapabilityOrAdminRole(db, "ingest.package.read"), receiptHandler.ListReceipts)
 	router.POST("/api/v1/ingest/receipts", middleware.RequireCapabilityOrOperatorRole(db, "ingest.receipt.create"), receiptHandler.CreateReceipt)
 
 	deadLetterHandler := ingest.NewDeadLetterHandler(deadLetterStore)

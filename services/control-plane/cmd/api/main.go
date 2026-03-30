@@ -302,6 +302,7 @@ func registerLegacyPipelineRemovedRoutes(router gin.IRouter, db *sql.DB) {
 	router.GET("/api/v1/ingest/dead-letters", middleware.RequireCapabilityOrAdminRole(db, "ingest.dead_letter.read"), respondGone)
 	router.POST("/api/v1/ingest/dead-letters/replay", middleware.RequireCapabilityOrAdminRole(db, "ingest.dead_letter.replay"), respondGone)
 	router.GET("/api/v1/ingest/metrics/latency", middleware.RequireCapabilityOrAdminRole(db, "metric.read"), respondGone)
+	router.GET("/api/v1/ingest/receipts", middleware.RequireCapabilityOrAdminRole(db, "ingest.package.read"), respondGone)
 	router.POST("/api/v1/ingest/receipts", middleware.RequireCapabilityOrOperatorRole(db, "ingest.receipt.create"), respondGone)
 }
 

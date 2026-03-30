@@ -196,6 +196,20 @@ export interface PullPackageItem {
   created_at: string;
 }
 
+export interface DeliveryReceiptItem {
+  receipt_id: string;
+  package_id: string;
+  package_no?: string;
+  source_ref?: string;
+  status: 'ack' | 'nack' | string;
+  error_code?: string;
+  reason?: string;
+  checksum?: string;
+  accepted: boolean;
+  received_at: string;
+  created_at: string;
+}
+
 export interface DeadLetterItem {
   dead_letter_id: string;
   package_id?: string;
@@ -314,6 +328,10 @@ interface ListPullTasksData {
 
 interface ListPullPackagesData {
   items: PullPackageItem[];
+}
+
+interface ListReceiptsData {
+  items: DeliveryReceiptItem[];
 }
 
 interface ListDeadLettersData {
@@ -549,6 +567,41 @@ export async function fetchPullPackages(params: {
       ...(agentId ? { agent_id: agentId } : {}),
       ...(sourceRef ? { source_ref: sourceRef } : {}),
       ...(status ? { status } : {}),
+      page,
+      page_size: pageSize,
+    },
+  });
+
+  const items = envelope.data?.items ?? [];
+  return {
+    items,
+    total: Number(envelope.meta?.total ?? items.length),
+    hasNext: Boolean(envelope.meta?.has_next ?? false),
+  };
+}
+
+export async function fetchReceipts(params: {
+  source_ref?: string;
+  package_id?: string;
+  status?: 'ack' | 'nack';
+  page?: number;
+  page_size?: number;
+}): Promise<{ items: DeliveryReceiptItem[]; total: number; hasNext: boolean }> {
+  const page = params.page ?? 1;
+  const pageSize = params.page_size ?? 20;
+  const sourceRef = params.source_ref?.trim() || '';
+  const packageId = params.package_id?.trim() || '';
+
+  if (!sourceRef && !packageId) {
+    throw new Error('source_ref 或 package_id 不能为空');
+  }
+
+  const envelope = await requestIngestApi<ListReceiptsData>('/receipts', {
+    method: 'GET',
+    query: {
+      ...(sourceRef ? { source_ref: sourceRef } : {}),
+      ...(packageId ? { package_id: packageId } : {}),
+      ...(params.status ? { status: params.status } : {}),
       page,
       page_size: pageSize,
     },

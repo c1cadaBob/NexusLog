@@ -6,6 +6,7 @@ import { hasAnyCapability } from '../../auth/routeAuthorization';
 import { useAuthStore } from '../../stores/authStore';
 import { COLORS } from '../../theme/tokens';
 import DeadLetterDrawer from './DeadLetterDrawer';
+import ReceiptDrawer from './ReceiptDrawer';
 
 const PACKAGE_STATUS_OPTIONS = [
   { label: '全部状态', value: 'all' },
@@ -24,6 +25,11 @@ interface PullPackageHistoryDrawerProps {
   agentId?: string;
   sourceRef?: string;
   onClose: () => void;
+}
+
+interface ReceiptTarget {
+  packageId?: string;
+  packageLabel?: string;
 }
 
 interface DeadLetterTarget {
@@ -126,6 +132,7 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
   onClose,
 }) => {
   const capabilities = useAuthStore((state) => state.capabilities);
+  const canReadReceipt = useMemo(() => hasAnyCapability(capabilities, ['ingest.package.read']), [capabilities]);
   const canReadDeadLetter = useMemo(() => hasAnyCapability(capabilities, ['ingest.dead_letter.read']), [capabilities]);
 
   const [packages, setPackages] = useState<PullPackageItem[]>([]);
@@ -135,6 +142,7 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [receiptTarget, setReceiptTarget] = useState<ReceiptTarget | null>(null);
   const [deadLetterTarget, setDeadLetterTarget] = useState<DeadLetterTarget | null>(null);
 
   const normalizedAgentId = agentId?.trim() || '';
@@ -181,6 +189,7 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
       setPage(1);
       setPageSize(20);
       setTotal(0);
+      setReceiptTarget(null);
       setDeadLetterTarget(null);
     }
   }, [open]);
@@ -266,27 +275,41 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
       },
     ];
 
-    if (canReadDeadLetter) {
+    if (canReadReceipt || canReadDeadLetter) {
       baseColumns.push({
         title: '操作',
         key: 'actions',
-        width: 100,
+        width: 156,
         align: 'right',
         render: (_, item) => (
-          <Button
-            size="small"
-            type="link"
-            disabled={!item.package_id}
-            onClick={() => setDeadLetterTarget({ packageId: item.package_id, packageLabel: item.package_no || item.package_id })}
-          >
-            死信
-          </Button>
+          <Space size={0}>
+            {canReadReceipt ? (
+              <Button
+                size="small"
+                type="link"
+                disabled={!item.package_id}
+                onClick={() => setReceiptTarget({ packageId: item.package_id, packageLabel: item.package_no || item.package_id })}
+              >
+                回执
+              </Button>
+            ) : null}
+            {canReadDeadLetter ? (
+              <Button
+                size="small"
+                type="link"
+                disabled={!item.package_id}
+                onClick={() => setDeadLetterTarget({ packageId: item.package_id, packageLabel: item.package_no || item.package_id })}
+              >
+                死信
+              </Button>
+            ) : null}
+          </Space>
         ),
       });
     }
 
     return baseColumns;
-  }, [canReadDeadLetter]);
+  }, [canReadDeadLetter, canReadReceipt]);
 
   return (
     <Drawer
@@ -306,6 +329,9 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
               setPage(1);
             }}
           />
+          {canReadReceipt ? (
+            <Button onClick={() => setReceiptTarget({})}>源级回执</Button>
+          ) : null}
           {canReadDeadLetter ? (
             <Button onClick={() => setDeadLetterTarget({})}>源级死信</Button>
           ) : null}
@@ -415,11 +441,20 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
                   setPage(nextPage);
                 },
               }}
-              scroll={{ x: 1180 }}
+              scroll={{ x: 1240 }}
             />
           </Card>
         </div>
       )}
+
+      <ReceiptDrawer
+        open={Boolean(receiptTarget)}
+        sourceName={sourceName}
+        sourceRef={normalizedSourceRef}
+        packageId={receiptTarget?.packageId}
+        packageLabel={receiptTarget?.packageLabel}
+        onClose={() => setReceiptTarget(null)}
+      />
 
       <DeadLetterDrawer
         open={Boolean(deadLetterTarget)}
