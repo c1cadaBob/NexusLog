@@ -17,8 +17,13 @@ services:
       COLLECTOR_CRITICAL_INCLUDE_PATHS: "/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler"
       COLLECTOR_EXCLUDE_PATHS: "/var/log/wtmp,/var/log/btmp"
       COLLECTOR_PATH_LABEL_RULES: '[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]'
+      COLLECTOR_SYSLOG_LISTENERS_JSON: '[]'
       DELIVERY_MODE: "dual"
       ENABLE_KAFKA_PIPELINE: "true"
+      CONTROL_PLANE_BASE_URL: "http://control-plane:8080"
+      AGENT_METRICS_REPORT_ENABLED: "true"
+      AGENT_METRICS_REPORT_INTERVAL: "30s"
+      AGENT_METRICS_REPORT_TIMEOUT: "10s"
       CHECKPOINT_DIR: "/var/lib/collector-agent/checkpoints"
       CACHE_DIR: "/var/lib/collector-agent/cache"
       KAFKA_BROKERS: "kafka:9092"

@@ -121,8 +121,13 @@ func main() {
 		log.Printf("解析 COLLECTOR_PATH_LABEL_RULES 失败，已忽略路径标签配置: %v", err)
 		pathLabelRules = nil
 	}
+	syslogSourceConfigs, err := parseSyslogSourceConfigs(getEnv("COLLECTOR_SYSLOG_LISTENERS_JSON", ""))
+	if err != nil {
+		log.Printf("解析 COLLECTOR_SYSLOG_LISTENERS_JSON 失败，已忽略 syslog 监听配置: %v", err)
+		syslogSourceConfigs = nil
+	}
 
-	sourceConfigs := make([]collector.SourceConfig, 0, 2)
+	sourceConfigs := make([]collector.SourceConfig, 0, 2+len(syslogSourceConfigs))
 	if len(criticalIncludePaths) > 0 {
 		sourceConfigs = append(sourceConfigs, collector.SourceConfig{
 			Type:             collector.SourceTypeFile,
@@ -147,6 +152,7 @@ func main() {
 			CriticalKeywords: criticalKeywords,
 		})
 	}
+	sourceConfigs = append(sourceConfigs, syslogSourceConfigs...)
 	if len(sourceConfigs) == 0 {
 		sourceConfigs = append(sourceConfigs, collector.SourceConfig{
 			Type:             collector.SourceTypeFile,
@@ -601,6 +607,11 @@ type pathLabelRuleEnv struct {
 	Labels  map[string]string `json:"labels"`
 }
 
+type syslogListenerEnv struct {
+	Protocol string `json:"protocol"`
+	Bind     string `json:"bind"`
+}
+
 // parsePathLabelRules 解析路径标签规则，支持 JSON 数组输入：
 // [{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx"}}]
 func parsePathLabelRules(raw string) ([]collector.PathLabelRule, error) {
@@ -647,27 +658,71 @@ func parsePathLabelRules(raw string) ([]collector.PathLabelRule, error) {
 	return rules, nil
 }
 
+func parseSyslogSourceConfigs(raw string) ([]collector.SourceConfig, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+
+	var decoded []syslogListenerEnv
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return nil, err
+	}
+
+	items := make([]collector.SourceConfig, 0, len(decoded))
+	for _, item := range decoded {
+		protocol := strings.ToLower(strings.TrimSpace(item.Protocol))
+		if protocol == "" {
+			protocol = "udp"
+		}
+		if protocol != "udp" && protocol != "tcp" {
+			return nil, fmt.Errorf("syslog protocol must be udp or tcp")
+		}
+		bind := strings.TrimSpace(item.Bind)
+		if bind == "" {
+			bind = "0.0.0.0:5514"
+		}
+		items = append(items, collector.SourceConfig{
+			Type:     collector.SourceTypeSyslog,
+			Protocol: protocol,
+			Bind:     bind,
+		})
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return items, nil
+}
+
 // buildMetaInfo 构造 /agent/v1/meta 响应。
 func buildMetaInfo(sourceConfigs []collector.SourceConfig, sourceHostname, sourceIP string) pullapi.MetaInfo {
 	sourcePaths := make([]string, 0)
+	capabilities := []string{
+		"file_incremental",
+		"pull_api",
+		"ack_checkpoint",
+	}
+	hasSyslog := false
 	for _, source := range sourceConfigs {
-		if source.Type != collector.SourceTypeFile {
-			continue
+		switch source.Type {
+		case collector.SourceTypeFile:
+			sourcePaths = append(sourcePaths, source.Paths...)
+		case collector.SourceTypeSyslog:
+			hasSyslog = true
+			sourcePaths = append(sourcePaths, fmt.Sprintf("syslog://%s/%s", strings.ToLower(strings.TrimSpace(source.Protocol)), strings.TrimSpace(source.Bind)))
 		}
-		sourcePaths = append(sourcePaths, source.Paths...)
+	}
+	if hasSyslog {
+		capabilities = append(capabilities, "syslog_listener")
 	}
 	return pullapi.MetaInfo{
-		AgentID:  getEnv("AGENT_ID", "collector-agent-local"),
-		Version:  getEnv("AGENT_VERSION", "0.1.0"),
-		Hostname: sourceHostname,
-		IP:       sourceIP,
-		Status:   "online",
-		Sources:  sourcePaths,
-		Capabilities: []string{
-			"file_incremental",
-			"pull_api",
-			"ack_checkpoint",
-		},
+		AgentID:      getEnv("AGENT_ID", "collector-agent-local"),
+		Version:      getEnv("AGENT_VERSION", "0.1.0"),
+		Hostname:     sourceHostname,
+		IP:           sourceIP,
+		Status:       "online",
+		Sources:      sourcePaths,
+		Capabilities: capabilities,
 	}
 }
 

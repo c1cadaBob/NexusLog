@@ -45,6 +45,27 @@ type agentAckResponse struct {
 	CheckpointUpdated bool `json:"checkpoint_updated"`
 }
 
+type AgentMetaResponse struct {
+	AgentID      string   `json:"agent_id"`
+	Version      string   `json:"version"`
+	Hostname     string   `json:"hostname,omitempty"`
+	IP           string   `json:"ip,omitempty"`
+	Status       string   `json:"status,omitempty"`
+	Sources      []string `json:"sources,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+}
+
+type AgentMetricsResponse struct {
+	CPUUsagePct      float64   `json:"cpu_usage_pct"`
+	MemoryUsagePct   float64   `json:"memory_usage_pct"`
+	DiskUsagePct     float64   `json:"disk_usage_pct"`
+	DiskIOReadBytes  int64     `json:"disk_io_read_bytes"`
+	DiskIOWriteBytes int64     `json:"disk_io_write_bytes"`
+	NetInBytes       int64     `json:"net_in_bytes"`
+	NetOutBytes      int64     `json:"net_out_bytes"`
+	CollectedAt      time.Time `json:"collected_at"`
+}
+
 type agentErrorEnvelope struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -141,20 +162,89 @@ func (c *AgentClient) Ack(ctx context.Context, source PullSource, credential Age
 	return nil
 }
 
+// Meta 优先探测 /agent/v1/meta，失败时回退到 /agent/v2/meta。
+func (c *AgentClient) Meta(ctx context.Context, source PullSource, credential AgentAuthCredential, requestID string) (AgentMetaResponse, error) {
+	baseURL, err := resolveValidatedAgentBaseURL(source.AgentBaseURL)
+	if err != nil {
+		return AgentMetaResponse{}, err
+	}
+
+	endpoints := []string{
+		baseURL + "/agent/v1/meta",
+		baseURL + "/agent/v2/meta",
+	}
+	var lastErr error
+	for _, endpoint := range endpoints {
+		var response AgentMetaResponse
+		if err := c.doRequest(ctx, http.MethodGet, endpoint, credential, nil, &response, requestID, requestOptions{}); err == nil {
+			return response, nil
+		} else {
+			lastErr = err
+		}
+	}
+	if lastErr != nil {
+		return AgentMetaResponse{}, lastErr
+	}
+	return AgentMetaResponse{}, fmt.Errorf("agent meta request failed")
+}
+
+// Metrics 调用 agent 资源指标接口并请求 JSON 响应。
+func (c *AgentClient) Metrics(ctx context.Context, source PullSource, credential AgentAuthCredential, requestID string) (AgentMetricsResponse, error) {
+	baseURL, err := resolveValidatedAgentBaseURL(source.AgentBaseURL)
+	if err != nil {
+		return AgentMetricsResponse{}, err
+	}
+
+	var response AgentMetricsResponse
+	if err := c.doRequest(
+		ctx,
+		http.MethodGet,
+		baseURL+"/agent/v1/metrics?format=json",
+		credential,
+		nil,
+		&response,
+		requestID,
+		requestOptions{acceptJSON: true},
+	); err != nil {
+		return AgentMetricsResponse{}, err
+	}
+	return response, nil
+}
+
+type requestOptions struct {
+	acceptJSON bool
+}
+
 func (c *AgentClient) doJSON(ctx context.Context, method, endpoint string, credential AgentAuthCredential, requestBody any, responseBody any, requestID string) error {
+	return c.doRequest(ctx, method, endpoint, credential, requestBody, responseBody, requestID, requestOptions{})
+}
+
+func (c *AgentClient) doRequest(ctx context.Context, method, endpoint string, credential AgentAuthCredential, requestBody any, responseBody any, requestID string, options requestOptions) error {
 	if c == nil || c.httpClient == nil {
 		return fmt.Errorf("agent client is not configured")
 	}
 
-	raw, err := json.Marshal(requestBody)
+	var bodyReader *bytes.Reader
+	if requestBody == nil {
+		bodyReader = bytes.NewReader(nil)
+	} else {
+		raw, err := json.Marshal(requestBody)
+		if err != nil {
+			return err
+		}
+		bodyReader = bytes.NewReader(raw)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, bodyReader)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(raw))
-	if err != nil {
-		return err
+	if requestBody != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if options.acceptJSON {
+		req.Header.Set("Accept", "application/json")
+	}
 	if rid := strings.TrimSpace(requestID); rid != "" {
 		req.Header.Set("X-Request-ID", rid)
 	}
@@ -184,7 +274,7 @@ func (c *AgentClient) doJSON(ctx context.Context, method, endpoint string, crede
 		return fmt.Errorf("agent request failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
-	if responseBody != nil {
+	if responseBody != nil && len(body) > 0 {
 		if err := json.Unmarshal(body, responseBody); err != nil {
 			return fmt.Errorf("decode agent response failed: %w", err)
 		}

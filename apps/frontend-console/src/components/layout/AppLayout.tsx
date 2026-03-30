@@ -12,8 +12,12 @@ const MOBILE_BREAKPOINT = 768;
 const SIDER_WIDTH = 256;
 const SIDER_COLLAPSED_WIDTH = 72;
 const MOBILE_BOTTOM_NAV_HEIGHT = 56;
-const MOBILE_FLOAT_BUTTON_OFFSET = MOBILE_BOTTOM_NAV_HEIGHT + 24;
-const MOBILE_CONTENT_BOTTOM_PADDING = MOBILE_FLOAT_BUTTON_OFFSET + 40 + 16;
+const FLOAT_BUTTON_SIZE = 40;
+const FLOAT_BUTTON_MARGIN = 24;
+const DESKTOP_FLOAT_BUTTON_OFFSET = 96;
+const DESKTOP_CONTENT_BOTTOM_PADDING = DESKTOP_FLOAT_BUTTON_OFFSET + FLOAT_BUTTON_SIZE;
+const MOBILE_FLOAT_BUTTON_OFFSET = MOBILE_BOTTOM_NAV_HEIGHT + FLOAT_BUTTON_MARGIN;
+const MOBILE_CONTENT_BOTTOM_PADDING = MOBILE_FLOAT_BUTTON_OFFSET + FLOAT_BUTTON_SIZE + 16;
 
 const AppLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
@@ -93,7 +97,7 @@ const AppLayout: React.FC = () => {
             margin: '0 auto',
             paddingBottom: isMobile
               ? `calc(${MOBILE_CONTENT_BOTTOM_PADDING}px + env(safe-area-inset-bottom))`
-              : 24,
+              : DESKTOP_CONTENT_BOTTOM_PADDING,
           }}
         >
           <Outlet />
@@ -110,7 +114,7 @@ const AppLayout: React.FC = () => {
         style={{
           bottom: isMobile
             ? `calc(${MOBILE_FLOAT_BUTTON_OFFSET}px + env(safe-area-inset-bottom))`
-            : 24,
+            : DESKTOP_FLOAT_BUTTON_OFFSET,
         }}
       />
     </Layout>

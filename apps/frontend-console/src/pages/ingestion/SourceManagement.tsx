@@ -1,65 +1,106 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Input, Select, Table, Tag, Button, Card, Space, Modal, Form, message, Spin, Empty, InputNumber, Tooltip } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { App, Button, Card, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useThemeStore } from '../../stores/themeStore';
-import { usePreferencesStore } from '../../stores/preferencesStore';
-import { COLORS } from '../../theme/tokens';
+import { useNavigate } from 'react-router-dom';
 import {
-  fetchPullSources,
   createPullSource,
-  updatePullSource,
   deletePullSource,
-  type PullSource,
+  fetchIngestAgents,
+  fetchPullSources,
+  updatePullSource,
   type CreatePullSourcePayload,
+  type IngestAgentItem,
+  type PullSource,
   type UpdatePullSourcePayload,
 } from '../../api/ingest';
-import {
-  compactSourceID,
-  getSourceDisplayIcon,
-  inferSourceDisplayType,
-  sourceDisplayTypeToFilterGroup,
-  summarizeSourcePath,
-} from './sourceManagementDisplay';
+import { usePreferencesStore } from '../../stores/preferencesStore';
+import { COLORS } from '../../theme/tokens';
+
+const STATUS_OPTIONS = [
+  { label: '全部状态', value: 'all' },
+  { label: '启用中', value: 'active' },
+  { label: '已暂停', value: 'paused' },
+  { label: '已禁用', value: 'disabled' },
+];
 
 const PROTOCOL_OPTIONS = [
-  { label: 'SSH', value: 'ssh' },
-  { label: 'SFTP', value: 'sftp' },
-  { label: 'HTTP', value: 'http' },
-  { label: 'HTTPS', value: 'https' },
-  { label: 'Syslog TCP', value: 'syslog_tcp' },
+  { label: 'HTTP Pull', value: 'http' },
+  { label: 'HTTPS Pull', value: 'https' },
   { label: 'Syslog UDP', value: 'syslog_udp' },
+  { label: 'Syslog TCP', value: 'syslog_tcp' },
   { label: 'TCP', value: 'tcp' },
 ];
 
-function statusToDisplay(status: string): string {
-  if (status === 'active') return 'Running';
-  if (status === 'paused') return 'Paused';
-  if (status === 'disabled') return 'Disabled';
-  return status;
+function parseHostPort(agentBaseUrl?: string) {
+  if (!agentBaseUrl) return { host: '', port: 9091 };
+  try {
+    const url = new URL(agentBaseUrl);
+    return {
+      host: url.hostname,
+      port: url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80,
+    };
+  } catch {
+    return { host: '', port: 9091 };
+  }
 }
 
-function statusToTagColor(status: string): string {
-  if (status === 'active') return 'success';
-  if (status === 'paused') return 'warning';
-  if (status === 'disabled') return 'default';
-  return 'default';
+function formatDateTime(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN');
+}
+
+function getStatusMeta(status: string) {
+  const normalized = String(status ?? '').toLowerCase();
+  if (normalized === 'active') return { label: '启用中', color: 'success', dot: COLORS.success };
+  if (normalized === 'paused') return { label: '已暂停', color: 'warning', dot: COLORS.warning };
+  return { label: '已禁用', color: 'default', dot: '#94a3b8' };
+}
+
+function renderPathPreview(value?: string, maxItems = 2) {
+  const paths = String(value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (!paths.length) {
+    return <span style={{ color: '#94a3b8', fontSize: 12 }}>-</span>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {paths.slice(0, maxItems).map((path) => (
+        <Typography.Text
+          key={path}
+          code
+          style={{ margin: 0, fontSize: 12, whiteSpace: 'normal', wordBreak: 'break-all' }}
+        >
+          {path}
+        </Typography.Text>
+      ))}
+      {paths.length > maxItems ? (
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>还有 {paths.length - maxItems} 个路径...</span>
+      ) : null}
+    </div>
+  );
 }
 
 const SourceManagement: React.FC = () => {
-  const isDark = useThemeStore((s) => s.isDark);
+  const navigate = useNavigate();
+  const { message: messageApi } = App.useApp();
   const [form] = Form.useForm();
-
   const [sources, setSources] = useState<PullSource[]>([]);
+  const [agents, setAgents] = useState<IngestAgentItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+  const [modalOpen, setModalOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState<PullSource | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const storedPageSize = usePreferencesStore((s) => s.pageSizes['sourceManagement'] ?? 10);
+  const storedPageSize = usePreferencesStore((s) => s.pageSizes.sourceManagement ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
   const setPageSize = useCallback((size: number) => {
@@ -67,550 +108,334 @@ const SourceManagement: React.FC = () => {
     setStoredPageSize('sourceManagement', size);
   }, [setStoredPageSize]);
 
-  const loadSources = useCallback(async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchPullSources();
-      setSources(data);
+      const [sourceData, agentData] = await Promise.all([fetchPullSources(), fetchIngestAgents()]);
+      setSources(sourceData);
+      setAgents(agentData);
     } catch (err) {
-      message.error('数据加载失败：' + (err instanceof Error ? err.message : String(err)));
+      messageApi.error(`采集源加载失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [messageApi]);
 
   useEffect(() => {
-    loadSources();
-  }, [loadSources]);
-
-  const stats = useMemo(() => {
-    const total = sources.length;
-    const running = sources.filter((s) => s.status === 'active').length;
-    const errors = sources.filter((s) => s.status === 'disabled').length;
-    return { total, running, errors, totalVolume: '-' };
-  }, [sources]);
+    loadData();
+  }, [loadData]);
 
   const filteredSources = useMemo(() => {
-    let result = sources;
-    if (activeFilter !== 'all') {
-      result = result.filter((s) => sourceDisplayTypeToFilterGroup(s) === activeFilter);
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.source_id.toLowerCase().includes(q) ||
-          s.path.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [sources, activeFilter, searchQuery]);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    return sources.filter((source) => {
+      if (statusFilter !== 'all' && source.status !== statusFilter) return false;
+      if (!normalizedQuery) return true;
+      const haystacks = [source.name, source.source_id, source.host, source.protocol, source.path, source.agent_base_url].filter(Boolean).join(' ').toLowerCase();
+      return haystacks.includes(normalizedQuery);
+    });
+  }, [sources, searchQuery, statusFilter]);
 
-  const openCreate = useCallback(() => {
+  const stats = useMemo(() => ({
+    total: sources.length,
+    active: sources.filter((item) => item.status === 'active').length,
+    paused: sources.filter((item) => item.status === 'paused').length,
+    disabled: sources.filter((item) => item.status === 'disabled').length,
+  }), [sources]);
+
+  const agentMap = useMemo(() => new Map(agents.map((agent) => [agent.agent_base_url ?? '', agent])), [agents]);
+  const agentOptions = useMemo(() => agents
+    .filter((agent) => agent.agent_base_url)
+    .map((agent) => ({
+      label: `${agent.hostname || agent.host || agent.agent_id} (${agent.status})`,
+      value: agent.agent_base_url as string,
+    })), [agents]);
+
+  const openCreateModal = useCallback(() => {
+    setModalMode('create');
+    setSelectedSource(null);
     form.resetFields();
     form.setFieldsValue({
       protocol: 'http',
-      port: 80,
+      path: '/var/log/*.log',
       pull_interval_sec: 30,
       pull_timeout_sec: 30,
       status: 'active',
     });
-    setCreateModalOpen(true);
+    setModalOpen(true);
   }, [form]);
 
-  const openEdit = useCallback(
-    (source: PullSource) => {
-      setSelectedSource(source);
-      form.setFieldsValue({
-        name: source.name,
-        host: source.host,
-        port: source.port,
-        protocol: source.protocol,
-        path: source.path,
-        auth: source.auth || '',
-        agent_base_url: source.agent_base_url || '',
-        pull_interval_sec: source.pull_interval_sec,
-        pull_timeout_sec: source.pull_timeout_sec,
-        status: source.status,
-      });
-      setEditModalOpen(true);
-    },
-    [form]
-  );
+  const openEditModal = useCallback((source: PullSource) => {
+    setModalMode('edit');
+    setSelectedSource(source);
+    form.setFieldsValue({
+      name: source.name,
+      host: source.host,
+      port: source.port,
+      protocol: source.protocol,
+      path: source.path,
+      auth: source.auth,
+      agent_base_url: source.agent_base_url,
+      pull_interval_sec: source.pull_interval_sec,
+      pull_timeout_sec: source.pull_timeout_sec,
+      status: source.status,
+    });
+    setModalOpen(true);
+  }, [form]);
 
-  const handleCreate = useCallback(async () => {
+  const handleAgentSelect = useCallback((value: string) => {
+    const parsed = parseHostPort(value);
+    form.setFieldsValue({
+      agent_base_url: value,
+      host: parsed.host,
+      port: parsed.port,
+    });
+  }, [form]);
+
+  const handleSubmit = useCallback(async () => {
     try {
       const values = await form.validateFields();
-      const payload: CreatePullSourcePayload = {
-        name: values.name,
-        host: values.host,
-        port: values.port,
-        protocol: values.protocol,
-        path: values.path,
-        auth: values.auth,
-        agent_base_url: values.agent_base_url,
-        pull_interval_sec: values.pull_interval_sec,
-        pull_timeout_sec: values.pull_timeout_sec,
-        status: values.status ?? 'active',
-      };
       setSubmitting(true);
-      await createPullSource(payload);
-      setCreateModalOpen(false);
-      message.success(`采集源 "${values.name}" 已创建`);
-      loadSources();
-    } catch (err) {
-      message.error('创建失败：' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setSubmitting(false);
-    }
-  }, [form, loadSources]);
-
-  const handleUpdate = useCallback(async () => {
-    if (!selectedSource) return;
-    try {
-      const values = await form.validateFields();
-      const payload: UpdatePullSourcePayload = {
-        name: values.name,
-        host: values.host,
-        port: values.port,
-        protocol: values.protocol,
-        path: values.path,
-        auth: values.auth,
-        agent_base_url: values.agent_base_url,
-        pull_interval_sec: values.pull_interval_sec,
-        pull_timeout_sec: values.pull_timeout_sec,
-        status: values.status,
-      };
-      setSubmitting(true);
-      await updatePullSource(selectedSource.source_id, payload);
-      setEditModalOpen(false);
-      message.success(`采集源 "${values.name}" 已更新`);
-      loadSources();
-    } catch (err) {
-      message.error('更新失败：' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setSubmitting(false);
-    }
-  }, [form, selectedSource, loadSources]);
-
-  const handleDelete = useCallback(async () => {
-    if (!selectedSource) return;
-    try {
-      setSubmitting(true);
-      await deletePullSource(selectedSource.source_id);
-      setDeleteModalOpen(false);
-      message.success(`采集源 "${selectedSource.name}" 已禁用`);
-      setSelectedSource(null);
-      loadSources();
-    } catch (err) {
-      message.error('禁用失败：' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setSubmitting(false);
-    }
-  }, [selectedSource, loadSources]);
-
-  const handleToggleStatus = useCallback(
-    async (source: PullSource) => {
-      const nextStatus = source.status === 'active' ? 'paused' : 'active';
-      try {
-        await updatePullSource(source.source_id, { status: nextStatus });
-        message.success(`采集源已${nextStatus === 'active' ? '启用' : '暂停'}`);
-        loadSources();
-      } catch (err) {
-        message.error('操作失败：' + (err instanceof Error ? err.message : String(err)));
+      if (modalMode === 'create') {
+        const payload: CreatePullSourcePayload = {
+          name: values.name,
+          host: values.host,
+          port: values.port,
+          protocol: values.protocol,
+          path: values.path,
+          auth: values.auth || 'agent-key',
+          agent_base_url: values.agent_base_url,
+          pull_interval_sec: values.pull_interval_sec,
+          pull_timeout_sec: values.pull_timeout_sec,
+          key_ref: 'active',
+          status: values.status,
+        };
+        await createPullSource(payload);
+        messageApi.success('采集源已创建');
+      } else if (selectedSource) {
+        const payload: UpdatePullSourcePayload = {
+          name: values.name,
+          host: values.host,
+          port: values.port,
+          protocol: values.protocol,
+          path: values.path,
+          auth: values.auth || 'agent-key',
+          agent_base_url: values.agent_base_url,
+          pull_interval_sec: values.pull_interval_sec,
+          pull_timeout_sec: values.pull_timeout_sec,
+          status: values.status,
+        };
+        await updatePullSource(selectedSource.source_id, payload);
+        messageApi.success('采集源已更新');
       }
-    },
-    [loadSources]
-  );
+      setModalOpen(false);
+      loadData();
+    } catch (err) {
+      messageApi.error(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [form, loadData, messageApi, modalMode, selectedSource]);
+
+  const handleDisable = useCallback(async (source: PullSource) => {
+    try {
+      await deletePullSource(source.source_id);
+      messageApi.success(`已禁用采集源：${source.name}`);
+      loadData();
+    } catch (err) {
+      messageApi.error(`禁用失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [loadData, messageApi]);
 
   const columns: ColumnsType<PullSource> = [
     {
-      title: '采集源名称 Source Name',
-      key: 'name',
+      title: '采集源',
+      key: 'source',
       width: 260,
       render: (_, source) => (
-        <div style={{ minWidth: 0 }}>
-          <Tooltip title={source.name}>
-            <div
-              style={{
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {source.name}
-            </div>
-          </Tooltip>
-          <Tooltip title={source.source_id}>
-            <div
-              style={{
-                marginTop: 4,
-                fontSize: 12,
-                color: '#94a3b8',
-                fontFamily: 'JetBrains Mono, monospace',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              ID: {compactSourceID(source.source_id)}
-            </div>
-          </Tooltip>
+        <div>
+          <div style={{ fontWeight: 600 }}>{source.name}</div>
+          <div style={{ fontSize: 12, color: '#94a3b8' }}>{source.protocol.toUpperCase()} · {source.source_id}</div>
         </div>
       ),
     },
     {
-      title: '类型 Type',
-      key: 'type',
-      width: 150,
+      title: '绑定 Agent',
+      key: 'agent',
+      width: 260,
       render: (_, source) => {
-        const displayType = inferSourceDisplayType(source);
+        const agent = agentMap.get(source.agent_base_url ?? '');
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>
-                {getSourceDisplayIcon(source)}
-              </span>
-              <span>{displayType}</span>
-            </div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>
-              传输 {source.protocol.toUpperCase()}
-            </div>
+          <div>
+            <div>{agent?.hostname || agent?.host || source.host || '-'}</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>{source.agent_base_url || '-'}</div>
           </div>
         );
       },
     },
     {
-      title: '路径 Path',
+      title: '采集路径',
       dataIndex: 'path',
       key: 'path',
-      width: 360,
-      render: (path: string) => {
-        const summary = summarizeSourcePath(path);
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-            <Tooltip title={<div style={{ whiteSpace: 'pre-wrap', maxWidth: 520 }}>{summary.fullText}</div>}>
-              <code
-                style={{
-                  display: 'block',
-                  maxWidth: '100%',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  fontSize: 12,
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                  fontFamily: 'JetBrains Mono, monospace',
-                  background: isDark ? '#0f172a' : '#f1f5f9',
-                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-                }}
-              >
-                {summary.label}
-              </code>
-            </Tooltip>
-            {summary.extraCount > 0 && (
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                另含 {summary.extraCount} 条路径
-              </div>
-            )}
-          </div>
-        );
-      },
+      width: 320,
+      render: (value: string) => renderPathPreview(value),
     },
     {
-      title: '主机 Host',
-      key: 'host',
-      width: 170,
-      render: (_, source) => {
-        const hostValue = `${source.host}:${source.port}`;
-        return (
-          <Tooltip title={hostValue}>
-            <span
-              style={{
-                display: 'inline-block',
-                maxWidth: '100%',
-                fontFamily: 'JetBrains Mono, monospace',
-                fontSize: 12,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {hostValue}
-            </span>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: '状态 Status',
-      key: 'status',
-      width: 120,
+      title: '拉取参数',
+      key: 'settings',
+      width: 160,
       render: (_, source) => (
-        <Tag
-          color={statusToTagColor(source.status)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-        >
-          {source.status === 'active' && (
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: COLORS.success,
-                display: 'inline-block',
-              }}
-            />
-          )}
-          {statusToDisplay(source.status)}
-        </Tag>
+        <div style={{ fontSize: 12 }}>
+          <div>间隔：{source.pull_interval_sec}s</div>
+          <div>超时：{source.pull_timeout_sec}s</div>
+        </div>
       ),
     },
     {
-      title: '操作 Actions',
-      key: 'actions',
+      title: '状态',
+      key: 'status',
       width: 120,
+      render: (_, source) => {
+        const meta = getStatusMeta(source.status);
+        return (
+          <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
+            {meta.label}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: '更新时间',
+      dataIndex: 'updated_at',
+      key: 'updated_at',
+      width: 180,
+      render: (value: string) => <span style={{ fontSize: 12, color: '#94a3b8' }}>{formatDateTime(value)}</span>,
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 180,
       align: 'right',
       render: (_, source) => (
         <Space size={4}>
-          {source.status !== 'disabled' && (
-            source.status === 'active' ? (
-              <Button
-                type="text"
-                size="small"
-                onClick={() => handleToggleStatus(source)}
-                icon={<span className="material-symbols-outlined" style={{ fontSize: 18, color: COLORS.warning }}>pause_circle</span>}
-              />
-            ) : (
-              <Button
-                type="text"
-                size="small"
-                onClick={() => handleToggleStatus(source)}
-                icon={<span className="material-symbols-outlined" style={{ fontSize: 18, color: COLORS.success }}>play_circle</span>}
-              />
-            )
-          )}
-          <Button
-            type="text"
-            size="small"
-            onClick={() => openEdit(source)}
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>}
-          />
-          {source.status !== 'disabled' && (
-            <Button
-              type="text"
-              size="small"
-              danger
-              onClick={() => {
-                setSelectedSource(source);
-                setDeleteModalOpen(true);
-              }}
-              icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>}
-            />
-          )}
+          <Button size="small" type="link" onClick={() => openEditModal(source)}>编辑</Button>
+          <Button size="small" type="link" onClick={() => navigate('/ingestion/status')}>状态</Button>
+          <Button size="small" type="link" danger onClick={() => handleDisable(source)}>禁用</Button>
         </Space>
       ),
     },
   ];
 
-  const renderForm = (isEdit: boolean) => (
-    <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-      <Form.Item name="name" label="数据源名称" rules={[{ required: true, message: '请输入数据源名称' }, { min: 2, message: '名称至少需要2个字符' }]}>
-        <Input placeholder="例如: Nginx-Access-Logs-Prod" />
-      </Form.Item>
-      <Form.Item name="host" label="主机地址" rules={[{ required: true, message: '请输入主机地址' }]}>
-        <Input placeholder="例如: 10.0.0.1 或 agent.example.com" />
-      </Form.Item>
-      <Form.Item name="port" label="端口" rules={[{ required: true, message: '请输入端口' }]}>
-        <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="80" />
-      </Form.Item>
-      <Form.Item name="protocol" label="协议" rules={[{ required: true }]}>
-        <Select options={PROTOCOL_OPTIONS} />
-      </Form.Item>
-      <Form.Item name="path" label="采集路径" rules={[{ required: true, message: '请输入采集路径' }]}>
-        <Input placeholder="例如: /var/log/*.log 或 /api/logs" />
-      </Form.Item>
-      <Form.Item name="auth" label="认证引用">
-        <Input placeholder="可选：认证密钥引用" />
-      </Form.Item>
-      <Form.Item name="agent_base_url" label="Agent 基础 URL">
-        <Input placeholder="可选：例如 http://10.0.0.1:16666/" />
-      </Form.Item>
-      <Form.Item name="pull_interval_sec" label="拉取间隔 (秒)">
-        <InputNumber min={1} max={3600} style={{ width: '100%' }} />
-      </Form.Item>
-      <Form.Item name="pull_timeout_sec" label="拉取超时 (秒)">
-        <InputNumber min={1} max={300} style={{ width: '100%' }} />
-      </Form.Item>
-      {isEdit && (
-        <Form.Item name="status" label="状态">
-          <Select
-            options={[
-              { label: '运行中', value: 'active' },
-              { label: '已暂停', value: 'paused' },
-              { label: '已禁用', value: 'disabled' },
-            ]}
-          />
-        </Form.Item>
-      )}
-    </Form>
-  );
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>采集源管理 Source Management</h2>
-          <p style={{ margin: '8px 0 0', fontSize: 13, color: '#94a3b8', maxWidth: 600 }}>
-            管理所有日志采集来源，监控数据接入状态与健康指标。支持 SSH、HTTP、Syslog 等多种协议接入。
-          </p>
+          <Typography.Title level={2} style={{ margin: 0 }}>采集源管理</Typography.Title>
+          <Typography.Paragraph style={{ margin: '4px 0 0', color: '#94a3b8' }}>
+            使用真实 pull source 配置，支持直接绑定在线 Agent 与目录模式。
+          </Typography.Paragraph>
         </div>
-        <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>} onClick={openCreate} style={{ whiteSpace: 'nowrap' }}>
-          新建采集源 Add Source
-        </Button>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-        <Card size="small" styles={{ body: { padding: 16 } }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Total Sources</div>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{stats.total}</div>
-            </div>
-            <div style={{ width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${COLORS.info}1a` }}>
-              <span className="material-symbols-outlined" style={{ color: COLORS.info }}>dns</span>
-            </div>
-          </div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: 16 } }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Running</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: COLORS.success }}>{stats.running}</div>
-            </div>
-            <div style={{ width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${COLORS.success}1a` }}>
-              <span className="material-symbols-outlined" style={{ color: COLORS.success }}>check_circle</span>
-            </div>
-          </div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: 16 } }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Disabled</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: COLORS.danger }}>{stats.errors}</div>
-            </div>
-            <div style={{ width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${COLORS.danger}1a` }}>
-              <span className="material-symbols-outlined" style={{ color: COLORS.danger }}>error</span>
-            </div>
-          </div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: 16 } }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Total Volume</div>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{stats.totalVolume}</div>
-            </div>
-            <div style={{ width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${COLORS.purple}1a` }}>
-              <span className="material-symbols-outlined" style={{ color: COLORS.purple }}>storage</span>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <Space>
-          {['all', 'File', 'HTTP', 'Syslog'].map((type) => (
-            <Button key={type} type={activeFilter === type ? 'primary' : 'default'} size="small" onClick={() => setActiveFilter(type)}>
-              {type === 'all' ? '全部 All' : type === 'File' ? 'File / Log' : type}
-            </Button>
-          ))}
+          <Button onClick={loadData}>刷新</Button>
+          <Button onClick={() => navigate('/ingestion/wizard')}>接入向导</Button>
+          <Button type="primary" onClick={openCreateModal}>新建采集源</Button>
         </Space>
-        <Space>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: 16 }}>
+        <Card><Statistic title="采集源总数" value={stats.total} /></Card>
+        <Card><Statistic title="启用中" value={stats.active} valueStyle={{ color: COLORS.success }} /></Card>
+        <Card><Statistic title="已暂停" value={stats.paused} valueStyle={{ color: COLORS.warning }} /></Card>
+        <Card><Statistic title="已禁用" value={stats.disabled} valueStyle={{ color: '#94a3b8' }} /></Card>
+      </div>
+
+      <Card>
+        <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <Input
-            prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>}
-            placeholder="搜索数据源..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ width: 200 }}
+            name="sourceSearchQuery"
             allowClear
+            style={{ width: 320 }}
+            placeholder="搜索采集源、主机、路径、URL"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>}
           />
-          <Button type="text" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>refresh</span>} onClick={loadSources} />
+          <Select id="source-status-filter" value={statusFilter} options={STATUS_OPTIONS} style={{ width: 160 }} onChange={setStatusFilter} />
         </Space>
-      </div>
-
-      <Card style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' } }}>
-        <Spin spinning={loading}>
-          <div style={{ flex: 1, overflow: 'auto', minHeight: 200 }}>
-            {!loading && filteredSources.length === 0 ? (
-              <Empty description="暂无采集源数据" style={{ padding: 48 }} />
-            ) : (
-              <Table<PullSource>
-                rowKey="source_id"
-                columns={columns}
-                dataSource={filteredSources}
-                size="small"
-                loading={false}
-                tableLayout="fixed"
-                pagination={{
-                  pageSize,
-                  showSizeChanger: true,
-                  showTotal: (total) => `共 ${total} 条数据源`,
-                  onShowSizeChange: (_, size) => setPageSize(size),
-                }}
-                scroll={{ x: 1180 }}
-              />
-            )}
-          </div>
-        </Spin>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin size="large" /></div>
+        ) : filteredSources.length === 0 ? (
+          <Empty description="当前没有符合条件的采集源" />
+        ) : (
+          <Table<PullSource>
+            rowKey={(record) => record.source_id}
+            columns={columns}
+            dataSource={filteredSources}
+            pagination={{
+              pageSize,
+              showSizeChanger: true,
+              pageSizeOptions: [10, 20, 50, 100],
+              onShowSizeChange: (_, size) => setPageSize(size),
+            }}
+            scroll={{ x: 1500 }}
+          />
+        )}
       </Card>
 
       <Modal
-        open={createModalOpen}
-        title="新建采集源"
-        onCancel={() => setCreateModalOpen(false)}
-        onOk={handleCreate}
-        okText="创建"
-        cancelText="取消"
-        width={560}
-        destroyOnHidden
+        title={modalMode === 'create' ? '新建采集源' : '编辑采集源'}
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        onOk={handleSubmit}
         confirmLoading={submitting}
+        width={760}
       >
-        {renderForm(false)}
-      </Modal>
+        <Form form={form} layout="vertical">
+          <Form.Item label="数据源名称" name="name" rules={[{ required: true, message: '请输入数据源名称' }]}>
+            <Input />
+          </Form.Item>
 
-      <Modal
-        open={editModalOpen}
-        title="编辑采集源"
-        onCancel={() => setEditModalOpen(false)}
-        onOk={handleUpdate}
-        okText="保存"
-        cancelText="取消"
-        width={560}
-        destroyOnHidden
-        confirmLoading={submitting}
-      >
-        {renderForm(true)}
-      </Modal>
+          <Card size="small" type="inner" title="绑定 Agent" style={{ marginBottom: 16 }}>
+            <Form.Item label="选择已探测到的 Agent">
+              <Select allowClear options={agentOptions} onChange={handleAgentSelect} placeholder="可选：从在线 Agent 中快速填充" />
+            </Form.Item>
+            <Form.Item label="Agent 基础 URL" name="agent_base_url">
+              <Input placeholder="例如：http://collector-agent:9091" />
+            </Form.Item>
+          </Card>
 
-      <Modal
-        open={deleteModalOpen}
-        title="确认禁用"
-        onCancel={() => setDeleteModalOpen(false)}
-        onOk={handleDelete}
-        okText="禁用"
-        okButtonProps={{ danger: true }}
-        cancelText="取消"
-        confirmLoading={submitting}
-      >
-        <div style={{ textAlign: 'center', padding: '16px 0' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 48, color: COLORS.danger, display: 'block', marginBottom: 16 }}>warning</span>
-          <p>
-            确定要禁用数据源 <span style={{ fontWeight: 600 }}>{selectedSource?.name}</span> 吗？
-          </p>
-          <p style={{ fontSize: 13, color: '#94a3b8' }}>禁用后该采集源将停止拉取日志。</p>
-        </div>
+          <Space style={{ width: '100%' }} align="start" wrap>
+            <Form.Item label="主机地址" name="host" rules={[{ required: true, message: '请输入主机地址' }]}>
+              <Input style={{ width: 220 }} />
+            </Form.Item>
+            <Form.Item label="端口" name="port" rules={[{ required: true, message: '请输入端口' }]}>
+              <InputNumber style={{ width: 140 }} min={1} max={65535} />
+            </Form.Item>
+            <Form.Item label="协议" name="protocol" rules={[{ required: true, message: '请选择协议' }]}>
+              <Select style={{ width: 180 }} options={PROTOCOL_OPTIONS} />
+            </Form.Item>
+          </Space>
+
+          <Form.Item label="采集路径 / source_path" name="path" rules={[{ required: true, message: '请输入采集路径' }]}>
+            <Input.TextArea rows={2} />
+          </Form.Item>
+
+          <Space style={{ width: '100%' }} align="start" wrap>
+            <Form.Item label="拉取间隔（秒）" name="pull_interval_sec">
+              <InputNumber style={{ width: 160 }} min={2} max={3600} />
+            </Form.Item>
+            <Form.Item label="拉取超时（秒）" name="pull_timeout_sec">
+              <InputNumber style={{ width: 160 }} min={5} max={3600} />
+            </Form.Item>
+            <Form.Item label="状态" name="status">
+              <Select style={{ width: 160 }} options={STATUS_OPTIONS.filter((item) => item.value !== 'all')} />
+            </Form.Item>
+          </Space>
+
+          <Form.Item label="认证引用" name="auth">
+            <Input placeholder="默认使用 agent-key" />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

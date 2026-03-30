@@ -1,6 +1,6 @@
 /**
- * API functions for ingest management (pull-sources).
- * Uses same auth pattern as query.ts (getRuntimeConfig, buildAuthHeaders with tenant/token).
+ * API functions for ingest management (pull-sources / agents / deployment scripts).
+ * Uses the same auth pattern as other front-end APIs.
  */
 
 import { getRuntimeConfig } from '../config/runtime-config';
@@ -22,7 +22,6 @@ interface ApiEnvelope<TData> {
   meta?: Record<string, unknown>;
 }
 
-/** PullSource from backend API */
 export interface PullSource {
   source_id: string;
   name: string;
@@ -40,7 +39,6 @@ export interface PullSource {
   updated_at: string;
 }
 
-/** Create pull source payload */
 export interface CreatePullSourcePayload {
   name: string;
   host: string;
@@ -55,7 +53,6 @@ export interface CreatePullSourcePayload {
   status?: string;
 }
 
-/** Update pull source payload (partial) */
 export interface UpdatePullSourcePayload {
   name?: string;
   host?: string;
@@ -70,8 +67,166 @@ export interface UpdatePullSourcePayload {
   status?: string;
 }
 
+export interface IngestAgentMetricsSummary {
+  cpu_usage_pct: number;
+  memory_usage_pct: number;
+  disk_usage_pct: number;
+  disk_io_read_bytes: number;
+  disk_io_write_bytes: number;
+  net_in_bytes: number;
+  net_out_bytes: number;
+  collected_at?: string;
+}
+
+export interface IngestAgentItem {
+  agent_id: string;
+  agent_base_url?: string;
+  host?: string;
+  hostname?: string;
+  ip?: string;
+  version?: string;
+  status: 'online' | 'paused' | 'disabled' | 'offline' | string;
+  live_connected: boolean;
+  last_seen_at?: string;
+  source_count: number;
+  active_source_count: number;
+  paused_source_count: number;
+  disabled_source_count: number;
+  source_ids?: string[];
+  source_names?: string[];
+  source_paths?: string[];
+  capabilities?: string[];
+  metrics?: IngestAgentMetricsSummary | null;
+  error_message?: string;
+}
+
+export interface PullTaskStatusSummary {
+  task_id?: string;
+  status?: string;
+  trigger_type?: string;
+  request_id?: string;
+  batch_id?: string;
+  retry_count?: number;
+  error_code?: string;
+  error_message?: string;
+  scheduled_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  options?: Record<string, unknown>;
+}
+
+export interface PullCursorStatusSummary {
+  agent_id?: string;
+  source_ref?: string;
+  source_path?: string;
+  last_cursor?: string;
+  last_offset?: number;
+  last_batch_id?: string;
+  updated_at?: string;
+}
+
+export interface PullPackageStatusSummary {
+  package_id?: string;
+  agent_id?: string;
+  source_ref?: string;
+  batch_id?: string;
+  next_cursor?: string;
+  record_count?: number;
+  file_count?: number;
+  size_bytes?: number;
+  status?: string;
+  created_at?: string;
+  acked_at?: string;
+  primary_file?: string;
+}
+
+export interface PullSourceRuntimeStatusItem {
+  source_id: string;
+  name: string;
+  protocol: string;
+  host: string;
+  port: number;
+  path: string;
+  agent_base_url?: string;
+  configured_status: string;
+  runtime_status: 'healthy' | 'running' | 'paused' | 'disabled' | 'offline' | 'error' | string;
+  agent_id?: string;
+  agent_hostname?: string;
+  agent_ip?: string;
+  agent_status?: string;
+  live_connected: boolean;
+  pull_interval_sec: number;
+  pull_timeout_sec: number;
+  estimated_eps?: number;
+  last_task?: PullTaskStatusSummary;
+  last_cursor?: PullCursorStatusSummary;
+  last_package?: PullPackageStatusSummary;
+  metrics?: IngestAgentMetricsSummary | null;
+  updated_at?: string;
+  error_message?: string;
+}
+
+export interface PullSourceStatusSummary {
+  total_sources: number;
+  active_sources: number;
+  paused_sources: number;
+  disabled_sources: number;
+  online_agents: number;
+  offline_agents: number;
+  healthy_sources: number;
+  failed_sources: number;
+  recent_record_count: number;
+  recent_package_count: number;
+}
+
+export interface PullSourceStatusTrendPoint {
+  bucket_start: string;
+  package_count: number;
+  record_count: number;
+}
+
+export interface PullSourceStatusResponse {
+  summary: PullSourceStatusSummary;
+  items: PullSourceRuntimeStatusItem[];
+  trend: PullSourceStatusTrendPoint[];
+  range: string;
+  last_refresh_at: string;
+}
+
+export interface GenerateDeploymentScriptPayload {
+  target_kind: 'linux-systemd' | 'linux-docker' | 'windows-startup-task' | 'windows-powershell' | 'network-syslog-udp' | 'network-syslog-tcp';
+  source_name: string;
+  source_type?: string;
+  agent_id?: string;
+  agent_base_url?: string;
+  control_plane_base_url?: string;
+  release_base_url?: string;
+  container_image?: string;
+  version?: string;
+  include_paths?: string[];
+  exclude_paths?: string[];
+  syslog_bind?: string;
+  syslog_protocol?: string;
+  key_ref?: string;
+}
+
+export interface GenerateDeploymentScriptResponse {
+  target_kind: string;
+  script_kind: 'bash' | 'powershell' | 'network-cli' | string;
+  file_name: string;
+  command?: string;
+  script: string;
+  agent_base_url?: string;
+  listener_address?: string;
+  notes?: string[];
+}
+
 interface ListPullSourcesData {
   items: PullSource[];
+}
+
+interface ListAgentsData {
+  items: IngestAgentItem[];
 }
 
 function normalizeApiBaseUrl(rawBaseUrl: string): string {
@@ -140,7 +295,6 @@ async function requestIngestApi<TData>(
   return envelope ?? { code: 'OK', message: 'success', data: undefined, meta: {} };
 }
 
-/** Fetch all pull sources (paginated, fetches all pages for full list) */
 export async function fetchPullSources(params?: {
   page?: number;
   page_size?: number;
@@ -166,7 +320,6 @@ export async function fetchPullSources(params?: {
   return items;
 }
 
-/** Create a new pull source */
 export async function createPullSource(data: CreatePullSourcePayload): Promise<PullSource> {
   const envelope = await requestIngestApi<{ source_id: string; status: string }>('/pull-sources', {
     method: 'POST',
@@ -197,7 +350,6 @@ export async function createPullSource(data: CreatePullSourcePayload): Promise<P
   return created;
 }
 
-/** Update an existing pull source */
 export async function updatePullSource(id: string, data: UpdatePullSourcePayload): Promise<PullSource> {
   await requestIngestApi<{ updated: boolean }>(`/pull-sources/${encodeURIComponent(id)}`, {
     method: 'PUT',
@@ -212,7 +364,51 @@ export async function updatePullSource(id: string, data: UpdatePullSourcePayload
   return updated;
 }
 
-/** Disable/delete a pull source (backend uses status=disabled; no DELETE endpoint) */
 export async function deletePullSource(id: string): Promise<void> {
   await updatePullSource(id, { status: 'disabled' });
+}
+
+export async function fetchIngestAgents(): Promise<IngestAgentItem[]> {
+  const envelope = await requestIngestApi<ListAgentsData>('/agents', { method: 'GET' });
+  return envelope.data?.items ?? [];
+}
+
+export async function fetchPullSourceStatus(range: '1h' | '6h' | '24h' | '7d' = '1h'): Promise<PullSourceStatusResponse> {
+  const envelope = await requestIngestApi<PullSourceStatusResponse>('/pull-sources/status', {
+    method: 'GET',
+    query: { range },
+  });
+
+  return envelope.data ?? {
+    summary: {
+      total_sources: 0,
+      active_sources: 0,
+      paused_sources: 0,
+      disabled_sources: 0,
+      online_agents: 0,
+      offline_agents: 0,
+      healthy_sources: 0,
+      failed_sources: 0,
+      recent_record_count: 0,
+      recent_package_count: 0,
+    },
+    items: [],
+    trend: [],
+    range,
+    last_refresh_at: '',
+  };
+}
+
+export async function generateDeploymentScript(
+  payload: GenerateDeploymentScriptPayload,
+): Promise<GenerateDeploymentScriptResponse> {
+  const envelope = await requestIngestApi<GenerateDeploymentScriptResponse>('/deployment-scripts/generate', {
+    method: 'POST',
+    body: payload,
+  });
+
+  if (!envelope.data) {
+    throw new Error('脚本生成成功但返回内容为空');
+  }
+  return envelope.data;
 }

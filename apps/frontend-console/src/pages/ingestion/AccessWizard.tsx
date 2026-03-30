@@ -1,392 +1,442 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import { Input, Select, Button, Card, Form, Steps, Checkbox, message } from 'antd';
-import { useThemeStore } from '../../stores/themeStore';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, App, Button, Card, Descriptions, Divider, Form, Input, InputNumber, Radio, Select, Space, Steps, Tabs, Typography } from 'antd';
+import { useNavigate } from 'react-router-dom';
+import {
+  createPullSource,
+  fetchIngestAgents,
+  generateDeploymentScript,
+  type GenerateDeploymentScriptResponse,
+  type IngestAgentItem,
+} from '../../api/ingest';
 import { COLORS } from '../../theme/tokens';
-import type { SourceType, SourceConfig, WizardAgentConfig, ParsingConfig } from '../../types/ingestion';
 
-// ============================================================================
-// 常量
-// ============================================================================
+const SOURCE_TYPE_OPTIONS = [
+  { label: '文本日志', value: 'custom', description: '任意应用日志目录或文件模式' },
+  { label: 'Nginx', value: 'nginx', description: '接入 access / error 日志' },
+  { label: 'Java 应用', value: 'java', description: '接入 JVM 或业务日志目录' },
+  { label: 'MySQL', value: 'mysql', description: '接入 error / slow query 日志' },
+  { label: 'Docker', value: 'docker', description: '接入容器 stdout/stderr 日志' },
+  { label: 'Kubernetes', value: 'kubernetes', description: '接入容器日志目录' },
+  { label: 'Syslog / 网络设备', value: 'syslog', description: '通过 collector-agent 监听 UDP/TCP Syslog' },
+] as const;
 
-const WIZARD_STEPS = [
-  { title: '选择来源', description: '选择数据源类型' },
-  { title: '配置 Agent', description: '配置采集参数' },
-  { title: '解析设置', description: '配置日志解析规则' },
-  { title: '完成', description: '确认并创建' },
-];
+const DEPLOY_TARGET_OPTIONS = [
+  { label: 'Linux systemd', value: 'linux-systemd' },
+  { label: 'Linux Docker', value: 'linux-docker' },
+  { label: 'Windows 启动任务', value: 'windows-startup-task' },
+  { label: '网络设备 Syslog UDP', value: 'network-syslog-udp' },
+  { label: '网络设备 Syslog TCP', value: 'network-syslog-tcp' },
+] as const;
 
-const SOURCE_TYPES = [
-  { id: 'java' as const, name: 'Java 应用', icon: 'coffee', color: '#f89820', description: 'Use Agent to auto-discover and collect standard output and error logs from JVM.', tags: ['Auto-Discovery'] },
-  { id: 'nginx' as const, name: 'Nginx', icon: 'dns', color: '#009639', description: 'Built-in templates for access.log and error.log parsing and visualization.', tags: ['Template'] },
-  { id: 'kubernetes' as const, name: 'Kubernetes', icon: 'view_column', color: '#326ce5', description: 'Collect Pod logs, events, and metrics directly from the cluster via DaemonSet.', tags: ['Cluster'] },
-  { id: 'mysql' as const, name: 'MySQL', icon: 'storage', color: '#00758f', description: 'Slow query logs and error logs analysis for database performance tuning.', tags: ['Database'] },
-  { id: 'custom' as const, name: '文本日志 (Custom)', icon: 'description', color: '#64748b', description: 'Specify file paths and patterns to collect logs from any custom application.', tags: ['Flexible'] },
-  { id: 'syslog' as const, name: 'Syslog', icon: 'terminal', color: '#64748b', description: 'Collect standard Syslog messages via UDP/TCP from servers and network devices.', tags: ['Network'] },
-  { id: 'docker' as const, name: 'Docker', icon: 'layers', color: '#0db7ed', description: 'Collect container stdout/stderr logs directly from the Docker daemon.', tags: ['Container'] },
-];
+const DEFAULTS_BY_SOURCE_TYPE: Record<string, { path: string; protocol: string }> = {
+  custom: { path: '/var/log/*.log', protocol: 'http' },
+  nginx: { path: '/var/log/nginx/access.log,/var/log/nginx/error.log', protocol: 'http' },
+  java: { path: '/var/log/*.log', protocol: 'http' },
+  mysql: { path: '/var/log/mysql/*.log,/var/log/mysqld.log', protocol: 'http' },
+  docker: { path: '/var/lib/docker/containers/*/*.log', protocol: 'http' },
+  kubernetes: { path: '/var/log/containers/*.log', protocol: 'http' },
+  syslog: { path: 'syslog://udp/0.0.0.0:5514', protocol: 'syslog_udp' },
+};
 
-const ENCODING_OPTIONS = [
-  { label: 'UTF-8', value: 'utf-8' },
-  { label: 'GBK', value: 'gbk' },
-  { label: 'ISO-8859-1', value: 'iso-8859-1' },
-  { label: 'ASCII', value: 'ascii' },
-];
-
-const PARSER_OPTIONS = [
-  { label: 'JSON', value: 'json' },
-  { label: '正则表达式', value: 'regex' },
-  { label: 'Grok', value: 'grok' },
-  { label: 'CSV', value: 'csv' },
-  { label: '无解析', value: 'none' },
-];
-
-const AGENT_OPTIONS = [
-  { label: 'agent-web-01 (192.168.1.105)', value: 'agent-001' },
-  { label: 'agent-db-01 (10.0.4.212)', value: 'agent-002' },
-  { label: 'agent-app-01 (192.168.1.108)', value: 'agent-004' },
-];
-
-// ============================================================================
-// 组件
-// ============================================================================
+function parseHostPort(agentBaseUrl?: string) {
+  if (!agentBaseUrl) return { host: '', port: 9091 };
+  try {
+    const url = new URL(agentBaseUrl);
+    return {
+      host: url.hostname,
+      port: url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80,
+    };
+  } catch {
+    return { host: '', port: 9091 };
+  }
+}
 
 const AccessWizard: React.FC = () => {
-  const isDark = useThemeStore((s) => s.isDark);
-
+  const navigate = useNavigate();
+  const { message: messageApi } = App.useApp();
   const [currentStep, setCurrentStep] = useState(0);
-  const [sourceConfig, setSourceConfig] = useState<SourceConfig>({ sourceType: null, sourceName: '', targetIndex: '', description: '' });
-  const [agentConfig, setAgentConfig] = useState<WizardAgentConfig>({ agentId: '', logPath: '', encoding: 'utf-8', multiline: false, multilinePattern: '' });
-  const [parsingConfig, setParsingConfig] = useState<ParsingConfig>({ parserType: 'json', timestampField: '@timestamp', timestampFormat: 'ISO8601', customPattern: '' });
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sourceType, setSourceType] = useState<string>('custom');
+  const [sourceName, setSourceName] = useState('');
+  const [sourcePath, setSourcePath] = useState(DEFAULTS_BY_SOURCE_TYPE.custom.path);
+  const [protocol, setProtocol] = useState(DEFAULTS_BY_SOURCE_TYPE.custom.protocol);
+  const [pullIntervalSec, setPullIntervalSec] = useState(30);
+  const [pullTimeoutSec, setPullTimeoutSec] = useState(30);
+  const [agentMode, setAgentMode] = useState<'existing' | 'new'>('existing');
+  const [agents, setAgents] = useState<IngestAgentItem[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+  const [agentBaseUrl, setAgentBaseUrl] = useState('http://127.0.0.1:9091');
+  const [controlPlaneBaseUrl, setControlPlaneBaseUrl] = useState(window.location.origin);
+  const [releaseBaseUrl, setReleaseBaseUrl] = useState('');
+  const [containerImage, setContainerImage] = useState('');
+  const [deploymentTarget, setDeploymentTarget] = useState<typeof DEPLOY_TARGET_OPTIONS[number]['value']>('linux-systemd');
+  const [scriptResponse, setScriptResponse] = useState<GenerateDeploymentScriptResponse | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [scriptLoading, setScriptLoading] = useState(false);
+  const [syslogBind, setSyslogBind] = useState('0.0.0.0:5514');
+  const [syslogProtocol, setSyslogProtocol] = useState<'udp' | 'tcp'>('udp');
 
-  const filteredSourceTypes = useMemo(() => {
-    let result = SOURCE_TYPES;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(s => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q));
-    }
-    if (categoryFilter === 'app') result = result.filter(s => ['java', 'custom'].includes(s.id));
-    else if (categoryFilter === 'middleware') result = result.filter(s => ['nginx', 'mysql'].includes(s.id));
-    else if (categoryFilter === 'cloud') result = result.filter(s => ['kubernetes', 'docker'].includes(s.id));
-    return result;
-  }, [searchQuery, categoryFilter]);
+  const selectedAgent = useMemo(
+    () => agents.find((item) => item.agent_id === selectedAgentId) ?? null,
+    [agents, selectedAgentId],
+  );
 
-  const selectedSourceInfo = useMemo(() => SOURCE_TYPES.find(s => s.id === sourceConfig.sourceType), [sourceConfig.sourceType]);
-
-  const validateStep = useCallback((step: number): boolean => {
-    const newErrors: Record<string, string> = {};
-    if (step === 0) {
-      if (!sourceConfig.sourceType) newErrors.sourceType = '请选择数据源类型';
-    } else if (step === 1) {
-      if (!sourceConfig.sourceName.trim()) newErrors.sourceName = '请输入数据源名称';
-      else if (sourceConfig.sourceName.length < 3) newErrors.sourceName = '名称至少需要3个字符';
-      if (!sourceConfig.targetIndex.trim()) newErrors.targetIndex = '请输入目标索引';
-      else if (!/^[a-z][a-z0-9_]*$/.test(sourceConfig.targetIndex)) newErrors.targetIndex = '索引名称必须以小写字母开头，只能包含小写字母、数字和下划线';
-      if (!agentConfig.agentId) newErrors.agentId = '请选择 Agent';
-      if (!agentConfig.logPath.trim()) newErrors.logPath = '请输入日志路径';
-      if (agentConfig.multiline && !agentConfig.multilinePattern.trim()) newErrors.multilinePattern = '启用多行模式时需要指定匹配模式';
-    } else if (step === 2) {
-      if ((parsingConfig.parserType === 'regex' || parsingConfig.parserType === 'grok') && !parsingConfig.customPattern.trim()) {
-        newErrors.customPattern = parsingConfig.parserType === 'regex' ? '请输入正则表达式' : '请输入 Grok 模式';
+  const loadAgents = useCallback(async () => {
+    setAgentsLoading(true);
+    try {
+      const data = await fetchIngestAgents();
+      setAgents(data);
+      const firstOnline = data.find((item) => item.live_connected) ?? data[0] ?? null;
+      if (firstOnline) {
+        setSelectedAgentId(firstOnline.agent_id);
+        if (firstOnline.agent_base_url) {
+          setAgentBaseUrl(firstOnline.agent_base_url);
+        }
       }
+    } catch (err) {
+      messageApi.error(`Agent 列表加载失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAgentsLoading(false);
     }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [sourceConfig, agentConfig, parsingConfig]);
+  }, [messageApi]);
+
+  useEffect(() => {
+    loadAgents();
+  }, [loadAgents]);
+
+  useEffect(() => {
+    const defaults = DEFAULTS_BY_SOURCE_TYPE[sourceType] ?? DEFAULTS_BY_SOURCE_TYPE.custom;
+    setSourcePath(defaults.path);
+    setProtocol(defaults.protocol);
+    if (sourceType === 'syslog') {
+      setDeploymentTarget((current) => current.startsWith('network-syslog') ? current : 'linux-systemd');
+      setSourcePath(`syslog://${syslogProtocol}/${syslogBind}`);
+    }
+  }, [sourceType]);
+
+  useEffect(() => {
+    if (sourceType === 'syslog') {
+      setProtocol(syslogProtocol === 'tcp' ? 'syslog_tcp' : 'syslog_udp');
+      setSourcePath(`syslog://${syslogProtocol}/${syslogBind}`);
+    }
+  }, [syslogBind, syslogProtocol, sourceType]);
+
+  useEffect(() => {
+    if (selectedAgent?.agent_base_url && agentMode === 'existing') {
+      setAgentBaseUrl(selectedAgent.agent_base_url);
+    }
+  }, [selectedAgent?.agent_base_url, agentMode]);
+
+  const agentOptions = useMemo(() => agents.map((agent) => ({
+    label: `${agent.hostname || agent.host || agent.agent_id} (${agent.status})`,
+    value: agent.agent_id,
+  })), [agents]);
+
+  const validateStep = useCallback((step: number) => {
+    if (step === 0) {
+      if (!sourceName.trim()) {
+        messageApi.warning('请输入数据源名称');
+        return false;
+      }
+      if (!sourceType.trim()) {
+        messageApi.warning('请选择数据源类型');
+        return false;
+      }
+      return true;
+    }
+    if (step === 1) {
+      if (agentMode === 'existing' && !selectedAgentId) {
+        messageApi.warning('请选择一个已有 Agent');
+        return false;
+      }
+      if (!agentBaseUrl.trim()) {
+        messageApi.warning('请输入 Agent 基础 URL');
+        return false;
+      }
+      if (!sourcePath.trim()) {
+        messageApi.warning('请输入采集路径或 source_path');
+        return false;
+      }
+      return true;
+    }
+    return true;
+  }, [agentBaseUrl, agentMode, messageApi, selectedAgentId, sourceName, sourcePath, sourceType]);
 
   const handleNext = useCallback(() => {
-    if (validateStep(currentStep) && currentStep < 3) {
-      setCurrentStep(prev => prev + 1);
-      setErrors({});
-    }
+    if (!validateStep(currentStep)) return;
+    setCurrentStep((value) => Math.min(value + 1, 2));
   }, [currentStep, validateStep]);
 
   const handlePrev = useCallback(() => {
-    if (currentStep > 0) { setCurrentStep(prev => prev - 1); setErrors({}); }
-  }, [currentStep]);
-
-  const handleComplete = useCallback(() => {
-    message.success('数据源创建成功！');
-    setCurrentStep(0);
-    setSourceConfig({ sourceType: null, sourceName: '', targetIndex: '', description: '' });
-    setAgentConfig({ agentId: '', logPath: '', encoding: 'utf-8', multiline: false, multilinePattern: '' });
-    setParsingConfig({ parserType: 'json', timestampField: '@timestamp', timestampFormat: 'ISO8601', customPattern: '' });
+    setCurrentStep((value) => Math.max(value - 1, 0));
   }, []);
 
-  const handleSelectSourceType = useCallback((type: SourceType) => {
-    setSourceConfig(prev => ({ ...prev, sourceType: type }));
-    setErrors({});
-  }, []);
+  const handleGenerateScript = useCallback(async () => {
+    if (!validateStep(1)) return;
+    setScriptLoading(true);
+    try {
+      const includePaths = sourceType === 'syslog' ? [] : sourcePath.split(',').map((item) => item.trim()).filter(Boolean);
+      const result = await generateDeploymentScript({
+        target_kind: deploymentTarget,
+        source_name: sourceName.trim(),
+        source_type: sourceType,
+        agent_id: selectedAgentId || undefined,
+        agent_base_url: agentBaseUrl.trim(),
+        control_plane_base_url: controlPlaneBaseUrl.trim(),
+        release_base_url: releaseBaseUrl.trim() || undefined,
+        container_image: containerImage.trim() || undefined,
+        include_paths: includePaths,
+        exclude_paths: [],
+        syslog_bind: sourceType === 'syslog' ? syslogBind : undefined,
+        syslog_protocol: sourceType === 'syslog' ? syslogProtocol : undefined,
+      });
+      setScriptResponse(result);
+      messageApi.success('部署脚本已生成');
+    } catch (err) {
+      messageApi.error(`脚本生成失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setScriptLoading(false);
+    }
+  }, [agentBaseUrl, controlPlaneBaseUrl, containerImage, deploymentTarget, messageApi, releaseBaseUrl, selectedAgentId, sourceName, sourcePath, sourceType, syslogBind, syslogProtocol, validateStep]);
 
-  const handleReset = useCallback(() => {
-    setCurrentStep(0);
-    setSourceConfig({ sourceType: null, sourceName: '', targetIndex: '', description: '' });
-    setAgentConfig({ agentId: '', logPath: '', encoding: 'utf-8', multiline: false, multilinePattern: '' });
-    setParsingConfig({ parserType: 'json', timestampField: '@timestamp', timestampFormat: 'ISO8601', customPattern: '' });
-    setErrors({});
-  }, []);
+  const handleCreate = useCallback(async () => {
+    if (!validateStep(1)) return;
+    const { host, port } = parseHostPort(agentBaseUrl.trim());
+    if (!host) {
+      messageApi.warning('Agent 基础 URL 无法解析主机名');
+      return;
+    }
 
-  // ========== 步骤 1：选择来源 ==========
-  const renderStep1 = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-        <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 8, background: isDark ? '#1e293b' : '#f1f5f9' }}>
-          {[{ key: 'all', label: '全部' }, { key: 'app', label: '应用日志' }, { key: 'middleware', label: '中间件' }, { key: 'cloud', label: '云服务' }].map(cat => (
-            <Button key={cat.key} type={categoryFilter === cat.key ? 'primary' : 'text'} size="small"
-              onClick={() => setCategoryFilter(cat.key)} style={{ borderRadius: 6 }}>
-              {cat.label}
-            </Button>
-          ))}
-        </div>
-        <Input id="access-wizard-source-search" name="accessWizardSourceSearch" aria-label="搜索数据来源" prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>}
-          placeholder="搜索数据来源 (e.g. Nginx, K8s)..." value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)} style={{ width: 280 }} allowClear />
-      </div>
+    setSubmitting(true);
+    try {
+      const created = await createPullSource({
+        name: sourceName.trim(),
+        host,
+        port,
+        protocol,
+        path: sourcePath.trim(),
+        auth: 'agent-key',
+        agent_base_url: agentBaseUrl.trim(),
+        pull_interval_sec: pullIntervalSec,
+        pull_timeout_sec: pullTimeoutSec,
+        key_ref: 'active',
+        status: 'active',
+      });
+      messageApi.success(`采集源 ${created.name} 已创建`);
+      navigate('/ingestion/sources');
+    } catch (err) {
+      messageApi.error(`创建采集源失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [agentBaseUrl, messageApi, navigate, protocol, pullIntervalSec, pullTimeoutSec, sourceName, sourcePath, validateStep]);
 
-      {errors.sourceType && (
-        <div style={{ padding: 12, borderRadius: 8, background: `${COLORS.danger}1a`, border: `1px solid ${COLORS.danger}33`, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="material-symbols-outlined" style={{ color: COLORS.danger }}>error</span>
-          <span style={{ color: COLORS.danger, fontSize: 13 }}>{errors.sourceType}</span>
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260, 1fr))', gap: 16 }}>
-        {filteredSourceTypes.map(source => (
-          <Card key={source.id} hoverable onClick={() => handleSelectSourceType(source.id)}
-            style={{ cursor: 'pointer', borderColor: sourceConfig.sourceType === source.id ? COLORS.primary : undefined,
-              boxShadow: sourceConfig.sourceType === source.id ? `0 0 0 2px ${COLORS.primary}33` : undefined }}
-            styles={{ body: { padding: 20, display: 'flex', flexDirection: 'column', height: '100%' } }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div style={{ width: 48, height: 48, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${source.color}1a` }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 28, color: source.color }}>{source.icon}</span>
-              </div>
-              {sourceConfig.sourceType === source.id ? (
-                <span className="material-symbols-outlined" style={{ color: COLORS.primary }}>check_circle</span>
-              ) : (
-                <span className="material-symbols-outlined" style={{ color: '#64748b' }}>arrow_forward</span>
-              )}
-            </div>
-            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{source.name}</h3>
-            <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.6, flex: 1, marginBottom: 16 }}>{source.description}</p>
-            <div style={{ display: 'flex', gap: 8, borderTop: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`, paddingTop: 12 }}>
-              {source.tags.map(tag => (
-                <span key={tag} style={{ fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 4, background: `${COLORS.primary}1a`, color: COLORS.primary, border: `1px solid ${COLORS.primary}33` }}>{tag}</span>
-              ))}
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-
-  // ========== 步骤 2：配置 Agent ==========
-  const renderStep2 = () => (
-    <div style={{ maxWidth: 640, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {selectedSourceInfo && (
-        <Card size="small" styles={{ body: { padding: 16, display: 'flex', alignItems: 'center', gap: 16 } }}>
-          <div style={{ width: 48, height: 48, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${selectedSourceInfo.color}1a` }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 24, color: selectedSourceInfo.color }}>{selectedSourceInfo.icon}</span>
-          </div>
-          <div>
-            <div style={{ fontWeight: 500 }}>{selectedSourceInfo.name}</div>
-            <div style={{ fontSize: 13, color: '#94a3b8' }}>{selectedSourceInfo.description}</div>
-          </div>
-        </Card>
-      )}
-
-      <Card title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="material-symbols-outlined" style={{ color: COLORS.primary }}>info</span>基本信息</span>}>
-        <Form layout="vertical">
-          <Form.Item htmlFor="access-wizard-source-name" label="数据源名称" required validateStatus={errors.sourceName ? 'error' : ''} help={errors.sourceName}>
-            <Input id="access-wizard-source-name" name="sourceName" placeholder="例如: Nginx-Access-Logs-Prod" value={sourceConfig.sourceName}
-              onChange={(e) => setSourceConfig(prev => ({ ...prev, sourceName: e.target.value }))} />
-          </Form.Item>
-          <Form.Item htmlFor="access-wizard-target-index" label="目标索引" required validateStatus={errors.targetIndex ? 'error' : ''} help={errors.targetIndex || '索引名称必须以小写字母开头'}>
-            <Input id="access-wizard-target-index" name="targetIndex" placeholder="例如: idx_nginx_prod" value={sourceConfig.targetIndex}
-              onChange={(e) => setSourceConfig(prev => ({ ...prev, targetIndex: e.target.value }))} />
-          </Form.Item>
-          <Form.Item htmlFor="access-wizard-description" label="描述">
-            <Input.TextArea id="access-wizard-description" name="description" placeholder="可选：描述此数据源的用途" rows={2} value={sourceConfig.description}
-              onChange={(e) => setSourceConfig(prev => ({ ...prev, description: e.target.value }))} />
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <Card title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="material-symbols-outlined" style={{ color: COLORS.primary }}>dns</span>Agent 配置</span>}>
-        <Form layout="vertical">
-          <Form.Item htmlFor="access-wizard-agent-id" label="选择 Agent" required validateStatus={errors.agentId ? 'error' : ''} help={errors.agentId}>
-            <Select id="access-wizard-agent-id" aria-label="选择 Agent" placeholder="选择一个 Agent" options={AGENT_OPTIONS} value={agentConfig.agentId || undefined}
-              onChange={(v) => setAgentConfig(prev => ({ ...prev, agentId: v }))} />
-          </Form.Item>
-          <Form.Item htmlFor="access-wizard-log-path" label="日志路径" required validateStatus={errors.logPath ? 'error' : ''} help={errors.logPath || '支持通配符，如 /var/log/*.log'}>
-            <Input id="access-wizard-log-path" name="logPath" placeholder="例如: /var/log/nginx/access.log" value={agentConfig.logPath}
-              onChange={(e) => setAgentConfig(prev => ({ ...prev, logPath: e.target.value }))} />
-          </Form.Item>
-          <Form.Item htmlFor="access-wizard-encoding" label="文件编码">
-            <Select id="access-wizard-encoding" aria-label="文件编码" options={ENCODING_OPTIONS} value={agentConfig.encoding}
-              onChange={(v) => setAgentConfig(prev => ({ ...prev, encoding: v }))} />
-          </Form.Item>
-          <Form.Item>
-            <Checkbox id="access-wizard-multiline" name="multiline" checked={agentConfig.multiline}
-              onChange={(e) => setAgentConfig(prev => ({ ...prev, multiline: e.target.checked }))}>
-              启用多行日志模式
-            </Checkbox>
-          </Form.Item>
-          {agentConfig.multiline && (
-            <Form.Item htmlFor="access-wizard-multiline-pattern" label="多行匹配模式" validateStatus={errors.multilinePattern ? 'error' : ''} help={errors.multilinePattern || '用于识别新日志条目开始的正则表达式'}>
-              <Input id="access-wizard-multiline-pattern" name="multilinePattern" placeholder={'例如: ^\\d{4}-\\d{2}-\\d{2}'} value={agentConfig.multilinePattern}
-                onChange={(e) => setAgentConfig(prev => ({ ...prev, multilinePattern: e.target.value }))} />
-            </Form.Item>
-          )}
-        </Form>
-      </Card>
-    </div>
-  );
-
-  // ========== 步骤 3：解析设置 ==========
-  const renderStep3 = () => (
-    <div style={{ maxWidth: 640, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <Card title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="material-symbols-outlined" style={{ color: COLORS.primary }}>code</span>解析配置</span>}>
-        <Form layout="vertical">
-          <Form.Item htmlFor="access-wizard-parser-type" label="解析器类型">
-            <Select id="access-wizard-parser-type" aria-label="解析器类型" options={PARSER_OPTIONS} value={parsingConfig.parserType}
-              onChange={(v) => setParsingConfig(prev => ({ ...prev, parserType: v }))} />
-          </Form.Item>
-          {(parsingConfig.parserType === 'regex' || parsingConfig.parserType === 'grok') && (
-            <Form.Item htmlFor="access-wizard-custom-pattern" label={parsingConfig.parserType === 'regex' ? '正则表达式' : 'Grok 模式'} required
-              validateStatus={errors.customPattern ? 'error' : ''} help={errors.customPattern}>
-              <Input.TextArea id="access-wizard-custom-pattern" name="customPattern" rows={3} value={parsingConfig.customPattern}
-                placeholder={parsingConfig.parserType === 'regex'
-                  ? '例如: ^(?<timestamp>\\S+) (?<level>\\w+) (?<message>.*)'
-                  : '例如: %{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:level} %{GREEDYDATA:message}'}
-                onChange={(e) => setParsingConfig(prev => ({ ...prev, customPattern: e.target.value }))}
-                style={{ fontFamily: 'JetBrains Mono, monospace' }} />
-            </Form.Item>
-          )}
-          <Form.Item htmlFor="access-wizard-timestamp-field" label="时间戳字段" extra="指定日志中的时间戳字段名">
-            <Input id="access-wizard-timestamp-field" name="timestampField" placeholder="@timestamp" value={parsingConfig.timestampField}
-              onChange={(e) => setParsingConfig(prev => ({ ...prev, timestampField: e.target.value }))} />
-          </Form.Item>
-          <Form.Item htmlFor="access-wizard-timestamp-format" label="时间戳格式" extra="例如: ISO8601, yyyy-MM-dd HH:mm:ss">
-            <Input id="access-wizard-timestamp-format" name="timestampFormat" placeholder="ISO8601" value={parsingConfig.timestampFormat}
-              onChange={(e) => setParsingConfig(prev => ({ ...prev, timestampFormat: e.target.value }))} />
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <Card title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="material-symbols-outlined" style={{ color: COLORS.primary }}>preview</span>解析预览</span>}>
-        <Card size="small" style={{ background: isDark ? '#0f172a' : '#f8fafc' }} styles={{ body: { padding: 16 } }}>
-          <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>示例输入:</p>
-          <pre style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', color: isDark ? '#cbd5e1' : '#475569', marginBottom: 16, overflowX: 'auto' }}>
-            2026-02-10 10:30:00 INFO Application started successfully
-          </pre>
-          <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>解析结果:</p>
-          <pre style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', color: '#10b981', margin: 0, overflowX: 'auto' }}>
-{`{
-  "timestamp": "2026-02-10 10:30:00",
-  "level": "INFO",
-  "message": "Application started successfully"
-}`}
-          </pre>
-        </Card>
-      </Card>
-    </div>
-  );
-
-  // ========== 步骤 4：完成 ==========
-  const renderStep4 = () => (
-    <div style={{ maxWidth: 640, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div style={{ textAlign: 'center', padding: '32px 0' }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 64, color: COLORS.success, display: 'block', marginBottom: 16 }}>check_circle</span>
-        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>配置完成</h2>
-        <p style={{ color: '#94a3b8' }}>请确认以下配置信息，然后点击"创建数据源"完成设置。</p>
-      </div>
-
-      <Card>
-        {/* 数据源信息 */}
-        <div style={{ marginBottom: 24 }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <span className="material-symbols-outlined" style={{ color: COLORS.primary, fontSize: 18 }}>dns</span>数据源信息
-          </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
-            <div><span style={{ color: '#94a3b8' }}>类型:</span> {selectedSourceInfo?.name}</div>
-            <div><span style={{ color: '#94a3b8' }}>名称:</span> {sourceConfig.sourceName}</div>
-            <div><span style={{ color: '#94a3b8' }}>目标索引:</span> <code style={{ fontFamily: 'monospace' }}>{sourceConfig.targetIndex}</code></div>
-            <div><span style={{ color: '#94a3b8' }}>描述:</span> {sourceConfig.description || '-'}</div>
-          </div>
-        </div>
-
-        <div style={{ borderTop: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`, margin: '0 0 24px' }} />
-
-        {/* Agent 配置 */}
-        <div style={{ marginBottom: 24 }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <span className="material-symbols-outlined" style={{ color: COLORS.primary, fontSize: 18 }}>settings</span>Agent 配置
-          </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
-            <div><span style={{ color: '#94a3b8' }}>Agent:</span> {AGENT_OPTIONS.find(a => a.value === agentConfig.agentId)?.label || '-'}</div>
-            <div><span style={{ color: '#94a3b8' }}>日志路径:</span> <code style={{ fontFamily: 'monospace' }}>{agentConfig.logPath}</code></div>
-            <div><span style={{ color: '#94a3b8' }}>编码:</span> {agentConfig.encoding}</div>
-            <div><span style={{ color: '#94a3b8' }}>多行模式:</span> {agentConfig.multiline ? '是' : '否'}</div>
-          </div>
-        </div>
-
-        <div style={{ borderTop: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`, margin: '0 0 24px' }} />
-
-        {/* 解析配置 */}
+  const renderStepOne = () => (
+    <Card title="1. 选择来源与命名">
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <div>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <span className="material-symbols-outlined" style={{ color: COLORS.primary, fontSize: 18 }}>code</span>解析配置
-          </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
-            <div><span style={{ color: '#94a3b8' }}>解析器:</span> {PARSER_OPTIONS.find(p => p.value === parsingConfig.parserType)?.label}</div>
-            <div><span style={{ color: '#94a3b8' }}>时间戳字段:</span> {parsingConfig.timestampField}</div>
-            <div><span style={{ color: '#94a3b8' }}>时间戳格式:</span> {parsingConfig.timestampFormat}</div>
-          </div>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>数据源类型</div>
+          <Radio.Group value={sourceType} onChange={(event) => setSourceType(event.target.value)}>
+            <Space direction="vertical">
+              {SOURCE_TYPE_OPTIONS.map((item) => (
+                <Radio key={item.value} value={item.value}>
+                  <Space direction="vertical" size={0}>
+                    <span>{item.label}</span>
+                    <Typography.Text type="secondary">{item.description}</Typography.Text>
+                  </Space>
+                </Radio>
+              ))}
+            </Space>
+          </Radio.Group>
         </div>
-      </Card>
-    </div>
+        <Form layout="vertical" name="access-wizard-step-one">
+          <Form.Item label="数据源名称" required>
+            <Input name="sourceName" value={sourceName} onChange={(event) => setSourceName(event.target.value)} placeholder="例如：prod-nginx-access / branch-router-syslog" />
+          </Form.Item>
+        </Form>
+      </Space>
+    </Card>
+  );
+
+  const renderStepTwo = () => (
+    <Card title="2. 选择 Agent 与采集配置">
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Radio.Group value={agentMode} onChange={(event) => setAgentMode(event.target.value)}>
+          <Space>
+            <Radio value="existing">绑定现有 Agent</Radio>
+            <Radio value="new">为新主机生成部署脚本</Radio>
+          </Space>
+        </Radio.Group>
+
+        {agentMode === 'existing' ? (
+          <Card size="small" type="inner" title="现有 Agent">
+            {agentsLoading ? (
+              <Typography.Text type="secondary">正在加载 Agent 列表...</Typography.Text>
+            ) : !agents.length ? (
+              <Alert type="info" showIcon message="当前没有可用 Agent" description="你可以切换到“为新主机生成部署脚本”，先部署 agent 再回来绑定。" />
+            ) : (
+              <Form layout="vertical" name="access-wizard-existing-agent">
+                <Form.Item label="Agent">
+                  <Select id="access-wizard-agent-select" value={selectedAgentId || undefined} options={agentOptions} onChange={setSelectedAgentId} />
+                </Form.Item>
+                <Form.Item label="Agent 基础 URL">
+                  <Input name="agentBaseUrl" value={agentBaseUrl} onChange={(event) => setAgentBaseUrl(event.target.value)} />
+                </Form.Item>
+              </Form>
+            )}
+          </Card>
+        ) : (
+          <Card size="small" type="inner" title="新主机部署参数">
+            <Form layout="vertical" name="access-wizard-new-agent">
+              <Form.Item label="Agent 基础 URL" extra="创建采集源后，控制面会通过这个地址探活与拉取日志。">
+                <Input name="agentBaseUrl" value={agentBaseUrl} onChange={(event) => setAgentBaseUrl(event.target.value)} placeholder="例如：http://10.0.0.15:9091" />
+              </Form.Item>
+              <Form.Item label="控制面 URL" extra="Agent 用它上报系统资源指标，建议填写控制面可被被采集主机访问的地址。">
+                <Input name="controlPlaneBaseUrl" value={controlPlaneBaseUrl} onChange={(event) => setControlPlaneBaseUrl(event.target.value)} placeholder="例如：http://192.168.0.202:8080" />
+              </Form.Item>
+              <Form.Item label="发布包基址" extra="例如 GitHub / Gitee Release 下载目录。Linux 包名默认 collector-agent-linux-amd64.tar.gz。">
+                <Input name="releaseBaseUrl" value={releaseBaseUrl} onChange={(event) => setReleaseBaseUrl(event.target.value)} placeholder="例如：https://github.com/<owner>/<repo>/releases/download/v0.1.0" />
+              </Form.Item>
+              <Form.Item label="容器镜像（Docker 目标可选）">
+                <Input name="containerImage" value={containerImage} onChange={(event) => setContainerImage(event.target.value)} placeholder="例如 ghcr.io/<owner>/<repo>/collector-agent:v0.1.0" />
+              </Form.Item>
+            </Form>
+          </Card>
+        )}
+
+        <Card size="small" type="inner" title="采集参数">
+          <Form layout="vertical" name="access-wizard-source-config">
+            <Form.Item label={sourceType === 'syslog' ? 'source_path / 监听标识' : '采集路径'}>
+              <Input.TextArea name="sourcePath" rows={2} value={sourcePath} onChange={(event) => setSourcePath(event.target.value)} />
+            </Form.Item>
+            {sourceType === 'syslog' ? (
+              <Space style={{ width: '100%' }} align="start" wrap>
+                <Form.Item label="Syslog 协议">
+                  <Select
+                    id="access-wizard-syslog-protocol"
+                    style={{ width: 180 }}
+                    value={syslogProtocol}
+                    options={[{ label: 'UDP', value: 'udp' }, { label: 'TCP', value: 'tcp' }]}
+                    onChange={(value) => setSyslogProtocol(value)}
+                  />
+                </Form.Item>
+                <Form.Item label="监听地址">
+                  <Input name="syslogBind" value={syslogBind} onChange={(event) => setSyslogBind(event.target.value)} placeholder="0.0.0.0:5514" />
+                </Form.Item>
+              </Space>
+            ) : null}
+            <Space style={{ width: '100%' }} align="start" wrap>
+              <Form.Item label="拉取间隔（秒）">
+                <InputNumber name="pullIntervalSec" min={2} max={3600} value={pullIntervalSec} onChange={(value) => setPullIntervalSec(Number(value ?? 30))} />
+              </Form.Item>
+              <Form.Item label="拉取超时（秒）">
+                <InputNumber name="pullTimeoutSec" min={5} max={3600} value={pullTimeoutSec} onChange={(value) => setPullTimeoutSec(Number(value ?? 30))} />
+              </Form.Item>
+            </Space>
+          </Form>
+        </Card>
+      </Space>
+    </Card>
+  );
+
+  const renderStepThree = () => (
+    <Card title="3. 创建并生成部署脚本">
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Descriptions bordered size="small" column={2}>
+          <Descriptions.Item label="数据源类型">{SOURCE_TYPE_OPTIONS.find((item) => item.value === sourceType)?.label ?? sourceType}</Descriptions.Item>
+          <Descriptions.Item label="数据源名称">{sourceName || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Agent 方式">{agentMode === 'existing' ? '绑定现有 Agent' : '生成新主机部署脚本'}</Descriptions.Item>
+          <Descriptions.Item label="Agent URL">{agentBaseUrl || '-'}</Descriptions.Item>
+          <Descriptions.Item label="采集路径" span={2}><Typography.Text code>{sourcePath || '-'}</Typography.Text></Descriptions.Item>
+          <Descriptions.Item label="拉取间隔">{pullIntervalSec}s</Descriptions.Item>
+          <Descriptions.Item label="拉取超时">{pullTimeoutSec}s</Descriptions.Item>
+        </Descriptions>
+
+        <Alert
+          type="info"
+          showIcon
+          message="推荐流程"
+          description={agentMode === 'new'
+            ? '先生成并执行部署脚本，再创建采集源；如果你已经确定目标 Agent URL，也可以先创建设定。'
+            : '已有 Agent 可直接创建采集源；如需迁移到新主机，也可以生成一份新的部署脚本。'}
+        />
+
+        <Card size="small" type="inner" title="部署脚本生成">
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Select id="access-wizard-deployment-target" value={deploymentTarget} options={DEPLOY_TARGET_OPTIONS.map((item) => ({ label: item.label, value: item.value }))} onChange={setDeploymentTarget} style={{ width: 240 }} />
+            <Space>
+              <Button loading={scriptLoading} onClick={handleGenerateScript}>生成部署脚本</Button>
+              <Button type="primary" loading={submitting} onClick={handleCreate}>创建采集源</Button>
+            </Space>
+            {scriptResponse ? (
+              <Tabs
+                items={[
+                  {
+                    key: 'script',
+                    label: '脚本内容',
+                    children: (
+                      <Space direction="vertical" style={{ width: '100%' }}>
+                        {scriptResponse.notes?.length ? (
+                          <Alert type="success" showIcon message="脚本已生成" description={<ul style={{ margin: 0, paddingLeft: 18 }}>{scriptResponse.notes.map((item) => <li key={item}>{item}</li>)}</ul>} />
+                        ) : null}
+                        {scriptResponse.command ? (
+                          <Card size="small" title="一键命令">
+                            <Typography.Paragraph copyable style={{ marginBottom: 0, whiteSpace: 'pre-wrap', fontFamily: 'JetBrains Mono, monospace' }}>
+                              {scriptResponse.command}
+                            </Typography.Paragraph>
+                          </Card>
+                        ) : null}
+                        <Card size="small" title={scriptResponse.file_name} extra={<Typography.Text type="secondary">{scriptResponse.script_kind}</Typography.Text>}>
+                          <Typography.Paragraph copyable style={{ marginBottom: 0, whiteSpace: 'pre-wrap', fontFamily: 'JetBrains Mono, monospace' }}>
+                            {scriptResponse.script}
+                          </Typography.Paragraph>
+                        </Card>
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            ) : null}
+          </Space>
+        </Card>
+      </Space>
+    </Card>
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* 头部 */}
-      <div style={{ padding: '8px 16px 24px', background: isDark ? '#0f172a' : '#f8fafc' }}>
-        <div style={{ maxWidth: 960, margin: '0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 24 }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 28, fontWeight: 700, marginBottom: 4 }}>新建接入</h2>
-              <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>Follow the steps to configure your new data source ingestion pipeline.</p>
-            </div>
-            <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>history</span>}>History</Button>
-          </div>
-          <Steps current={currentStep} items={WIZARD_STEPS} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <Typography.Title level={2} style={{ margin: 0 }}>接入向导</Typography.Title>
+          <Typography.Paragraph style={{ margin: '4px 0 0', color: '#94a3b8' }}>
+            支持绑定真实 Agent、生成 Linux / Windows / Syslog 接入脚本，并直接创建 pull source 配置。
+          </Typography.Paragraph>
         </div>
+        <Space>
+          <Button onClick={loadAgents}>刷新 Agent</Button>
+          <Button onClick={() => navigate('/ingestion/agents')}>查看 Agent</Button>
+        </Space>
       </div>
 
-      {/* 内容 */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '32px 16px' }}>
-        <div style={{ maxWidth: 960, margin: '0 auto' }}>
-          {currentStep === 0 && renderStep1()}
-          {currentStep === 1 && renderStep2()}
-          {currentStep === 2 && renderStep3()}
-          {currentStep === 3 && renderStep4()}
-        </div>
-      </div>
+      <Card>
+        <Steps current={currentStep} items={[
+          { title: '选择来源' },
+          { title: '配置 Agent' },
+          { title: '创建与部署' },
+        ]} />
+      </Card>
 
-      {/* 底部操作栏 */}
-      <div style={{ padding: '16px 24px', borderTop: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`, background: isDark ? '#111722' : '#f8fafc',
-        display: 'flex', justifyContent: 'space-between' }}>
+      {currentStep === 0 ? renderStepOne() : null}
+      {currentStep === 1 ? renderStepTwo() : null}
+      {currentStep === 2 ? renderStepThree() : null}
+
+      <Divider style={{ margin: 0 }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <Button disabled={currentStep === 0} onClick={handlePrev}>上一步</Button>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Button onClick={handleReset}>取消</Button>
-          {currentStep < 3 ? (
-            <Button type="primary" onClick={handleNext}>下一步</Button>
-          ) : (
-            <Button type="primary" style={{ background: COLORS.success, borderColor: COLORS.success }} onClick={handleComplete}>创建数据源</Button>
-          )}
-        </div>
+        <Space>
+          <Button onClick={() => navigate('/ingestion/sources')}>取消</Button>
+          {currentStep < 2 ? <Button type="primary" onClick={handleNext}>下一步</Button> : null}
+        </Space>
       </div>
     </div>
   );

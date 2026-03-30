@@ -114,7 +114,12 @@ func enablePullIngestRuntime(router gin.IRouter, db *sql.DB, workerCtx context.C
 		packageStore,
 		receiptStore,
 		deadLetterStore,
+		cursorStore,
+		authKeyStore,
+		agentClient,
 		latencyMonitor,
+		defaultAgentKeyID,
+		defaultAgentKey,
 	)
 
 	staleTaskAfter := parseDurationSecondsEnv("INGEST_STALE_TASK_AFTER_SEC", executionTimeout+30*time.Second)
@@ -139,7 +144,12 @@ func registerAuthorizedPullIngestRuntimeRoutes(
 	packageStore *ingest.PullPackageStore,
 	receiptStore *ingest.ReceiptStore,
 	deadLetterStore *ingest.DeadLetterStore,
+	cursorStore *ingest.PullCursorStore,
+	authKeyStore *ingest.AgentAuthKeyStore,
+	agentClient *ingest.AgentClient,
 	latencyMonitor *ingest.PullLatencyMonitor,
+	defaultAgentKeyID string,
+	defaultAgentKey string,
 ) {
 	if router == nil {
 		return
@@ -166,6 +176,20 @@ func registerAuthorizedPullIngestRuntimeRoutes(
 
 	latencyHandler := ingest.NewPullLatencyHandler(latencyMonitor)
 	router.GET("/api/v1/ingest/metrics/latency", middleware.RequireCapabilityOrAdminRole(db, "metric.read"), latencyHandler.GetPullLatency)
+
+	agentInventoryHandler := ingest.NewAgentInventoryHandler(
+		sourceStore,
+		taskStore,
+		packageStore,
+		cursorStore,
+		authKeyStore,
+		agentClient,
+		defaultAgentKeyID,
+		defaultAgentKey,
+	)
+	router.GET("/api/v1/ingest/agents", middleware.RequireCapabilityOrAdminRole(db, "agent.read"), agentInventoryHandler.ListAgents)
+	router.GET("/api/v1/ingest/pull-sources/status", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.read"), agentInventoryHandler.ListPullSourceStatus)
+	router.POST("/api/v1/ingest/deployment-scripts/generate", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.read"), agentInventoryHandler.GenerateDeploymentScript)
 }
 
 func resolveDefaultAgentCredential() (string, string, error) {
