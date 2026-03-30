@@ -221,6 +221,14 @@ export interface GenerateDeploymentScriptResponse {
   notes?: string[];
 }
 
+export interface RunPullTaskResponse {
+  task_id: string;
+  source_id: string;
+  trigger_type: string;
+  status: string;
+  request_id?: string;
+}
+
 interface ListPullSourcesData {
   items: PullSource[];
 }
@@ -409,6 +417,26 @@ export async function generateDeploymentScript(
 
   if (!envelope.data) {
     throw new Error('脚本生成成功但返回内容为空');
+  }
+  return envelope.data;
+}
+
+export async function runPullTask(sourceId: string): Promise<RunPullTaskResponse> {
+  const normalizedSourceId = sourceId.trim();
+  if (!normalizedSourceId) {
+    throw new Error('source_id 不能为空');
+  }
+
+  const envelope = await requestIngestApi<RunPullTaskResponse>('/pull-tasks/run', {
+    method: 'POST',
+    body: {
+      source_id: normalizedSourceId,
+      trigger_type: 'manual',
+    },
+  });
+
+  if (!envelope.data) {
+    throw new Error('任务已提交但返回内容为空');
   }
   return envelope.data;
 }

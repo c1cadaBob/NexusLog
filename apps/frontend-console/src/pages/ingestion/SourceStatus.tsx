@@ -3,7 +3,9 @@ import { Alert, App, Button, Card, Descriptions, Empty, Input, Modal, Select, Sp
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import ChartWrapper from '../../components/charts/ChartWrapper';
-import { fetchPullSourceStatus, type PullSourceRuntimeStatusItem, type PullSourceStatusResponse } from '../../api/ingest';
+import { fetchPullSourceStatus, runPullTask, type PullSourceRuntimeStatusItem, type PullSourceStatusResponse } from '../../api/ingest';
+import { hasAnyCapability } from '../../auth/routeAuthorization';
+import { useAuthStore } from '../../stores/authStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { COLORS } from '../../theme/tokens';
 
@@ -101,6 +103,10 @@ const SourceStatus: React.FC = () => {
   const [response, setResponse] = useState<PullSourceStatusResponse | null>(null);
   const [selectedItem, setSelectedItem] = useState<PullSourceRuntimeStatusItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
+
+  const capabilities = useAuthStore((s) => s.capabilities);
+  const canRunPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.run']), [capabilities]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes.sourceStatus ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -214,6 +220,21 @@ const SourceStatus: React.FC = () => {
     };
   }, [filteredItems]);
 
+  const handleRunNow = useCallback(async (item: PullSourceRuntimeStatusItem) => {
+    setRunningSourceIds((current) => (current.includes(item.source_id) ? current : [...current, item.source_id]));
+    try {
+      const result = await runPullTask(item.source_id);
+      messageApi.success(`已提交采集任务：${item.name} · ${result.task_id}`);
+      window.setTimeout(() => {
+        void loadStatus();
+      }, 1200);
+    } catch (err) {
+      messageApi.error(`执行采集失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setRunningSourceIds((current) => current.filter((sourceId) => sourceId !== item.source_id));
+    }
+  }, [loadStatus, messageApi]);
+
   const columns: ColumnsType<PullSourceRuntimeStatusItem> = [
     {
       title: '数据源',
@@ -293,10 +314,23 @@ const SourceStatus: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 120,
+      width: 180,
       align: 'right',
       render: (_, item) => (
-        <Button size="small" type="link" onClick={() => { setSelectedItem(item); setDetailOpen(true); }}>详情</Button>
+        <Space size={4}>
+          <Button size="small" type="link" onClick={() => { setSelectedItem(item); setDetailOpen(true); }}>详情</Button>
+          {canRunPullTask ? (
+            <Button
+              size="small"
+              type="link"
+              loading={runningSourceIds.includes(item.source_id)}
+              disabled={String(item.configured_status).toLowerCase() === 'disabled'}
+              onClick={() => handleRunNow(item)}
+            >
+              立即采集
+            </Button>
+          ) : null}
+        </Space>
       ),
     },
   ];

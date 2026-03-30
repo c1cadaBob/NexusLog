@@ -7,12 +7,15 @@ import {
   deletePullSource,
   fetchIngestAgents,
   fetchPullSources,
+  runPullTask,
   updatePullSource,
   type CreatePullSourcePayload,
   type IngestAgentItem,
   type PullSource,
   type UpdatePullSourcePayload,
 } from '../../api/ingest';
+import { hasAnyCapability } from '../../auth/routeAuthorization';
+import { useAuthStore } from '../../stores/authStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { COLORS } from '../../theme/tokens';
 
@@ -99,6 +102,10 @@ const SourceManagement: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState<PullSource | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
+
+  const capabilities = useAuthStore((s) => s.capabilities);
+  const canRunPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.run']), [capabilities]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes.sourceManagement ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -246,6 +253,21 @@ const SourceManagement: React.FC = () => {
     }
   }, [loadData, messageApi]);
 
+  const handleRunNow = useCallback(async (source: PullSource) => {
+    setRunningSourceIds((current) => (current.includes(source.source_id) ? current : [...current, source.source_id]));
+    try {
+      const result = await runPullTask(source.source_id);
+      messageApi.success(`已提交采集任务：${source.name} · ${result.task_id}`);
+      window.setTimeout(() => {
+        void loadData();
+      }, 1200);
+    } catch (err) {
+      messageApi.error(`执行采集失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setRunningSourceIds((current) => current.filter((item) => item !== source.source_id));
+    }
+  }, [loadData, messageApi]);
+
   const columns: ColumnsType<PullSource> = [
     {
       title: '采集源',
@@ -320,6 +342,17 @@ const SourceManagement: React.FC = () => {
         <Space size={4}>
           <Button size="small" type="link" onClick={() => openEditModal(source)}>编辑</Button>
           <Button size="small" type="link" onClick={() => navigate('/ingestion/status')}>状态</Button>
+          {canRunPullTask ? (
+            <Button
+              size="small"
+              type="link"
+              loading={runningSourceIds.includes(source.source_id)}
+              disabled={String(source.status).toLowerCase() === 'disabled'}
+              onClick={() => handleRunNow(source)}
+            >
+              立即采集
+            </Button>
+          ) : null}
           <Button size="small" type="link" danger onClick={() => handleDisable(source)}>禁用</Button>
         </Space>
       ),
