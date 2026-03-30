@@ -574,6 +574,7 @@ export async function fetchPullTasks(params: {
 export async function fetchPullPackages(params: {
   agent_id?: string;
   source_ref?: string;
+  task_id?: string;
   status?: string;
   page?: number;
   page_size?: number;
@@ -582,9 +583,10 @@ export async function fetchPullPackages(params: {
   const pageSize = params.page_size ?? 20;
   const agentId = params.agent_id?.trim() || '';
   const sourceRef = params.source_ref?.trim() || '';
+  const taskId = params.task_id?.trim() || '';
 
-  if (!agentId && !sourceRef) {
-    throw new Error('agent_id 或 source_ref 不能为空');
+  if (!agentId && !sourceRef && !taskId) {
+    throw new Error('agent_id、source_ref 或 task_id 不能为空');
   }
 
   const status = params.status?.trim() || '';
@@ -593,6 +595,7 @@ export async function fetchPullPackages(params: {
     query: {
       ...(agentId ? { agent_id: agentId } : {}),
       ...(sourceRef ? { source_ref: sourceRef } : {}),
+      ...(taskId ? { task_id: taskId } : {}),
       ...(status ? { status } : {}),
       page,
       page_size: pageSize,

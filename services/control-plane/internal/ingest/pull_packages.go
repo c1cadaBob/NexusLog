@@ -70,6 +70,7 @@ type PullPackage struct {
 type listPullPackagesQuery struct {
 	AgentID   string
 	SourceRef string
+	TaskID    string
 	Status    string
 	Page      int
 	PageSize  int
@@ -97,10 +98,10 @@ func NewPullPackageStoreWithPG(backend *PGBackend) *PullPackageStore {
 	}
 }
 
-// List 按 agent/source_ref/status 过滤并返回分页切片。
-func (s *PullPackageStore) List(agentID, sourceRef, status string, page, pageSize int) ([]PullPackage, int) {
+// List 按 agent/source_ref/task_id/status 过滤并返回分页切片。
+func (s *PullPackageStore) List(agentID, sourceRef, taskID, status string, page, pageSize int) ([]PullPackage, int) {
 	if s.backend != nil {
-		return s.listFromDB(context.Background(), agentID, sourceRef, status, page, pageSize)
+		return s.listFromDB(context.Background(), agentID, sourceRef, taskID, status, page, pageSize)
 	}
 
 	s.mu.RLock()
@@ -112,6 +113,9 @@ func (s *PullPackageStore) List(agentID, sourceRef, status string, page, pageSiz
 			continue
 		}
 		if sourceRef != "" && item.SourceRef != sourceRef {
+			continue
+		}
+		if taskID != "" && item.TaskID != taskID {
 			continue
 		}
 		if status != "" && item.Status != status {
@@ -320,7 +324,7 @@ func (h *PullPackageHandler) ListPullPackages(c *gin.Context) {
 		return
 	}
 
-	items, total := h.store.List(query.AgentID, query.SourceRef, query.Status, query.Page, query.PageSize)
+	items, total := h.store.List(query.AgentID, query.SourceRef, query.TaskID, query.Status, query.Page, query.PageSize)
 	writeSuccess(c, http.StatusOK, gin.H{"items": items}, buildPaginationMeta(query.Page, query.PageSize, total))
 }
 
@@ -357,6 +361,7 @@ func parseListPullPackagesQuery(c *gin.Context) (listPullPackagesQuery, error) {
 
 	agentID := strings.TrimSpace(c.Query("agent_id"))
 	sourceRef := strings.TrimSpace(c.Query("source_ref"))
+	taskID := strings.TrimSpace(c.Query("task_id"))
 	status := strings.ToLower(strings.TrimSpace(c.Query("status")))
 	if status != "" && !isAllowedPackageStatus(status) {
 		return listPullPackagesQuery{}, fmt.Errorf("status must be one of created|uploading|uploaded|acked|nacked|failed|dead_lettered")
@@ -365,6 +370,7 @@ func parseListPullPackagesQuery(c *gin.Context) (listPullPackagesQuery, error) {
 	return listPullPackagesQuery{
 		AgentID:   agentID,
 		SourceRef: sourceRef,
+		TaskID:    taskID,
 		Status:    status,
 		Page:      page,
 		PageSize:  pageSize,

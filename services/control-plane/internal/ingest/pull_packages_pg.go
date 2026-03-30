@@ -8,9 +8,10 @@ import (
 	"time"
 )
 
-func (s *PullPackageStore) listFromDB(ctx context.Context, agentID, sourceRef, status string, page, pageSize int) ([]PullPackage, int) {
+func (s *PullPackageStore) listFromDB(ctx context.Context, agentID, sourceRef, taskID, status string, page, pageSize int) ([]PullPackage, int) {
 	agentID = strings.TrimSpace(agentID)
 	sourceRef = strings.TrimSpace(sourceRef)
+	taskID = strings.TrimSpace(taskID)
 	status = strings.TrimSpace(status)
 
 	countQuery := `
@@ -18,10 +19,11 @@ SELECT COUNT(1)
 FROM agent_incremental_packages
 WHERE ($1 = '' OR agent_id = $1)
   AND ($2 = '' OR source_ref = $2)
-  AND ($3 = '' OR status = $3)
+  AND ($3 = '' OR task_id::text = $3)
+  AND ($4 = '' OR status = $4)
 `
 	total := 0
-	if err := s.backend.DB().QueryRowContext(ctx, countQuery, agentID, sourceRef, status).Scan(&total); err != nil {
+	if err := s.backend.DB().QueryRowContext(ctx, countQuery, agentID, sourceRef, taskID, status).Scan(&total); err != nil {
 		return []PullPackage{}, 0
 	}
 
@@ -50,13 +52,14 @@ SELECT
 FROM agent_incremental_packages
 WHERE ($1 = '' OR agent_id = $1)
   AND ($2 = '' OR source_ref = $2)
-  AND ($3 = '' OR status = $3)
+  AND ($3 = '' OR task_id::text = $3)
+  AND ($4 = '' OR status = $4)
 ORDER BY created_at DESC
-OFFSET $4
-LIMIT $5
+OFFSET $5
+LIMIT $6
 `
 	offset := (page - 1) * pageSize
-	rows, err := s.backend.DB().QueryContext(ctx, query, agentID, sourceRef, status, offset, pageSize)
+	rows, err := s.backend.DB().QueryContext(ctx, query, agentID, sourceRef, taskID, status, offset, pageSize)
 	if err != nil {
 		return []PullPackage{}, total
 	}

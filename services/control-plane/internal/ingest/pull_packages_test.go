@@ -70,6 +70,58 @@ func TestListPullPackagesByFilter(t *testing.T) {
 	}
 }
 
+// TestListPullPackagesByTaskID 验证按 task_id 过滤包列表。
+func TestListPullPackagesByTaskID(t *testing.T) {
+	fixture := newTestFixture()
+	router := fixture.router
+
+	now := time.Now().UTC()
+	fixture.packageStore.CreateForTest(PullPackage{
+		TaskID:    "task-a",
+		AgentID:   "agent-task",
+		SourceRef: "/var/log/task-a.log",
+		PackageNo: "pkg-task-001",
+		Checksum:  "sha256-task-001",
+		Status:    "uploaded",
+		CreatedAt: now.Add(-2 * time.Minute),
+	})
+	fixture.packageStore.CreateForTest(PullPackage{
+		TaskID:    "task-b",
+		AgentID:   "agent-task",
+		SourceRef: "/var/log/task-b.log",
+		PackageNo: "pkg-task-002",
+		Checksum:  "sha256-task-002",
+		Status:    "acked",
+		CreatedAt: now.Add(-1 * time.Minute),
+	})
+
+	resp := performJSONRequest(router, http.MethodGet, "/api/v1/ingest/packages?task_id=task-b&page=1&page_size=10", nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("list packages by task_id failed: %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	envelope := decodeEnvelope(t, resp)
+	if envelope.Code != "OK" {
+		t.Fatalf("unexpected code: %s", envelope.Code)
+	}
+	if envelope.Meta["total"] != float64(1) {
+		t.Fatalf("expected total=1, got %#v", envelope.Meta["total"])
+	}
+
+	var data struct {
+		Items []PullPackage `json:"items"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatalf("decode packages data failed: %v", err)
+	}
+	if len(data.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(data.Items))
+	}
+	if data.Items[0].TaskID != "task-b" || data.Items[0].PackageNo != "pkg-task-002" {
+		t.Fatalf("unexpected package item: %+v", data.Items[0])
+	}
+}
+
 // TestListPullPackagesPagination 验证分页切片与 total 元数据。
 func TestListPullPackagesPagination(t *testing.T) {
 	fixture := newTestFixture()

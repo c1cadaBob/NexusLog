@@ -146,7 +146,7 @@ func TestPullTaskExecutorSuccess(t *testing.T) {
 		t.Fatalf("expected ack status=ack, got %s", ackStatus)
 	}
 
-	packages, total := packageStore.List("", "", "", 1, 20)
+	packages, total := packageStore.List("", "", "", "", 1, 20)
 	if total != 1 || len(packages) != 1 {
 		t.Fatalf("expected one package, total=%d len=%d", total, len(packages))
 	}
@@ -330,7 +330,7 @@ func TestPullTaskExecutorESFailure(t *testing.T) {
 		t.Fatalf("unexpected task error code: %s", updatedTask.ErrorCode)
 	}
 
-	packages, total := packageStore.List("", "", "", 1, 20)
+	packages, total := packageStore.List("", "", "", "", 1, 20)
 	if total != 1 || len(packages) != 1 {
 		t.Fatalf("expected one package, total=%d len=%d", total, len(packages))
 	}

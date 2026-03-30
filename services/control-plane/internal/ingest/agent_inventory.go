@@ -257,7 +257,7 @@ func (h *AgentInventoryHandler) ListPullSourceStatus(c *gin.Context) {
 		}
 	}
 
-	recentPackages, _ := h.packageStore.List("", "", "", 1, defaultRecentPackageLimit)
+	recentPackages, _ := h.packageStore.List("", "", "", "", 1, defaultRecentPackageLimit)
 	trend := buildSourceStatusTrend(recentPackages, window)
 	for _, pkg := range recentPackages {
 		if window > 0 && pkg.CreatedAt.Before(time.Now().UTC().Add(-window)) {
@@ -417,9 +417,9 @@ func (h *AgentInventoryHandler) buildPullSourceStatusItem(source PullSource, pro
 	if packageSourceRef == "" {
 		packageSourceRef = strings.TrimSpace(source.Path)
 	}
-	packages, _ := h.packageStore.List(packageAgentID, packageSourceRef, "", 1, 1)
+	packages, _ := h.packageStore.List(packageAgentID, packageSourceRef, "", "", 1, 1)
 	if len(packages) == 0 && packageSourceRef != strings.TrimSpace(source.Path) {
-		packages, _ = h.packageStore.List(packageAgentID, strings.TrimSpace(source.Path), "", 1, 1)
+		packages, _ = h.packageStore.List(packageAgentID, strings.TrimSpace(source.Path), "", "", 1, 1)
 	}
 	if len(packages) > 0 {
 		lastPackage = packages[0]
