@@ -74,6 +74,52 @@ func TestPullTaskSchedulerSkipsWhenInFlight(t *testing.T) {
 	}
 }
 
+func TestPullTaskSchedulerRecoversStaleInFlight(t *testing.T) {
+	fixture := newTestFixture()
+	source := createSchedulerSourceForTest(t, fixture.sourceStore, "active", 5, 7)
+
+	staleTask := fixture.taskStore.CreatePending(RunPullTaskRequest{
+		SourceID:    source.SourceID,
+		TriggerType: "manual",
+		Options:     map[string]any{},
+	})
+	if staleTask.TaskID == "" {
+		t.Fatalf("failed to seed stale pending task")
+	}
+
+	scheduler := NewPullTaskScheduler(fixture.sourceStore, fixture.taskStore, PullTaskSchedulerConfig{
+		CheckInterval:  time.Second,
+		PageSize:       50,
+		StaleTaskAfter: 5 * time.Second,
+	})
+	scheduler.nowFn = func() time.Time {
+		return staleTask.ScheduledAt.Add(6 * time.Second)
+	}
+
+	scheduler.tick()
+
+	recoveredTask, ok := fixture.taskStore.GetByID(staleTask.TaskID)
+	if !ok {
+		t.Fatalf("expected recovered task to remain queryable")
+	}
+	if recoveredTask.Status != "failed" {
+		t.Fatalf("expected stale task to be recovered as failed, got %s", recoveredTask.Status)
+	}
+	if recoveredTask.ErrorCode != ErrorCodePullTaskStaleRecovered {
+		t.Fatalf("unexpected error code: %s", recoveredTask.ErrorCode)
+	}
+	if fixture.taskStore.Count() != 2 {
+		t.Fatalf("expected stale task recovered and a new task scheduled, got %d", fixture.taskStore.Count())
+	}
+	latest, ok := fixture.taskStore.LatestBySource(source.SourceID)
+	if !ok || latest.TaskID == staleTask.TaskID {
+		t.Fatalf("expected a replacement scheduled task")
+	}
+	if latest.Status != "pending" {
+		t.Fatalf("expected replacement task to be pending, got %s", latest.Status)
+	}
+}
+
 // TestPullTaskSchedulerRespectsInterval 验证同一 source 会严格遵循 pull_interval_sec。
 func TestPullTaskSchedulerRespectsInterval(t *testing.T) {
 	fixture := newTestFixture()

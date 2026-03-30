@@ -19,6 +19,8 @@ const (
 	defaultSourcePullTimeoutSec = 30
 	// defaultCriticalPullIntervalSec 关键源默认拉取间隔（秒）。
 	defaultCriticalPullIntervalSec = 2
+	// defaultStaleTaskAfter 默认陈旧任务回收阈值。
+	defaultStaleTaskAfter = 5 * time.Minute
 )
 
 // PullTaskSchedulerConfig 定义调度器运行参数。
@@ -27,6 +29,7 @@ type PullTaskSchedulerConfig struct {
 	PageSize                int
 	CriticalSourcePatterns  []string
 	CriticalPullIntervalSec int
+	StaleTaskAfter          time.Duration
 }
 
 // PullTaskScheduler 负责将 active source 按 pull_interval_sec 自动转成 pull task。
@@ -47,6 +50,9 @@ func NewPullTaskScheduler(sourceStore *PullSourceStore, taskStore *PullTaskStore
 	}
 	if config.CriticalPullIntervalSec <= 0 {
 		config.CriticalPullIntervalSec = defaultCriticalPullIntervalSec
+	}
+	if config.StaleTaskAfter <= 0 {
+		config.StaleTaskAfter = defaultStaleTaskAfter
 	}
 	config.CriticalSourcePatterns = normalizeSourcePatterns(config.CriticalSourcePatterns)
 	return &PullTaskScheduler{
@@ -79,6 +85,9 @@ func (s *PullTaskScheduler) Start(ctx context.Context) {
 
 // tick 执行一次全量扫描，仅处理 active source。
 func (s *PullTaskScheduler) tick() {
+	now := s.now()
+	s.recoverStaleInFlight(now)
+
 	page := 1
 	for {
 		sources, total := s.sourceStore.List("active", page, s.config.PageSize)
@@ -154,6 +163,20 @@ func (s *PullTaskScheduler) buildTaskOptions(source PullSource, intervalSec int,
 		options["priority"] = "critical"
 	}
 	return options
+}
+
+func (s *PullTaskScheduler) recoverStaleInFlight(now time.Time) {
+	if s == nil || s.taskStore == nil || s.config.StaleTaskAfter <= 0 {
+		return
+	}
+	recovered := s.taskStore.RecoverStaleInFlight(
+		now.Add(-s.config.StaleTaskAfter),
+		ErrorCodePullTaskStaleRecovered,
+		"stale in-flight pull task recovered by scheduler",
+	)
+	if recovered > 0 {
+		log.Printf("ingest scheduler recovered stale in-flight tasks count=%d stale_after=%s", recovered, s.config.StaleTaskAfter)
+	}
 }
 
 func (s *PullTaskScheduler) now() time.Time {

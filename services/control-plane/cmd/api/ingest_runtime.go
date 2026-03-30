@@ -83,6 +83,7 @@ func enablePullIngestRuntime(router gin.IRouter, db *sql.DB, workerCtx context.C
 		}
 	}
 
+	executionTimeout := parseDurationSecondsEnv("INGEST_EXECUTION_TIMEOUT_SEC", 120*time.Second)
 	executor := ingest.NewPullTaskExecutor(
 		sourceStore,
 		taskStore,
@@ -97,7 +98,7 @@ func enablePullIngestRuntime(router gin.IRouter, db *sql.DB, workerCtx context.C
 		ingest.PullTaskExecutorConfig{
 			MaxRetries:        parseEnvInt("INGEST_MAX_RETRIES", 1),
 			RetryBackoff:      parseDurationSecondsEnv("INGEST_RETRY_BACKOFF_SEC", 3*time.Second),
-			ExecutionTimeout:  parseDurationSecondsEnv("INGEST_EXECUTION_TIMEOUT_SEC", 120*time.Second),
+			ExecutionTimeout:  executionTimeout,
 			DefaultAgentKeyID: defaultAgentKeyID,
 			DefaultAgentKey:   defaultAgentKey,
 			LatencyMonitor:    latencyMonitor,
@@ -116,11 +117,13 @@ func enablePullIngestRuntime(router gin.IRouter, db *sql.DB, workerCtx context.C
 		latencyMonitor,
 	)
 
+	staleTaskAfter := parseDurationSecondsEnv("INGEST_STALE_TASK_AFTER_SEC", executionTimeout+30*time.Second)
 	scheduler := ingest.NewPullTaskScheduler(sourceStore, taskStore, ingest.PullTaskSchedulerConfig{
 		CheckInterval:           parseDurationSecondsEnv("INGEST_SCHEDULER_CHECK_INTERVAL_SEC", time.Second),
 		PageSize:                parseEnvInt("INGEST_SCHEDULER_PAGE_SIZE", 200),
 		CriticalSourcePatterns:  parseCSV(getEnv("INGEST_CRITICAL_SOURCE_PATTERNS", "")),
 		CriticalPullIntervalSec: parseEnvInt("INGEST_CRITICAL_PULL_INTERVAL_SEC", 2),
+		StaleTaskAfter:          staleTaskAfter,
 	})
 	go scheduler.Start(workerCtx)
 
