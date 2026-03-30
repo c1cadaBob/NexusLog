@@ -722,13 +722,13 @@ func buildSourceStatusTrend(bucketStats []PullPackageBucketStat, start, end time
 func timeBucketForWindow(window time.Duration) time.Duration {
 	switch {
 	case window <= time.Hour:
-		return 5 * time.Minute
+		return time.Minute
 	case window <= 6*time.Hour:
-		return 15 * time.Minute
+		return 5 * time.Minute
 	case window <= 24*time.Hour:
-		return time.Hour
+		return 30 * time.Minute
 	default:
-		return 6 * time.Hour
+		return 2 * time.Hour
 	}
 }
 

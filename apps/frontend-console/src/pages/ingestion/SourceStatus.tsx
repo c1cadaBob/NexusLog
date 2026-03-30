@@ -28,6 +28,8 @@ const STATUS_OPTIONS = [
   { label: '错误', value: 'error' },
 ];
 
+const SOURCE_STATUS_AUTO_REFRESH_MS = 10_000;
+
 function formatDateTime(value?: string) {
   if (!value) return '-';
   const date = new Date(value);
@@ -143,7 +145,7 @@ const SourceStatus: React.FC = () => {
     if (!isAutoRefresh) return undefined;
     const timer = window.setInterval(() => {
       loadStatus();
-    }, 30000);
+    }, SOURCE_STATUS_AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [isAutoRefresh, loadStatus]);
 
