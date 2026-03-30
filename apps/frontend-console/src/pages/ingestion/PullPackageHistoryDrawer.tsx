@@ -6,6 +6,7 @@ import { hasAnyCapability } from '../../auth/routeAuthorization';
 import { useAuthStore } from '../../stores/authStore';
 import { COLORS } from '../../theme/tokens';
 import DeadLetterDrawer from './DeadLetterDrawer';
+import PullPackageDetailDrawer from './PullPackageDetailDrawer';
 import ReceiptDrawer from './ReceiptDrawer';
 
 const PACKAGE_STATUS_OPTIONS = [
@@ -35,6 +36,10 @@ interface ReceiptTarget {
 interface DeadLetterTarget {
   packageId?: string;
   packageLabel?: string;
+}
+
+interface PackageDetailTarget {
+  packageId?: string;
 }
 
 function formatDateTime(value?: string) {
@@ -144,6 +149,7 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
   const [total, setTotal] = useState(0);
   const [receiptTarget, setReceiptTarget] = useState<ReceiptTarget | null>(null);
   const [deadLetterTarget, setDeadLetterTarget] = useState<DeadLetterTarget | null>(null);
+  const [packageDetailTarget, setPackageDetailTarget] = useState<PackageDetailTarget | null>(null);
 
   const normalizedAgentId = agentId?.trim() || '';
   const normalizedSourceRef = sourceRef?.trim() || '';
@@ -191,6 +197,7 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
       setTotal(0);
       setReceiptTarget(null);
       setDeadLetterTarget(null);
+      setPackageDetailTarget(null);
     }
   }, [open]);
 
@@ -279,10 +286,18 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
       baseColumns.push({
         title: '操作',
         key: 'actions',
-        width: 156,
+        width: 212,
         align: 'right',
         render: (_, item) => (
           <Space size={0}>
+            <Button
+              size="small"
+              type="link"
+              disabled={!item.package_id}
+              onClick={() => setPackageDetailTarget({ packageId: item.package_id })}
+            >
+              详情
+            </Button>
             {canReadReceipt ? (
               <Button
                 size="small"
@@ -360,7 +375,15 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
             />
           ) : null}
 
-          <Card size="small" title="最近增量包">
+          <Card
+            size="small"
+            title="最近增量包"
+            extra={latestPackage?.package_id ? (
+              <Button size="small" type="link" onClick={() => setPackageDetailTarget({ packageId: latestPackage.package_id })}>
+                查看详情
+              </Button>
+            ) : null}
+          >
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="最近状态">{getPackageStatusMeta(latestPackage?.status).label}</Descriptions.Item>
               <Descriptions.Item label="包编号">{latestPackage?.package_no || '-'}</Descriptions.Item>
@@ -463,6 +486,13 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
         packageId={deadLetterTarget?.packageId}
         packageLabel={deadLetterTarget?.packageLabel}
         onClose={() => setDeadLetterTarget(null)}
+      />
+
+      <PullPackageDetailDrawer
+        open={Boolean(packageDetailTarget)}
+        packageId={packageDetailTarget?.packageId}
+        sourceName={sourceName}
+        onClose={() => setPackageDetailTarget(null)}
       />
     </Drawer>
   );

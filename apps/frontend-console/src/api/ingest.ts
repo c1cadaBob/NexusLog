@@ -344,8 +344,16 @@ interface ListPullTasksData {
   items: PullTaskItem[];
 }
 
+interface GetPullTaskData {
+  item?: PullTaskItem;
+}
+
 interface ListPullPackagesData {
   items: PullPackageItem[];
+}
+
+interface GetPullPackageData {
+  item?: PullPackageItem;
 }
 
 interface ListReceiptsData {
@@ -599,6 +607,38 @@ export async function fetchPullPackages(params: {
   };
 }
 
+export async function fetchPullTaskById(taskId: string): Promise<PullTaskItem> {
+  const normalizedTaskId = taskId.trim();
+  if (!normalizedTaskId) {
+    throw new Error('task_id 不能为空');
+  }
+
+  const envelope = await requestIngestApi<GetPullTaskData>(`/pull-tasks/${encodeURIComponent(normalizedTaskId)}`, {
+    method: 'GET',
+  });
+  const item = envelope.data?.item;
+  if (!item) {
+    throw new Error('未返回任务详情');
+  }
+  return item;
+}
+
+export async function fetchPullPackageById(packageId: string): Promise<PullPackageItem> {
+  const normalizedPackageId = packageId.trim();
+  if (!normalizedPackageId) {
+    throw new Error('package_id 不能为空');
+  }
+
+  const envelope = await requestIngestApi<GetPullPackageData>(`/packages/${encodeURIComponent(normalizedPackageId)}`, {
+    method: 'GET',
+  });
+  const item = envelope.data?.item;
+  if (!item) {
+    throw new Error('未返回包详情');
+  }
+  return item;
+}
+
 export async function fetchReceipts(params: {
   source_ref?: string;
   package_id?: string;
@@ -630,11 +670,12 @@ export async function fetchReceipts(params: {
   });
 
   const items = envelope.data?.items ?? [];
-  const summary = envelope.data?.summary ?? {
-    ack_count: 0,
-    nack_count: 0,
-    error_code_buckets: [],
-    nack_reason_buckets: [],
+  const rawSummary = envelope.data?.summary;
+  const summary: ReceiptSummary = {
+    ack_count: Number(rawSummary?.ack_count ?? 0),
+    nack_count: Number(rawSummary?.nack_count ?? 0),
+    error_code_buckets: rawSummary?.error_code_buckets ?? [],
+    nack_reason_buckets: rawSummary?.nack_reason_buckets ?? [],
   };
   return {
     items,

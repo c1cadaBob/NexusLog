@@ -10,6 +10,7 @@ import {
 import { useAuthStore } from '../../stores/authStore';
 import { COLORS } from '../../theme/tokens';
 import DeadLetterDrawer from './DeadLetterDrawer';
+import PullPackageDetailDrawer from './PullPackageDetailDrawer';
 
 const RECEIPT_STATUS_OPTIONS = [
   { label: '全部状态', value: 'all' },
@@ -37,6 +38,10 @@ interface DeadLetterTarget {
   sourceRef?: string;
   packageId?: string;
   packageLabel?: string;
+}
+
+interface PackageDetailTarget {
+  packageId?: string;
 }
 
 function formatDateTime(value?: string) {
@@ -71,6 +76,7 @@ const ReceiptDrawer: React.FC<ReceiptDrawerProps> = ({
   onClose,
 }) => {
   const capabilities = useAuthStore((state) => state.capabilities);
+  const canReadPackage = useMemo(() => hasAnyCapability(capabilities, ['ingest.package.read']), [capabilities]);
   const canReadDeadLetter = useMemo(() => hasAnyCapability(capabilities, ['ingest.dead_letter.read']), [capabilities]);
 
   const [items, setItems] = useState<DeliveryReceiptItem[]>([]);
@@ -83,6 +89,7 @@ const ReceiptDrawer: React.FC<ReceiptDrawerProps> = ({
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [deadLetterTarget, setDeadLetterTarget] = useState<DeadLetterTarget | null>(null);
+  const [packageDetailTarget, setPackageDetailTarget] = useState<PackageDetailTarget | null>(null);
 
   const normalizedSourceRef = sourceRef?.trim() || '';
   const normalizedPackageId = packageId?.trim() || '';
@@ -132,13 +139,14 @@ const ReceiptDrawer: React.FC<ReceiptDrawerProps> = ({
       setPageSize(20);
       setTotal(0);
       setDeadLetterTarget(null);
+      setPackageDetailTarget(null);
     }
   }, [open]);
 
   const latestItem = items[0] ?? null;
   const errorCodeOptions = useMemo(() => ([
     { label: '全部错误码', value: '' },
-    ...summary.error_code_buckets.map((item) => ({
+    ...(summary.error_code_buckets ?? []).map((item) => ({
       label: `${item.error_code} (${formatNumber(item.count)})`,
       value: item.error_code,
     })),
@@ -159,6 +167,12 @@ const ReceiptDrawer: React.FC<ReceiptDrawerProps> = ({
       packageLabel: item.package_no || item.package_id || undefined,
     });
   }, [normalizedSourceRef]);
+
+  const openPackageDetail = useCallback((item?: DeliveryReceiptItem | null) => {
+    const nextPackageId = item?.package_id || normalizedPackageId;
+    if (!nextPackageId) return;
+    setPackageDetailTarget({ packageId: nextPackageId });
+  }, [normalizedPackageId]);
 
   const columns = useMemo<ColumnsType<DeliveryReceiptItem>>(() => {
     const baseColumns: ColumnsType<DeliveryReceiptItem> = [
@@ -221,27 +235,41 @@ const ReceiptDrawer: React.FC<ReceiptDrawerProps> = ({
       },
     ];
 
-    if (canReadDeadLetter) {
+    if (canReadPackage || canReadDeadLetter) {
       baseColumns.push({
         title: '操作',
         key: 'actions',
-        width: 92,
+        width: 148,
         align: 'right',
         render: (_, item) => (
-          <Button
-            size="small"
-            type="link"
-            disabled={!item.package_id && !item.source_ref}
-            onClick={() => openReceiptDeadLetters(item)}
-          >
-            死信
-          </Button>
+          <Space size={0}>
+            {canReadPackage ? (
+              <Button
+                size="small"
+                type="link"
+                disabled={!item.package_id}
+                onClick={() => openPackageDetail(item)}
+              >
+                包详情
+              </Button>
+            ) : null}
+            {canReadDeadLetter ? (
+              <Button
+                size="small"
+                type="link"
+                disabled={!item.package_id && !item.source_ref}
+                onClick={() => openReceiptDeadLetters(item)}
+              >
+                死信
+              </Button>
+            ) : null}
+          </Space>
         ),
       });
     }
 
     return baseColumns;
-  }, [canReadDeadLetter, openReceiptDeadLetters]);
+  }, [canReadDeadLetter, canReadPackage, openPackageDetail, openReceiptDeadLetters]);
 
   return (
     <>
@@ -348,7 +376,15 @@ const ReceiptDrawer: React.FC<ReceiptDrawerProps> = ({
             </Card>
 
             {latestItem ? (
-              <Card size="small" title="最近回执">
+              <Card
+                size="small"
+                title="最近回执"
+                extra={canReadPackage ? (
+                  <Button size="small" type="link" disabled={!latestItem.package_id && !normalizedPackageId} onClick={() => openPackageDetail(latestItem)}>
+                    包详情
+                  </Button>
+                ) : null}
+              >
                 <Descriptions bordered size="small" column={2}>
                   <Descriptions.Item label="最近状态">{getReceiptStatusMeta(latestItem.status).label}</Descriptions.Item>
                   <Descriptions.Item label="接收时间">{formatDateTime(latestItem.received_at)}</Descriptions.Item>
@@ -441,6 +477,13 @@ const ReceiptDrawer: React.FC<ReceiptDrawerProps> = ({
         packageId={deadLetterTarget?.packageId}
         packageLabel={deadLetterTarget?.packageLabel}
         onClose={() => setDeadLetterTarget(null)}
+      />
+
+      <PullPackageDetailDrawer
+        open={Boolean(packageDetailTarget)}
+        packageId={packageDetailTarget?.packageId}
+        sourceName={sourceName}
+        onClose={() => setPackageDetailTarget(null)}
       />
     </>
   );

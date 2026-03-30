@@ -19,6 +19,8 @@ const (
 	ErrorCodePullTaskInvalidArgument = ErrorCodeRequestInvalidParams
 	// ErrorCodePullTaskSourceNotFound 表示触发任务时 source 不存在。
 	ErrorCodePullTaskSourceNotFound = ErrorCodeResourceNotFound
+	// ErrorCodePullTaskNotFound 表示 task_id 未找到。
+	ErrorCodePullTaskNotFound = ErrorCodeResourceNotFound
 	// ErrorCodePullTaskInternalError 表示 pull-task 内部异常。
 	ErrorCodePullTaskInternalError = ErrorCodeInternalError
 )
@@ -325,6 +327,7 @@ func NewPullTaskHandler(sourceStore *PullSourceStore, taskStore *PullTaskStore) 
 func RegisterPullTaskRoutes(router gin.IRouter, sourceStore *PullSourceStore, taskStore *PullTaskStore) {
 	handler := NewPullTaskHandler(sourceStore, taskStore)
 	router.GET("/api/v1/ingest/pull-tasks", handler.ListPullTasks)
+	router.GET("/api/v1/ingest/pull-tasks/:task_id", handler.GetPullTask)
 	router.POST("/api/v1/ingest/pull-tasks/run", handler.RunPullTask)
 }
 
@@ -338,6 +341,23 @@ func (h *PullTaskHandler) ListPullTasks(c *gin.Context) {
 
 	items, total := h.taskStore.List(query.SourceID, query.Status, query.Page, query.PageSize)
 	writeSuccess(c, http.StatusOK, gin.H{"items": items}, buildPaginationMeta(query.Page, query.PageSize, total))
+}
+
+// GetPullTask 处理 GET /api/v1/ingest/pull-tasks/:task_id。
+func (h *PullTaskHandler) GetPullTask(c *gin.Context) {
+	taskID := strings.TrimSpace(c.Param("task_id"))
+	if taskID == "" {
+		writeError(c, http.StatusBadRequest, ErrorCodePullTaskInvalidArgument, "task_id is required", gin.H{"field": "task_id"})
+		return
+	}
+
+	item, ok := h.taskStore.GetByID(taskID)
+	if !ok {
+		writeError(c, http.StatusNotFound, ErrorCodePullTaskNotFound, "pull task not found", gin.H{"task_id": taskID})
+		return
+	}
+
+	writeSuccess(c, http.StatusOK, gin.H{"item": item}, gin.H{})
 }
 
 // RunPullTask 处理 POST /api/v1/ingest/pull-tasks/run。

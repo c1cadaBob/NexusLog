@@ -17,6 +17,8 @@ import (
 const (
 	// ErrorCodePackageInvalidArgument 表示 packages 查询参数非法。
 	ErrorCodePackageInvalidArgument = ErrorCodeRequestInvalidParams
+	// ErrorCodePackageNotFound 表示 package_id 未找到。
+	ErrorCodePackageNotFound = ErrorCodeResourceNotFound
 	// ErrorCodePackageInternalError 表示 packages 处理过程内部异常。
 	ErrorCodePackageInternalError = ErrorCodeInternalError
 )
@@ -307,6 +309,7 @@ func NewPullPackageHandler(store *PullPackageStore) *PullPackageHandler {
 func RegisterPullPackageRoutes(router gin.IRouter, store *PullPackageStore) {
 	handler := NewPullPackageHandler(store)
 	router.GET("/api/v1/ingest/packages", handler.ListPullPackages)
+	router.GET("/api/v1/ingest/packages/:package_id", handler.GetPullPackage)
 }
 
 // ListPullPackages 处理 GET /api/v1/ingest/packages。
@@ -319,6 +322,23 @@ func (h *PullPackageHandler) ListPullPackages(c *gin.Context) {
 
 	items, total := h.store.List(query.AgentID, query.SourceRef, query.Status, query.Page, query.PageSize)
 	writeSuccess(c, http.StatusOK, gin.H{"items": items}, buildPaginationMeta(query.Page, query.PageSize, total))
+}
+
+// GetPullPackage 处理 GET /api/v1/ingest/packages/:package_id。
+func (h *PullPackageHandler) GetPullPackage(c *gin.Context) {
+	packageID := strings.TrimSpace(c.Param("package_id"))
+	if packageID == "" {
+		writeError(c, http.StatusBadRequest, ErrorCodePackageInvalidArgument, "package_id is required", gin.H{"field": "package_id"})
+		return
+	}
+
+	item, ok := h.store.Get(packageID)
+	if !ok {
+		writeError(c, http.StatusNotFound, ErrorCodePackageNotFound, "package not found", gin.H{"package_id": packageID})
+		return
+	}
+
+	writeSuccess(c, http.StatusOK, gin.H{"item": item}, gin.H{})
 }
 
 // parseListPullPackagesQuery 解析 packages 查询参数。

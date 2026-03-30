@@ -3,6 +3,7 @@ import { Alert, Button, Card, Descriptions, Drawer, Empty, Select, Space, Spin, 
 import type { ColumnsType } from 'antd/es/table';
 import { fetchPullTasks, type PullTaskItem } from '../../api/ingest';
 import { COLORS } from '../../theme/tokens';
+import PullTaskDetailDrawer from './PullTaskDetailDrawer';
 
 const TASK_STATUS_OPTIONS = [
   { label: '全部状态', value: 'all' },
@@ -51,6 +52,7 @@ const PullTaskHistoryDrawer: React.FC<PullTaskHistoryDrawerProps> = ({ open, sou
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [total, setTotal] = useState(0);
+  const [detailTaskId, setDetailTaskId] = useState('');
 
   const loadTasks = useCallback(async () => {
     if (!open || !sourceId) return;
@@ -83,6 +85,7 @@ const PullTaskHistoryDrawer: React.FC<PullTaskHistoryDrawerProps> = ({ open, sou
       setTasks([]);
       setError('');
       setTotal(0);
+      setDetailTaskId('');
     }
   }, [open]);
 
@@ -152,6 +155,17 @@ const PullTaskHistoryDrawer: React.FC<PullTaskHistoryDrawerProps> = ({ open, sou
         </div>
       ),
     },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 88,
+      align: 'right',
+      render: (_, item) => (
+        <Button size="small" type="link" onClick={() => setDetailTaskId(item.task_id)}>
+          详情
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -189,7 +203,15 @@ const PullTaskHistoryDrawer: React.FC<PullTaskHistoryDrawerProps> = ({ open, sou
             <Alert type="warning" showIcon message="最近一次任务返回错误" description={latestTask.error_message} />
           ) : null}
 
-          <Card size="small" title="最近执行结果">
+          <Card
+            size="small"
+            title="最近执行结果"
+            extra={latestTask?.task_id ? (
+              <Button size="small" type="link" onClick={() => setDetailTaskId(latestTask.task_id)}>
+                查看详情
+              </Button>
+            ) : null}
+          >
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="最近状态">{getTaskStatusMeta(latestTask?.status).label}</Descriptions.Item>
               <Descriptions.Item label="触发方式">{latestTask?.trigger_type || '-'}</Descriptions.Item>
@@ -221,6 +243,12 @@ const PullTaskHistoryDrawer: React.FC<PullTaskHistoryDrawerProps> = ({ open, sou
           </Card>
         </div>
       )}
+      <PullTaskDetailDrawer
+        open={Boolean(detailTaskId)}
+        taskId={detailTaskId}
+        sourceName={sourceName}
+        onClose={() => setDetailTaskId('')}
+      />
     </Drawer>
   );
 };

@@ -307,8 +307,10 @@ func TestIngestAdminRoutes_RejectNonAdminUser(t *testing.T) {
 		body   string
 	}{
 		{name: "pull sources list", method: http.MethodGet, path: "/api/v1/ingest/pull-sources"},
+		{name: "pull task detail", method: http.MethodGet, path: "/api/v1/ingest/pull-tasks/00000000-0000-0000-0000-000000000001"},
 		{name: "pull task run", method: http.MethodPost, path: "/api/v1/ingest/pull-tasks/run"},
 		{name: "packages list", method: http.MethodGet, path: "/api/v1/ingest/packages"},
+		{name: "package detail", method: http.MethodGet, path: "/api/v1/ingest/packages/00000000-0000-0000-0000-000000000001"},
 		{name: "receipts list", method: http.MethodGet, path: "/api/v1/ingest/receipts"},
 		{name: "dead letters list", method: http.MethodGet, path: "/api/v1/ingest/dead-letters"},
 		{name: "dead letter replay", method: http.MethodPost, path: "/api/v1/ingest/dead-letters/replay"},

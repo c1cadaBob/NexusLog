@@ -258,6 +258,61 @@ func TestListPullTasksPagination(t *testing.T) {
 	}
 }
 
+// TestGetPullTask 验证按 task_id 查询详情。
+func TestGetPullTask(t *testing.T) {
+	fixture := newTestFixture()
+	router := fixture.router
+
+	sourceID := createPullSourceForTask(t, router, "task-detail-source")
+	taskID := runPullTaskForTest(t, router, sourceID, "manual")
+	if ok := fixture.taskStore.SetStatusForTest(taskID, "running"); !ok {
+		t.Fatalf("failed to set task status")
+	}
+
+	resp := performJSONRequest(router, http.MethodGet, "/api/v1/ingest/pull-tasks/"+taskID, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("get task failed: %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	envelope := decodeEnvelope(t, resp)
+	if envelope.Code != "OK" {
+		t.Fatalf("unexpected code: %s", envelope.Code)
+	}
+	var data struct {
+		Item PullTask `json:"item"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatalf("decode task detail failed: %v", err)
+	}
+	if data.Item.TaskID != taskID {
+		t.Fatalf("task_id mismatch: got %s want %s", data.Item.TaskID, taskID)
+	}
+	if data.Item.SourceID != sourceID {
+		t.Fatalf("source_id mismatch: got %s want %s", data.Item.SourceID, sourceID)
+	}
+	if data.Item.Status != "running" {
+		t.Fatalf("unexpected status: %s", data.Item.Status)
+	}
+	if data.Item.Options["max_files"] != float64(100) {
+		t.Fatalf("unexpected task options: %+v", data.Item.Options)
+	}
+}
+
+// TestGetPullTaskNotFound 验证 task_id 不存在返回 404。
+func TestGetPullTaskNotFound(t *testing.T) {
+	router := newTestRouter()
+
+	resp := performJSONRequest(router, http.MethodGet, "/api/v1/ingest/pull-tasks/00000000-0000-0000-0000-000000000001", nil)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	envelope := decodeEnvelope(t, resp)
+	if envelope.Code != ErrorCodePullTaskNotFound {
+		t.Fatalf("unexpected not found code: %s", envelope.Code)
+	}
+}
+
 // TestListPullTasksInvalidArgument 验证查询参数非法场景。
 func TestListPullTasksInvalidArgument(t *testing.T) {
 	router := newTestRouter()

@@ -163,10 +163,12 @@ func registerAuthorizedPullIngestRuntimeRoutes(
 
 	taskHandler := ingest.NewPullTaskHandler(sourceStore, taskStore)
 	router.GET("/api/v1/ingest/pull-tasks", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.read"), taskHandler.ListPullTasks)
+	router.GET("/api/v1/ingest/pull-tasks/:task_id", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.read"), taskHandler.GetPullTask)
 	router.POST("/api/v1/ingest/pull-tasks/run", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.run"), taskHandler.RunPullTask)
 
 	packageHandler := ingest.NewPullPackageHandler(packageStore)
 	router.GET("/api/v1/ingest/packages", middleware.RequireCapabilityOrAdminRole(db, "ingest.package.read"), packageHandler.ListPullPackages)
+	router.GET("/api/v1/ingest/packages/:package_id", middleware.RequireCapabilityOrAdminRole(db, "ingest.package.read"), packageHandler.GetPullPackage)
 
 	receiptHandler := ingest.NewReceiptHandler(packageStore, receiptStore, deadLetterStore)
 	router.GET("/api/v1/ingest/receipts", middleware.RequireCapabilityOrAdminRole(db, "ingest.package.read"), receiptHandler.ListReceipts)

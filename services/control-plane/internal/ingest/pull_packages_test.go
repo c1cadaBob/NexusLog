@@ -141,6 +141,75 @@ func TestListPullPackagesPagination(t *testing.T) {
 	}
 }
 
+// TestGetPullPackage 验证按 package_id 查询详情。
+func TestGetPullPackage(t *testing.T) {
+	fixture := newTestFixture()
+	router := fixture.router
+
+	created := fixture.packageStore.CreateForTest(PullPackage{
+		AgentID:   "agent-detail-a",
+		SourceID:  "source-detail-a",
+		TaskID:    "task-detail-a",
+		SourceRef: "/var/log/detail-a.log",
+		PackageNo: "pkg-detail-001",
+		BatchID:   "batch-detail-001",
+		Checksum:  "sha256-detail-001",
+		Status:    "uploaded",
+		Files: []PullPackageFile{{
+			FilePath:   "/var/log/detail-a.log",
+			FromOffset: 128,
+			ToOffset:   256,
+			LineCount:  16,
+			SizeBytes:  1024,
+		}},
+		Metadata: map[string]string{"env": "test"},
+		CreatedAt: time.Now().UTC(),
+	})
+
+	resp := performJSONRequest(router, http.MethodGet, "/api/v1/ingest/packages/"+created.PackageID, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("get package failed: %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	envelope := decodeEnvelope(t, resp)
+	if envelope.Code != "OK" {
+		t.Fatalf("unexpected code: %s", envelope.Code)
+	}
+	var data struct {
+		Item PullPackage `json:"item"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatalf("decode package detail failed: %v", err)
+	}
+	if data.Item.PackageID != created.PackageID {
+		t.Fatalf("package_id mismatch: got %s want %s", data.Item.PackageID, created.PackageID)
+	}
+	if data.Item.TaskID != "task-detail-a" {
+		t.Fatalf("unexpected task_id: %s", data.Item.TaskID)
+	}
+	if len(data.Item.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(data.Item.Files))
+	}
+	if data.Item.Metadata["env"] != "test" {
+		t.Fatalf("unexpected metadata: %+v", data.Item.Metadata)
+	}
+}
+
+// TestGetPullPackageNotFound 验证 package_id 不存在返回 404。
+func TestGetPullPackageNotFound(t *testing.T) {
+	router := newTestRouter()
+
+	resp := performJSONRequest(router, http.MethodGet, "/api/v1/ingest/packages/00000000-0000-0000-0000-000000000001", nil)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	envelope := decodeEnvelope(t, resp)
+	if envelope.Code != ErrorCodePackageNotFound {
+		t.Fatalf("unexpected not found code: %s", envelope.Code)
+	}
+}
+
 // TestListPullPackagesInvalidArgument 验证非法查询参数返回统一错误码。
 func TestListPullPackagesInvalidArgument(t *testing.T) {
 	router := newTestRouter()
