@@ -105,8 +105,10 @@ func main() {
 	}
 
 	// 4. 初始化采集器（7.6：支持 include/exclude 采集范围）
-	includePaths := parseCSV(getEnv("COLLECTOR_INCLUDE_PATHS", "/var/log/*.log"))
-	criticalIncludePaths := parseCSV(getEnv("COLLECTOR_CRITICAL_INCLUDE_PATHS", ""))
+	const defaultCollectorIncludePaths = "/var/log/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/*/*.log,/var/log/*/*_log"
+	const defaultCollectorCriticalIncludePaths = "/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler"
+	includePaths := parseCSV(getEnv("COLLECTOR_INCLUDE_PATHS", defaultCollectorIncludePaths))
+	criticalIncludePaths := parseCSV(getEnv("COLLECTOR_CRITICAL_INCLUDE_PATHS", defaultCollectorCriticalIncludePaths))
 	excludePaths := parseCSV(getEnv("COLLECTOR_EXCLUDE_PATHS", ""))
 	criticalKeywords := parseCSV(getEnv("COLLECTOR_CRITICAL_KEYWORDS", "critical,fatal,panic,error,alert,security"))
 	normalFlushInterval := parseDurationEnv("COLLECTOR_FLUSH_INTERVAL", 5*time.Second)
@@ -148,7 +150,7 @@ func main() {
 	if len(sourceConfigs) == 0 {
 		sourceConfigs = append(sourceConfigs, collector.SourceConfig{
 			Type:             collector.SourceTypeFile,
-			Paths:            []string{"/var/log/*.log"},
+			Paths:            parseCSV(defaultCollectorIncludePaths),
 			ExcludePaths:     excludePaths,
 			PathLabelRules:   pathLabelRules,
 			ScanInterval:     normalFlushInterval,
