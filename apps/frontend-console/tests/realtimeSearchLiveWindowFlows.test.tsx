@@ -208,6 +208,66 @@ describe('RealtimeSearch live window flows', () => {
     );
   });
 
+  it('auto-falls back to all-time mode when the initial realtime window has no logs', async () => {
+    queryRealtimeLogsMock
+      .mockResolvedValueOnce(createQueryResult({
+        hits: [],
+        total: 0,
+        hasNext: false,
+        pitId: '',
+        nextSearchAfter: undefined,
+      }))
+      .mockResolvedValueOnce(createQueryResult({
+        hits: [
+          {
+            id: 'log-fallback-1',
+            timestamp: '2026-03-18T08:56:11.000Z',
+            level: 'warn',
+            service: 'containerd',
+            host: 'dev-server-centos8',
+            hostIp: '192.168.0.202',
+            message: 'fallback historical log',
+            rawLog: 'fallback historical log',
+            fields: {},
+          },
+        ],
+        total: 1,
+        pitId: 'pit-fallback',
+        nextSearchAfter: ['cursor-fallback'],
+      }));
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/search/realtime']}>
+          <Routes>
+            <Route path="/search/realtime" element={<RealtimeSearch />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    await waitFor(() => {
+      expect(queryRealtimeLogsMock).toHaveBeenCalledTimes(2);
+    });
+
+    expect(queryRealtimeLogsMock.mock.calls[0]?.[0]?.timeRange?.from).toBeTruthy();
+    expect(queryRealtimeLogsMock.mock.calls[0]?.[0]?.timeRange?.from).not.toBe('');
+    expect(queryRealtimeLogsMock.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        page: 1,
+        pageSize: 20,
+        timeRange: expect.objectContaining({
+          from: '',
+          to: expect.any(String),
+        }),
+      }),
+    );
+    expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(0);
+    expect(screen.getByText('已暂停')).toBeTruthy();
+    expect(document.querySelector('.ant-select-selection-item[title="全部时间"]')).toBeTruthy();
+    expect(screen.getByText('fallback historical log')).toBeTruthy();
+  });
+
   it('shows a notice instead of resuming live polling while all-time mode is active', async () => {
     render(
       <App>

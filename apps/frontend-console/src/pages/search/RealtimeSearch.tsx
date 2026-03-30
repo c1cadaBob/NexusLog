@@ -274,6 +274,38 @@ function resolveRealtimeWindowDurationMS(liveWindow: LiveWindowOption): number {
   }
 }
 
+function shouldAutoFallbackEmptyRealtimeWindow(params: {
+  fallbackMode?: "none" | "autoAll";
+  resultTotal: number;
+  page: number;
+  queryText: string;
+  levelFilter: string;
+  sourceFilter: string;
+  extraFilters: RealtimeQueryFilters;
+  liveWindow: LiveWindowOption;
+  explicitTimeRange?: RealtimeExplicitTimeRange | null;
+}): boolean {
+  if (params.fallbackMode !== "autoAll") {
+    return false;
+  }
+  if (params.resultTotal > 0 || params.page !== 1) {
+    return false;
+  }
+  if (params.queryText.trim()) {
+    return false;
+  }
+  if (params.levelFilter.trim() || params.sourceFilter.trim()) {
+    return false;
+  }
+  if (Object.keys(normalizeRealtimeExtraFilters(params.extraFilters)).length > 0) {
+    return false;
+  }
+  if (hasRealtimeExplicitTimeRange(params.explicitTimeRange)) {
+    return false;
+  }
+  return params.liveWindow !== "all" && params.liveWindow !== "custom";
+}
+
 export function shouldSuppressNextLiveTickAfterInteractiveRefresh(params: {
   isLive: boolean;
   liveWindow: LiveWindowOption;
@@ -1074,6 +1106,7 @@ const RealtimeSearch: React.FC = () => {
       levelFilterOverride?: string;
       sourceFilterOverride?: string;
       extraFiltersOverride?: RealtimeQueryFilters;
+      emptyWindowFallbackMode?: "none" | "autoAll";
     }): Promise<RealtimeExecuteQueryStatus> => {
       const requestID = latestQueryRequestRef.current + 1;
       latestQueryRequestRef.current = requestID;
@@ -1275,6 +1308,36 @@ const RealtimeSearch: React.FC = () => {
               });
             }
           }
+          if (
+            shouldAutoFallbackEmptyRealtimeWindow({
+              fallbackMode: options.emptyWindowFallbackMode,
+              resultTotal: result.total,
+              page: result.page,
+              queryText: options.queryText,
+              levelFilter: effectiveLevelFilter,
+              sourceFilter: effectiveSourceFilter,
+              extraFilters: effectiveExtraFilters,
+              liveWindow: effectiveLiveWindow,
+              explicitTimeRange: effectiveExplicitTimeRange,
+            })
+          ) {
+            isLiveRef.current = false;
+            setIsLive(false);
+            setCustomTimeRange(null);
+            setLiveWindow("all");
+            message.info("最近时段暂无日志，已切换到全部时间展示最近可用日志");
+            return executeQuery({
+              ...options,
+              page: 1,
+              resetCursor: true,
+              liveWindowOverride: "all",
+              timeRangeOverride: null,
+              histogramRefreshMode: "force",
+              emptyWindowFallbackMode: "none",
+              silent: true,
+            });
+          }
+
           pageCursorMapRef.current = workingCursorMap;
           setLogs(result.hits);
           setTotal(result.total);
@@ -1611,6 +1674,7 @@ const RealtimeSearch: React.FC = () => {
         pageSize: pageSizeRef.current,
         silent: true,
         resetCursor: true,
+        emptyWindowFallbackMode: "autoAll",
       });
     }, STARTUP_QUERY_DELAY_MS);
     return clearStartupQueryTimer;

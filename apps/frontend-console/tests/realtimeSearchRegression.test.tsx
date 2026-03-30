@@ -275,7 +275,8 @@ describe('RealtimeSearch regressions', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('当前时间范围暂无日志')).toBeTruthy();
+      expect(screen.getByText('全部时间范围暂无日志')).toBeTruthy();
+      expect(screen.getByText('已暂停')).toBeTruthy();
     });
   });
 
@@ -465,6 +466,14 @@ describe('RealtimeSearch regressions', () => {
           pageSize: 20,
         }),
       )
+      .mockResolvedValueOnce(
+        createQueryResult({
+          hits: [],
+          total: 0,
+          page: 1,
+          pageSize: 20,
+        }),
+      )
       .mockImplementationOnce(() => deferred.promise);
     fetchAggregateStatsMock.mockResolvedValue({ buckets: [] });
 
@@ -479,7 +488,8 @@ describe('RealtimeSearch regressions', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('当前时间范围暂无日志')).toBeTruthy();
+      expect(screen.getByText('全部时间范围暂无日志')).toBeTruthy();
+      expect(screen.getByText('已暂停')).toBeTruthy();
     });
 
     fireEvent.change(
@@ -535,7 +545,8 @@ describe('RealtimeSearch regressions', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('当前时间范围暂无日志')).toBeTruthy();
+      expect(screen.getByText('全部时间范围暂无日志')).toBeTruthy();
+      expect(screen.getByText('已暂停')).toBeTruthy();
     });
 
     expect(document.querySelector('.ant-pagination')).toBeNull();
