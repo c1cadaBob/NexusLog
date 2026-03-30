@@ -159,6 +159,43 @@ export interface PullPackageStatusSummary {
   primary_file?: string;
 }
 
+export interface PullPackageFile {
+  file_path: string;
+  from_offset: number;
+  to_offset: number;
+  line_count: number;
+  size_bytes: number;
+  checksum?: string;
+  first_record_id?: string;
+  last_record_id?: string;
+  first_sequence?: number;
+  last_sequence?: number;
+}
+
+export interface PullPackageItem {
+  package_id: string;
+  source_id?: string;
+  task_id?: string;
+  agent_id: string;
+  source_ref: string;
+  package_no: string;
+  batch_id?: string;
+  next_cursor?: string;
+  record_count: number;
+  from_offset: number;
+  to_offset: number;
+  file_count: number;
+  size_bytes: number;
+  checksum: string;
+  status: string;
+  request_id?: string;
+  files?: PullPackageFile[];
+  metadata?: Record<string, string>;
+  sent_at?: string;
+  acked_at?: string;
+  created_at: string;
+}
+
 export interface PullSourceRuntimeStatusItem {
   source_id: string;
   name: string;
@@ -254,6 +291,10 @@ interface ListPullSourcesData {
 
 interface ListPullTasksData {
   items: PullTaskItem[];
+}
+
+interface ListPullPackagesData {
+  items: PullPackageItem[];
 }
 
 interface ListAgentsData {
@@ -451,6 +492,42 @@ export async function fetchPullTasks(params: {
       page,
       page_size: pageSize,
       ...(status ? { status } : {}),
+    },
+  });
+
+  const items = envelope.data?.items ?? [];
+  return {
+    items,
+    total: Number(envelope.meta?.total ?? items.length),
+    hasNext: Boolean(envelope.meta?.has_next ?? false),
+  };
+}
+
+export async function fetchPullPackages(params: {
+  agent_id?: string;
+  source_ref?: string;
+  status?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<{ items: PullPackageItem[]; total: number; hasNext: boolean }> {
+  const page = params.page ?? 1;
+  const pageSize = params.page_size ?? 20;
+  const agentId = params.agent_id?.trim() || '';
+  const sourceRef = params.source_ref?.trim() || '';
+
+  if (!agentId && !sourceRef) {
+    throw new Error('agent_id 或 source_ref 不能为空');
+  }
+
+  const status = params.status?.trim() || '';
+  const envelope = await requestIngestApi<ListPullPackagesData>('/packages', {
+    method: 'GET',
+    query: {
+      ...(agentId ? { agent_id: agentId } : {}),
+      ...(sourceRef ? { source_ref: sourceRef } : {}),
+      ...(status ? { status } : {}),
+      page,
+      page_size: pageSize,
     },
   });
 

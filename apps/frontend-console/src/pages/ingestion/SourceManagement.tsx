@@ -15,6 +15,7 @@ import {
   type UpdatePullSourcePayload,
 } from '../../api/ingest';
 import { hasAnyCapability } from '../../auth/routeAuthorization';
+import PullPackageHistoryDrawer from './PullPackageHistoryDrawer';
 import PullTaskHistoryDrawer from './PullTaskHistoryDrawer';
 import { useAuthStore } from '../../stores/authStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
@@ -105,10 +106,12 @@ const SourceManagement: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
   const [taskHistorySource, setTaskHistorySource] = useState<PullSource | null>(null);
+  const [packageHistorySource, setPackageHistorySource] = useState<PullSource | null>(null);
 
   const capabilities = useAuthStore((s) => s.capabilities);
   const canRunPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.run']), [capabilities]);
   const canReadPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.read']), [capabilities]);
+  const canReadPullPackage = useMemo(() => hasAnyCapability(capabilities, ['ingest.package.read']), [capabilities]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes.sourceManagement ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -339,7 +342,7 @@ const SourceManagement: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 240,
+      width: 280,
       align: 'right',
       render: (_, source) => (
         <Space size={4}>
@@ -347,6 +350,9 @@ const SourceManagement: React.FC = () => {
           <Button size="small" type="link" onClick={() => navigate('/ingestion/status')}>状态</Button>
           {canReadPullTask ? (
             <Button size="small" type="link" onClick={() => setTaskHistorySource(source)}>任务</Button>
+          ) : null}
+          {canReadPullPackage ? (
+            <Button size="small" type="link" onClick={() => setPackageHistorySource(source)}>包</Button>
           ) : null}
           {canRunPullTask ? (
             <Button
@@ -482,6 +488,12 @@ const SourceManagement: React.FC = () => {
         sourceId={taskHistorySource?.source_id}
         sourceName={taskHistorySource?.name}
         onClose={() => setTaskHistorySource(null)}
+      />
+      <PullPackageHistoryDrawer
+        open={Boolean(packageHistorySource)}
+        sourceName={packageHistorySource?.name}
+        sourceRef={packageHistorySource?.path}
+        onClose={() => setPackageHistorySource(null)}
       />
     </div>
   );

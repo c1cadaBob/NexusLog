@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import ChartWrapper from '../../components/charts/ChartWrapper';
 import { fetchPullSourceStatus, runPullTask, type PullSourceRuntimeStatusItem, type PullSourceStatusResponse } from '../../api/ingest';
 import { hasAnyCapability } from '../../auth/routeAuthorization';
+import PullPackageHistoryDrawer from './PullPackageHistoryDrawer';
 import PullTaskHistoryDrawer from './PullTaskHistoryDrawer';
 import { useAuthStore } from '../../stores/authStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
@@ -106,10 +107,12 @@ const SourceStatus: React.FC = () => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
   const [taskHistoryItem, setTaskHistoryItem] = useState<PullSourceRuntimeStatusItem | null>(null);
+  const [packageHistoryItem, setPackageHistoryItem] = useState<PullSourceRuntimeStatusItem | null>(null);
 
   const capabilities = useAuthStore((s) => s.capabilities);
   const canRunPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.run']), [capabilities]);
   const canReadPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.read']), [capabilities]);
+  const canReadPullPackage = useMemo(() => hasAnyCapability(capabilities, ['ingest.package.read']), [capabilities]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes.sourceStatus ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -317,13 +320,16 @@ const SourceStatus: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 240,
+      width: 280,
       align: 'right',
       render: (_, item) => (
         <Space size={4}>
           <Button size="small" type="link" onClick={() => { setSelectedItem(item); setDetailOpen(true); }}>详情</Button>
           {canReadPullTask ? (
             <Button size="small" type="link" onClick={() => setTaskHistoryItem(item)}>任务</Button>
+          ) : null}
+          {canReadPullPackage ? (
+            <Button size="small" type="link" onClick={() => setPackageHistoryItem(item)}>包</Button>
           ) : null}
           {canRunPullTask ? (
             <Button
@@ -435,6 +441,9 @@ const SourceStatus: React.FC = () => {
             {canReadPullTask && selectedItem ? (
               <Button onClick={() => setTaskHistoryItem(selectedItem)}>查看任务历史</Button>
             ) : null}
+            {canReadPullPackage && selectedItem ? (
+              <Button onClick={() => setPackageHistoryItem(selectedItem)}>查看包历史</Button>
+            ) : null}
             <Button onClick={() => setDetailOpen(false)}>关闭</Button>
           </Space>
         )}
@@ -463,6 +472,8 @@ const SourceStatus: React.FC = () => {
                 <Descriptions.Item label="任务时间">{formatDateTime(selectedItem.last_task?.finished_at || selectedItem.last_task?.scheduled_at)}</Descriptions.Item>
                 <Descriptions.Item label="游标 offset">{formatNumber(selectedItem.last_cursor?.last_offset)}</Descriptions.Item>
                 <Descriptions.Item label="游标时间">{formatDateTime(selectedItem.last_cursor?.updated_at)}</Descriptions.Item>
+                <Descriptions.Item label="最近包状态">{selectedItem.last_package?.status || '-'}</Descriptions.Item>
+                <Descriptions.Item label="最近包时间">{formatDateTime(selectedItem.last_package?.created_at || selectedItem.last_package?.acked_at)}</Descriptions.Item>
                 <Descriptions.Item label="最近包记录数">{formatNumber(selectedItem.last_package?.record_count)}</Descriptions.Item>
                 <Descriptions.Item label="最近包大小">{formatBytes(selectedItem.last_package?.size_bytes)}</Descriptions.Item>
                 <Descriptions.Item label="最近文件" span={2}>{selectedItem.last_package?.primary_file || '-'}</Descriptions.Item>
@@ -477,6 +488,13 @@ const SourceStatus: React.FC = () => {
         sourceId={taskHistoryItem?.source_id}
         sourceName={taskHistoryItem?.name}
         onClose={() => setTaskHistoryItem(null)}
+      />
+      <PullPackageHistoryDrawer
+        open={Boolean(packageHistoryItem)}
+        sourceName={packageHistoryItem?.name}
+        agentId={packageHistoryItem?.last_package?.agent_id || packageHistoryItem?.last_cursor?.agent_id || packageHistoryItem?.agent_id}
+        sourceRef={packageHistoryItem?.last_package?.source_ref || packageHistoryItem?.path}
+        onClose={() => setPackageHistoryItem(null)}
       />
     </div>
   );
