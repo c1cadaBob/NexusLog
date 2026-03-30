@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Descriptions, Drawer, Empty, Spin, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchPullPackages, fetchPullTaskById, type PullPackageItem, type PullTaskItem } from '../../api/ingest';
@@ -73,7 +73,9 @@ function getPackageStatusMeta(status?: string) {
   }
 }
 
-const packageColumns: ColumnsType<PullPackageItem> = [
+const LazyPullPackageDetailDrawer = lazy(() => import('./PullPackageDetailDrawer'));
+
+const basePackageColumns: ColumnsType<PullPackageItem> = [
   {
     title: '状态',
     dataIndex: 'status',
@@ -153,6 +155,7 @@ const PullTaskDetailDrawer: React.FC<PullTaskDetailDrawerProps> = ({ open, taskI
   const [packagesTotal, setPackagesTotal] = useState(0);
   const [packagesLoading, setPackagesLoading] = useState(false);
   const [packagesError, setPackagesError] = useState('');
+  const [detailPackageId, setDetailPackageId] = useState('');
 
   const normalizedTaskId = taskId?.trim() || '';
 
@@ -209,6 +212,7 @@ const PullTaskDetailDrawer: React.FC<PullTaskDetailDrawerProps> = ({ open, taskI
       setPackagesTotal(0);
       setPackagesLoading(false);
       setPackagesError('');
+      setDetailPackageId('');
     }
   }, [open]);
 
@@ -223,9 +227,32 @@ const PullTaskDetailDrawer: React.FC<PullTaskDetailDrawerProps> = ({ open, taskI
     }
     return `关联增量包 (${packagesTotal || packages.length})`;
   }, [packages.length, packagesTotal]);
+  const packageColumns = useMemo<ColumnsType<PullPackageItem>>(
+    () => [
+      ...basePackageColumns,
+      {
+        title: '操作',
+        key: 'actions',
+        width: 88,
+        align: 'right',
+        render: (_, record) => (
+          <Button
+            size="small"
+            type="link"
+            disabled={!record.package_id}
+            onClick={() => setDetailPackageId(record.package_id)}
+          >
+            详情
+          </Button>
+        ),
+      },
+    ],
+    [],
+  );
 
   return (
-    <Drawer
+    <>
+      <Drawer
       open={open}
       title={item?.task_id ? `${sourceName ? `${sourceName} · ` : ''}任务详情` : '任务详情'}
       width={980}
@@ -314,13 +341,23 @@ const PullTaskDetailDrawer: React.FC<PullTaskDetailDrawerProps> = ({ open, taskI
                 columns={packageColumns}
                 dataSource={packages}
                 pagination={false}
-                scroll={{ x: 980 }}
+                scroll={{ x: 1080 }}
               />
             )}
           </Card>
         </div>
       )}
-    </Drawer>
+      </Drawer>
+
+      <Suspense fallback={null}>
+        <LazyPullPackageDetailDrawer
+          open={Boolean(detailPackageId)}
+          packageId={detailPackageId}
+          sourceName={sourceName}
+          onClose={() => setDetailPackageId('')}
+        />
+      </Suspense>
+    </>
   );
 };
 
