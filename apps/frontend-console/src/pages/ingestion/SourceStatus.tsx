@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, App, Button, Card, Descriptions, Empty, Input, Modal, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
@@ -29,6 +29,7 @@ const STATUS_OPTIONS = [
 ];
 
 const SOURCE_STATUS_AUTO_REFRESH_MS = 10_000;
+const SOURCE_STATUS_CHANGE_HIGHLIGHT_MS = 12_000;
 
 function formatDateTime(value?: string) {
   if (!value) return '-';
@@ -48,6 +49,73 @@ function formatBytes(value?: number | null) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+interface SourceStatusRefreshDelta {
+  recentRecordCountDelta: number;
+  recentPackageCountDelta: number;
+  onlineAgentsDelta: number;
+  healthySourcesDelta: number;
+  changedSourceIds: string[];
+  refreshedAt?: string;
+}
+
+function formatSignedNumber(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '0';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toLocaleString('zh-CN')}`;
+}
+
+function getDeltaTextColor(value: number) {
+  if (value > 0) return COLORS.success;
+  if (value < 0) return COLORS.danger;
+  return '#94a3b8';
+}
+
+function buildSourceSnapshotToken(item: PullSourceRuntimeStatusItem) {
+  return [
+    item.runtime_status,
+    item.updated_at,
+    item.error_message,
+    item.last_task?.status,
+    item.last_task?.finished_at,
+    item.last_task?.scheduled_at,
+    item.last_cursor?.last_cursor,
+    item.last_cursor?.last_offset,
+    item.last_cursor?.updated_at,
+    item.last_package?.package_id,
+    item.last_package?.status,
+    item.last_package?.record_count,
+    item.last_package?.created_at,
+    item.last_package?.acked_at,
+  ].map((value) => String(value ?? '')).join('|');
+}
+
+function buildRefreshDelta(previous: PullSourceStatusResponse | null, next: PullSourceStatusResponse): SourceStatusRefreshDelta | null {
+  if (!previous) return null;
+
+  const previousSnapshots = new Map(previous.items.map((item) => [item.source_id, buildSourceSnapshotToken(item)]));
+  const changedSourceIds = next.items
+    .filter((item) => previousSnapshots.get(item.source_id) !== buildSourceSnapshotToken(item))
+    .map((item) => item.source_id);
+
+  const delta: SourceStatusRefreshDelta = {
+    recentRecordCountDelta: (next.summary?.recent_record_count ?? 0) - (previous.summary?.recent_record_count ?? 0),
+    recentPackageCountDelta: (next.summary?.recent_package_count ?? 0) - (previous.summary?.recent_package_count ?? 0),
+    onlineAgentsDelta: (next.summary?.online_agents ?? 0) - (previous.summary?.online_agents ?? 0),
+    healthySourcesDelta: (next.summary?.healthy_sources ?? 0) - (previous.summary?.healthy_sources ?? 0),
+    changedSourceIds,
+    refreshedAt: next.last_refresh_at,
+  };
+
+  const hasChanged = [
+    delta.recentRecordCountDelta,
+    delta.recentPackageCountDelta,
+    delta.onlineAgentsDelta,
+    delta.healthySourcesDelta,
+  ].some((value) => value !== 0) || changedSourceIds.length > 0;
+
+  return hasChanged ? delta : null;
 }
 
 function getRuntimeStatusMeta(status: string) {
@@ -105,6 +173,9 @@ const SourceStatus: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isAutoRefresh, setIsAutoRefresh] = useState(true);
   const [response, setResponse] = useState<PullSourceStatusResponse | null>(null);
+  const [refreshDelta, setRefreshDelta] = useState<SourceStatusRefreshDelta | null>(null);
+  const [highlightedSourceIds, setHighlightedSourceIds] = useState<string[]>([]);
+  const previousResponseRef = useRef<PullSourceStatusResponse | null>(null);
   const [selectedItem, setSelectedItem] = useState<PullSourceRuntimeStatusItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
@@ -129,13 +200,23 @@ const SourceStatus: React.FC = () => {
     setLoading(true);
     try {
       const data = await fetchPullSourceStatus(range);
+      const refreshDeltaResult = buildRefreshDelta(previousResponseRef.current, data);
+      previousResponseRef.current = data;
       setResponse(data);
+      setRefreshDelta(refreshDeltaResult);
+      setHighlightedSourceIds(refreshDeltaResult?.changedSourceIds ?? []);
     } catch (err) {
       messageApi.error(`数据源状态加载失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
   }, [messageApi, range]);
+
+  useEffect(() => {
+    previousResponseRef.current = null;
+    setRefreshDelta(null);
+    setHighlightedSourceIds([]);
+  }, [range]);
 
   useEffect(() => {
     loadStatus();
@@ -148,6 +229,17 @@ const SourceStatus: React.FC = () => {
     }, SOURCE_STATUS_AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [isAutoRefresh, loadStatus]);
+
+  useEffect(() => {
+    if (!refreshDelta) return undefined;
+    const timer = window.setTimeout(() => {
+      setRefreshDelta(null);
+      setHighlightedSourceIds([]);
+    }, SOURCE_STATUS_CHANGE_HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [refreshDelta]);
+
+  const highlightedSourceIdSet = useMemo(() => new Set(highlightedSourceIds), [highlightedSourceIds]);
 
   const filteredItems = useMemo(() => {
     const items = response?.items ?? [];
@@ -250,7 +342,10 @@ const SourceStatus: React.FC = () => {
       width: 260,
       render: (_, item) => (
         <div>
-          <div style={{ fontWeight: 600 }}>{item.name}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ fontWeight: 600 }}>{item.name}</div>
+            {highlightedSourceIdSet.has(item.source_id) ? <Tag color="processing" style={{ marginInlineEnd: 0 }}>刚更新</Tag> : null}
+          </div>
           <div style={{ fontSize: 12, color: '#94a3b8' }}>{item.protocol.toUpperCase()} · {item.source_id}</div>
         </div>
       ),
@@ -371,11 +466,41 @@ const SourceStatus: React.FC = () => {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: 16 }}>
-        <Card><Statistic title="数据源总数" value={summary?.total_sources ?? 0} /></Card>
-        <Card><Statistic title="在线 Agent" value={summary?.online_agents ?? 0} valueStyle={{ color: COLORS.success }} /></Card>
-        <Card><Statistic title="健康数据源" value={summary?.healthy_sources ?? 0} valueStyle={{ color: COLORS.primary }} /></Card>
-        <Card><Statistic title="最近日志条数" value={summary?.recent_record_count ?? 0} /></Card>
+        <Card>
+          <Statistic title="数据源总数" value={summary?.total_sources ?? 0} />
+          <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>刷新时间：{formatDateTime(response?.last_refresh_at)}</div>
+        </Card>
+        <Card>
+          <Statistic title="在线 Agent" value={summary?.online_agents ?? 0} valueStyle={{ color: COLORS.success }} />
+          {refreshDelta ? <div style={{ marginTop: 8, fontSize: 12, color: getDeltaTextColor(refreshDelta.onlineAgentsDelta) }}>较上次 {formatSignedNumber(refreshDelta.onlineAgentsDelta)}</div> : null}
+        </Card>
+        <Card>
+          <Statistic title="健康数据源" value={summary?.healthy_sources ?? 0} valueStyle={{ color: COLORS.primary }} />
+          {refreshDelta ? <div style={{ marginTop: 8, fontSize: 12, color: getDeltaTextColor(refreshDelta.healthySourcesDelta) }}>较上次 {formatSignedNumber(refreshDelta.healthySourcesDelta)}</div> : null}
+        </Card>
+        <Card>
+          <Statistic title="最近日志条数" value={summary?.recent_record_count ?? 0} />
+          {refreshDelta ? <div style={{ marginTop: 8, fontSize: 12, color: getDeltaTextColor(refreshDelta.recentRecordCountDelta) }}>较上次 {formatSignedNumber(refreshDelta.recentRecordCountDelta)}</div> : null}
+        </Card>
       </div>
+
+      {refreshDelta ? (
+        <Alert
+          type="success"
+          showIcon
+          message="检测到新的采集变化"
+          description={(
+            <Space size={[16, 8]} wrap>
+              <span>日志 {formatSignedNumber(refreshDelta.recentRecordCountDelta)}</span>
+              <span>包 {formatSignedNumber(refreshDelta.recentPackageCountDelta)}</span>
+              <span>在线 Agent {formatSignedNumber(refreshDelta.onlineAgentsDelta)}</span>
+              <span>健康源 {formatSignedNumber(refreshDelta.healthySourcesDelta)}</span>
+              {refreshDelta.changedSourceIds.length ? <span>{refreshDelta.changedSourceIds.length} 个数据源刚刚更新</span> : null}
+              <span>刷新时间：{formatDateTime(refreshDelta.refreshedAt)}</span>
+            </Space>
+          )}
+        />
+      ) : null}
 
       {!loading && response && !response.items.length ? (
         <Alert type="info" showIcon message="暂无采集状态数据" description="请先创建采集源并确保 Agent 能被控制面探活。" />
@@ -423,6 +548,11 @@ const SourceStatus: React.FC = () => {
             rowKey={(record) => record.source_id}
             columns={columns}
             dataSource={filteredItems}
+            onRow={(record) => (
+              highlightedSourceIdSet.has(record.source_id)
+                ? { style: { background: 'rgba(22, 119, 255, 0.08)', transition: 'background-color 0.3s ease' } }
+                : {}
+            )}
             pagination={{
               pageSize,
               showSizeChanger: true,
