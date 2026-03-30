@@ -424,6 +424,8 @@ const SearchHistory: React.FC = () => {
 
   const historyLoadingPlaceholderVisible =
     loading && rows.length === 0 && !retryingHistory;
+  const historyBackgroundLoading =
+    loading && rows.length > 0 && !retryingHistory && !batchDeleting;
   const showHistoryInlineErrorState =
     (Boolean(errorText) || retryingHistory) &&
     rows.length === 0 &&
@@ -639,7 +641,7 @@ const SearchHistory: React.FC = () => {
         </div>
         <div className={isMobile ? "flex flex-wrap items-center gap-2 text-xs" : "flex flex-wrap items-center gap-3 text-xs"}>
           <span className="opacity-50">{historySummaryText}</span>
-          {loading && !batchDeleting && hasLoadedOnce && rows.length > 0 && (
+          {historyBackgroundLoading && hasLoadedOnce && (
             <Tag color="processing" style={{ margin: 0 }}>
               {resolveSearchPageLoadingLabel(rows.length)}
             </Tag>
@@ -811,7 +813,7 @@ const SearchHistory: React.FC = () => {
               }),
             }}
             size="small"
-            loading={loading || batchDeleting}
+            loading={historyLoadingPlaceholderVisible}
             locale={{
               emptyText: showHistoryInlineErrorState ? (
                 <InlineErrorState

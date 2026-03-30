@@ -74,7 +74,7 @@ export function formatSearchPageSummary(
 }
 
 export function resolveSearchPageLoadingLabel(itemCount: number): string {
-  return itemCount > 0 ? "刷新中" : "加载中";
+  return itemCount > 0 ? "后台刷新中" : "加载中";
 }
 
 export function resolveSearchPageEmptyDescription(
