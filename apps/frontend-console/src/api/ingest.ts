@@ -210,6 +210,24 @@ export interface DeliveryReceiptItem {
   created_at: string;
 }
 
+export interface ReceiptErrorCodeBucket {
+  error_code: string;
+  count: number;
+}
+
+export interface ReceiptNackReasonBucket {
+  error_code?: string;
+  reason?: string;
+  count: number;
+}
+
+export interface ReceiptSummary {
+  ack_count: number;
+  nack_count: number;
+  error_code_buckets: ReceiptErrorCodeBucket[];
+  nack_reason_buckets: ReceiptNackReasonBucket[];
+}
+
 export interface DeadLetterItem {
   dead_letter_id: string;
   package_id?: string;
@@ -332,6 +350,7 @@ interface ListPullPackagesData {
 
 interface ListReceiptsData {
   items: DeliveryReceiptItem[];
+  summary?: ReceiptSummary;
 }
 
 interface ListDeadLettersData {
@@ -584,9 +603,10 @@ export async function fetchReceipts(params: {
   source_ref?: string;
   package_id?: string;
   status?: 'ack' | 'nack';
+  error_code?: string;
   page?: number;
   page_size?: number;
-}): Promise<{ items: DeliveryReceiptItem[]; total: number; hasNext: boolean }> {
+}): Promise<{ items: DeliveryReceiptItem[]; total: number; hasNext: boolean; summary: ReceiptSummary }> {
   const page = params.page ?? 1;
   const pageSize = params.page_size ?? 20;
   const sourceRef = params.source_ref?.trim() || '';
@@ -596,22 +616,31 @@ export async function fetchReceipts(params: {
     throw new Error('source_ref 或 package_id 不能为空');
   }
 
+  const errorCode = params.error_code?.trim() || '';
   const envelope = await requestIngestApi<ListReceiptsData>('/receipts', {
     method: 'GET',
     query: {
       ...(sourceRef ? { source_ref: sourceRef } : {}),
       ...(packageId ? { package_id: packageId } : {}),
       ...(params.status ? { status: params.status } : {}),
+      ...(errorCode ? { error_code: errorCode } : {}),
       page,
       page_size: pageSize,
     },
   });
 
   const items = envelope.data?.items ?? [];
+  const summary = envelope.data?.summary ?? {
+    ack_count: 0,
+    nack_count: 0,
+    error_code_buckets: [],
+    nack_reason_buckets: [],
+  };
   return {
     items,
     total: Number(envelope.meta?.total ?? items.length),
     hasNext: Boolean(envelope.meta?.has_next ?? false),
+    summary,
   };
 }
 

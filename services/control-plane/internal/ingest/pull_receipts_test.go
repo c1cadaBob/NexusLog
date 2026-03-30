@@ -197,7 +197,7 @@ func TestCreateReceiptChecksumMismatch(t *testing.T) {
 	}
 }
 
-// TestListReceiptsByFilter 验证按 source_ref / package_id / status 查询回执。
+// TestListReceiptsByFilter 验证按 source_ref / status / error_code 查询回执并返回范围统计。
 func TestListReceiptsByFilter(t *testing.T) {
 	fixture := newTestFixture()
 	now := time.Now().UTC()
@@ -255,7 +255,7 @@ func TestListReceiptsByFilter(t *testing.T) {
 		t.Fatalf("create other receipt failed: %d body=%s", otherResp.Code, otherResp.Body.String())
 	}
 
-	query := "/api/v1/ingest/receipts?source_ref=" + url.QueryEscape("/var/log/app-a.log") + "&package_id=" + url.QueryEscape(pkgNack.PackageID) + "&status=nack&page=1&page_size=10"
+	query := "/api/v1/ingest/receipts?source_ref=" + url.QueryEscape("/var/log/app-a.log") + "&status=nack&error_code=NACK_RECEIPT&page=1&page_size=10"
 	resp := performJSONRequest(fixture.router, http.MethodGet, query, nil)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("list receipts failed: %d body=%s", resp.Code, resp.Body.String())
@@ -273,7 +273,8 @@ func TestListReceiptsByFilter(t *testing.T) {
 	}
 
 	var data struct {
-		Items []DeliveryReceipt `json:"items"`
+		Items   []DeliveryReceipt  `json:"items"`
+		Summary ReceiptListSummary `json:"summary"`
 	}
 	if err := json.Unmarshal(envelope.Data, &data); err != nil {
 		t.Fatalf("decode receipt list failed: %v", err)
@@ -289,6 +290,15 @@ func TestListReceiptsByFilter(t *testing.T) {
 	}
 	if data.Items[0].ErrorCode != "NACK_RECEIPT" {
 		t.Fatalf("unexpected error code: %+v", data.Items[0])
+	}
+	if data.Summary.AckCount != 1 || data.Summary.NackCount != 1 {
+		t.Fatalf("unexpected summary counts: %+v", data.Summary)
+	}
+	if len(data.Summary.ErrorCodeBuckets) != 1 || data.Summary.ErrorCodeBuckets[0].ErrorCode != "NACK_RECEIPT" {
+		t.Fatalf("unexpected error_code buckets: %+v", data.Summary.ErrorCodeBuckets)
+	}
+	if len(data.Summary.NackReasonBuckets) != 1 || data.Summary.NackReasonBuckets[0].Reason != "downstream rejected batch" {
+		t.Fatalf("unexpected nack_reason buckets: %+v", data.Summary.NackReasonBuckets)
 	}
 }
 

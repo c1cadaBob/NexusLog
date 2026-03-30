@@ -54,10 +54,32 @@ type DeliveryReceipt struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// ReceiptErrorCodeBucket 记录错误码聚合分布。
+type ReceiptErrorCodeBucket struct {
+	ErrorCode string `json:"error_code"`
+	Count     int    `json:"count"`
+}
+
+// ReceiptNackReasonBucket 记录 NACK 原因聚合分布。
+type ReceiptNackReasonBucket struct {
+	ErrorCode string `json:"error_code,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Count     int    `json:"count"`
+}
+
+// ReceiptListSummary 描述当前 source/package 范围内的回执概况。
+type ReceiptListSummary struct {
+	AckCount          int                       `json:"ack_count"`
+	NackCount         int                       `json:"nack_count"`
+	ErrorCodeBuckets  []ReceiptErrorCodeBucket  `json:"error_code_buckets,omitempty"`
+	NackReasonBuckets []ReceiptNackReasonBucket `json:"nack_reason_buckets,omitempty"`
+}
+
 type listReceiptsQuery struct {
 	SourceRef string
 	PackageID string
 	Status    string
+	ErrorCode string
 	Page      int
 	PageSize  int
 }
@@ -105,6 +127,9 @@ func (s *ReceiptStore) Create(receipt DeliveryReceipt) (DeliveryReceipt, error) 
 		created.Status = "ack"
 	}
 	created.ErrorCode = strings.TrimSpace(created.ErrorCode)
+	if created.ErrorCode == "" {
+		created.ErrorCode = buildReceiptErrorCode(created.Status)
+	}
 	created.Reason = strings.TrimSpace(created.Reason)
 	created.Checksum = strings.TrimSpace(created.Checksum)
 	created.Accepted = true
@@ -118,38 +143,33 @@ func (s *ReceiptStore) Create(receipt DeliveryReceipt) (DeliveryReceipt, error) 
 	return created, nil
 }
 
-// List 按 source_ref / package_id / status 过滤回执并返回分页切片。
-func (s *ReceiptStore) List(sourceRef, packageID, status string, page, pageSize int) ([]DeliveryReceipt, int) {
+// List 按 source_ref / package_id / status / error_code 过滤回执并返回分页切片。
+func (s *ReceiptStore) List(sourceRef, packageID, status, errorCode string, page, pageSize int) ([]DeliveryReceipt, int) {
 	if s.backend != nil {
-		return s.listFromDB(context.Background(), sourceRef, packageID, status, page, pageSize)
+		return s.listFromDB(context.Background(), sourceRef, packageID, status, errorCode, page, pageSize)
 	}
 
 	sourceRef = strings.TrimSpace(sourceRef)
 	packageID = strings.TrimSpace(packageID)
 	status = strings.ToLower(strings.TrimSpace(status))
+	errorCode = strings.TrimSpace(errorCode)
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	result := make([]DeliveryReceipt, 0, len(s.items))
 	for _, item := range s.items {
-		if sourceRef != "" && item.SourceRef != sourceRef {
-			continue
-		}
-		if packageID != "" && item.PackageID != packageID {
-			continue
-		}
-		if status != "" && item.Status != status {
+		if !matchesReceiptListFilters(item, sourceRef, packageID, status, errorCode) {
 			continue
 		}
 		result = append(result, item)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].ReceivedAt.Equal(result[j].ReceivedAt) {
-			return result[i].ReceiptID > result[j].ReceiptID
+	sort.Slice(result, func(leftIndex, rightIndex int) bool {
+		if result[leftIndex].ReceivedAt.Equal(result[rightIndex].ReceivedAt) {
+			return result[leftIndex].ReceiptID > result[rightIndex].ReceiptID
 		}
-		return result[i].ReceivedAt.After(result[j].ReceivedAt)
+		return result[leftIndex].ReceivedAt.After(result[rightIndex].ReceivedAt)
 	})
 
 	total := len(result)
@@ -162,6 +182,28 @@ func (s *ReceiptStore) List(sourceRef, packageID, status string, page, pageSize 
 		end = total
 	}
 	return result[start:end], total
+}
+
+// Summarize 返回 source_ref / package_id 范围内的回执概况，用于前端聚合分析。
+func (s *ReceiptStore) Summarize(sourceRef, packageID string) ReceiptListSummary {
+	if s.backend != nil {
+		return s.summarizeFromDB(context.Background(), sourceRef, packageID)
+	}
+
+	sourceRef = strings.TrimSpace(sourceRef)
+	packageID = strings.TrimSpace(packageID)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	scopeItems := make([]DeliveryReceipt, 0, len(s.items))
+	for _, item := range s.items {
+		if !matchesReceiptSummaryScope(item, sourceRef, packageID) {
+			continue
+		}
+		scopeItems = append(scopeItems, item)
+	}
+	return buildReceiptSummary(scopeItems)
 }
 
 // ReceiptHandler 实现 receipts 写入与读取接口。
@@ -195,8 +237,9 @@ func (h *ReceiptHandler) ListReceipts(c *gin.Context) {
 		return
 	}
 
-	items, total := h.receiptStore.List(query.SourceRef, query.PackageID, query.Status, query.Page, query.PageSize)
-	writeSuccess(c, http.StatusOK, gin.H{"items": items}, buildPaginationMeta(query.Page, query.PageSize, total))
+	items, total := h.receiptStore.List(query.SourceRef, query.PackageID, query.Status, query.ErrorCode, query.Page, query.PageSize)
+	summary := h.receiptStore.Summarize(query.SourceRef, query.PackageID)
+	writeSuccess(c, http.StatusOK, gin.H{"items": items, "summary": summary}, buildPaginationMeta(query.Page, query.PageSize, total))
 }
 
 // CreateReceipt 处理 POST /api/v1/ingest/receipts。
@@ -253,7 +296,7 @@ func (h *ReceiptHandler) CreateReceipt(c *gin.Context) {
 
 	// NACK 回执写入死信，供 6.6 重放接口消费。
 	if normalized.Status == "nack" && h.deadLetterStore != nil {
-		if _, dlErr := h.deadLetterStore.CreateFromReceipt(pkg, normalized.Reason); dlErr != nil {
+		if _, deadLetterErr := h.deadLetterStore.CreateFromReceipt(pkg, normalized.Reason); deadLetterErr != nil {
 			writeError(c, http.StatusInternalServerError, ErrorCodeReceiptInternalError, "failed to write dead letter", nil)
 			return
 		}
@@ -284,14 +327,119 @@ func parseListReceiptsQuery(c *gin.Context) (listReceiptsQuery, error) {
 	if status != "" && !isAllowedReceiptStatus(status) {
 		return listReceiptsQuery{}, fmt.Errorf("status must be ack or nack")
 	}
+	errorCode := strings.TrimSpace(c.Query("error_code"))
 
 	return listReceiptsQuery{
 		SourceRef: sourceRef,
 		PackageID: packageID,
 		Status:    status,
+		ErrorCode: errorCode,
 		Page:      page,
 		PageSize:  pageSize,
 	}, nil
+}
+
+func matchesReceiptListFilters(item DeliveryReceipt, sourceRef, packageID, status, errorCode string) bool {
+	if !matchesReceiptSummaryScope(item, sourceRef, packageID) {
+		return false
+	}
+	if status != "" && item.Status != status {
+		return false
+	}
+	if errorCode != "" && strings.TrimSpace(item.ErrorCode) != errorCode {
+		return false
+	}
+	return true
+}
+
+func matchesReceiptSummaryScope(item DeliveryReceipt, sourceRef, packageID string) bool {
+	if sourceRef != "" && strings.TrimSpace(item.SourceRef) != sourceRef {
+		return false
+	}
+	if packageID != "" && strings.TrimSpace(item.PackageID) != packageID {
+		return false
+	}
+	return true
+}
+
+func buildReceiptSummary(items []DeliveryReceipt) ReceiptListSummary {
+	summary := ReceiptListSummary{}
+	errorCodeCounts := make(map[string]int)
+	nackReasonCounts := make(map[string]int)
+	nackReasonBuckets := make(map[string]ReceiptNackReasonBucket)
+
+	for _, item := range items {
+		switch strings.ToLower(strings.TrimSpace(item.Status)) {
+		case "ack":
+			summary.AckCount++
+		case "nack":
+			summary.NackCount++
+		}
+
+		normalizedErrorCode := strings.TrimSpace(item.ErrorCode)
+		if normalizedErrorCode != "" {
+			errorCodeCounts[normalizedErrorCode]++
+		}
+
+		if strings.EqualFold(strings.TrimSpace(item.Status), "nack") {
+			reasonKey := normalizedErrorCode + "\x00" + strings.TrimSpace(item.Reason)
+			nackReasonCounts[reasonKey]++
+			nackReasonBuckets[reasonKey] = ReceiptNackReasonBucket{
+				ErrorCode: normalizedErrorCode,
+				Reason:    strings.TrimSpace(item.Reason),
+			}
+		}
+	}
+
+	if len(errorCodeCounts) > 0 {
+		summary.ErrorCodeBuckets = make([]ReceiptErrorCodeBucket, 0, len(errorCodeCounts))
+		for errorCode, count := range errorCodeCounts {
+			summary.ErrorCodeBuckets = append(summary.ErrorCodeBuckets, ReceiptErrorCodeBucket{
+				ErrorCode: errorCode,
+				Count:     count,
+			})
+		}
+		sort.Slice(summary.ErrorCodeBuckets, func(leftIndex, rightIndex int) bool {
+			leftBucket := summary.ErrorCodeBuckets[leftIndex]
+			rightBucket := summary.ErrorCodeBuckets[rightIndex]
+			if leftBucket.Count == rightBucket.Count {
+				return leftBucket.ErrorCode < rightBucket.ErrorCode
+			}
+			return leftBucket.Count > rightBucket.Count
+		})
+	}
+
+	if len(nackReasonBuckets) > 0 {
+		summary.NackReasonBuckets = make([]ReceiptNackReasonBucket, 0, len(nackReasonBuckets))
+		for reasonKey, bucket := range nackReasonBuckets {
+			bucket.Count = nackReasonCounts[reasonKey]
+			summary.NackReasonBuckets = append(summary.NackReasonBuckets, bucket)
+		}
+		sort.Slice(summary.NackReasonBuckets, func(leftIndex, rightIndex int) bool {
+			leftBucket := summary.NackReasonBuckets[leftIndex]
+			rightBucket := summary.NackReasonBuckets[rightIndex]
+			if leftBucket.Count == rightBucket.Count {
+				if leftBucket.ErrorCode == rightBucket.ErrorCode {
+					return leftBucket.Reason < rightBucket.Reason
+				}
+				return leftBucket.ErrorCode < rightBucket.ErrorCode
+			}
+			return leftBucket.Count > rightBucket.Count
+		})
+	}
+
+	return trimReceiptSummaryBuckets(summary)
+}
+
+func trimReceiptSummaryBuckets(summary ReceiptListSummary) ReceiptListSummary {
+	const maxSummaryBuckets = 10
+	if len(summary.ErrorCodeBuckets) > maxSummaryBuckets {
+		summary.ErrorCodeBuckets = summary.ErrorCodeBuckets[:maxSummaryBuckets]
+	}
+	if len(summary.NackReasonBuckets) > maxSummaryBuckets {
+		summary.NackReasonBuckets = summary.NackReasonBuckets[:maxSummaryBuckets]
+	}
+	return summary
 }
 
 // normalizeReceiptRequest 校验并规范化 receipts 请求。
