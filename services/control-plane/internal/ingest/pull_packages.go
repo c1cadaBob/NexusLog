@@ -83,6 +83,19 @@ type PullPackageStore struct {
 	backend *PGBackend
 }
 
+// PullPackageWindowSummary 表示时间窗口内包聚合摘要。
+type PullPackageWindowSummary struct {
+	PackageCount int
+	RecordCount  int
+}
+
+// PullPackageBucketStat 表示时间桶内包聚合统计。
+type PullPackageBucketStat struct {
+	BucketStart  time.Time
+	PackageCount int
+	RecordCount  int
+}
+
 // NewPullPackageStore 创建包查询内存仓储。
 func NewPullPackageStore() *PullPackageStore {
 	return &PullPackageStore{
@@ -142,6 +155,53 @@ func (s *PullPackageStore) List(agentID, sourceRef, taskID, status string, page,
 		end = total
 	}
 	return result[start:end], total
+}
+
+// StatsByCreatedAtWindow 按创建时间窗口聚合包数量与日志数量。
+func (s *PullPackageStore) StatsByCreatedAtWindow(start, end time.Time, bucketSize time.Duration) (PullPackageWindowSummary, []PullPackageBucketStat) {
+	if s.backend != nil {
+		return s.statsByCreatedAtWindowFromDB(context.Background(), start, end, bucketSize)
+	}
+
+	start = start.UTC()
+	end = end.UTC()
+	if bucketSize <= 0 {
+		bucketSize = time.Minute
+	}
+	if end.Before(start) {
+		return PullPackageWindowSummary{}, []PullPackageBucketStat{}
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	summary := PullPackageWindowSummary{}
+	buckets := make(map[time.Time]*PullPackageBucketStat)
+	for _, item := range s.items {
+		createdAt := item.CreatedAt.UTC()
+		if createdAt.Before(start) || createdAt.After(end) {
+			continue
+		}
+		summary.PackageCount += 1
+		summary.RecordCount += item.RecordCount
+		bucket := createdAt.Truncate(bucketSize)
+		point, ok := buckets[bucket]
+		if !ok {
+			point = &PullPackageBucketStat{BucketStart: bucket}
+			buckets[bucket] = point
+		}
+		point.PackageCount += 1
+		point.RecordCount += item.RecordCount
+	}
+
+	result := make([]PullPackageBucketStat, 0, len(buckets))
+	for _, point := range buckets {
+		result = append(result, *point)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].BucketStart.Before(result[j].BucketStart)
+	})
+	return summary, result
 }
 
 // Get 按 package_id 获取增量包。

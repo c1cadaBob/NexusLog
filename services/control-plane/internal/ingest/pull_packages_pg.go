@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -111,6 +112,68 @@ LIMIT $6
 		items[i].Files = filesByPackage[items[i].PackageID]
 	}
 	return items, total
+}
+
+func (s *PullPackageStore) statsByCreatedAtWindowFromDB(ctx context.Context, start, end time.Time, bucketSize time.Duration) (PullPackageWindowSummary, []PullPackageBucketStat) {
+	start = start.UTC()
+	end = end.UTC()
+	if bucketSize <= 0 {
+		bucketSize = time.Minute
+	}
+	if end.Before(start) {
+		return PullPackageWindowSummary{}, []PullPackageBucketStat{}
+	}
+
+	summary := PullPackageWindowSummary{}
+	summaryQuery := `
+SELECT
+    COUNT(1),
+    COALESCE(SUM(record_count), 0)
+FROM agent_incremental_packages
+WHERE created_at >= $1
+  AND created_at <= $2
+`
+	if err := s.backend.DB().QueryRowContext(ctx, summaryQuery, start, end).Scan(&summary.PackageCount, &summary.RecordCount); err != nil {
+		return PullPackageWindowSummary{}, []PullPackageBucketStat{}
+	}
+	if summary.PackageCount == 0 {
+		return summary, []PullPackageBucketStat{}
+	}
+
+	bucketSeconds := int64(bucketSize / time.Second)
+	if bucketSeconds <= 0 {
+		bucketSeconds = int64(time.Minute / time.Second)
+	}
+	query := `
+SELECT
+    to_timestamp(floor(extract(epoch from created_at) / $3) * $3) AS bucket_start,
+    COUNT(1),
+    COALESCE(SUM(record_count), 0)
+FROM agent_incremental_packages
+WHERE created_at >= $1
+  AND created_at <= $2
+GROUP BY 1
+ORDER BY 1 ASC
+`
+	rows, err := s.backend.DB().QueryContext(ctx, query, start, end, bucketSeconds)
+	if err != nil {
+		return summary, []PullPackageBucketStat{}
+	}
+	defer mustRowsClose(rows)
+
+	result := make([]PullPackageBucketStat, 0, 32)
+	for rows.Next() {
+		var item PullPackageBucketStat
+		if scanErr := rows.Scan(&item.BucketStart, &item.PackageCount, &item.RecordCount); scanErr != nil {
+			continue
+		}
+		item.BucketStart = item.BucketStart.UTC()
+		result = append(result, item)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].BucketStart.Before(result[j].BucketStart)
+	})
+	return summary, result
 }
 
 func (s *PullPackageStore) getFromDB(ctx context.Context, packageID string) (PullPackage, bool) {

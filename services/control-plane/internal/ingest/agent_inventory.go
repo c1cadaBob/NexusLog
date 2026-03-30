@@ -15,9 +15,8 @@ import (
 )
 
 const (
-	defaultInventoryPageSize  = 200
-	defaultRecentPackageLimit = 240
-	defaultAgentProbeTimeout  = 3 * time.Second
+	defaultInventoryPageSize = 200
+	defaultAgentProbeTimeout = 3 * time.Second
 )
 
 type AgentInventoryItem struct {
@@ -257,22 +256,20 @@ func (h *AgentInventoryHandler) ListPullSourceStatus(c *gin.Context) {
 		}
 	}
 
-	recentPackages, _ := h.packageStore.List("", "", "", "", 1, defaultRecentPackageLimit)
-	trend := buildSourceStatusTrend(recentPackages, window)
-	for _, pkg := range recentPackages {
-		if window > 0 && pkg.CreatedAt.Before(time.Now().UTC().Add(-window)) {
-			continue
-		}
-		summary.RecentPackageCount += 1
-		summary.RecentRecordCount += pkg.RecordCount
-	}
+	now := time.Now().UTC()
+	windowStart := now.Add(-window)
+	bucketSize := timeBucketForWindow(window)
+	packageSummary, bucketStats := h.packageStore.StatsByCreatedAtWindow(windowStart, now, bucketSize)
+	summary.RecentPackageCount = packageSummary.PackageCount
+	summary.RecentRecordCount = packageSummary.RecordCount
+	trend := buildSourceStatusTrend(bucketStats, windowStart, now, bucketSize)
 
 	writeSuccess(c, http.StatusOK, gin.H{
 		"summary":         summary,
 		"items":           items,
 		"trend":           trend,
 		"range":           rangeKey,
-		"last_refresh_at": time.Now().UTC().Format(time.RFC3339),
+		"last_refresh_at": now.Format(time.RFC3339),
 	}, gin.H{"total": len(items)})
 }
 
@@ -691,32 +688,29 @@ func parseSourceStatusRange(raw string) (string, time.Duration) {
 	}
 }
 
-func buildSourceStatusTrend(packages []PullPackage, window time.Duration) []PullSourceStatusTrendPoint {
-	if len(packages) == 0 {
+func buildSourceStatusTrend(bucketStats []PullPackageBucketStat, start, end time.Time, bucketSize time.Duration) []PullSourceStatusTrendPoint {
+	if len(bucketStats) == 0 {
 		return []PullSourceStatusTrendPoint{}
 	}
-	now := time.Now().UTC()
-	start := now.Add(-window)
-	bucketSize := timeBucketForWindow(window)
-	buckets := make(map[time.Time]*PullSourceStatusTrendPoint)
-	for _, pkg := range packages {
-		if window > 0 && pkg.CreatedAt.Before(start) {
-			continue
-		}
-		bucket := pkg.CreatedAt.UTC().Truncate(bucketSize)
-		point, ok := buckets[bucket]
-		if !ok {
-			point = &PullSourceStatusTrendPoint{BucketStart: latestRFC3339(bucket)}
-			buckets[bucket] = point
-		}
-		point.PackageCount += 1
-		point.RecordCount += pkg.RecordCount
+	start = start.UTC()
+	end = end.UTC()
+	if bucketSize <= 0 {
+		bucketSize = time.Minute
 	}
-	points := make([]PullSourceStatusTrendPoint, 0, len(buckets))
+	buckets := make(map[time.Time]PullSourceStatusTrendPoint, len(bucketStats))
+	for _, stat := range bucketStats {
+		bucket := stat.BucketStart.UTC().Truncate(bucketSize)
+		buckets[bucket] = PullSourceStatusTrendPoint{
+			BucketStart:  latestRFC3339(bucket),
+			PackageCount: stat.PackageCount,
+			RecordCount:  stat.RecordCount,
+		}
+	}
+	points := make([]PullSourceStatusTrendPoint, 0, len(bucketStats))
 	cursor := start.Truncate(bucketSize)
-	for !cursor.After(now) {
+	for !cursor.After(end) {
 		if point, ok := buckets[cursor]; ok {
-			points = append(points, *point)
+			points = append(points, point)
 		} else {
 			points = append(points, PullSourceStatusTrendPoint{BucketStart: latestRFC3339(cursor)})
 		}
