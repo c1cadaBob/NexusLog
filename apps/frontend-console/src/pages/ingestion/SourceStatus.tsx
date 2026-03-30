@@ -171,6 +171,7 @@ const SourceStatus: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAutoRefresh, setIsAutoRefresh] = useState(true);
   const [response, setResponse] = useState<PullSourceStatusResponse | null>(null);
   const [refreshDelta, setRefreshDelta] = useState<SourceStatusRefreshDelta | null>(null);
@@ -196,8 +197,13 @@ const SourceStatus: React.FC = () => {
     setStoredPageSize('sourceStatus', size);
   }, [setStoredPageSize]);
 
-  const loadStatus = useCallback(async () => {
-    setLoading(true);
+  const loadStatus = useCallback(async (mode: 'initial' | 'refresh' = 'refresh') => {
+    const useBackgroundRefresh = mode === 'refresh' && previousResponseRef.current !== null;
+    if (useBackgroundRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const data = await fetchPullSourceStatus(range);
       const refreshDeltaResult = buildRefreshDelta(previousResponseRef.current, data);
@@ -209,6 +215,7 @@ const SourceStatus: React.FC = () => {
       messageApi.error(`数据源状态加载失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   }, [messageApi, range]);
 
@@ -216,16 +223,17 @@ const SourceStatus: React.FC = () => {
     previousResponseRef.current = null;
     setRefreshDelta(null);
     setHighlightedSourceIds([]);
+    setIsRefreshing(false);
   }, [range]);
 
   useEffect(() => {
-    loadStatus();
+    void loadStatus('initial');
   }, [loadStatus]);
 
   useEffect(() => {
     if (!isAutoRefresh) return undefined;
     const timer = window.setInterval(() => {
-      loadStatus();
+      void loadStatus('refresh');
     }, SOURCE_STATUS_AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [isAutoRefresh, loadStatus]);
@@ -240,6 +248,7 @@ const SourceStatus: React.FC = () => {
   }, [refreshDelta]);
 
   const highlightedSourceIdSet = useMemo(() => new Set(highlightedSourceIds), [highlightedSourceIds]);
+  const isBackgroundUpdating = isRefreshing || (loading && Boolean(response));
 
   const filteredItems = useMemo(() => {
     const items = response?.items ?? [];
@@ -326,7 +335,7 @@ const SourceStatus: React.FC = () => {
       const result = await runPullTask(item.source_id);
       messageApi.success(`已提交采集任务：${item.name} · ${result.task_id}`);
       window.setTimeout(() => {
-        void loadStatus();
+        void loadStatus('refresh');
       }, 1200);
     } catch (err) {
       messageApi.error(`执行采集失败：${err instanceof Error ? err.message : String(err)}`);
@@ -460,10 +469,19 @@ const SourceStatus: React.FC = () => {
           <Button type={isAutoRefresh ? 'primary' : 'default'} onClick={() => setIsAutoRefresh((value) => !value)}>
             {isAutoRefresh ? '自动刷新中' : '已暂停'}
           </Button>
-          <Button onClick={loadStatus} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>}>刷新</Button>
+          <Button loading={isBackgroundUpdating} onClick={() => void loadStatus('refresh')} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>}>
+            {isBackgroundUpdating ? '刷新中' : '刷新'}
+          </Button>
           <Button type="primary" onClick={() => navigate('/ingestion/wizard')}>接入新数据源</Button>
         </Space>
       </div>
+
+      {isBackgroundUpdating ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: COLORS.primary, fontSize: 13 }}>
+          <Spin size="small" />
+          <span>后台动态刷新中，当前数据保持可见</span>
+        </div>
+      ) : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: 16 }}>
         <Card>
@@ -511,7 +529,7 @@ const SourceStatus: React.FC = () => {
           title="最近采集趋势"
           subtitle={`范围：${RANGE_OPTIONS.find((item) => item.value === range)?.label ?? range}`}
           height={280}
-          loading={loading}
+          loading={loading && !response}
           empty={!response?.trend?.length}
           option={trendOption}
         />
@@ -519,7 +537,7 @@ const SourceStatus: React.FC = () => {
           title="状态分布"
           subtitle="当前筛选结果"
           height={280}
-          loading={loading}
+          loading={loading && !response}
           empty={!filteredItems.length}
           option={statusChartOption}
         />
@@ -539,7 +557,7 @@ const SourceStatus: React.FC = () => {
           <Select id="source-runtime-status-filter" value={statusFilter} options={STATUS_OPTIONS} style={{ width: 160 }} onChange={setStatusFilter} />
         </Space>
 
-        {loading ? (
+        {loading && !response ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin size="large" /></div>
         ) : filteredItems.length === 0 ? (
           <Empty description="当前筛选条件下没有匹配的数据源" />
