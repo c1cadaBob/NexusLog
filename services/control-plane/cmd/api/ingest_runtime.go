@@ -172,6 +172,7 @@ func registerAuthorizedPullIngestRuntimeRoutes(
 	router.POST("/api/v1/ingest/receipts", middleware.RequireCapabilityOrOperatorRole(db, "ingest.receipt.create"), receiptHandler.CreateReceipt)
 
 	deadLetterHandler := ingest.NewDeadLetterHandler(deadLetterStore)
+	router.GET("/api/v1/ingest/dead-letters", middleware.RequireCapabilityOrAdminRole(db, "ingest.dead_letter.read"), deadLetterHandler.ListDeadLetters)
 	router.POST("/api/v1/ingest/dead-letters/replay", middleware.RequireCapabilityOrAdminRole(db, "ingest.dead_letter.replay"), deadLetterHandler.ReplayDeadLetters)
 
 	latencyHandler := ingest.NewPullLatencyHandler(latencyMonitor)

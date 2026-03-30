@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -12,12 +13,19 @@ import (
 )
 
 const (
-	// ErrorCodeDeadLetterInvalidArgument 表示 dead-letter replay 请求参数非法。
+	// ErrorCodeDeadLetterInvalidArgument 表示 dead-letter 请求参数非法。
 	ErrorCodeDeadLetterInvalidArgument = ErrorCodeRequestInvalidParams
 	// ErrorCodeDeadLetterNotFound 表示死信 ID 不存在。
 	ErrorCodeDeadLetterNotFound = ErrorCodeResourceNotFound
-	// ErrorCodeDeadLetterInternalError 表示 dead-letter replay 内部异常。
+	// ErrorCodeDeadLetterInternalError 表示 dead-letter 处理内部异常。
 	ErrorCodeDeadLetterInternalError = ErrorCodeInternalError
+)
+
+var (
+	allowedDeadLetterReplayedFilters = map[string]struct{}{
+		"yes": {},
+		"no":  {},
+	}
 )
 
 // DeadLetterReplayRequest 定义 POST /api/v1/ingest/dead-letters/replay 请求体。
@@ -41,7 +49,15 @@ type DeadLetterRecord struct {
 	ReplayReason  string     `json:"replay_reason,omitempty"`
 }
 
-// DeadLetterStore 提供死信记录写入与重放能力（内存仓储）。
+type listDeadLettersQuery struct {
+	SourceRef string
+	PackageID string
+	Replayed  string
+	Page      int
+	PageSize  int
+}
+
+// DeadLetterStore 提供死信记录写入、查询与重放能力（内存仓储）。
 type DeadLetterStore struct {
 	mu      sync.RWMutex
 	items   map[string]DeadLetterRecord
@@ -118,6 +134,52 @@ func (s *DeadLetterStore) CreateForTest(record DeadLetterRecord) DeadLetterRecor
 	return created
 }
 
+// List 按 source_ref/package_id/replayed 过滤并返回分页死信列表。
+func (s *DeadLetterStore) List(sourceRef, packageID, replayed string, page, pageSize int) ([]DeadLetterRecord, int) {
+	if s.backend != nil {
+		return s.listFromDB(context.Background(), sourceRef, packageID, replayed, page, pageSize)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	sourceRef = strings.TrimSpace(sourceRef)
+	packageID = strings.TrimSpace(packageID)
+	replayed = strings.ToLower(strings.TrimSpace(replayed))
+
+	result := make([]DeadLetterRecord, 0, len(s.items))
+	for _, item := range s.items {
+		if sourceRef != "" && item.SourceRef != sourceRef {
+			continue
+		}
+		if packageID != "" && item.PackageID != packageID {
+			continue
+		}
+		if !matchesDeadLetterReplayedFilter(item, replayed) {
+			continue
+		}
+		result = append(result, item)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].FailedAt.Equal(result[j].FailedAt) {
+			return result[i].DeadLetterID > result[j].DeadLetterID
+		}
+		return result[i].FailedAt.After(result[j].FailedAt)
+	})
+
+	total := len(result)
+	start := (page - 1) * pageSize
+	if start >= total {
+		return []DeadLetterRecord{}, total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return result[start:end], total
+}
+
 // Replay 按 dead_letter_ids 执行重放并返回批次号与成功数量。
 func (s *DeadLetterStore) Replay(deadLetterIDs []string, reason string) (string, int, error) {
 	if s.backend != nil {
@@ -181,7 +243,7 @@ func (s *DeadLetterStore) Count() int {
 	return len(s.items)
 }
 
-// DeadLetterHandler 实现死信重放接口。
+// DeadLetterHandler 实现死信查询与重放接口。
 type DeadLetterHandler struct {
 	store *DeadLetterStore
 }
@@ -194,7 +256,20 @@ func NewDeadLetterHandler(store *DeadLetterStore) *DeadLetterHandler {
 // RegisterDeadLetterRoutes 注册 6.6 所需路由。
 func RegisterDeadLetterRoutes(router gin.IRouter, store *DeadLetterStore) {
 	handler := NewDeadLetterHandler(store)
+	router.GET("/api/v1/ingest/dead-letters", handler.ListDeadLetters)
 	router.POST("/api/v1/ingest/dead-letters/replay", handler.ReplayDeadLetters)
+}
+
+// ListDeadLetters 处理 GET /api/v1/ingest/dead-letters。
+func (h *DeadLetterHandler) ListDeadLetters(c *gin.Context) {
+	query, err := parseListDeadLettersQuery(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, ErrorCodeDeadLetterInvalidArgument, sanitizeIngestValidationError(err, "invalid query parameters"), gin.H{"field": "query"})
+		return
+	}
+
+	items, total := h.store.List(query.SourceRef, query.PackageID, query.Replayed, query.Page, query.PageSize)
+	writeSuccess(c, http.StatusOK, gin.H{"items": items}, buildPaginationMeta(query.Page, query.PageSize, total))
 }
 
 // ReplayDeadLetters 处理 POST /api/v1/ingest/dead-letters/replay。
@@ -225,6 +300,51 @@ func (h *DeadLetterHandler) ReplayDeadLetters(c *gin.Context) {
 		"replay_batch_id": replayBatchID,
 		"replayed_count":  replayedCount,
 	}, gin.H{})
+}
+
+func parseListDeadLettersQuery(c *gin.Context) (listDeadLettersQuery, error) {
+	page, err := parsePositiveInt(c.Query("page"), 1)
+	if err != nil {
+		return listDeadLettersQuery{}, fmt.Errorf("page must be a positive integer")
+	}
+	pageSize, err := parsePositiveInt(c.Query("page_size"), 20)
+	if err != nil {
+		return listDeadLettersQuery{}, fmt.Errorf("page_size must be a positive integer")
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	sourceRef := strings.TrimSpace(c.Query("source_ref"))
+	packageID := strings.TrimSpace(c.Query("package_id"))
+	replayed := strings.ToLower(strings.TrimSpace(c.Query("replayed")))
+	if replayed != "" && !isAllowedDeadLetterReplayedFilter(replayed) {
+		return listDeadLettersQuery{}, fmt.Errorf("replayed must be one of yes|no")
+	}
+
+	return listDeadLettersQuery{
+		SourceRef: sourceRef,
+		PackageID: packageID,
+		Replayed:  replayed,
+		Page:      page,
+		PageSize:  pageSize,
+	}, nil
+}
+
+func isAllowedDeadLetterReplayedFilter(replayed string) bool {
+	_, ok := allowedDeadLetterReplayedFilters[replayed]
+	return ok
+}
+
+func matchesDeadLetterReplayedFilter(item DeadLetterRecord, replayed string) bool {
+	switch replayed {
+	case "yes":
+		return item.ReplayedAt != nil
+	case "no":
+		return item.ReplayedAt == nil
+	default:
+		return true
+	}
 }
 
 // normalizeDeadLetterReplayRequest 校验并规范化重放请求。

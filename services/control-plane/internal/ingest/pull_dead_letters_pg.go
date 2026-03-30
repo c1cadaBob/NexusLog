@@ -156,6 +156,88 @@ RETURNING
 	return created, nil
 }
 
+func (s *DeadLetterStore) listFromDB(ctx context.Context, sourceRef, packageID, replayed string, page, pageSize int) ([]DeadLetterRecord, int) {
+	sourceRef = strings.TrimSpace(sourceRef)
+	packageID = strings.TrimSpace(packageID)
+	replayed = strings.ToLower(strings.TrimSpace(replayed))
+
+	countQuery := `
+SELECT COUNT(1)
+FROM ingest_dead_letters
+WHERE ($1 = '' OR COALESCE(source_ref, '') = $1)
+  AND ($2 = '' OR COALESCE(package_id::text, '') = $2)
+  AND (
+    $3 = ''
+    OR ($3 = 'yes' AND replayed_at IS NOT NULL)
+    OR ($3 = 'no' AND replayed_at IS NULL)
+  )
+`
+	total := 0
+	if err := s.backend.DB().QueryRowContext(ctx, countQuery, sourceRef, packageID, replayed).Scan(&total); err != nil {
+		return []DeadLetterRecord{}, 0
+	}
+
+	query := `
+SELECT
+    id::text,
+    COALESCE(package_id::text, ''),
+    COALESCE(source_ref, ''),
+    COALESCE(error_code, ''),
+    COALESCE(error_message, ''),
+    retry_count,
+    failed_at,
+    created_at,
+    replayed_at,
+    COALESCE(replay_batch_id, ''),
+    COALESCE(replay_reason, '')
+FROM ingest_dead_letters
+WHERE ($1 = '' OR COALESCE(source_ref, '') = $1)
+  AND ($2 = '' OR COALESCE(package_id::text, '') = $2)
+  AND (
+    $3 = ''
+    OR ($3 = 'yes' AND replayed_at IS NOT NULL)
+    OR ($3 = 'no' AND replayed_at IS NULL)
+  )
+ORDER BY failed_at DESC, id DESC
+OFFSET $4
+LIMIT $5
+`
+	offset := (page - 1) * pageSize
+	rows, err := s.backend.DB().QueryContext(ctx, query, sourceRef, packageID, replayed, offset, pageSize)
+	if err != nil {
+		return []DeadLetterRecord{}, total
+	}
+	defer mustRowsClose(rows)
+
+	items := make([]DeadLetterRecord, 0, pageSize)
+	for rows.Next() {
+		var (
+			item       DeadLetterRecord
+			replayedAt sql.NullTime
+		)
+		if scanErr := rows.Scan(
+			&item.DeadLetterID,
+			&item.PackageID,
+			&item.SourceRef,
+			&item.ErrorCode,
+			&item.ErrorMessage,
+			&item.RetryCount,
+			&item.FailedAt,
+			&item.CreatedAt,
+			&replayedAt,
+			&item.ReplayBatchID,
+			&item.ReplayReason,
+		); scanErr != nil {
+			continue
+		}
+		item.FailedAt = item.FailedAt.UTC()
+		item.CreatedAt = item.CreatedAt.UTC()
+		item.ReplayedAt = parseOptionalTime(replayedAt)
+		items = append(items, item)
+	}
+	return items, total
+}
+
 func (s *DeadLetterStore) replayFromDB(ctx context.Context, deadLetterIDs []string, reason string) (string, int, error) {
 	if s.backend == nil || s.backend.DB() == nil {
 		return "", 0, fmt.Errorf("postgres backend is not configured")

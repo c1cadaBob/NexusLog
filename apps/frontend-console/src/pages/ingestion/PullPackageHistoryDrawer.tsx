@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Descriptions, Drawer, Empty, Select, Space, Spin, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchPullPackages, type PullPackageFile, type PullPackageItem } from '../../api/ingest';
+import { hasAnyCapability } from '../../auth/routeAuthorization';
+import { useAuthStore } from '../../stores/authStore';
 import { COLORS } from '../../theme/tokens';
+import DeadLetterDrawer from './DeadLetterDrawer';
 
 const PACKAGE_STATUS_OPTIONS = [
   { label: '全部状态', value: 'all' },
@@ -21,6 +24,11 @@ interface PullPackageHistoryDrawerProps {
   agentId?: string;
   sourceRef?: string;
   onClose: () => void;
+}
+
+interface DeadLetterTarget {
+  packageId?: string;
+  packageLabel?: string;
 }
 
 function formatDateTime(value?: string) {
@@ -63,6 +71,10 @@ function getPackageStatusMeta(status?: string) {
     default:
       return { label: normalized || '-', color: 'default', dot: '#94a3b8' };
   }
+}
+
+function isAbnormalPackageStatus(status?: string) {
+  return ['failed', 'nacked', 'dead_lettered'].includes(String(status ?? '').toLowerCase());
 }
 
 const fileColumns: ColumnsType<PullPackageFile> = [
@@ -113,6 +125,9 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
   sourceRef,
   onClose,
 }) => {
+  const capabilities = useAuthStore((state) => state.capabilities);
+  const canReadDeadLetter = useMemo(() => hasAnyCapability(capabilities, ['ingest.dead_letter.read']), [capabilities]);
+
   const [packages, setPackages] = useState<PullPackageItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -120,6 +135,7 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [deadLetterTarget, setDeadLetterTarget] = useState<DeadLetterTarget | null>(null);
 
   const normalizedAgentId = agentId?.trim() || '';
   const normalizedSourceRef = sourceRef?.trim() || '';
@@ -165,88 +181,112 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
       setPage(1);
       setPageSize(20);
       setTotal(0);
+      setDeadLetterTarget(null);
     }
   }, [open]);
 
   const latestPackage = packages[0] ?? null;
   const pageStats = useMemo(() => ({
     acked: packages.filter((item) => item.status === 'acked').length,
-    failed: packages.filter((item) => item.status === 'failed' || item.status === 'nacked' || item.status === 'dead_lettered').length,
+    failed: packages.filter((item) => isAbnormalPackageStatus(item.status)).length,
     inFlight: packages.filter((item) => item.status === 'created' || item.status === 'uploading' || item.status === 'uploaded').length,
   }), [packages]);
 
-  const columns: ColumnsType<PullPackageItem> = [
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 110,
-      render: (value?: string) => {
-        const meta = getPackageStatusMeta(value);
-        return (
-          <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
-            {meta.label}
-          </Tag>
-        );
+  const columns: ColumnsType<PullPackageItem> = useMemo(() => {
+    const baseColumns: ColumnsType<PullPackageItem> = [
+      {
+        title: '状态',
+        dataIndex: 'status',
+        key: 'status',
+        width: 110,
+        render: (value?: string) => {
+          const meta = getPackageStatusMeta(value);
+          return (
+            <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
+              {meta.label}
+            </Tag>
+          );
+        },
       },
-    },
-    {
-      title: '包编号',
-      key: 'package_no',
-      width: 220,
-      render: (_, item) => (
-        <div style={{ fontSize: 12 }}>
-          <div style={{ fontFamily: 'JetBrains Mono, monospace' }}>{item.package_no || '-'}</div>
-          <div style={{ color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>{item.package_id || '-'}</div>
-        </div>
-      ),
-    },
-    {
-      title: '时间',
-      key: 'time',
-      width: 220,
-      render: (_, item) => (
-        <div style={{ fontSize: 12 }}>
-          <div>创建：{formatDateTime(item.created_at)}</div>
-          <div>确认：{formatDateTime(item.acked_at)}</div>
-        </div>
-      ),
-    },
-    {
-      title: '记录 / 文件 / 大小',
-      key: 'metrics',
-      width: 180,
-      render: (_, item) => (
-        <div style={{ fontSize: 12 }}>
-          <div>记录：{formatNumber(item.record_count)}</div>
-          <div>文件：{formatNumber(item.file_count)}</div>
-          <div>大小：{formatBytes(item.size_bytes)}</div>
-        </div>
-      ),
-    },
-    {
-      title: 'Batch / Cursor',
-      key: 'cursor',
-      width: 220,
-      render: (_, item) => (
-        <div style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>
-          <div>{item.batch_id || '-'}</div>
-          <div style={{ color: '#94a3b8', whiteSpace: 'normal', wordBreak: 'break-all' }}>{item.next_cursor || '-'}</div>
-        </div>
-      ),
-    },
-    {
-      title: '源路径',
-      dataIndex: 'source_ref',
-      key: 'source_ref',
-      render: (value?: string) => (
-        <Typography.Text code style={{ whiteSpace: 'normal', wordBreak: 'break-all' }}>
-          {value || '-'}
-        </Typography.Text>
-      ),
-    },
-  ];
+      {
+        title: '包编号',
+        key: 'package_no',
+        width: 220,
+        render: (_, item) => (
+          <div style={{ fontSize: 12 }}>
+            <div style={{ fontFamily: 'JetBrains Mono, monospace' }}>{item.package_no || '-'}</div>
+            <div style={{ color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>{item.package_id || '-'}</div>
+          </div>
+        ),
+      },
+      {
+        title: '时间',
+        key: 'time',
+        width: 220,
+        render: (_, item) => (
+          <div style={{ fontSize: 12 }}>
+            <div>创建：{formatDateTime(item.created_at)}</div>
+            <div>确认：{formatDateTime(item.acked_at)}</div>
+          </div>
+        ),
+      },
+      {
+        title: '记录 / 文件 / 大小',
+        key: 'metrics',
+        width: 180,
+        render: (_, item) => (
+          <div style={{ fontSize: 12 }}>
+            <div>记录：{formatNumber(item.record_count)}</div>
+            <div>文件：{formatNumber(item.file_count)}</div>
+            <div>大小：{formatBytes(item.size_bytes)}</div>
+          </div>
+        ),
+      },
+      {
+        title: 'Batch / Cursor',
+        key: 'cursor',
+        width: 220,
+        render: (_, item) => (
+          <div style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>
+            <div>{item.batch_id || '-'}</div>
+            <div style={{ color: '#94a3b8', whiteSpace: 'normal', wordBreak: 'break-all' }}>{item.next_cursor || '-'}</div>
+          </div>
+        ),
+      },
+      {
+        title: '源路径',
+        dataIndex: 'source_ref',
+        key: 'source_ref',
+        render: (value?: string) => (
+          <Typography.Text code style={{ whiteSpace: 'normal', wordBreak: 'break-all' }}>
+            {value || '-'}
+          </Typography.Text>
+        ),
+      },
+    ];
+
+    if (canReadDeadLetter) {
+      baseColumns.push({
+        title: '操作',
+        key: 'actions',
+        width: 100,
+        align: 'right',
+        render: (_, item) => (
+          <Button
+            size="small"
+            type="link"
+            disabled={!item.package_id}
+            onClick={() => setDeadLetterTarget({ packageId: item.package_id, packageLabel: item.package_no || item.package_id })}
+          >
+            死信
+          </Button>
+        ),
+      });
+    }
+
+    return baseColumns;
+  }, [canReadDeadLetter]);
 
   return (
     <Drawer
@@ -266,6 +306,9 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
               setPage(1);
             }}
           />
+          {canReadDeadLetter ? (
+            <Button onClick={() => setDeadLetterTarget({})}>源级死信</Button>
+          ) : null}
           <Button onClick={() => void loadPackages()}>刷新</Button>
         </Space>
       )}
@@ -282,12 +325,12 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
         <Empty description="当前筛选条件下暂无增量包记录" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {latestPackage && ['failed', 'nacked', 'dead_lettered'].includes(String(latestPackage.status).toLowerCase()) ? (
+          {latestPackage && isAbnormalPackageStatus(latestPackage.status) ? (
             <Alert
               type="warning"
               showIcon
               message="最近增量包存在异常状态"
-              description={`最新包状态为 ${getPackageStatusMeta(latestPackage.status).label}，建议查看文件明细和游标推进情况。`}
+              description={`最新包状态为 ${getPackageStatusMeta(latestPackage.status).label}，建议查看文件明细、死信和游标推进情况。`}
             />
           ) : null}
 
@@ -372,11 +415,20 @@ const PullPackageHistoryDrawer: React.FC<PullPackageHistoryDrawerProps> = ({
                   setPage(nextPage);
                 },
               }}
-              scroll={{ x: 1100 }}
+              scroll={{ x: 1180 }}
             />
           </Card>
         </div>
       )}
+
+      <DeadLetterDrawer
+        open={Boolean(deadLetterTarget)}
+        sourceName={sourceName}
+        sourceRef={normalizedSourceRef}
+        packageId={deadLetterTarget?.packageId}
+        packageLabel={deadLetterTarget?.packageLabel}
+        onClose={() => setDeadLetterTarget(null)}
+      />
     </Drawer>
   );
 };

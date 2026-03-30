@@ -196,6 +196,25 @@ export interface PullPackageItem {
   created_at: string;
 }
 
+export interface DeadLetterItem {
+  dead_letter_id: string;
+  package_id?: string;
+  source_ref?: string;
+  error_code?: string;
+  error_message?: string;
+  retry_count: number;
+  failed_at: string;
+  created_at: string;
+  replayed_at?: string;
+  replay_batch_id?: string;
+  replay_reason?: string;
+}
+
+export interface ReplayDeadLettersResponse {
+  replay_batch_id: string;
+  replayed_count: number;
+}
+
 export interface PullSourceRuntimeStatusItem {
   source_id: string;
   name: string;
@@ -295,6 +314,10 @@ interface ListPullTasksData {
 
 interface ListPullPackagesData {
   items: PullPackageItem[];
+}
+
+interface ListDeadLettersData {
+  items: DeadLetterItem[];
 }
 
 interface ListAgentsData {
@@ -537,6 +560,68 @@ export async function fetchPullPackages(params: {
     total: Number(envelope.meta?.total ?? items.length),
     hasNext: Boolean(envelope.meta?.has_next ?? false),
   };
+}
+
+export async function fetchDeadLetters(params: {
+  source_ref?: string;
+  package_id?: string;
+  replayed?: 'yes' | 'no';
+  page?: number;
+  page_size?: number;
+}): Promise<{ items: DeadLetterItem[]; total: number; hasNext: boolean }> {
+  const page = params.page ?? 1;
+  const pageSize = params.page_size ?? 20;
+  const sourceRef = params.source_ref?.trim() || '';
+  const packageId = params.package_id?.trim() || '';
+
+  if (!sourceRef && !packageId) {
+    throw new Error('source_ref 或 package_id 不能为空');
+  }
+
+  const envelope = await requestIngestApi<ListDeadLettersData>('/dead-letters', {
+    method: 'GET',
+    query: {
+      ...(sourceRef ? { source_ref: sourceRef } : {}),
+      ...(packageId ? { package_id: packageId } : {}),
+      ...(params.replayed ? { replayed: params.replayed } : {}),
+      page,
+      page_size: pageSize,
+    },
+  });
+
+  const items = envelope.data?.items ?? [];
+  return {
+    items,
+    total: Number(envelope.meta?.total ?? items.length),
+    hasNext: Boolean(envelope.meta?.has_next ?? false),
+  };
+}
+
+export async function replayDeadLetters(payload: {
+  dead_letter_ids: string[];
+  reason: string;
+}): Promise<ReplayDeadLettersResponse> {
+  const deadLetterIds = payload.dead_letter_ids.map((item) => item.trim()).filter(Boolean);
+  const reason = payload.reason.trim();
+  if (deadLetterIds.length === 0) {
+    throw new Error('dead_letter_ids 不能为空');
+  }
+  if (!reason) {
+    throw new Error('重放原因不能为空');
+  }
+
+  const envelope = await requestIngestApi<ReplayDeadLettersResponse>('/dead-letters/replay', {
+    method: 'POST',
+    body: {
+      dead_letter_ids: deadLetterIds,
+      reason,
+    },
+  });
+
+  if (!envelope.data) {
+    throw new Error('死信重放成功但返回内容为空');
+  }
+  return envelope.data;
 }
 
 export async function generateDeploymentScript(
