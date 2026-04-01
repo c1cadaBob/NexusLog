@@ -73,6 +73,7 @@ type Repository interface {
 	UpdateIncident(ctx context.Context, tenantID, incidentID string, update *IncidentUpdate) error
 	UpdateIncidentStatus(ctx context.Context, tenantID, incidentID string, upd *StatusUpdate) error
 	ArchiveIncident(ctx context.Context, tenantID, incidentID string, verdict string) error
+	DeleteIncident(ctx context.Context, tenantID, incidentID string) error
 	GetSLASummary(ctx context.Context, tenantID string) (*SLASummary, error)
 }
 
@@ -604,6 +605,41 @@ WHERE tenant_id = $1::uuid AND id = $2::uuid
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
 		return ErrIncidentNotFound
+	}
+	return nil
+}
+
+// DeleteIncident permanently removes an incident and its timeline entries.
+func (r *RepositoryPG) DeleteIncident(ctx context.Context, tenantID, incidentID string) error {
+	tenantID = strings.TrimSpace(tenantID)
+	incidentID = strings.TrimSpace(incidentID)
+	if tenantID == "" || incidentID == "" {
+		return ErrIncidentNotFound
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete incident transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM incident_timeline WHERE incident_id = $1::uuid`, incidentID); err != nil {
+		return fmt.Errorf("delete incident timeline: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx, `DELETE FROM incidents WHERE tenant_id = $1::uuid AND id = $2::uuid`, tenantID, incidentID)
+	if err != nil {
+		return fmt.Errorf("delete incident: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return ErrIncidentNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete incident: %w", err)
 	}
 	return nil
 }

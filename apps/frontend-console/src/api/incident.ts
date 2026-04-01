@@ -99,7 +99,7 @@ function getIncidentApiBasePath(): string {
 async function requestIncidentApi<TData>(
   path: string,
   options: {
-    method?: 'GET' | 'POST' | 'PUT';
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
     body?: unknown;
     query?: Record<string, string | number | undefined>;
   } = {},
@@ -333,6 +333,13 @@ export async function archiveIncident(id: string, verdict: string): Promise<void
   });
 }
 
+/** Delete an incident */
+export async function deleteIncident(id: string): Promise<void> {
+  await requestIncidentApi<{ deleted: boolean }>(`/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 /** Acknowledge an incident */
 export async function acknowledgeIncident(id: string): Promise<void> {
   await requestIncidentApi<{ status: string }>(`/${encodeURIComponent(id)}/acknowledge`, {
@@ -368,7 +375,8 @@ function mapActionToType(action: string): TimelineEvent['type'] {
   const map: Record<string, TimelineEvent['type']> = {
     created: 'incident_created',
     acknowledged: 'incident_acked',
-    assigned: 'analysis_started',
+    assigned: 'assignment_updated',
+    investigating: 'analysis_started',
     resolved: 'incident_resolved',
     closed: 'incident_archived',
   };

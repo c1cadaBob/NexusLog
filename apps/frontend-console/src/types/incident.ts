@@ -91,6 +91,7 @@ export type TimelineEventType =
   | 'alert_triggered'
   | 'incident_created'
   | 'incident_acked'
+  | 'assignment_updated'
   | 'analysis_started'
   | 'action_taken'
   | 'incident_mitigated'

@@ -41,6 +41,7 @@ func RegisterIncidentRoutes(router gin.IRouter, handler *Handler) {
 		g.GET("/:id", handler.GetIncident)
 		g.POST("", handler.CreateIncident)
 		g.PUT("/:id", handler.UpdateIncident)
+		g.DELETE("/:id", handler.DeleteIncident)
 		g.POST("/:id/archive", handler.ArchiveIncident)
 		g.POST("/:id/acknowledge", handler.Acknowledge)
 		g.POST("/:id/investigate", handler.Investigate)
@@ -59,6 +60,7 @@ func RegisterAuthorizedIncidentRoutes(router gin.IRouter, db *sql.DB, handler *H
 		g.GET("/:id", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.read"), handler.GetIncident)
 		g.POST("", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.create"), handler.CreateIncident)
 		g.PUT("/:id", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.UpdateIncident)
+		g.DELETE("/:id", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.close"), handler.DeleteIncident)
 		g.POST("/:id/archive", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.archive"), handler.ArchiveIncident)
 		g.POST("/:id/acknowledge", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.Acknowledge)
 		g.POST("/:id/investigate", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.Investigate)
@@ -248,7 +250,7 @@ func (h *Handler) UpdateIncident(c *gin.Context) {
 	update.SLAResponseMinutes = req.SLAResponseMinutes
 	update.SLAResolveMinutes = req.SLAResolveMinutes
 
-	err := h.svc.UpdateIncident(c.Request.Context(), tenantID, incidentID, update)
+	err := h.svc.UpdateIncident(c.Request.Context(), tenantID, incidentID, update, getActorID(c))
 	if err != nil {
 		if err == ErrIncidentNotFound {
 			writeError(c, http.StatusNotFound, ErrorCodeResourceNotFound, "incident not found", nil)
@@ -263,6 +265,31 @@ func (h *Handler) UpdateIncident(c *gin.Context) {
 	}
 
 	writeSuccess(c, http.StatusOK, gin.H{"updated": true}, gin.H{})
+}
+
+// DeleteIncident handles DELETE /api/v1/incidents/:id.
+func (h *Handler) DeleteIncident(c *gin.Context) {
+	tenantID := getTenantID(c)
+	if tenantID == "" {
+		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
+		return
+	}
+	incidentID := strings.TrimSpace(c.Param("id"))
+	if incidentID == "" {
+		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "incident id is required", nil)
+		return
+	}
+
+	if err := h.svc.DeleteIncident(c.Request.Context(), tenantID, incidentID); err != nil {
+		if err == ErrIncidentNotFound {
+			writeError(c, http.StatusNotFound, ErrorCodeResourceNotFound, "incident not found", nil)
+			return
+		}
+		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to delete incident", nil)
+		return
+	}
+
+	writeSuccess(c, http.StatusOK, gin.H{"deleted": true}, gin.H{})
 }
 
 // ArchiveIncidentRequest defines the request body for archiving.

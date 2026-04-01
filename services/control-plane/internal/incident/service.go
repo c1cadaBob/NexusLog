@@ -24,11 +24,11 @@ const (
 
 // Valid statuses.
 const (
-	StatusOpen           = "open"
-	StatusAcknowledged   = "acknowledged"
-	StatusInvestigating  = "investigating"
-	StatusResolved       = "resolved"
-	StatusClosed         = "closed"
+	StatusOpen          = "open"
+	StatusAcknowledged  = "acknowledged"
+	StatusInvestigating = "investigating"
+	StatusResolved      = "resolved"
+	StatusClosed        = "closed"
 )
 
 // Service provides business logic for incidents.
@@ -67,13 +67,12 @@ func (s *Service) CreateIncident(ctx context.Context, inc *Incident) (string, er
 	if err != nil {
 		return "", err
 	}
-	// Add created timeline entry
 	_ = s.timeline.AddTimelineEntry(ctx, id, "created", inc.CreatedBy, inc.Description)
 	return id, nil
 }
 
 // UpdateIncident updates an existing incident.
-func (s *Service) UpdateIncident(ctx context.Context, tenantID, incidentID string, update *IncidentUpdate) error {
+func (s *Service) UpdateIncident(ctx context.Context, tenantID, incidentID string, update *IncidentUpdate, actorID *string) error {
 	if update == nil {
 		return fmt.Errorf("update is required")
 	}
@@ -82,7 +81,18 @@ func (s *Service) UpdateIncident(ctx context.Context, tenantID, incidentID strin
 			return err
 		}
 	}
-	return s.repo.UpdateIncident(ctx, tenantID, incidentID, update)
+	if err := s.repo.UpdateIncident(ctx, tenantID, incidentID, update); err != nil {
+		return err
+	}
+	if update.AssignedTo != nil {
+		_ = s.timeline.AddTimelineEntry(ctx, incidentID, "assigned", actorID, assignmentTimelineDetail(*update.AssignedTo))
+	}
+	return nil
+}
+
+// DeleteIncident permanently deletes an incident and its attached runtime records.
+func (s *Service) DeleteIncident(ctx context.Context, tenantID, incidentID string) error {
+	return s.repo.DeleteIncident(ctx, tenantID, incidentID)
 }
 
 // ArchiveIncident archives an incident with verdict.
@@ -163,12 +173,20 @@ func validateSeverity(sev string) error {
 	}
 }
 
+func assignmentTimelineDetail(rawAssignedTo string) string {
+	assignedTo := strings.TrimSpace(rawAssignedTo)
+	if assignedTo == "" {
+		return "Assignment cleared"
+	}
+	return "Assigned to user: " + assignedTo
+}
+
 func statusToTimelineAction(status string) string {
 	switch status {
 	case StatusAcknowledged:
 		return "acknowledged"
 	case StatusInvestigating:
-		return "assigned"
+		return "investigating"
 	case StatusResolved:
 		return "resolved"
 	case StatusClosed:

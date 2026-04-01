@@ -18,6 +18,7 @@ const EVENT_TYPE_CONFIG: Record<TimelineEventType, { color: string; icon: string
   alert_triggered: { color: COLORS.danger, icon: 'notifications_active', label: '告警触发' },
   incident_created: { color: COLORS.primary, icon: 'add_circle', label: '事件创建' },
   incident_acked: { color: COLORS.warning, icon: 'check_circle', label: '运维响应' },
+  assignment_updated: { color: COLORS.info, icon: 'person_add', label: '负责人变更' },
   analysis_started: { color: '#8b5cf6', icon: 'biotech', label: '开始分析' },
   action_taken: { color: '#06b6d4', icon: 'build', label: '处置动作' },
   incident_mitigated: { color: '#14b8a6', icon: 'shield', label: '已止损' },
