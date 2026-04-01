@@ -40,6 +40,7 @@ const IncidentTimeline = lazy(() => import('./pages/incidents/IncidentTimeline')
 const IncidentAnalysis = lazy(() => import('./pages/incidents/IncidentAnalysis'));
 const IncidentSLA = lazy(() => import('./pages/incidents/IncidentSLA'));
 const IncidentArchive = lazy(() => import('./pages/incidents/IncidentArchive'));
+const IncidentArchiveReport = lazy(() => import('./pages/incidents/IncidentArchiveReport'));
 
 // 采集与接入
 const SourceManagement = lazy(() => import('./pages/ingestion/SourceManagement'));
@@ -124,6 +125,15 @@ const App: React.FC = () => {
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
               {/* 受保护路由 */}
+              <Route
+                path="/incidents/archive/report/:id"
+                element={
+                  <ProtectedRoute>
+                    <IncidentArchiveReport />
+                  </ProtectedRoute>
+                }
+              />
+
               <Route
                 element={
                   <ProtectedRoute>

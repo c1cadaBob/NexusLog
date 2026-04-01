@@ -32,6 +32,7 @@ export const ROUTE_AUTHORIZATION_RULES: RouteAuthorizationRule[] = [
   { path: '/incidents/analysis', requiredCapabilities: ['incident.analysis.read'], legacyPermissions: ['incidents:read'] },
   { path: '/incidents/sla', requiredCapabilities: ['incident.sla.read'], legacyPermissions: ['incidents:read'] },
   { path: '/incidents/archive', requiredCapabilities: ['incident.archive.read'], legacyPermissions: ['incidents:read'] },
+  { path: '/incidents/archive/report/:id', requiredCapabilities: ['incident.archive.read'], legacyPermissions: ['incidents:read'], fallbackPath: '/incidents/archive' },
   { path: '/ingestion/sources', requiredCapabilities: ['ingest.source.read'] },
   { path: '/ingestion/agents', requiredCapabilities: ['agent.read'] },
   { path: '/ingestion/wizard', requiredCapabilities: ['ingest.source.read'] },

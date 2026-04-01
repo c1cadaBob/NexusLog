@@ -1,12 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Empty, Input, Modal, Select, Table, Tag, Tooltip, message } from 'antd';
+import { App, Button, Card, Empty, Input, Modal, Select, Table, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { fetchIncidents } from '../../api/incident';
+import { fetchIncidentTimeline, fetchIncidents } from '../../api/incident';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useThemeStore } from '../../stores/themeStore';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 import { COLORS } from '../../theme/tokens';
+import {
+  buildIncidentArchivePrintRoute,
+  downloadIncidentArchiveMarkdown,
+  shouldAllowIncidentArchiveReport,
+} from '../../utils/incidentArchiveReport';
 import type { Incident, IncidentSeverity } from '../../types/incident';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; label: string }> = {
@@ -30,6 +35,7 @@ function formatDateTime(value?: number | null): string {
 
 const IncidentArchive: React.FC = () => {
   const navigate = useNavigate();
+  const { message } = App.useApp();
   const isDark = useThemeStore((s) => s.isDark);
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<IncidentSeverity | 'all'>('all');
@@ -39,6 +45,7 @@ const IncidentArchive: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [previewIncident, setPreviewIncident] = useState<Incident | null>(null);
+  const [exportingKey, setExportingKey] = useState<string | null>(null);
   const tableRef = usePaginationQuickJumperAccessibility('incident-archive');
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['incidentArchive'] ?? 20);
@@ -69,6 +76,38 @@ const IncidentArchive: React.FC = () => {
       setLoading(false);
     }
   }, [currentPage, pageSize, search, severityFilter]);
+
+  const handleDownloadMarkdown = useCallback(async (incident: Incident) => {
+    if (!shouldAllowIncidentArchiveReport(incident)) {
+      message.warning('仅支持导出已归档事件报告');
+      return;
+    }
+    const exportKey = `${incident.id}:markdown`;
+    setExportingKey(exportKey);
+    try {
+      const timeline = await fetchIncidentTimeline(incident.id);
+      downloadIncidentArchiveMarkdown(incident, timeline);
+      message.success('Markdown 报告已开始下载');
+    } catch (err) {
+      const nextError = err instanceof Error ? err.message : '导出 Markdown 报告失败';
+      message.error(nextError);
+    } finally {
+      setExportingKey((current) => (current === exportKey ? null : current));
+    }
+  }, []);
+
+  const handleOpenPdfReport = useCallback((incident: Incident) => {
+    if (!shouldAllowIncidentArchiveReport(incident)) {
+      message.warning('仅支持导出已归档事件报告');
+      return;
+    }
+    const targetPath = buildIncidentArchivePrintRoute(incident.id, true);
+    const popup = window.open(targetPath, '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      navigate(targetPath.replace('/#', ''));
+      message.info('浏览器阻止了新窗口，已在当前页打开报告');
+    }
+  }, [navigate]);
 
   useEffect(() => {
     void loadIncidents();
@@ -134,19 +173,36 @@ const IncidentArchive: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 120,
+      width: 220,
       render: (_: unknown, record: Incident) => (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <Tooltip title="预览归档结论">
             <Button type="link" size="small" icon={<span className="material-symbols-outlined text-sm">visibility</span>} onClick={() => setPreviewIncident(record)} />
           </Tooltip>
           <Tooltip title="打开详情">
             <Button type="link" size="small" icon={<span className="material-symbols-outlined text-sm">open_in_new</span>} onClick={() => navigate(`/incidents/detail/${record.id}`)} />
           </Tooltip>
+          <Tooltip title="导出 Markdown 报告">
+            <Button
+              type="link"
+              size="small"
+              loading={exportingKey === `${record.id}:markdown`}
+              icon={<span className="material-symbols-outlined text-sm">description</span>}
+              onClick={() => { void handleDownloadMarkdown(record); }}
+            />
+          </Tooltip>
+          <Tooltip title="保存为 PDF 报告">
+            <Button
+              type="link"
+              size="small"
+              icon={<span className="material-symbols-outlined text-sm">picture_as_pdf</span>}
+              onClick={() => handleOpenPdfReport(record)}
+            />
+          </Tooltip>
         </div>
       ),
     },
-  ], [navigate]);
+  ], [exportingKey, handleDownloadMarkdown, handleOpenPdfReport, navigate]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -155,9 +211,22 @@ const IncidentArchive: React.FC = () => {
           <div className="text-lg font-semibold">归档管理</div>
           <div className="text-xs opacity-50 mt-1">展示已归档事件及其研判结论，支持跳转查看完整处理闭环</div>
         </div>
-        <Button onClick={() => void loadIncidents()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
-          刷新
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button onClick={() => void loadIncidents()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+            刷新
+          </Button>
+          <Button
+            type="primary"
+            disabled={!previewIncident || !shouldAllowIncidentArchiveReport(previewIncident)}
+            icon={<span className="material-symbols-outlined text-sm">description</span>}
+            onClick={() => {
+              if (!previewIncident) return;
+              void handleDownloadMarkdown(previewIncident);
+            }}
+          >
+            导出当前预览
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -242,7 +311,11 @@ const IncidentArchive: React.FC = () => {
         open={previewIncident !== null}
         title="归档结论预览"
         onCancel={() => setPreviewIncident(null)}
-        footer={null}
+        footer={previewIncident ? [
+          <Button key="markdown" icon={<span className="material-symbols-outlined text-sm">description</span>} loading={exportingKey === `${previewIncident.id}:markdown`} onClick={() => { void handleDownloadMarkdown(previewIncident); }}>导出 Markdown</Button>,
+          <Button key="pdf" icon={<span className="material-symbols-outlined text-sm">picture_as_pdf</span>} onClick={() => handleOpenPdfReport(previewIncident)}>保存为 PDF</Button>,
+          <Button key="detail" type="primary" onClick={() => navigate(`/incidents/detail/${previewIncident.id}`)}>打开详情</Button>,
+        ] : null}
         destroyOnHidden
       >
         <div className="flex flex-col gap-3">
