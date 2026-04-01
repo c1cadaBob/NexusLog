@@ -62,11 +62,12 @@ func TestEventHandler_ListEvents_GlobalTenantRead(t *testing.T) {
 	mock.ExpectQuery("FROM subject_reserved_policy").
 		WithArgs("10000000-0000-0000-0000-000000000001", "cross-tenant-reader").
 		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}))
-	mock.ExpectQuery("FROM alert_events").
-		WithArgs("").
+	mock.ExpectQuery("SELECT COUNT\\(1\\)\\s+FROM alert_events").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery("FROM alert_events").
-		WithArgs("", 0, 20).
+	mock.ExpectQuery("COUNT\\(1\\) FILTER \\(WHERE status = 'firing'\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"pending", "critical", "warning", "silenced"}).AddRow(1, 1, 0, 0))
+	mock.ExpectQuery("ORDER BY fired_at DESC").
+		WithArgs(0, 20).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "rule_id", "severity", "status", "title", "detail", "source_id", "fired_at", "resolved_at", "notified_at", "notification_result"}).
 			AddRow("event-1", "rule-1", "critical", "firing", "cross-tenant", "detail", "source-1", time.Now().UTC(), nil, time.Now().UTC(), []byte(`{"channel_dispatch":{"status":"sent","successful_channels":1}}`)))
 
@@ -81,7 +82,13 @@ func TestEventHandler_ListEvents_GlobalTenantRead(t *testing.T) {
 	}
 	var body struct {
 		Data struct {
-			Items []AlertEvent `json:"items"`
+			Items   []AlertEvent `json:"items"`
+			Summary struct {
+				Pending  int `json:"pending"`
+				Critical int `json:"critical"`
+				Warning  int `json:"warning"`
+				Silenced int `json:"silenced"`
+			} `json:"summary"`
 		} `json:"data"`
 		Meta struct {
 			Total int `json:"total"`
@@ -92,6 +99,9 @@ func TestEventHandler_ListEvents_GlobalTenantRead(t *testing.T) {
 	}
 	if body.Meta.Total != 1 || len(body.Data.Items) != 1 {
 		t.Fatalf("expected 1 event, got total=%d items=%d", body.Meta.Total, len(body.Data.Items))
+	}
+	if body.Data.Summary.Pending != 1 || body.Data.Summary.Critical != 1 {
+		t.Fatalf("expected summary to be returned, got %+v", body.Data.Summary)
 	}
 	if len(body.Data.Items[0].NotificationResult) == 0 {
 		t.Fatalf("expected notification result to be returned")

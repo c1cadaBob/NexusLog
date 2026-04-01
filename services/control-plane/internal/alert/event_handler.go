@@ -3,6 +3,7 @@ package alert
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -43,6 +44,13 @@ type alertEventMutationTarget struct {
 	SourceID   string
 	FiredAt    time.Time
 	ResolvedAt *time.Time
+}
+
+type alertEventListSummary struct {
+	Pending  int `json:"pending"`
+	Critical int `json:"critical"`
+	Warning  int `json:"warning"`
+	Silenced int `json:"silenced"`
 }
 
 type EventHandler struct {
@@ -111,82 +119,104 @@ func (h *EventHandler) ListEvents(c *gin.Context) {
 		}
 	}
 
+	severity := strings.ToLower(strings.TrimSpace(c.Query("severity")))
+	if severity != "" {
+		switch severity {
+		case "critical", "high", "medium", "low":
+		default:
+			writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "severity must be one of critical|high|medium|low", nil)
+			return
+		}
+	}
+
+	searchQuery := strings.ToLower(strings.TrimSpace(c.Query("query")))
+
 	readScope, err := resolveReadScope(c.Request.Context(), h.db, tenantID, getActorID(c))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to authorize request", nil)
 		return
 	}
 
-	var (
-		total int
-		rows  *sql.Rows
-	)
-	offset := (page - 1) * pageSize
-	if readScope.Global {
-		countQuery := `
-SELECT COUNT(1)
-FROM alert_events
-WHERE ($1 = '' OR status = $1)
-`
-		if err := h.db.QueryRowContext(c.Request.Context(), countQuery, status).Scan(&total); err != nil {
-			writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)
-			return
-		}
-
-		query := `
-SELECT
-    id::text,
-    COALESCE(rule_id::text, ''),
-    severity,
-    status,
-    title,
-    COALESCE(detail, ''),
-    COALESCE(source_id, ''),
-    fired_at,
-    resolved_at,
-    notified_at,
-    COALESCE(notification_result, '{}'::jsonb)
-FROM alert_events
-WHERE ($1 = '' OR status = $1)
-ORDER BY fired_at DESC
-OFFSET $2
-LIMIT $3
-`
-		rows, err = h.db.QueryContext(c.Request.Context(), query, status, offset, pageSize)
-	} else {
-		countQuery := `
-SELECT COUNT(1)
-FROM alert_events
-WHERE tenant_id = $1::uuid
-  AND ($2 = '' OR status = $2)
-`
-		if err := h.db.QueryRowContext(c.Request.Context(), countQuery, readScope.TenantID, status).Scan(&total); err != nil {
-			writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)
-			return
-		}
-
-		query := `
-SELECT
-    id::text,
-    COALESCE(rule_id::text, ''),
-    severity,
-    status,
-    title,
-    COALESCE(detail, ''),
-    COALESCE(source_id, ''),
-    fired_at,
-    resolved_at,
-    notified_at,
-    COALESCE(notification_result, '{}'::jsonb)
-FROM alert_events
-WHERE tenant_id = $1::uuid
-  AND ($2 = '' OR status = $2)
-ORDER BY fired_at DESC
-OFFSET $3
-LIMIT $4
-`
-		rows, err = h.db.QueryContext(c.Request.Context(), query, readScope.TenantID, status, offset, pageSize)
+	filterArgs := make([]any, 0, 4)
+	conditions := make([]string, 0, 4)
+	if !readScope.Global {
+		conditions = append(conditions, fmt.Sprintf("tenant_id = $%d::uuid", len(filterArgs)+1))
+		filterArgs = append(filterArgs, readScope.TenantID)
 	}
+	if status != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", len(filterArgs)+1))
+		filterArgs = append(filterArgs, status)
+	}
+	if severity != "" {
+		conditions = append(conditions, fmt.Sprintf("severity = $%d", len(filterArgs)+1))
+		filterArgs = append(filterArgs, severity)
+	}
+	if searchQuery != "" {
+		conditions = append(conditions, fmt.Sprintf("(LOWER(COALESCE(title, '')) LIKE $%d OR LOWER(COALESCE(source_id, '')) LIKE $%d)", len(filterArgs)+1, len(filterArgs)+1))
+		filterArgs = append(filterArgs, "%"+searchQuery+"%")
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, "\n  AND ")
+	}
+
+	countQuery := fmt.Sprintf(`
+SELECT COUNT(1)
+FROM alert_events
+%s
+`, whereClause)
+
+	var total int
+	if err := h.db.QueryRowContext(c.Request.Context(), countQuery, filterArgs...).Scan(&total); err != nil {
+		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)
+		return
+	}
+
+	summaryQuery := fmt.Sprintf(`
+SELECT
+    COUNT(1) FILTER (WHERE status = 'firing'),
+    COUNT(1) FILTER (WHERE severity = 'critical' AND status <> 'resolved'),
+    COUNT(1) FILTER (WHERE severity IN ('high', 'medium') AND status <> 'resolved'),
+    COUNT(1) FILTER (WHERE status = 'silenced')
+FROM alert_events
+%s
+`, whereClause)
+
+	summary := alertEventListSummary{}
+	if err := h.db.QueryRowContext(c.Request.Context(), summaryQuery, filterArgs...).Scan(
+		&summary.Pending,
+		&summary.Critical,
+		&summary.Warning,
+		&summary.Silenced,
+	); err != nil {
+		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to summarize alert events", nil)
+		return
+	}
+
+	offset := (page - 1) * pageSize
+	queryArgs := append(append([]any{}, filterArgs...), offset, pageSize)
+	query := fmt.Sprintf(`
+SELECT
+    id::text,
+    COALESCE(rule_id::text, ''),
+    severity,
+    status,
+    title,
+    COALESCE(detail, ''),
+    COALESCE(source_id, ''),
+    fired_at,
+    resolved_at,
+    notified_at,
+    COALESCE(notification_result, '{}'::jsonb)
+FROM alert_events
+%s
+ORDER BY fired_at DESC
+OFFSET $%d
+LIMIT $%d
+`, whereClause, len(filterArgs)+1, len(filterArgs)+2)
+
+	rows, err := h.db.QueryContext(c.Request.Context(), query, queryArgs...)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to list alert events", nil)
 		return
@@ -235,7 +265,7 @@ LIMIT $4
 		return
 	}
 
-	writeSuccess(c, http.StatusOK, gin.H{"items": items}, buildPaginationMeta(page, pageSize, total))
+	writeSuccess(c, http.StatusOK, gin.H{"items": items, "summary": summary}, buildPaginationMeta(page, pageSize, total))
 }
 
 func (h *EventHandler) AcknowledgeEvent(c *gin.Context) {

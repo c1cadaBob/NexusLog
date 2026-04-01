@@ -13,6 +13,7 @@ import {
   fetchAlertEvents,
   resolveAlertEvent,
   silenceAlertEvent,
+  type AlertEventListSummary,
   type AlertEventSummary,
   type AlertNotificationSummary,
 } from '../../api/alert';
@@ -55,6 +56,13 @@ const notificationStatusConfig: Record<string, { label: string; color: string }>
   no_channels: { label: '未配置渠道', color: 'default' },
   silenced: { label: '已静默', color: 'default' },
   unknown: { label: '未知', color: 'default' },
+};
+
+const emptyAlertSummary: AlertEventListSummary = {
+  pending: 0,
+  critical: 0,
+  warning: 0,
+  silenced: 0,
 };
 
 const getNotificationStatusMeta = (summary?: AlertNotificationSummary): { label: string; color: string } => {
@@ -101,14 +109,15 @@ const AlertList: React.FC = () => {
   const [batchRunning, setBatchRunning] = useState(false);
   const [singleSilenceTargetID, setSingleSilenceTargetID] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const initialLoadCompletedRef = useRef(false);
-  const lastStatusFilterRef = useRef<AlertStatus | 'all'>(statusFilter);
   const loadRequestRef = useRef<{ key: string; promise: Promise<void>; seq: number } | null>(null);
   const latestLoadSeqRef = useRef(0);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['alertList'] ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalAlerts, setTotalAlerts] = useState(0);
+  const [stats, setStats] = useState<AlertEventListSummary>(emptyAlertSummary);
   const setPageSize = useCallback(
     (size: number) => {
       setPageSizeLocal(size);
@@ -126,7 +135,15 @@ const AlertList: React.FC = () => {
 
   const loadAlerts = useCallback(async (options: { force?: boolean; silent?: boolean } = {}) => {
     const statusParam = mapStatusFilterToApi(statusFilter);
-    const requestKey = statusParam ?? '__all__';
+    const severityParam = severityFilter === 'all' ? undefined : severityFilter;
+    const queryParam = search.trim();
+    const requestKey = JSON.stringify({
+      page: currentPage,
+      pageSize,
+      status: statusParam ?? '',
+      severity: severityParam ?? '',
+      query: queryParam,
+    });
 
     if (!options.force && loadRequestRef.current?.key === requestKey) {
       return loadRequestRef.current.promise;
@@ -139,11 +156,18 @@ const AlertList: React.FC = () => {
 
     const request = (async () => {
       try {
-        const { items } = await fetchAlertEvents(1, 200, statusParam);
+        const { items, total, summary } = await fetchAlertEvents(currentPage, pageSize, {
+          status: statusParam,
+          severity: severityParam,
+          query: queryParam || undefined,
+        });
         if (latestLoadSeqRef.current !== currentSeq) {
           return;
         }
         setAlerts(items);
+        setTotalAlerts(total);
+        setStats(summary);
+        setSelectedRowKeys((previous) => previous.filter((key) => items.some((item) => item.id === String(key))));
       } catch (err) {
         if (latestLoadSeqRef.current !== currentSeq) {
           return;
@@ -151,6 +175,9 @@ const AlertList: React.FC = () => {
         const msg = err instanceof Error ? err.message : '加载告警列表失败';
         setError(msg);
         setAlerts([]);
+        setTotalAlerts(0);
+        setStats(emptyAlertSummary);
+        setSelectedRowKeys([]);
         if (!options.silent) {
           message.error(msg);
         }
@@ -166,7 +193,7 @@ const AlertList: React.FC = () => {
 
     loadRequestRef.current = { key: requestKey, promise: request, seq: currentSeq };
     return request;
-  }, [statusFilter]);
+  }, [currentPage, pageSize, search, severityFilter, statusFilter]);
 
   const startPollTimer = useCallback(() => {
     clearPollTimer();
@@ -179,23 +206,8 @@ const AlertList: React.FC = () => {
   }, [clearPollTimer, loadAlerts]);
 
   useEffect(() => {
-    if (initialLoadCompletedRef.current) {
-      return;
-    }
-    initialLoadCompletedRef.current = true;
     void loadAlerts();
   }, [loadAlerts]);
-
-  useEffect(() => {
-    if (!initialLoadCompletedRef.current) {
-      return;
-    }
-    if (lastStatusFilterRef.current === statusFilter) {
-      return;
-    }
-    lastStatusFilterRef.current = statusFilter;
-    void loadAlerts({ force: true });
-  }, [loadAlerts, statusFilter]);
 
   useEffect(() => {
     startPollTimer();
@@ -218,27 +230,6 @@ const AlertList: React.FC = () => {
     };
   }, [clearPollTimer, loadAlerts, startPollTimer]);
 
-  const filteredAlerts = useMemo(() => {
-    return alerts.filter((alert) => {
-      if (search) {
-        const s = search.toLowerCase();
-        if (!alert.name.toLowerCase().includes(s) && !alert.source.toLowerCase().includes(s)) return false;
-      }
-      if (severityFilter !== 'all' && alert.severity !== severityFilter) return false;
-      if (statusFilter !== 'all' && alert.status !== statusFilter) return false;
-      return true;
-    });
-  }, [alerts, search, severityFilter, statusFilter]);
-
-  const stats = useMemo(
-    () => ({
-      pending: alerts.filter((a) => a.status === 'active').length,
-      critical: alerts.filter((a) => a.severity === 'critical' && a.status !== 'resolved').length,
-      warning: alerts.filter((a) => (a.severity === 'high' || a.severity === 'medium') && a.status !== 'resolved').length,
-      silenced: alerts.filter((a) => a.status === 'silenced').length,
-    }),
-    [alerts],
-  );
 
   const handleAcknowledge = useCallback(async (id: string) => {
     try {
@@ -576,7 +567,10 @@ const AlertList: React.FC = () => {
             prefix={<span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>search</span>}
             placeholder="按告警名称、来源搜索..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setCurrentPage(1);
+            }}
             style={{ flex: 1, minWidth: 240 }}
             allowClear
           />
@@ -584,7 +578,10 @@ const AlertList: React.FC = () => {
             id="alert-list-severity-filter"
             aria-label="告警等级筛选"
             value={severityFilter}
-            onChange={setSeverityFilter}
+            onChange={(value) => {
+              setSeverityFilter(value);
+              setCurrentPage(1);
+            }}
             style={{ width: 140 }}
             options={[
               { value: 'all', label: '所有等级' },
@@ -598,7 +595,10 @@ const AlertList: React.FC = () => {
             id="alert-list-status-filter"
             aria-label="告警状态筛选"
             value={statusFilter}
-            onChange={setStatusFilter}
+            onChange={(value) => {
+              setStatusFilter(value);
+              setCurrentPage(1);
+            }}
             style={{ width: 160 }}
             options={[
               { value: 'all', label: '状态: 全部' },
@@ -648,13 +648,13 @@ const AlertList: React.FC = () => {
         </div>
 
         <div style={{ flex: 1, overflow: 'auto' }}>
-          {filteredAlerts.length === 0 ? (
+          {!loading && totalAlerts === 0 ? (
             <Empty style={{ margin: 48 }} description="暂无告警" />
           ) : (
             <Table<AlertEventSummary>
               rowKey="id"
               columns={columns}
-              dataSource={filteredAlerts}
+              dataSource={alerts}
               size="middle"
               rowSelection={{
                 selectedRowKeys,
@@ -669,11 +669,22 @@ const AlertList: React.FC = () => {
                 }),
               }}
               pagination={{
-                current: undefined,
+                current: currentPage,
+                total: totalAlerts,
                 pageSize,
                 showSizeChanger: true,
+                showQuickJumper: totalAlerts > pageSize,
+                pageSizeOptions: ['10', '20', '50', '100', '200'],
                 showTotal: (total, range) => `显示 ${range[0]} 到 ${range[1]} 条，共 ${total} 条`,
-                onShowSizeChange: (_, size) => setPageSize(size),
+                onChange: (page, size) => {
+                  const nextPageSize = size ?? pageSize;
+                  if (nextPageSize !== pageSize) {
+                    setPageSize(nextPageSize);
+                    setCurrentPage(1);
+                    return;
+                  }
+                  setCurrentPage(page);
+                },
               }}
               scroll={{ x: 800 }}
               loading={loading}

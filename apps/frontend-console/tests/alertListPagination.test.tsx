@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import AlertList from '../src/pages/alerts/AlertList';
 
@@ -35,7 +35,7 @@ vi.mock('../src/stores/alertStore', () => ({
     selector({ markAllAsRead: markAllAsReadMock }),
 }));
 
-describe('AlertList notification status', () => {
+describe('AlertList pagination', () => {
   beforeEach(() => {
     fetchAlertEventsMock.mockReset();
     acknowledgeAlertEventMock.mockReset();
@@ -87,28 +87,38 @@ describe('AlertList notification status', () => {
     vi.clearAllMocks();
   });
 
-  it('renders notification dispatch summary in the list', async () => {
-    fetchAlertEventsMock.mockResolvedValue({
-      items: [
-        {
-          id: 'event-1',
-          name: 'CPU 阈值告警',
-          severity: 'high',
-          status: 'active',
-          source: 'cpu_usage_pct',
-          count: 1,
-          lastTriggeredAt: Date.now(),
-          notificationSummary: {
-            status: 'sent',
-            attemptedChannels: 1,
-            successfulChannels: 1,
-            lastAttemptAt: Date.now(),
+  it('requests the selected page from the backend', async () => {
+    fetchAlertEventsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'event-page-1',
+            name: '第一页告警',
+            severity: 'critical',
+            status: 'active',
+            source: 'source-page-1',
+            count: 1,
+            lastTriggeredAt: Date.now(),
           },
-        },
-      ],
-      total: 1,
-      summary: { pending: 1, critical: 0, warning: 1, silenced: 0 },
-    });
+        ],
+        total: 25,
+        summary: { pending: 25, critical: 25, warning: 0, silenced: 0 },
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'event-page-2',
+            name: '第二页告警',
+            severity: 'critical',
+            status: 'active',
+            source: 'source-page-2',
+            count: 1,
+            lastTriggeredAt: Date.now(),
+          },
+        ],
+        total: 25,
+        summary: { pending: 25, critical: 25, warning: 0, silenced: 0 },
+      });
 
     render(
       <MemoryRouter>
@@ -117,10 +127,25 @@ describe('AlertList notification status', () => {
     );
 
     await waitFor(() => {
-      expect(fetchAlertEventsMock).toHaveBeenCalledTimes(1);
+      expect(fetchAlertEventsMock).toHaveBeenCalledWith(1, 10, {
+        status: undefined,
+        severity: undefined,
+        query: undefined,
+      });
     });
 
-    expect(await screen.findByText('发送成功')).toBeTruthy();
-    expect(screen.getByText(/1\/1 渠道成功/)).toBeTruthy();
+    expect(await screen.findByText('第一页告警')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('2'));
+
+    await waitFor(() => {
+      expect(fetchAlertEventsMock).toHaveBeenCalledWith(2, 10, {
+        status: undefined,
+        severity: undefined,
+        query: undefined,
+      });
+    });
+
+    expect(await screen.findByText('第二页告警')).toBeTruthy();
   });
 });

@@ -534,22 +534,41 @@ export interface AlertEventSummary {
   notificationSummary?: AlertNotificationSummary;
 }
 
-/** Fetch alert events (paginated, optional status filter) */
+export interface AlertEventListSummary {
+  pending: number;
+  critical: number;
+  warning: number;
+  silenced: number;
+}
+
+export interface FetchAlertEventsFilters {
+  status?: 'firing' | 'acknowledged' | 'resolved' | 'silenced';
+  severity?: AlertSeverity;
+  query?: string;
+}
+
+/** Fetch alert events (paginated, optional filters) */
 export async function fetchAlertEvents(
   page: number = 1,
   pageSize: number = 20,
-  status?: 'firing' | 'acknowledged' | 'resolved' | 'silenced',
-): Promise<{ items: AlertEventSummary[]; total: number }> {
+  filters: FetchAlertEventsFilters = {},
+): Promise<{ items: AlertEventSummary[]; total: number; summary: AlertEventListSummary }> {
   const query: Record<string, string | number> = { page, page_size: pageSize };
-  if (status) query.status = status;
+  if (filters.status) query.status = filters.status;
+  if (filters.severity) query.severity = filters.severity;
+  if (filters.query) query.query = filters.query;
 
-  const envelope = await requestAlertApi<{ items: BackendAlertEvent[] }>('/events', {
+  const envelope = await requestAlertApi<{
+    items: BackendAlertEvent[];
+    summary?: Partial<AlertEventListSummary>;
+  }>('/events', {
     method: 'GET',
     query,
   });
 
   const items = envelope.data?.items ?? [];
   const total = Number(envelope.meta?.total ?? items.length);
+  const rawSummary = envelope.data?.summary ?? {};
 
   const mapStatus = (s: string): AlertEventSummary['status'] => {
     if (s === 'firing' || s === 'active') return 'active';
@@ -573,6 +592,12 @@ export async function fetchAlertEvents(
       notificationSummary: normalizeAlertNotificationSummary(e.notification_result, e.notified_at),
     })),
     total,
+    summary: {
+      pending: Number(rawSummary.pending ?? 0),
+      critical: Number(rawSummary.critical ?? 0),
+      warning: Number(rawSummary.warning ?? 0),
+      silenced: Number(rawSummary.silenced ?? 0),
+    },
   };
 }
 
