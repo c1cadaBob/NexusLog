@@ -3,6 +3,7 @@ package notification
 import (
 	"encoding/json"
 	"fmt"
+	"net/mail"
 	"strconv"
 	"strings"
 )
@@ -85,6 +86,15 @@ func validateEmailConfig(m map[string]interface{}) error {
 		username, _ := m["smtp_username"].(string)
 		if strings.TrimSpace(username) == "" {
 			return fmt.Errorf("email config requires from_email or smtp_username")
+		}
+	}
+	recipients := normalizeEmailRecipients(m["recipients"])
+	if len(recipients) == 0 {
+		return fmt.Errorf("email config requires at least one recipient")
+	}
+	for _, recipient := range recipients {
+		if _, err := mail.ParseAddress(recipient); err != nil {
+			return fmt.Errorf("invalid recipient email: %s", recipient)
 		}
 	}
 	return nil

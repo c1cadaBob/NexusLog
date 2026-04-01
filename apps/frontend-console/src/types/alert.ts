@@ -2,7 +2,7 @@ export type AlertSeverity = 'critical' | 'high' | 'medium' | 'low';
 export type AlertStatus = 'active' | 'acknowledged' | 'resolved' | 'silenced';
 export type RuleStatus = 'enabled' | 'disabled' | 'error';
 export type ConditionOperator = 'gt' | 'lt' | 'eq' | 'gte' | 'lte' | 'ne';
-export type NotificationChannelType = 'email' | 'slack' | 'webhook' | 'dingtalk' | 'wechat';
+export type NotificationChannelType = 'email' | 'slack' | 'webhook' | 'dingtalk' | 'wechat' | 'sms';
 
 export interface AlertSummary {
   id: string;

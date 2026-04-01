@@ -6,11 +6,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/nexuslog/control-plane/internal/httpguard"
+	"github.com/nexuslog/control-plane/internal/notification"
 )
 
 // ESSearchClient performs Elasticsearch search queries.
@@ -100,6 +102,11 @@ type SilenceChecker interface {
 	IsSilenced(ctx context.Context, tenantID, ruleID, severity, sourceID string) (bool, error)
 }
 
+// NotificationDispatcher dispatches alert notifications through configured channels.
+type NotificationDispatcher interface {
+	Dispatch(ctx context.Context, tenantID string, rawChannelIDs json.RawMessage, payload notification.DispatchPayload) (*notification.DispatchSummary, error)
+}
+
 // Evaluator runs the alert evaluation loop.
 type Evaluator struct {
 	ruleRepo        RuleRepository
@@ -111,6 +118,7 @@ type Evaluator struct {
 	suppressor      *Suppressor
 	incidentCreator IncidentCreator
 	silenceChecker  SilenceChecker
+	notifier        NotificationDispatcher
 }
 
 // NewEvaluator creates a new evaluator.
@@ -139,6 +147,12 @@ func (e *Evaluator) WithSilenceChecker(sc SilenceChecker) *Evaluator {
 	return e
 }
 
+// WithNotifier sets the notification dispatcher used after alert creation.
+func (e *Evaluator) WithNotifier(notifier NotificationDispatcher) *Evaluator {
+	e.notifier = notifier
+	return e
+}
+
 // WithInterval sets the evaluation interval.
 func (e *Evaluator) WithInterval(d time.Duration) *Evaluator {
 	return &Evaluator{
@@ -151,6 +165,7 @@ func (e *Evaluator) WithInterval(d time.Duration) *Evaluator {
 		suppressor:      e.suppressor,
 		incidentCreator: e.incidentCreator,
 		silenceChecker:  e.silenceChecker,
+		notifier:        e.notifier,
 	}
 }
 
@@ -166,6 +181,7 @@ func (e *Evaluator) WithSuppressor(s *Suppressor) *Evaluator {
 		suppressor:      s,
 		incidentCreator: e.incidentCreator,
 		silenceChecker:  e.silenceChecker,
+		notifier:        e.notifier,
 	}
 }
 
@@ -245,14 +261,43 @@ RETURNING id::text
 	}
 	alertEventsTotal.Inc()
 
-	// Auto-create incident for critical alerts (skip if silenced)
-	if e.incidentCreator != nil {
-		if e.silenceChecker != nil {
-			silenced, err := e.silenceChecker.IsSilenced(ctx, rule.TenantID, rule.ID, rule.Severity, sourceID)
-			if err == nil && silenced {
-				return nil // notification suppressed, alert_event already recorded
+	silenced := false
+	if e.silenceChecker != nil {
+		if shouldSilence, err := e.silenceChecker.IsSilenced(ctx, rule.TenantID, rule.ID, rule.Severity, sourceID); err == nil {
+			silenced = shouldSilence
+		}
+	}
+	if silenced {
+		_ = e.recordNotificationResult(ctx, alertEventID, map[string]any{
+			"channel_dispatch": map[string]any{
+				"status":          "silenced",
+				"last_attempt_at": time.Now().UTC().Format(time.RFC3339),
+			},
+		})
+		return nil
+	}
+
+	if e.notifier != nil {
+		summary, dispatchErr := e.notifier.Dispatch(ctx, rule.TenantID, rule.NotificationChannels, notification.DispatchPayload{
+			Title:    title,
+			Detail:   detail,
+			Severity: rule.Severity,
+			FiredAt:  time.Now().UTC().Format(time.RFC3339),
+			TenantID: rule.TenantID,
+			RuleID:   rule.ID,
+			SourceID: sourceID,
+		})
+		if dispatchErr != nil {
+			log.Printf("alert evaluator: dispatch notification failed for rule %s: %v", rule.ID, dispatchErr)
+		}
+		if summary != nil {
+			if err := e.recordNotificationResult(ctx, alertEventID, map[string]any{"channel_dispatch": summary}); err != nil {
+				log.Printf("alert evaluator: persist notification result failed for event %s: %v", alertEventID, err)
 			}
 		}
+	}
+
+	if e.incidentCreator != nil {
 		_ = e.incidentCreator.CreateFromAlert(ctx, rule.TenantID, rule.ID, alertEventID, title, detail, rule.Severity)
 	}
 	return nil
@@ -458,6 +503,22 @@ func (e *Evaluator) checkThreshold(ctx context.Context, rule *AlertRule, m map[s
 	}
 	_ = metric
 	return matched, "", nil
+}
+
+func (e *Evaluator) recordNotificationResult(ctx context.Context, alertEventID string, payload map[string]any) error {
+	if e == nil || e.db == nil || strings.TrimSpace(alertEventID) == "" || payload == nil {
+		return nil
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = e.db.ExecContext(ctx, `
+UPDATE alert_events
+SET notification_result = COALESCE(notification_result, '{}'::jsonb) || $2::jsonb
+WHERE id = $1::uuid
+`, alertEventID, raw)
+	return err
 }
 
 func appendTenantFilter(filters []interface{}, tenantID string) []interface{} {

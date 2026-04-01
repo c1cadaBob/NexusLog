@@ -42,6 +42,35 @@ const formatTimeAgo = (timestamp: number): string => {
   return `${Math.floor(hours / 24)}天前`;
 };
 
+const normalizeRecipientValues = (value: unknown): string[] => {
+  const items = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[;,\n\r]/g)
+      : [];
+
+  const seen = new Set<string>();
+  return items
+    .map((item) => String(item).trim())
+    .filter((item) => item.length > 0)
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+};
+
+const formatRecipientSummary = (value: unknown): string => {
+  const recipients = normalizeRecipientValues(value);
+  if (recipients.length === 0) {
+    return '未配置';
+  }
+  return recipients.join(', ');
+};
+
 // ============================================================================
 // 组件
 // ============================================================================
@@ -115,6 +144,7 @@ const NotificationConfig: React.FC = () => {
         smtpPassword: config.smtp_password,
         fromEmail: config.from_email,
         fromName: config.from_name,
+        recipients: normalizeRecipientValues(config.recipients).join(', '),
         useTls: config.use_tls ?? true,
         webhookUrl: config.webhook_url,
         accessToken: config.access_token,
@@ -135,6 +165,7 @@ const NotificationConfig: React.FC = () => {
         smtp_password: values.smtpPassword,
         from_email: values.fromEmail,
         from_name: values.fromName,
+        recipients: normalizeRecipientValues(values.recipients),
         use_tls: values.useTls ?? true,
       };
     }
@@ -204,7 +235,9 @@ const NotificationConfig: React.FC = () => {
   const handleTest = useCallback(async (channel: NotificationChannel) => {
     setTestingId(channel.id);
     try {
-      const to = channel.type === 'email' ? (channel.config as Record<string, unknown>).from_email as string : undefined;
+      const to = channel.type === 'email'
+        ? normalizeRecipientValues((channel.config as Record<string, unknown>).recipients)[0]
+        : undefined;
       await testNotificationChannel(channel.id, to);
       message.success('测试成功');
     } catch (err) {
@@ -334,6 +367,12 @@ const NotificationConfig: React.FC = () => {
                   <span style={{ color: '#94a3b8' }}>更新时间</span>
                   <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{formatTimeAgo(channel.updatedAt)}</span>
                 </div>
+                {channel.type === 'email' && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, fontSize: 13 }}>
+                    <span style={{ color: '#94a3b8', whiteSpace: 'nowrap' }}>收件人</span>
+                    <span style={{ textAlign: 'right', wordBreak: 'break-all' }}>{formatRecipientSummary((channel.config as Record<string, unknown>).recipients)}</span>
+                  </div>
+                )}
               </div>
 
               <div
@@ -425,6 +464,22 @@ const NotificationConfig: React.FC = () => {
               </Form.Item>
               <Form.Item name="fromName" label="发件人名称">
                 <Input placeholder="NexusLog Alerts" autoComplete="off" />
+              </Form.Item>
+              <Form.Item
+                name="recipients"
+                label="告警收件人"
+                extra="支持多个邮箱，使用英文逗号、分号或换行分隔。"
+                rules={[
+                  {
+                    validator: async (_, value) => {
+                      if (normalizeRecipientValues(value).length === 0) {
+                        throw new Error('请至少配置一个收件人');
+                      }
+                    },
+                  },
+                ]}
+              >
+                <Input.TextArea rows={3} placeholder="ops@example.com, oncall@example.com" autoComplete="off" />
               </Form.Item>
               <Form.Item name="useTls" valuePropName="checked" initialValue={true}>
                 <Checkbox>使用 TLS</Checkbox>

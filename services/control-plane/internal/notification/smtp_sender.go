@@ -12,13 +12,14 @@ import (
 
 // EmailConfig holds SMTP configuration for sending emails.
 type EmailConfig struct {
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPUsername string `json:"smtp_username"`
-	SMTPPassword string `json:"smtp_password"`
-	FromEmail    string `json:"from_email"`
-	FromName     string `json:"from_name"`
-	UseTLS       bool   `json:"use_tls"`
+	SMTPHost     string   `json:"smtp_host"`
+	SMTPPort     int      `json:"smtp_port"`
+	SMTPUsername string   `json:"smtp_username"`
+	SMTPPassword string   `json:"smtp_password"`
+	FromEmail    string   `json:"from_email"`
+	FromName     string   `json:"from_name"`
+	UseTLS       bool     `json:"use_tls"`
+	Recipients   []string `json:"recipients,omitempty"`
 }
 
 // ParseEmailConfig parses JSON config into EmailConfig.
@@ -54,7 +55,51 @@ func ParseEmailConfig(config json.RawMessage) (EmailConfig, error) {
 	if v, ok := m["use_tls"].(bool); ok {
 		cfg.UseTLS = v
 	}
+	cfg.Recipients = normalizeEmailRecipients(m["recipients"])
 	return cfg, nil
+}
+
+func normalizeEmailRecipients(raw any) []string {
+	parts := make([]string, 0)
+	switch value := raw.(type) {
+	case []string:
+		parts = append(parts, value...)
+	case []interface{}:
+		for _, item := range value {
+			if text, ok := item.(string); ok {
+				parts = append(parts, text)
+			}
+		}
+	case string:
+		parts = strings.FieldsFunc(value, func(r rune) bool {
+			return r == ',' || r == ';' || r == '\n' || r == '\r'
+		})
+	}
+
+	seen := make(map[string]struct{}, len(parts))
+	recipients := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		recipients = append(recipients, trimmed)
+	}
+	return recipients
+}
+
+func (c EmailConfig) primaryRecipient() string {
+	for _, recipient := range c.Recipients {
+		if trimmed := strings.TrimSpace(recipient); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 var (

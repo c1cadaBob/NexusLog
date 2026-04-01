@@ -30,6 +30,9 @@ type ChannelHandler struct {
 
 // NewChannelHandler creates a channel handler.
 func NewChannelHandler(repo *ChannelRepository, sender *SMTPSender) *ChannelHandler {
+	if sender == nil {
+		sender = NewSMTPSender()
+	}
 	return &ChannelHandler{
 		repo:           repo,
 		sender:         sender,
@@ -371,27 +374,24 @@ func (h *ChannelHandler) TestChannel(c *gin.Context) {
 
 	switch strings.ToLower(ch.Type) {
 	case "email":
+		cfg, err := ParseEmailConfig(ch.Config)
+		if err != nil {
+			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid email channel config", nil)
+			return
+		}
 		if to == "" {
-			// Try to get from config
-			var m map[string]interface{}
-			if json.Unmarshal(ch.Config, &m) == nil {
-				if v, ok := m["from_email"].(string); ok && strings.TrimSpace(v) != "" {
-					to = strings.TrimSpace(v)
-				}
-				if to == "" {
-					if v, ok := m["smtp_username"].(string); ok && strings.TrimSpace(v) != "" {
-						to = strings.TrimSpace(v)
-					}
-				}
+			to = cfg.primaryRecipient()
+		}
+		if to == "" {
+			// Backward-compatible fallback for legacy channels without recipients.
+			if strings.TrimSpace(cfg.FromEmail) != "" {
+				to = strings.TrimSpace(cfg.FromEmail)
+			} else if strings.TrimSpace(cfg.SMTPUsername) != "" {
+				to = strings.TrimSpace(cfg.SMTPUsername)
 			}
 		}
 		if to == "" {
 			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "to address is required for email test", nil)
-			return
-		}
-		cfg, err := ParseEmailConfig(ch.Config)
-		if err != nil {
-			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid email channel config", nil)
 			return
 		}
 		if err := validateEmailTestTarget(cfg, to); err != nil {

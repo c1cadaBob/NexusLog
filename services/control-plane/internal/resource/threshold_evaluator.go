@@ -3,18 +3,27 @@ package resource
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/nexuslog/control-plane/internal/metrics"
+	"github.com/nexuslog/control-plane/internal/notification"
 )
+
+// ThresholdNotificationDispatcher dispatches threshold notifications through configured channels.
+type ThresholdNotificationDispatcher interface {
+	Dispatch(ctx context.Context, tenantID string, rawChannelIDs json.RawMessage, payload notification.DispatchPayload) (*notification.DispatchSummary, error)
+}
 
 // ThresholdEvaluator evaluates metrics against resource thresholds and creates alert_events.
 type ThresholdEvaluator struct {
 	thresholdRepo *ThresholdRepository
 	db            *sql.DB
 	suppressor    *ThresholdSuppressor
+	notifier      ThresholdNotificationDispatcher
 }
 
 // ThresholdSuppressor prevents duplicate alerts for the same threshold within a cooldown window.
@@ -54,6 +63,12 @@ func NewThresholdEvaluator(thresholdRepo *ThresholdRepository, db *sql.DB) *Thre
 	}
 }
 
+// WithNotifier sets the notification dispatcher used after threshold alerts are created.
+func (e *ThresholdEvaluator) WithNotifier(notifier ThresholdNotificationDispatcher) *ThresholdEvaluator {
+	e.notifier = notifier
+	return e
+}
+
 // EvaluateMetrics checks thresholds against the reported metrics and creates alert_events when exceeded.
 func (e *ThresholdEvaluator) EvaluateMetrics(ctx context.Context, tenantID, agentID string, m *metrics.SystemMetrics) error {
 	thresholds, err := e.thresholdRepo.ListEnabledForAgent(ctx, tenantID, agentID)
@@ -66,8 +81,29 @@ func (e *ThresholdEvaluator) EvaluateMetrics(ctx context.Context, tenantID, agen
 		}
 		exceeded, currentVal := e.checkThreshold(&t, m)
 		if exceeded {
-			if err := e.createAlertEvent(ctx, tenantID, agentID, &t, currentVal); err != nil {
+			alertEventID, err := e.createAlertEvent(ctx, tenantID, agentID, &t, currentVal)
+			if err != nil {
 				return err
+			}
+			if e.notifier != nil {
+				summary, dispatchErr := e.notifier.Dispatch(ctx, tenantID, t.NotificationChannels, notification.DispatchPayload{
+					Title:               fmt.Sprintf("Resource threshold exceeded: %s %.2f%% (threshold: %s %.2f%%)", t.MetricName, currentVal, t.Comparison, t.ThresholdValue),
+					Detail:              fmt.Sprintf("Agent %s: %s = %.2f%%, threshold %s %.2f%% (severity: %s)", agentID, t.MetricName, currentVal, t.Comparison, t.ThresholdValue, t.AlertSeverity),
+					Severity:            t.AlertSeverity,
+					FiredAt:             time.Now().UTC().Format(time.RFC3339),
+					TenantID:            tenantID,
+					ResourceThresholdID: t.ID,
+					AgentID:             agentID,
+					SourceID:            t.MetricName,
+				})
+				if dispatchErr != nil {
+					log.Printf("resource threshold evaluator: dispatch notification failed for threshold %s: %v", t.ID, dispatchErr)
+				}
+				if summary != nil {
+					if err := e.recordNotificationResult(ctx, alertEventID, map[string]any{"channel_dispatch": summary}); err != nil {
+						log.Printf("resource threshold evaluator: persist notification result failed for event %s: %v", alertEventID, err)
+					}
+				}
 			}
 			e.suppressor.Record(t.ID)
 		}
@@ -106,7 +142,7 @@ func (e *ThresholdEvaluator) compare(val, threshold float64, op string) bool {
 	}
 }
 
-func (e *ThresholdEvaluator) createAlertEvent(ctx context.Context, tenantID, agentID string, t *ResourceThreshold, currentVal float64) error {
+func (e *ThresholdEvaluator) createAlertEvent(ctx context.Context, tenantID, agentID string, t *ResourceThreshold, currentVal float64) (string, error) {
 	title := fmt.Sprintf("Resource threshold exceeded: %s %.2f%% (threshold: %s %.2f%%)",
 		t.MetricName, currentVal, t.Comparison, t.ThresholdValue)
 	detail := fmt.Sprintf("Agent %s: %s = %.2f%%, threshold %s %.2f%% (severity: %s)",
@@ -115,9 +151,27 @@ func (e *ThresholdEvaluator) createAlertEvent(ctx context.Context, tenantID, age
 	query := `
 INSERT INTO alert_events (tenant_id, rule_id, resource_threshold_id, severity, title, detail, agent_id, source_id, status, fired_at)
 VALUES ($1::uuid, NULL, $2::uuid, $3, $4, $5, $6, $7, 'firing', NOW())
+RETURNING id::text
 `
-	_, err := e.db.ExecContext(ctx, query,
+	var alertEventID string
+	err := e.db.QueryRowContext(ctx, query,
 		tenantID, t.ID, t.AlertSeverity, title, detail, agentID, t.MetricName,
-	)
+	).Scan(&alertEventID)
+	return alertEventID, err
+}
+
+func (e *ThresholdEvaluator) recordNotificationResult(ctx context.Context, alertEventID string, payload map[string]any) error {
+	if e == nil || e.db == nil || strings.TrimSpace(alertEventID) == "" || payload == nil {
+		return nil
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = e.db.ExecContext(ctx, `
+UPDATE alert_events
+SET notification_result = COALESCE(notification_result, '{}'::jsonb) || $2::jsonb
+WHERE id = $1::uuid
+`, alertEventID, raw)
 	return err
 }

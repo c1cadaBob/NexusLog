@@ -112,13 +112,26 @@ func main() {
 	backupSvc := backup.NewService()
 	backup.RegisterAuthorizedRoutes(userRoutes, pgDB, backup.NewHandler(backupSvc))
 
+	var (
+		channelRepo    *notification.ChannelRepository
+		smtpSender     *notification.SMTPSender
+		dingTalkSender *notification.DingTalkSender
+		notifier       *notification.Dispatcher
+	)
+	if pgDB != nil {
+		channelRepo = notification.NewChannelRepository(pgDB)
+		smtpSender = notification.NewSMTPSender()
+		dingTalkSender = notification.NewDingTalkSender()
+		notifier = notification.NewDispatcher(channelRepo, smtpSender, dingTalkSender)
+	}
+
 	// Metrics report + query API (W3-B6, W3-B8)
 	if pgDB != nil {
 		metricsRepo := metrics.NewRepository(pgDB)
 		metricsSvc := metrics.NewService(metricsRepo)
 		// Threshold evaluator for alert triggering (W3-B7)
 		thresholdRepo := resource.NewThresholdRepository(pgDB)
-		evaluator := resource.NewThresholdEvaluator(thresholdRepo, pgDB)
+		evaluator := resource.NewThresholdEvaluator(thresholdRepo, pgDB).WithNotifier(notifier)
 		metricsSvc.WithEvaluator(evaluator)
 		metricsHandler := metrics.NewHandler(metricsSvc)
 		metrics.RegisterReportRoutes(agentRoutes, metricsHandler)
@@ -171,6 +184,7 @@ func main() {
 			).
 				WithIncidentCreator(alert.NewIncidentCreator(pgDB)).
 				WithSilenceChecker(silenceSvc).
+				WithNotifier(notifier).
 				WithInterval(evaluatorInterval)
 			go evaluator.Start()
 			go func() {
@@ -200,8 +214,6 @@ func main() {
 
 	// Notification channels (requires pgDB, admin only)
 	if pgDB != nil {
-		channelRepo := notification.NewChannelRepository(pgDB)
-		smtpSender := notification.NewSMTPSender()
 		notification.RegisterAuthorizedChannelRoutes(userRoutes, pgDB, channelRepo, smtpSender)
 	}
 	// 健康检查端点（Kubernetes 探针使用）

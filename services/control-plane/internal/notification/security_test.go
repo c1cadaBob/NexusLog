@@ -107,6 +107,35 @@ func TestValidateEmailTestTargetAllowsPlaintextSMTPWhenTestOverrideEnabled(t *te
 	}
 }
 
+func TestParseEmailConfigParsesRecipients(t *testing.T) {
+	cfg, err := ParseEmailConfig(json.RawMessage(`{"smtp_host":"smtp.example.com","smtp_port":465,"from_email":"ops@example.com","use_tls":true,"recipients":["ops@example.com","oncall@example.com"]}`))
+	if err != nil {
+		t.Fatalf("ParseEmailConfig() error = %v", err)
+	}
+	if len(cfg.Recipients) != 2 {
+		t.Fatalf("len(cfg.Recipients) = %d, want 2", len(cfg.Recipients))
+	}
+	if cfg.Recipients[0] != "ops@example.com" || cfg.Recipients[1] != "oncall@example.com" {
+		t.Fatalf("cfg.Recipients = %#v", cfg.Recipients)
+	}
+}
+
+func TestValidateEmailConfigRequiresRecipients(t *testing.T) {
+	stubNotificationHostLookup(t, func(ctx context.Context, host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("203.0.113.20")}, nil
+	})
+	cfg := map[string]interface{}{
+		"smtp_host":  "smtp.example.com",
+		"smtp_port":  465,
+		"from_email": "ops@example.com",
+		"use_tls":    true,
+		"recipients": []string{},
+	}
+	if err := validateEmailConfig(cfg); err == nil {
+		t.Fatalf("validateEmailConfig() expected recipients error")
+	}
+}
+
 func TestValidateEmailConfigRejectsPrivateSMTPHostByDefault(t *testing.T) {
 	os.Unsetenv("NOTIFICATION_SMTP_ALLOW_PRIVATE_HOSTS")
 	os.Unsetenv("NOTIFICATION_SMTP_ALLOWED_HOSTS")
@@ -116,6 +145,7 @@ func TestValidateEmailConfigRejectsPrivateSMTPHostByDefault(t *testing.T) {
 		"smtp_port":  465,
 		"from_email": "ops@example.com",
 		"use_tls":    true,
+		"recipients": []string{"ops@example.com"},
 	}
 	if err := validateEmailConfig(cfg); err == nil {
 		t.Fatalf("validateEmailConfig() expected error")
@@ -129,6 +159,7 @@ func TestValidateEmailConfigAllowsPrivateSMTPHostWhenCIDRAllowlisted(t *testing.
 		"smtp_port":  465,
 		"from_email": "ops@example.com",
 		"use_tls":    true,
+		"recipients": []string{"ops@example.com"},
 	}
 	if err := validateEmailConfig(cfg); err != nil {
 		t.Fatalf("validateEmailConfig() error = %v", err)
@@ -145,6 +176,7 @@ func TestValidateEmailConfigRejectsPlaintextSMTPDeliveryByDefault(t *testing.T) 
 		"smtp_port":  25,
 		"from_email": "ops@example.com",
 		"use_tls":    false,
+		"recipients": []string{"ops@example.com"},
 	}
 	if err := validateEmailConfig(cfg); err == nil {
 		t.Fatalf("validateEmailConfig() expected error")
@@ -161,6 +193,7 @@ func TestValidateEmailConfigAllowsPlaintextSMTPDeliveryWhenOverrideEnabled(t *te
 		"smtp_port":  25,
 		"from_email": "ops@example.com",
 		"use_tls":    false,
+		"recipients": []string{"ops@example.com"},
 	}
 	if err := validateEmailConfig(cfg); err != nil {
 		t.Fatalf("validateEmailConfig() error = %v", err)
