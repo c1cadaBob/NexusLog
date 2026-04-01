@@ -68,7 +68,17 @@ interface BackendAlertEvent {
   source_id?: string;
   fired_at: string;
   resolved_at?: string;
+  notified_at?: string;
+  notification_result?: unknown;
   count?: number;
+}
+
+export interface AlertNotificationSummary {
+  status: string;
+  attemptedChannels: number;
+  successfulChannels: number;
+  lastAttemptAt?: number;
+  raw?: Record<string, unknown>;
 }
 
 function normalizeApiBaseUrl(rawBaseUrl: string): string {
@@ -226,6 +236,42 @@ export interface CreateAlertRulePayload {
   severity?: string;
   enabled?: boolean;
   notificationChannelIDs?: string[];
+}
+
+function normalizeAlertNotificationSummary(raw: unknown, notifiedAt?: string): AlertNotificationSummary | undefined {
+  let notificationResult: Record<string, unknown> | undefined;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    notificationResult = raw as Record<string, unknown>;
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        notificationResult = parsed as Record<string, unknown>;
+      }
+    } catch {
+      notificationResult = undefined;
+    }
+  }
+
+  const channelDispatch = notificationResult?.channel_dispatch;
+  if (!channelDispatch || typeof channelDispatch !== 'object' || Array.isArray(channelDispatch)) {
+    return undefined;
+  }
+
+  const summary = channelDispatch as Record<string, unknown>;
+  const lastAttempt = typeof summary.last_attempt_at === 'string' && summary.last_attempt_at
+    ? new Date(summary.last_attempt_at).getTime()
+    : notifiedAt
+      ? new Date(notifiedAt).getTime()
+      : undefined;
+
+  return {
+    status: typeof summary.status === 'string' ? summary.status : 'unknown',
+    attemptedChannels: Number(summary.attempted_channels ?? 0),
+    successfulChannels: Number(summary.successful_channels ?? 0),
+    lastAttemptAt: Number.isFinite(lastAttempt) ? lastAttempt : undefined,
+    raw: notificationResult,
+  };
 }
 
 function buildCondition(payload: CreateAlertRulePayload): Record<string, unknown> {
@@ -485,6 +531,7 @@ export interface AlertEventSummary {
   lastTriggeredAt: number;
   ruleId?: string;
   detail?: string;
+  notificationSummary?: AlertNotificationSummary;
 }
 
 /** Fetch alert events (paginated, optional status filter) */
@@ -523,6 +570,7 @@ export async function fetchAlertEvents(
       lastTriggeredAt: e.fired_at ? new Date(e.fired_at).getTime() : Date.now(),
       ruleId: e.rule_id,
       detail: e.detail || e.title || e.name || '',
+      notificationSummary: normalizeAlertNotificationSummary(e.notification_result, e.notified_at),
     })),
     total,
   };

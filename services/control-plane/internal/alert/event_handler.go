@@ -2,6 +2,7 @@ package alert
 
 import (
 	"database/sql"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -13,16 +14,18 @@ import (
 )
 
 type AlertEvent struct {
-	ID         string     `json:"id"`
-	RuleID     string     `json:"rule_id,omitempty"`
-	Severity   string     `json:"severity"`
-	Status     string     `json:"status"`
-	Title      string     `json:"title"`
-	Detail     string     `json:"detail,omitempty"`
-	SourceID   string     `json:"source_id,omitempty"`
-	FiredAt    time.Time  `json:"fired_at"`
-	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
-	Count      int        `json:"count"`
+	ID                 string          `json:"id"`
+	RuleID             string          `json:"rule_id,omitempty"`
+	Severity           string          `json:"severity"`
+	Status             string          `json:"status"`
+	Title              string          `json:"title"`
+	Detail             string          `json:"detail,omitempty"`
+	SourceID           string          `json:"source_id,omitempty"`
+	FiredAt            time.Time       `json:"fired_at"`
+	ResolvedAt         *time.Time      `json:"resolved_at,omitempty"`
+	NotifiedAt         *time.Time      `json:"notified_at,omitempty"`
+	NotificationResult json.RawMessage `json:"notification_result,omitempty"`
+	Count              int             `json:"count"`
 }
 
 type alertEventActionRequest struct {
@@ -140,7 +143,9 @@ SELECT
     COALESCE(detail, ''),
     COALESCE(source_id, ''),
     fired_at,
-    resolved_at
+    resolved_at,
+    notified_at,
+    COALESCE(notification_result, '{}'::jsonb)
 FROM alert_events
 WHERE ($1 = '' OR status = $1)
 ORDER BY fired_at DESC
@@ -170,7 +175,9 @@ SELECT
     COALESCE(detail, ''),
     COALESCE(source_id, ''),
     fired_at,
-    resolved_at
+    resolved_at,
+    notified_at,
+    COALESCE(notification_result, '{}'::jsonb)
 FROM alert_events
 WHERE tenant_id = $1::uuid
   AND ($2 = '' OR status = $2)
@@ -190,6 +197,8 @@ LIMIT $4
 	for rows.Next() {
 		var item AlertEvent
 		var resolvedAt sql.NullTime
+		var notifiedAt sql.NullTime
+		var notificationResult []byte
 		if err := rows.Scan(
 			&item.ID,
 			&item.RuleID,
@@ -200,6 +209,8 @@ LIMIT $4
 			&item.SourceID,
 			&item.FiredAt,
 			&resolvedAt,
+			&notifiedAt,
+			&notificationResult,
 		); err != nil {
 			writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to decode alert events", nil)
 			return
@@ -209,6 +220,13 @@ LIMIT $4
 		if resolvedAt.Valid {
 			t := resolvedAt.Time.UTC()
 			item.ResolvedAt = &t
+		}
+		if notifiedAt.Valid {
+			t := notifiedAt.Time.UTC()
+			item.NotifiedAt = &t
+		}
+		if len(notificationResult) > 0 && string(notificationResult) != "{}" {
+			item.NotificationResult = json.RawMessage(notificationResult)
 		}
 		items = append(items, item)
 	}

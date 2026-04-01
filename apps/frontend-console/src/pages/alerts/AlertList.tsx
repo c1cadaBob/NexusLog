@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Input, Select, Table, Tag, Button, Card, Statistic, Space, Modal, message, Badge, Spin, Empty } from 'antd';
+import { Input, Select, Table, Tag, Button, Card, Statistic, Space, Modal, message, Badge, Spin, Empty, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
@@ -14,6 +14,7 @@ import {
   resolveAlertEvent,
   silenceAlertEvent,
   type AlertEventSummary,
+  type AlertNotificationSummary,
 } from '../../api/alert';
 import { persistPendingRealtimeStartupQuery } from '../search/realtimeStartupQuery';
 
@@ -45,6 +46,38 @@ const mapStatusFilterToApi = (s: AlertStatus | 'all'): 'firing' | 'acknowledged'
 };
 
 const POLL_INTERVAL_MS = 30000;
+
+const notificationStatusConfig: Record<string, { label: string; color: string }> = {
+  sent: { label: '发送成功', color: 'success' },
+  partial: { label: '部分成功', color: 'warning' },
+  failed: { label: '发送失败', color: 'error' },
+  skipped: { label: '已跳过', color: 'default' },
+  no_channels: { label: '未配置渠道', color: 'default' },
+  silenced: { label: '已静默', color: 'default' },
+  unknown: { label: '未知', color: 'default' },
+};
+
+const getNotificationStatusMeta = (summary?: AlertNotificationSummary): { label: string; color: string } => {
+  if (!summary) {
+    return { label: '未发送', color: 'default' };
+  }
+  return notificationStatusConfig[summary.status] ?? notificationStatusConfig.unknown;
+};
+
+const formatNotificationTooltip = (summary?: AlertNotificationSummary): string => {
+  if (!summary) {
+    return '当前告警尚无通知分发记录';
+  }
+  const lines = [
+    `状态：${getNotificationStatusMeta(summary).label}`,
+    `成功渠道：${summary.successfulChannels}`,
+    `尝试渠道：${summary.attemptedChannels}`,
+  ];
+  if (summary.lastAttemptAt) {
+    lines.push(`最后尝试：${new Date(summary.lastAttemptAt).toLocaleString('zh-CN')}`);
+  }
+  return lines.join('\n');
+};
 
 const AlertList: React.FC = () => {
   const navigate = useNavigate();
@@ -358,6 +391,28 @@ const AlertList: React.FC = () => {
       render: (ts: number) => (
         <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>{formatTimeAgo(ts)}</span>
       ),
+    },
+    {
+      title: '通知结果',
+      dataIndex: 'notificationSummary',
+      key: 'notificationSummary',
+      width: 180,
+      render: (summary?: AlertNotificationSummary) => {
+        const meta = getNotificationStatusMeta(summary);
+        return (
+          <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{formatNotificationTooltip(summary)}</span>}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <Tag color={meta.color} style={{ width: 'fit-content', marginInlineEnd: 0 }}>{meta.label}</Tag>
+              {summary && (
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                  {summary.successfulChannels}/{summary.attemptedChannels} 渠道成功
+                  {summary.lastAttemptAt ? ` · ${formatTimeAgo(summary.lastAttemptAt)}` : ''}
+                </span>
+              )}
+            </div>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '操作',

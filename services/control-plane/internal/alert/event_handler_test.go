@@ -67,8 +67,8 @@ func TestEventHandler_ListEvents_GlobalTenantRead(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery("FROM alert_events").
 		WithArgs("", 0, 20).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "rule_id", "severity", "status", "title", "detail", "source_id", "fired_at", "resolved_at"}).
-			AddRow("event-1", "rule-1", "critical", "firing", "cross-tenant", "detail", "source-1", time.Now().UTC(), nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "rule_id", "severity", "status", "title", "detail", "source_id", "fired_at", "resolved_at", "notified_at", "notification_result"}).
+			AddRow("event-1", "rule-1", "critical", "firing", "cross-tenant", "detail", "source-1", time.Now().UTC(), nil, time.Now().UTC(), []byte(`{"channel_dispatch":{"status":"sent","successful_channels":1}}`)))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/alert/events", nil)
 	req.Header.Set("X-Tenant-ID", "10000000-0000-0000-0000-000000000001")
@@ -92,6 +92,9 @@ func TestEventHandler_ListEvents_GlobalTenantRead(t *testing.T) {
 	}
 	if body.Meta.Total != 1 || len(body.Data.Items) != 1 {
 		t.Fatalf("expected 1 event, got total=%d items=%d", body.Meta.Total, len(body.Data.Items))
+	}
+	if len(body.Data.Items[0].NotificationResult) == 0 {
+		t.Fatalf("expected notification result to be returned")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("expectations: %v", err)
