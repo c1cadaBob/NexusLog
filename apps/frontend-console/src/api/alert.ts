@@ -81,6 +81,12 @@ export interface AlertNotificationSummary {
   raw?: Record<string, unknown>;
 }
 
+interface AlertIncidentLink {
+  incidentId: string;
+  autoCreated: boolean;
+  linkedAt?: number;
+}
+
 function normalizeApiBaseUrl(rawBaseUrl: string): string {
   const normalized = (rawBaseUrl || '/api/v1').trim();
   if (!normalized) return '/api/v1';
@@ -238,20 +244,49 @@ export interface CreateAlertRulePayload {
   notificationChannelIDs?: string[];
 }
 
-function normalizeAlertNotificationSummary(raw: unknown, notifiedAt?: string): AlertNotificationSummary | undefined {
-  let notificationResult: Record<string, unknown> | undefined;
+function normalizeAlertNotificationResult(raw: unknown): Record<string, unknown> | undefined {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    notificationResult = raw as Record<string, unknown>;
-  } else if (typeof raw === 'string' && raw.trim()) {
+    return raw as Record<string, unknown>;
+  }
+  if (typeof raw === 'string' && raw.trim()) {
     try {
       const parsed = JSON.parse(raw) as unknown;
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        notificationResult = parsed as Record<string, unknown>;
+        return parsed as Record<string, unknown>;
       }
     } catch {
-      notificationResult = undefined;
+      return undefined;
     }
   }
+  return undefined;
+}
+
+function normalizeAlertIncidentLink(raw: unknown): AlertIncidentLink | undefined {
+  const notificationResult = normalizeAlertNotificationResult(raw);
+  const incidentLink = notificationResult?.incident_link;
+  if (!incidentLink || typeof incidentLink !== 'object' || Array.isArray(incidentLink)) {
+    return undefined;
+  }
+
+  const link = incidentLink as Record<string, unknown>;
+  const incidentId = typeof link.incident_id === 'string' ? link.incident_id.trim() : '';
+  if (!incidentId) {
+    return undefined;
+  }
+
+  const linkedAt = typeof link.linked_at === 'string' && link.linked_at
+    ? new Date(link.linked_at).getTime()
+    : undefined;
+
+  return {
+    incidentId,
+    autoCreated: Boolean(link.auto_created),
+    linkedAt: Number.isFinite(linkedAt) ? linkedAt : undefined,
+  };
+}
+
+function normalizeAlertNotificationSummary(raw: unknown, notifiedAt?: string): AlertNotificationSummary | undefined {
+  const notificationResult = normalizeAlertNotificationResult(raw);
 
   const channelDispatch = notificationResult?.channel_dispatch;
   if (!channelDispatch || typeof channelDispatch !== 'object' || Array.isArray(channelDispatch)) {
@@ -532,6 +567,8 @@ export interface AlertEventSummary {
   ruleId?: string;
   detail?: string;
   notificationSummary?: AlertNotificationSummary;
+  incidentId?: string;
+  incidentAutoCreated?: boolean;
 }
 
 export interface AlertEventListSummary {
@@ -579,18 +616,23 @@ export async function fetchAlertEvents(
   };
 
   return {
-    items: items.map((e) => ({
-      id: e.id,
-      name: e.name || e.title || '未知告警',
-      severity: (e.severity?.toLowerCase() || 'medium') as AlertSeverity,
-      status: mapStatus(e.status || 'firing'),
-      source: e.source_id || '-',
-      count: e.count ?? 1,
-      lastTriggeredAt: e.fired_at ? new Date(e.fired_at).getTime() : Date.now(),
-      ruleId: e.rule_id,
-      detail: e.detail || e.title || e.name || '',
-      notificationSummary: normalizeAlertNotificationSummary(e.notification_result, e.notified_at),
-    })),
+    items: items.map((e) => {
+      const incidentLink = normalizeAlertIncidentLink(e.notification_result);
+      return {
+        id: e.id,
+        name: e.name || e.title || '未知告警',
+        severity: (e.severity?.toLowerCase() || 'medium') as AlertSeverity,
+        status: mapStatus(e.status || 'firing'),
+        source: e.source_id || '-',
+        count: e.count ?? 1,
+        lastTriggeredAt: e.fired_at ? new Date(e.fired_at).getTime() : Date.now(),
+        ruleId: e.rule_id,
+        detail: e.detail || e.title || e.name || '',
+        notificationSummary: normalizeAlertNotificationSummary(e.notification_result, e.notified_at),
+        incidentId: incidentLink?.incidentId,
+        incidentAutoCreated: incidentLink?.autoCreated,
+      };
+    }),
     total,
     summary: {
       pending: Number(rawSummary.pending ?? 0),

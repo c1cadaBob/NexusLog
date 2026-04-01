@@ -131,7 +131,9 @@ func main() {
 		metricsSvc := metrics.NewService(metricsRepo)
 		// Threshold evaluator for alert triggering (W3-B7)
 		thresholdRepo := resource.NewThresholdRepository(pgDB)
-		evaluator := resource.NewThresholdEvaluator(thresholdRepo, pgDB).WithNotifier(notifier)
+		evaluator := resource.NewThresholdEvaluator(thresholdRepo, pgDB).
+			WithNotifier(notifier).
+			WithIncidentCreator(alert.NewIncidentCreator(pgDB))
 		metricsSvc.WithEvaluator(evaluator)
 		metricsHandler := metrics.NewHandler(metricsSvc)
 		metrics.RegisterReportRoutes(agentRoutes, metricsHandler)

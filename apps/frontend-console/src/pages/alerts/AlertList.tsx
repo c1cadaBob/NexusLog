@@ -406,6 +406,32 @@ const AlertList: React.FC = () => {
       },
     },
     {
+      title: '关联事件',
+      dataIndex: 'incidentId',
+      key: 'incidentId',
+      width: 180,
+      render: (_: string | undefined, record) => {
+        if (!record.incidentId) {
+          return <span style={{ fontSize: 12, color: '#94a3b8' }}>未生成</span>;
+        }
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <Button
+              type="link"
+              size="small"
+              style={{ padding: 0, height: 'auto', justifyContent: 'flex-start' }}
+              onClick={() => navigate(`/incidents/detail/${record.incidentId}`)}
+            >
+              {record.incidentId}
+            </Button>
+            <Tag color={record.incidentAutoCreated ? 'processing' : 'default'} style={{ width: 'fit-content', marginInlineEnd: 0 }}>
+              {record.incidentAutoCreated ? '自动生成' : '已关联'}
+            </Tag>
+          </div>
+        );
+      },
+    },
+    {
       title: '操作',
       key: 'actions',
       width: 160,
@@ -447,6 +473,19 @@ const AlertList: React.FC = () => {
               icon={
                 <span className="material-symbols-outlined" style={{ fontSize: 18, color: COLORS.info }}>
                   notifications_off
+                </span>
+              }
+            />
+          )}
+          {record.incidentId && (
+            <Button
+              type="text"
+              size="small"
+              title="查看事件"
+              onClick={() => navigate(`/incidents/detail/${record.incidentId}`)}
+              icon={
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#8b5cf6' }}>
+                  local_fire_department
                 </span>
               }
             />

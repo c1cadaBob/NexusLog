@@ -94,7 +94,7 @@ func (c *httpESSearchClient) Search(ctx context.Context, index string, body []by
 
 // IncidentCreator creates incidents from critical alerts.
 type IncidentCreator interface {
-	CreateFromAlert(ctx context.Context, tenantID, ruleID, alertEventID, title, detail, severity string) error
+	CreateFromAlert(ctx context.Context, tenantID, ruleID, resourceThresholdID, alertEventID, title, detail, severity string) error
 }
 
 // SilenceChecker checks if an alert should be silenced (no notification).
@@ -298,7 +298,7 @@ RETURNING id::text
 	}
 
 	if e.incidentCreator != nil {
-		_ = e.incidentCreator.CreateFromAlert(ctx, rule.TenantID, rule.ID, alertEventID, title, detail, rule.Severity)
+		_ = e.incidentCreator.CreateFromAlert(ctx, rule.TenantID, rule.ID, "", alertEventID, title, detail, rule.Severity)
 	}
 	return nil
 }
