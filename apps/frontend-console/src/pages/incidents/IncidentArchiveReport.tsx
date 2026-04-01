@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, App, Button, Card, Empty, Spin, Tag } from 'antd';
+import { Alert, App, Button, Card, Empty, Spin, Tag, Tooltip } from 'antd';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { fetchIncidentDetail, fetchIncidentTimeline } from '../../api/incident';
 import type { Incident, TimelineEvent } from '../../types/incident';
@@ -11,15 +11,24 @@ import {
   formatIncidentReportDateTime,
   shouldAllowIncidentArchiveReport,
 } from '../../utils/incidentArchiveReport';
+import { useAuthStore } from '../../stores/authStore';
+import {
+  getIncidentPermissionDeniedReason,
+  resolveIncidentActionAccess,
+} from './incidentAuthorization';
 
 const IncidentArchiveReport: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { message } = App.useApp();
+  const permissions = useAuthStore((state) => state.permissions);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const [searchParams] = useSearchParams();
   const autoPrint = searchParams.get('print') === '1';
   const autoPrintTriggeredRef = useRef(false);
   const [incident, setIncident] = useState<Incident | null>(null);
+  const authorization = useMemo(() => ({ permissions, capabilities }), [capabilities, permissions]);
+  const actionAccess = useMemo(() => resolveIncidentActionAccess(authorization), [authorization]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +121,9 @@ const IncidentArchiveReport: React.FC = () => {
         <div className="incident-report-toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Button onClick={() => navigate('/incidents/archive')}>返回归档列表</Button>
-            <Button onClick={() => navigate(`/incidents/detail/${incident.id}`)}>打开事件详情</Button>
+            <Tooltip title={actionAccess.canReadIncident ? '打开事件详情' : getIncidentPermissionDeniedReason('read')}>
+              <Button disabled={!actionAccess.canReadIncident} onClick={() => navigate(`/incidents/detail/${incident.id}`)}>打开事件详情</Button>
+            </Tooltip>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Button icon={<span className="material-symbols-outlined text-sm">description</span>} onClick={handleDownloadMarkdown}>下载 Markdown</Button>

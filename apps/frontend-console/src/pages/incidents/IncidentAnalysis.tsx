@@ -8,6 +8,11 @@ import { useThemeStore } from '../../stores/themeStore';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 import { COLORS } from '../../theme/tokens';
 import type { Incident, IncidentSeverity, IncidentStatus, RootCauseCategory } from '../../types/incident';
+import { useAuthStore } from '../../stores/authStore';
+import {
+  getIncidentPermissionDeniedReason,
+  resolveIncidentActionAccess,
+} from './incidentAuthorization';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; label: string }> = {
   P0: { color: COLORS.danger, label: 'P0 紧急' },
@@ -66,6 +71,8 @@ function classifyRootCause(rootCause?: string): RootCauseCategory {
 const IncidentAnalysis: React.FC = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
+  const permissions = useAuthStore((state) => state.permissions);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<IncidentSeverity | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | 'all'>('all');
@@ -75,6 +82,8 @@ const IncidentAnalysis: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
   const tableRef = usePaginationQuickJumperAccessibility('incident-analysis');
+  const authorization = useMemo(() => ({ permissions, capabilities }), [capabilities, permissions]);
+  const actionAccess = useMemo(() => resolveIncidentActionAccess(authorization), [authorization]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['incidentAnalysis'] ?? 20);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -129,9 +138,11 @@ const IncidentAnalysis: React.FC = () => {
       key: 'id',
       width: 180,
       render: (value: string) => (
-        <Button type="link" size="small" className="font-mono text-xs p-0" onClick={() => navigate(`/incidents/detail/${value}`)}>
-          {value}
-        </Button>
+        <Tooltip title={actionAccess.canReadIncident ? '查看详情' : getIncidentPermissionDeniedReason('read')}>
+          <Button type="link" size="small" disabled={!actionAccess.canReadIncident} className="font-mono text-xs p-0" onClick={() => navigate(`/incidents/detail/${value}`)}>
+            {value}
+          </Button>
+        </Tooltip>
       ),
     },
     {
@@ -192,17 +203,18 @@ const IncidentAnalysis: React.FC = () => {
       key: 'actions',
       width: 80,
       render: (_: unknown, record: Incident) => (
-        <Tooltip title="查看详情并补充分析">
+        <Tooltip title={actionAccess.canReadIncident ? '查看详情并补充分析' : getIncidentPermissionDeniedReason('read')}>
           <Button
             type="link"
             size="small"
+            disabled={!actionAccess.canReadIncident}
             icon={<span className="material-symbols-outlined text-sm">open_in_new</span>}
             onClick={() => navigate(`/incidents/detail/${record.id}`)}
           />
         </Tooltip>
       ),
     },
-  ], [navigate]);
+  ], [actionAccess.canReadIncident, navigate]);
 
   return (
     <div className="flex flex-col gap-4">

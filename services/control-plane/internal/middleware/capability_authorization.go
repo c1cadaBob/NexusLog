@@ -106,11 +106,68 @@ func RequireCapabilityOrOperatorRole(db *sql.DB, capability string) gin.HandlerF
 	}
 }
 
+// RequireAnyCapabilityOrOperatorRole allows any one of the provided capabilities or falls back to legacy operator-role authorization.
+func RequireAnyCapabilityOrOperatorRole(db *sql.DB, capabilities ...string) gin.HandlerFunc {
+	required := make([]string, 0, len(capabilities))
+	for _, capability := range capabilities {
+		if normalized := strings.TrimSpace(capability); normalized != "" {
+			required = append(required, normalized)
+		}
+	}
+
+	return func(c *gin.Context) {
+		if c == nil {
+			return
+		}
+		if len(required) > 0 && hasTrustedAnyCapability(c, required...) {
+			c.Next()
+			return
+		}
+		if hasContextBoolean(c, authContextKeyOperatorRoleGranted) || hasTrustedOperatorAuthorizationSnapshot(c) {
+			c.Next()
+			return
+		}
+		if !isAuthorizationReady(c) || db == nil {
+			writeAuthorizationError(c, http.StatusServiceUnavailable, "AUTHORIZATION_UNAVAILABLE", "authorization backend unavailable")
+			return
+		}
+		tenantID := AuthenticatedTenantID(c)
+		userID := AuthenticatedUserID(c)
+		if tenantID == "" || userID == "" {
+			writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "permission check failed: auth context missing")
+			return
+		}
+		allowed, err := hasOperatorRole(c.Request.Context(), db, tenantID, userID)
+		if err != nil {
+			writeAuthorizationError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to authorize request")
+			return
+		}
+		if !allowed {
+			writeAuthorizationError(c, http.StatusForbidden, "FORBIDDEN", "insufficient capabilities")
+			return
+		}
+		markOperatorRoleGranted(c)
+		c.Next()
+	}
+}
+
 func hasTrustedCapability(c *gin.Context, capability string) bool {
 	if !isAuthorizationReady(c) {
 		return false
 	}
 	return hasAuthorizationValue(AuthenticatedCapabilities(c), strings.TrimSpace(capability))
+}
+
+func hasTrustedAnyCapability(c *gin.Context, capabilities ...string) bool {
+	if !isAuthorizationReady(c) {
+		return false
+	}
+	for _, capability := range capabilities {
+		if hasAuthorizationValue(AuthenticatedCapabilities(c), strings.TrimSpace(capability)) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasTrustedAdminAuthorizationSnapshot(c *gin.Context) bool {

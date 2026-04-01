@@ -20,6 +20,7 @@ const (
 	ErrorCodeResourceNotFound     = "RES_NOT_FOUND"
 	ErrorCodeInvalidTransition    = "INVALID_TRANSITION"
 	ErrorCodeInternalError        = "INTERNAL_ERROR"
+	ErrorCodeForbidden            = "FORBIDDEN"
 )
 
 // Handler handles HTTP requests for incidents.
@@ -55,18 +56,24 @@ func RegisterIncidentRoutes(router gin.IRouter, handler *Handler) {
 func RegisterAuthorizedIncidentRoutes(router gin.IRouter, db *sql.DB, handler *Handler) {
 	g := router.Group("/api/v1/incidents")
 	{
-		g.GET("", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.read"), handler.ListIncidents)
-		g.GET("/sla/summary", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.sla.read"), handler.GetSLASummary)
-		g.GET("/:id", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.read"), handler.GetIncident)
+		g.GET("", cpMiddleware.RequireAnyCapabilityOrOperatorRole(db,
+			"incident.read",
+			"incident.timeline.read",
+			"incident.analysis.read",
+			"incident.sla.read",
+			"incident.archive.read",
+		), handler.ListIncidents)
+		g.GET("/sla/summary", cpMiddleware.RequireAnyCapabilityOrOperatorRole(db, "incident.sla.read", "incident.read"), handler.GetSLASummary)
+		g.GET("/:id", cpMiddleware.RequireAnyCapabilityOrOperatorRole(db, "incident.read", "incident.archive.read"), handler.GetIncident)
 		g.POST("", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.create"), handler.CreateIncident)
-		g.PUT("/:id", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.UpdateIncident)
+		g.PUT("/:id", cpMiddleware.RequireAnyCapabilityOrOperatorRole(db, "incident.update", "incident.assign"), handler.UpdateIncident)
 		g.DELETE("/:id", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.close"), handler.DeleteIncident)
 		g.POST("/:id/archive", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.archive"), handler.ArchiveIncident)
 		g.POST("/:id/acknowledge", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.Acknowledge)
 		g.POST("/:id/investigate", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.Investigate)
 		g.POST("/:id/resolve", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.update"), handler.Resolve)
 		g.POST("/:id/close", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.close"), handler.Close)
-		g.GET("/:id/timeline", cpMiddleware.RequireCapabilityOrOperatorRole(db, "incident.timeline.read"), handler.GetTimeline)
+		g.GET("/:id/timeline", cpMiddleware.RequireAnyCapabilityOrOperatorRole(db, "incident.timeline.read", "incident.read", "incident.archive.read"), handler.GetTimeline)
 	}
 }
 
@@ -96,6 +103,14 @@ func (h *Handler) ListIncidents(c *gin.Context) {
 		Status:   strings.TrimSpace(c.Query("status")),
 		Severity: strings.TrimSpace(c.Query("severity")),
 		Query:    strings.TrimSpace(c.Query("query")),
+	}
+	if shouldRestrictArchiveOnlyIncidentRead(c) {
+		if filters.Status == "" {
+			filters.Status = StatusClosed
+		} else if filters.Status != StatusClosed {
+			writeError(c, http.StatusForbidden, ErrorCodeForbidden, "incident.archive.read can only access archived incidents", nil)
+			return
+		}
 	}
 
 	items, total, err := h.svc.ListIncidents(c.Request.Context(), tenantID, page, pageSize, filters)
@@ -127,6 +142,10 @@ func (h *Handler) GetIncident(c *gin.Context) {
 			return
 		}
 		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to get incident", nil)
+		return
+	}
+	if shouldRestrictArchiveOnlyIncidentRead(c) && inc.Status != StatusClosed {
+		writeError(c, http.StatusForbidden, ErrorCodeForbidden, "incident.archive.read can only access archived incidents", nil)
 		return
 	}
 
@@ -161,6 +180,18 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 	if title == "" {
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "title is required", nil)
 		return
+	}
+	if req.AssignedTo != nil {
+		assignedTo := strings.TrimSpace(*req.AssignedTo)
+		if assignedTo == "" {
+			req.AssignedTo = nil
+		} else {
+			req.AssignedTo = &assignedTo
+			if !hasIncidentActionAccess(c, []string{"incident.assign"}, []string{"incidents:write"}) {
+				writeError(c, http.StatusForbidden, ErrorCodeForbidden, "insufficient capabilities for incident assignment", nil)
+				return
+			}
+		}
 	}
 
 	inc := &Incident{
@@ -215,6 +246,38 @@ func (h *Handler) UpdateIncident(c *gin.Context) {
 	var req UpdateIncidentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "invalid request body", nil)
+		return
+	}
+
+	requiresUpdateCapability := req.Title != nil || req.Description != nil || req.Severity != nil || req.RootCause != nil || req.Resolution != nil || req.SLAResponseMinutes != nil || req.SLAResolveMinutes != nil
+	requiresAssignCapability := false
+
+	var currentIncident *Incident
+	if req.AssignedTo != nil {
+		inc, err := h.svc.GetIncident(c.Request.Context(), tenantID, incidentID)
+		if err != nil {
+			if err == ErrIncidentNotFound {
+				writeError(c, http.StatusNotFound, ErrorCodeResourceNotFound, "incident not found", nil)
+				return
+			}
+			writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to load incident for authorization", nil)
+			return
+		}
+		currentIncident = inc
+		currentAssignedTo := ""
+		if currentIncident.AssignedTo != nil {
+			currentAssignedTo = strings.TrimSpace(*currentIncident.AssignedTo)
+		}
+		nextAssignedTo := strings.TrimSpace(*req.AssignedTo)
+		requiresAssignCapability = currentAssignedTo != nextAssignedTo
+	}
+
+	if requiresUpdateCapability && !hasIncidentActionAccess(c, []string{"incident.update"}, []string{"incidents:write"}) {
+		writeError(c, http.StatusForbidden, ErrorCodeForbidden, "insufficient capabilities for incident update", nil)
+		return
+	}
+	if requiresAssignCapability && !hasIncidentActionAccess(c, []string{"incident.assign"}, []string{"incidents:write"}) {
+		writeError(c, http.StatusForbidden, ErrorCodeForbidden, "insufficient capabilities for incident assignment", nil)
 		return
 	}
 
@@ -462,6 +525,22 @@ func (h *Handler) GetTimeline(c *gin.Context) {
 		return
 	}
 
+	if shouldRestrictArchiveOnlyIncidentRead(c) {
+		inc, err := h.svc.GetIncident(c.Request.Context(), tenantID, incidentID)
+		if err != nil {
+			if err == ErrIncidentNotFound {
+				writeError(c, http.StatusNotFound, ErrorCodeResourceNotFound, "incident not found", nil)
+				return
+			}
+			writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to load incident for authorization", nil)
+			return
+		}
+		if inc.Status != StatusClosed {
+			writeError(c, http.StatusForbidden, ErrorCodeForbidden, "incident.archive.read can only access archived incidents", nil)
+			return
+		}
+	}
+
 	entries, err := h.svc.GetTimeline(c.Request.Context(), tenantID, incidentID)
 	if err != nil {
 		if err == ErrIncidentNotFound {
@@ -499,6 +578,38 @@ func getTenantID(c *gin.Context) string {
 
 func getActorID(c *gin.Context) *string {
 	return cpMiddleware.AuthenticatedUserIDPtr(c)
+}
+
+func hasIncidentActionAccess(c *gin.Context, capabilities []string, legacyPermissions []string) bool {
+	if c == nil {
+		return false
+	}
+	for _, capability := range cpMiddleware.AuthenticatedCapabilities(c) {
+		if capability == "*" {
+			return true
+		}
+		for _, expected := range capabilities {
+			if strings.TrimSpace(capability) == strings.TrimSpace(expected) {
+				return true
+			}
+		}
+	}
+	for _, permission := range cpMiddleware.AuthenticatedPermissions(c) {
+		if permission == "*" {
+			return true
+		}
+		for _, expected := range legacyPermissions {
+			if strings.TrimSpace(permission) == strings.TrimSpace(expected) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func shouldRestrictArchiveOnlyIncidentRead(c *gin.Context) bool {
+	return !hasIncidentActionAccess(c, []string{"incident.read"}, []string{"incidents:read"}) &&
+		hasIncidentActionAccess(c, []string{"incident.archive.read"}, nil)
 }
 
 func parsePositiveInt(raw string, fallback int) (int, error) {

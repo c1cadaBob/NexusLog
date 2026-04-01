@@ -1,10 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Empty, Input, Progress, Select, Table, Tag, message } from 'antd';
+import { Button, Card, Empty, Input, Progress, Select, Table, Tag, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchIncidents, fetchSLASummary, type SLASummary } from '../../api/incident';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useThemeStore } from '../../stores/themeStore';
+import { useAuthStore } from '../../stores/authStore';
+import {
+  getIncidentPermissionDeniedReason,
+  resolveIncidentActionAccess,
+} from './incidentAuthorization';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 import { COLORS } from '../../theme/tokens';
 import type { Incident, IncidentSeverity, IncidentStatus, SLAConfig } from '../../types/incident';
@@ -100,6 +105,8 @@ function buildSlaRow(incident: Incident, now: number): SlaRow {
 const IncidentSLA: React.FC = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
+  const permissions = useAuthStore((state) => state.permissions);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<IncidentSeverity | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | 'all'>('all');
@@ -110,6 +117,8 @@ const IncidentSLA: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
   const tableRef = usePaginationQuickJumperAccessibility('incident-sla');
+  const authorization = useMemo(() => ({ permissions, capabilities }), [capabilities, permissions]);
+  const actionAccess = useMemo(() => resolveIncidentActionAccess(authorization), [authorization]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['incidentSla'] ?? 20);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -160,9 +169,11 @@ const IncidentSLA: React.FC = () => {
       key: 'incidentId',
       width: 180,
       render: (_: unknown, record: SlaRow) => (
-        <Button type="link" size="small" className="font-mono text-xs p-0" onClick={() => navigate(`/incidents/detail/${record.incident.id}`)}>
-          {record.incident.id}
-        </Button>
+        <Tooltip title={actionAccess.canReadIncident ? '查看详情' : getIncidentPermissionDeniedReason('read')}>
+          <Button type="link" size="small" disabled={!actionAccess.canReadIncident} className="font-mono text-xs p-0" onClick={() => navigate(`/incidents/detail/${record.incident.id}`)}>
+            {record.incident.id}
+          </Button>
+        </Tooltip>
       ),
     },
     {
@@ -235,7 +246,7 @@ const IncidentSLA: React.FC = () => {
       width: 100,
       render: (_: unknown, record: SlaRow) => <Tag color={record.currentEscalation >= 3 ? 'error' : record.currentEscalation >= 2 ? 'warning' : 'processing'}>L{record.currentEscalation}</Tag>,
     },
-  ], [navigate]);
+  ], [actionAccess.canReadIncident, navigate]);
 
   const cards = useMemo(() => ([
     { label: '总事件数', value: summary.totalIncidents, icon: 'assignment', color: COLORS.primary },

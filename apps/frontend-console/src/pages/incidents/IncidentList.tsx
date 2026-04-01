@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  App,
   AutoComplete,
   Badge,
   Button,
@@ -15,7 +16,6 @@ import {
   Table,
   Tag,
   Tooltip,
-  message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
@@ -36,6 +36,11 @@ import {
 import type { CreateIncidentPayload } from '../../api/incident';
 import { fetchUsers, type UserData } from '../../api/user';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
+import { useAuthStore } from '../../stores/authStore';
+import {
+  getIncidentPermissionDeniedReason,
+  resolveIncidentActionAccess,
+} from './incidentAuthorization';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; label: string; icon: string }> = {
   P0: { color: COLORS.danger, label: 'P0 紧急', icon: 'crisis_alert' },
@@ -94,8 +99,11 @@ function normalizeErrorMessage(reason: unknown): string {
 }
 
 const IncidentList: React.FC = () => {
+  const { message } = App.useApp();
   const isDark = useThemeStore((s) => s.isDark);
   const navigate = useNavigate();
+  const permissions = useAuthStore((state) => state.permissions);
+  const capabilities = useAuthStore((state) => state.capabilities);
 
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<IncidentSeverity | 'all'>('all');
@@ -132,6 +140,8 @@ const IncidentList: React.FC = () => {
   const [modal, modalContextHolder] = Modal.useModal();
 
   const selectedIds = useMemo(() => selectedRowKeys.map((value) => String(value)), [selectedRowKeys]);
+  const authorization = useMemo(() => ({ permissions, capabilities }), [capabilities, permissions]);
+  const actionAccess = useMemo(() => resolveIncidentActionAccess(authorization), [authorization]);
 
   const userLabelMap = useMemo(() => {
     return new Map(users.map((user) => [user.id, resolveUserLabel(user)]));
@@ -169,7 +179,7 @@ const IncidentList: React.FC = () => {
 
   const loadStats = useCallback(async () => {
     try {
-      const sla = await fetchSLASummary();
+      const sla = actionAccess.canReadSlaSummary ? await fetchSLASummary() : { totalIncidents: 0 };
       const openCount = incidents.filter((item) => !['resolved', 'postmortem', 'archived'].includes(item.status)).length;
       const p0Count = incidents.filter((item) => item.severity === 'P0' && item.status !== 'archived').length;
       const unackedCount = incidents.filter((item) => item.status === 'alerted').length;
@@ -189,9 +199,14 @@ const IncidentList: React.FC = () => {
         { label: '待复盘', value: 0, icon: 'rate_review', color: COLORS.primary },
       ]);
     }
-  }, [incidents]);
+  }, [actionAccess.canReadSlaSummary, incidents]);
 
   const loadUsers = useCallback(async () => {
+    if (!actionAccess.canAssignIncident) {
+      setUsers([]);
+      setUsersLoading(false);
+      return;
+    }
     setUsersLoading(true);
     try {
       const response = await fetchUsers({ page: 1, pageSize: 200, status: 'active' });
@@ -201,7 +216,7 @@ const IncidentList: React.FC = () => {
     } finally {
       setUsersLoading(false);
     }
-  }, []);
+  }, [actionAccess.canAssignIncident]);
 
   useEffect(() => {
     void loadIncidents();
@@ -267,6 +282,10 @@ const IncidentList: React.FC = () => {
   }, [refreshCurrentPage]);
 
   const handleCreateIncident = useCallback(async () => {
+    if (!actionAccess.canCreateIncident) {
+      message.warning(getIncidentPermissionDeniedReason('create'));
+      return;
+    }
     try {
       const payload: CreateIncidentPayload = {
         title: `手动创建事件 ${new Date().toLocaleString('zh-CN')}`,
@@ -280,13 +299,17 @@ const IncidentList: React.FC = () => {
       const nextError = err instanceof Error ? err.message : '创建事件失败';
       message.error(nextError);
     }
-  }, [navigate]);
+  }, [actionAccess.canCreateIncident, message, navigate]);
 
   const openAssignModal = useCallback((ids: string[], presetAssignee?: string) => {
+    if (!actionAccess.canAssignIncident) {
+      message.warning(getIncidentPermissionDeniedReason('assign'));
+      return;
+    }
     setAssignTargetIds(ids);
     setAssignUserId(presetAssignee ?? '');
     setAssignModalOpen(true);
-  }, []);
+  }, [actionAccess.canAssignIncident, message]);
 
   const handleConfirmAssign = useCallback(async () => {
     const nextAssignee = assignUserId.trim();
@@ -312,6 +335,10 @@ const IncidentList: React.FC = () => {
   }, []);
 
   const handleConfirmArchive = useCallback(async () => {
+    if (!actionAccess.canArchiveIncident) {
+      message.warning(getIncidentPermissionDeniedReason('archive'));
+      return;
+    }
     const verdict = archiveVerdict.trim();
     if (!verdict) {
       message.error('请输入归档结论');
@@ -323,13 +350,21 @@ const IncidentList: React.FC = () => {
     setArchiveModalOpen(false);
     setArchiveTargetIds([]);
     setArchiveVerdict('');
-  }, [archiveTargetIds, archiveVerdict, runBatchRequest]);
+  }, [actionAccess.canArchiveIncident, archiveTargetIds, archiveVerdict, message, runBatchRequest]);
 
   const handleDeleteIncidents = useCallback(async (ids: string[]) => {
+    if (!actionAccess.canCloseIncident) {
+      message.warning(getIncidentPermissionDeniedReason('close'));
+      return;
+    }
     await runBatchRequest(ids, '删除事件', (id) => deleteIncident(id), { deletedCount: ids.length });
-  }, [runBatchRequest]);
+  }, [actionAccess.canCloseIncident, message, runBatchRequest]);
 
   const confirmBatchTransition = useCallback((title: string, ids: string[], request: (id: string) => Promise<void>) => {
+    if (!actionAccess.canUpdateIncident) {
+      message.warning(getIncidentPermissionDeniedReason('update'));
+      return;
+    }
     modal.confirm({
       title,
       content: `将处理 ${ids.length} 条事件，是否继续？`,
@@ -339,7 +374,7 @@ const IncidentList: React.FC = () => {
         await runBatchRequest(ids, title, request);
       },
     });
-  }, [modal, runBatchRequest]);
+  }, [actionAccess.canUpdateIncident, message, modal, runBatchRequest]);
 
   const renderAssignee = useCallback((value: string) => {
     if (!value) return <span className="text-xs opacity-40">未分配</span>;
@@ -436,18 +471,20 @@ const IncidentList: React.FC = () => {
       width: 140,
       render: (_value: unknown, record: Incident) => (
         <Space size={4} onClick={(event) => event.stopPropagation()}>
-          <Tooltip title="指派负责人">
+          <Tooltip title={actionAccess.canAssignIncident ? '指派负责人' : getIncidentPermissionDeniedReason('assign')}>
             <Button
               type="link"
               size="small"
+              disabled={!actionAccess.canAssignIncident}
               icon={<span className="material-symbols-outlined text-sm">person_add</span>}
               onClick={() => openAssignModal([record.id], record.assignee)}
             />
           </Tooltip>
-          <Tooltip title="查看详情">
+          <Tooltip title={actionAccess.canReadIncident ? '查看详情' : getIncidentPermissionDeniedReason('read')}>
             <Button
               type="link"
               size="small"
+              disabled={!actionAccess.canReadIncident}
               icon={<span className="material-symbols-outlined text-sm">open_in_new</span>}
               onClick={() => navigate(`/incidents/detail/${record.id}`)}
             />
@@ -458,13 +495,15 @@ const IncidentList: React.FC = () => {
             okText="删除"
             cancelText="取消"
             okButtonProps={{ danger: true }}
+            disabled={!actionAccess.canCloseIncident}
             onConfirm={() => handleDeleteIncidents([record.id])}
           >
-            <Tooltip title="删除事件">
+            <Tooltip title={actionAccess.canCloseIncident ? '删除事件' : getIncidentPermissionDeniedReason('close')}>
               <Button
                 danger
                 type="link"
                 size="small"
+                disabled={!actionAccess.canCloseIncident}
                 icon={<span className="material-symbols-outlined text-sm">delete</span>}
                 onClick={(event) => event.stopPropagation()}
               />
@@ -473,7 +512,7 @@ const IncidentList: React.FC = () => {
         </Space>
       ),
     },
-  ], [handleDeleteIncidents, navigate, openAssignModal, renderAssignee]);
+  ], [actionAccess.canAssignIncident, actionAccess.canCloseIncident, actionAccess.canReadIncident, handleDeleteIncidents, navigate, openAssignModal, renderAssignee]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -483,9 +522,11 @@ const IncidentList: React.FC = () => {
           <span className="text-lg font-semibold">事件管理</span>
           {stats.length > 0 && <Badge count={stats[0].value} style={{ backgroundColor: COLORS.danger }} />}
         </div>
-        <Button type="primary" icon={<span className="material-symbols-outlined text-sm">add</span>} onClick={handleCreateIncident}>
-          创建事件
-        </Button>
+        <Tooltip title={actionAccess.canCreateIncident ? '创建事件' : getIncidentPermissionDeniedReason('create')}>
+          <Button type="primary" disabled={!actionAccess.canCreateIncident} icon={<span className="material-symbols-outlined text-sm">add</span>} onClick={handleCreateIncident}>
+            创建事件
+          </Button>
+        </Tooltip>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -548,6 +589,14 @@ const IncidentList: React.FC = () => {
         />
       </div>
 
+      {actionAccess.isReadOnly && (
+        <Card size="small" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }}>
+          <div className="text-sm opacity-70">
+            当前会话为事件只读模式，创建、指派、状态流转、归档和删除操作已禁用。
+          </div>
+        </Card>
+      )}
+
       {selectedIds.length > 0 && (
         <Card size="small" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -555,39 +604,52 @@ const IncidentList: React.FC = () => {
               已选择 <span className="font-semibold">{selectedIds.length}</span> 条事件
             </div>
             <Space wrap>
-              <Button loading={submitting} onClick={() => openAssignModal(selectedIds)}>
-                批量指派
-              </Button>
-              <Button loading={submitting} onClick={() => confirmBatchTransition('批量响应事件', selectedIds, acknowledgeIncident)}>
-                批量响应
-              </Button>
-              <Button loading={submitting} onClick={() => confirmBatchTransition('批量转为分析中', selectedIds, investigateIncident)}>
-                批量分析
-              </Button>
-              <Button loading={submitting} onClick={() => confirmBatchTransition('批量解决事件', selectedIds, (id) => resolveIncident(id))}>
-                批量解决
-              </Button>
-              <Button loading={submitting} onClick={() => openArchiveModal(selectedIds)}>
-                批量归档
-              </Button>
-              <Button
-                danger
-                loading={submitting}
-                onClick={() => {
-                  modal.confirm({
-                    title: '批量删除事件',
-                    content: `将删除 ${selectedIds.length} 条事件，删除后不可恢复，是否继续？`,
-                    okText: '删除',
-                    cancelText: '取消',
-                    okButtonProps: { danger: true },
-                    onOk: async () => {
-                      await handleDeleteIncidents(selectedIds);
-                    },
-                  });
-                }}
-              >
-                批量删除
-              </Button>
+              <Tooltip title={actionAccess.canAssignIncident ? undefined : getIncidentPermissionDeniedReason('assign')}>
+                <Button loading={submitting} disabled={!actionAccess.canAssignIncident} onClick={() => openAssignModal(selectedIds)}>
+                  批量指派
+                </Button>
+              </Tooltip>
+              <Tooltip title={actionAccess.canUpdateIncident ? undefined : getIncidentPermissionDeniedReason('update')}>
+                <Button loading={submitting} disabled={!actionAccess.canUpdateIncident} onClick={() => confirmBatchTransition('批量响应事件', selectedIds, acknowledgeIncident)}>
+                  批量响应
+                </Button>
+              </Tooltip>
+              <Tooltip title={actionAccess.canUpdateIncident ? undefined : getIncidentPermissionDeniedReason('update')}>
+                <Button loading={submitting} disabled={!actionAccess.canUpdateIncident} onClick={() => confirmBatchTransition('批量转为分析中', selectedIds, investigateIncident)}>
+                  批量分析
+                </Button>
+              </Tooltip>
+              <Tooltip title={actionAccess.canUpdateIncident ? undefined : getIncidentPermissionDeniedReason('update')}>
+                <Button loading={submitting} disabled={!actionAccess.canUpdateIncident} onClick={() => confirmBatchTransition('批量解决事件', selectedIds, (id) => resolveIncident(id))}>
+                  批量解决
+                </Button>
+              </Tooltip>
+              <Tooltip title={actionAccess.canArchiveIncident ? undefined : getIncidentPermissionDeniedReason('archive')}>
+                <Button loading={submitting} disabled={!actionAccess.canArchiveIncident} onClick={() => openArchiveModal(selectedIds)}>
+                  批量归档
+                </Button>
+              </Tooltip>
+              <Tooltip title={actionAccess.canCloseIncident ? undefined : getIncidentPermissionDeniedReason('close')}>
+                <Button
+                  danger
+                  loading={submitting}
+                  disabled={!actionAccess.canCloseIncident}
+                  onClick={() => {
+                    modal.confirm({
+                      title: '批量删除事件',
+                      content: `将删除 ${selectedIds.length} 条事件，删除后不可恢复，是否继续？`,
+                      okText: '删除',
+                      cancelText: '取消',
+                      okButtonProps: { danger: true },
+                      onOk: async () => {
+                        await handleDeleteIncidents(selectedIds);
+                      },
+                    });
+                  }}
+                >
+                  批量删除
+                </Button>
+              </Tooltip>
               <Button type="link" onClick={() => setSelectedRowKeys([])}>
                 清空选择
               </Button>

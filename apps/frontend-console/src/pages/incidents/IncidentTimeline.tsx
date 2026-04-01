@@ -1,12 +1,17 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Timeline, Card, Tag, Select, Button, Empty } from 'antd';
+import { Timeline, Card, Tag, Select, Button, Empty, Tooltip } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import type { TimelineEvent, TimelineEventType } from '../../types/incident';
 import { fetchIncidents, fetchIncidentTimeline } from '../../api/incident';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
 import type { Incident } from '../../types/incident';
+import { useAuthStore } from '../../stores/authStore';
+import {
+  getIncidentPermissionDeniedReason,
+  resolveIncidentActionAccess,
+} from './incidentAuthorization';
 
 // ============================================================================
 // 事件类型配置
@@ -40,10 +45,14 @@ function getEventConfig(type: TimelineEventType) {
 const IncidentTimeline: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
   const navigate = useNavigate();
+  const permissions = useAuthStore((state) => state.permissions);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const [searchParams] = useSearchParams();
   const initialIncident = searchParams.get('incidentId') ?? 'all';
   const [selectedIncident, setSelectedIncident] = useState<string>(initialIncident);
   const [typeFilter, setTypeFilter] = useState<TimelineEventType | 'all'>('all');
+  const authorization = useMemo(() => ({ permissions, capabilities }), [capabilities, permissions]);
+  const actionAccess = useMemo(() => resolveIncidentActionAccess(authorization), [authorization]);
 
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [incidentsLoading, setIncidentsLoading] = useState(true);
@@ -156,18 +165,21 @@ const IncidentTimeline: React.FC = () => {
                     <div className="flex items-center gap-3 text-xs opacity-40">
                       <span>操作人: {event.operator}</span>
                       <span>{new Date(event.timestamp).toLocaleString('zh-CN')}</span>
-                      <Button
-                        type="link"
-                        size="small"
-                        className="p-0 text-xs"
-                        style={{ height: 'auto', lineHeight: 1 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/incidents/detail/${event.incidentId}`);
-                        }}
-                      >
-                        {event.incidentId}
-                      </Button>
+                      <Tooltip title={actionAccess.canReadIncident ? '查看详情' : getIncidentPermissionDeniedReason('read')}>
+                        <Button
+                          type="link"
+                          size="small"
+                          disabled={!actionAccess.canReadIncident}
+                          className="p-0 text-xs"
+                          style={{ height: 'auto', lineHeight: 1 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/incidents/detail/${event.incidentId}`);
+                          }}
+                        >
+                          {event.incidentId}
+                        </Button>
+                      </Tooltip>
                     </div>
                   </div>
                 ),

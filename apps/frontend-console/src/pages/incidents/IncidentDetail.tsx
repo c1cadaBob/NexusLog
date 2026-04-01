@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tabs, Tag, Button, Steps, Descriptions, Space, Card, Timeline, Empty, message, Modal, Input } from 'antd';
+import { App, Tabs, Tag, Button, Steps, Descriptions, Space, Card, Timeline, Empty, Modal, Input } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import type {
@@ -18,6 +18,11 @@ import {
   updateIncident,
 } from '../../api/incident';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
+import { useAuthStore } from '../../stores/authStore';
+import {
+  getIncidentPermissionDeniedReason,
+  resolveIncidentActionAccess,
+} from './incidentAuthorization';
 
 // ============================================================================
 // 共享配置映射
@@ -169,11 +174,11 @@ const TimelineTab: React.FC<{ incidentId: string; events: TimelineEvent[]; loadi
 // Tab 3: 根因分析面板（API 暂无，保留空状态）
 // ============================================================================
 
-const AnalysisTab: React.FC<{ incident: Incident; onEdit: () => void }> = ({ incident, onEdit }) => {
+const AnalysisTab: React.FC<{ incident: Incident; onEdit: () => void; canEdit: boolean }> = ({ incident, onEdit, canEdit }) => {
   if (!incident.rootCause && !incident.resolution) {
     return (
       <Empty description="暂无根因分析记录">
-        <Button type="primary" icon={<span className="material-symbols-outlined text-sm">edit_note</span>} onClick={onEdit}>
+        <Button type="primary" disabled={!canEdit} icon={<span className="material-symbols-outlined text-sm">edit_note</span>} onClick={onEdit}>
           补充根因分析
         </Button>
       </Empty>
@@ -194,7 +199,7 @@ const AnalysisTab: React.FC<{ incident: Incident; onEdit: () => void }> = ({ inc
         </Descriptions.Item>
       </Descriptions>
       <div>
-        <Button type="primary" icon={<span className="material-symbols-outlined text-sm">edit</span>} onClick={onEdit}>
+        <Button type="primary" disabled={!canEdit} icon={<span className="material-symbols-outlined text-sm">edit</span>} onClick={onEdit}>
           编辑分析
         </Button>
       </div>
@@ -230,8 +235,11 @@ const ArchiveTab: React.FC<{ incident: Incident }> = ({ incident }) => {
 const statusSteps = ['detected', 'alerted', 'acknowledged', 'analyzing', 'mitigated', 'resolved', 'postmortem', 'archived'] as const;
 
 const IncidentDetail: React.FC = () => {
+  const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const permissions = useAuthStore((state) => state.permissions);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const [incident, setIncident] = useState<Incident | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -243,6 +251,8 @@ const IncidentDetail: React.FC = () => {
   const [analysisModalOpen, setAnalysisModalOpen] = useState(false);
   const [analysisRootCause, setAnalysisRootCause] = useState('');
   const [analysisResolution, setAnalysisResolution] = useState('');
+  const authorization = useMemo(() => ({ permissions, capabilities }), [capabilities, permissions]);
+  const actionAccess = useMemo(() => resolveIncidentActionAccess(authorization), [authorization]);
 
   const loadDetail = useCallback(async () => {
     if (!id) return;
@@ -299,13 +309,21 @@ const IncidentDetail: React.FC = () => {
   }, [loadDetail, loadTimeline]);
 
   const openAnalysisEditor = useCallback(() => {
+    if (!actionAccess.canUpdateIncident) {
+      message.warning(getIncidentPermissionDeniedReason('update'));
+      return;
+    }
     setAnalysisRootCause(incident?.rootCause || '');
     setAnalysisResolution(incident?.resolution || '');
     setAnalysisModalOpen(true);
-  }, [incident]);
+  }, [actionAccess.canUpdateIncident, incident, message]);
 
   const handleSaveAnalysis = useCallback(async () => {
     if (!id) {
+      return;
+    }
+    if (!actionAccess.canUpdateIncident) {
+      message.warning(getIncidentPermissionDeniedReason('update'));
       return;
     }
     setActionLoading(true);
@@ -323,9 +341,13 @@ const IncidentDetail: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
-  }, [analysisResolution, analysisRootCause, id, loadDetail]);
+  }, [actionAccess.canUpdateIncident, analysisResolution, analysisRootCause, id, loadDetail, message]);
 
   const handleArchive = useCallback(async () => {
+    if (!actionAccess.canArchiveIncident) {
+      message.warning(getIncidentPermissionDeniedReason('archive'));
+      return;
+    }
     if (!id || !archiveVerdict.trim()) {
       message.error('请输入研判结论');
       return;
@@ -344,7 +366,7 @@ const IncidentDetail: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
-  }, [id, archiveVerdict, loadDetail, loadTimeline]);
+  }, [actionAccess.canArchiveIncident, archiveVerdict, id, loadDetail, loadTimeline, message]);
 
   if (!id) {
     return (
@@ -392,23 +414,29 @@ const IncidentDetail: React.FC = () => {
           <Tag color={staCfg.color} style={{ margin: 0 }}>{staCfg.label}</Tag>
         </div>
         <Space>
-          {incident.status === 'alerted' && (
+          {incident.status === 'alerted' && actionAccess.canUpdateIncident && (
             <Button type="primary" loading={actionLoading} onClick={() => handleTransition(() => acknowledgeIncident(id), '已响应')}>确认响应</Button>
           )}
-          {incident.status === 'acknowledged' && (
+          {incident.status === 'acknowledged' && actionAccess.canUpdateIncident && (
             <Button type="primary" loading={actionLoading} onClick={() => handleTransition(() => investigateIncident(id), '分析中')}>开始分析</Button>
           )}
-          {incident.status === 'analyzing' && (
+          {incident.status === 'analyzing' && actionAccess.canUpdateIncident && (
             <Button type="primary" loading={actionLoading} onClick={() => handleTransition(() => resolveIncident(id), '已解决')}>标记解决</Button>
           )}
-          {incident.status === 'resolved' && (
+          {incident.status === 'resolved' && actionAccess.canArchiveIncident && (
             <Button type="primary" loading={actionLoading} onClick={() => setArchiveModalOpen(true)}>归档</Button>
           )}
-          {incident.status === 'postmortem' && (
+          {incident.status === 'postmortem' && actionAccess.canArchiveIncident && (
             <Button type="primary" loading={actionLoading} onClick={() => setArchiveModalOpen(true)}>归档</Button>
           )}
         </Space>
       </div>
+
+      {!actionAccess.hasAnyWriteAccess && (
+        <Card size="small">
+          <div className="text-sm opacity-70">当前会话仅可查看事件详情，状态流转、分析编辑和归档操作已禁用。</div>
+        </Card>
+      )}
 
       {/* 状态流转步骤条 */}
       <Steps
@@ -446,7 +474,7 @@ const IncidentDetail: React.FC = () => {
                 <span className="material-symbols-outlined text-sm">biotech</span> 根因分析
               </span>
             ),
-            children: <AnalysisTab incident={incident} onEdit={openAnalysisEditor} />,
+            children: <AnalysisTab incident={incident} onEdit={openAnalysisEditor} canEdit={actionAccess.canUpdateIncident} />,
           },
           {
             key: 'archive',
@@ -468,6 +496,7 @@ const IncidentDetail: React.FC = () => {
         okText="保存"
         cancelText="取消"
         confirmLoading={actionLoading}
+        okButtonProps={{ disabled: !actionAccess.canUpdateIncident }}
       >
         <div className="flex flex-col gap-4 py-2">
           <div>
@@ -500,6 +529,7 @@ const IncidentDetail: React.FC = () => {
         okText="确认归档"
         cancelText="取消"
         confirmLoading={actionLoading}
+        okButtonProps={{ disabled: !actionAccess.canArchiveIncident }}
       >
         <div className="py-2">
           <div className="text-sm mb-2">请输入研判结论（必填）：</div>

@@ -5,6 +5,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { fetchIncidentTimeline, fetchIncidents } from '../../api/incident';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useThemeStore } from '../../stores/themeStore';
+import { useAuthStore } from '../../stores/authStore';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 import { COLORS } from '../../theme/tokens';
 import {
@@ -12,6 +13,10 @@ import {
   downloadIncidentArchiveMarkdown,
   shouldAllowIncidentArchiveReport,
 } from '../../utils/incidentArchiveReport';
+import {
+  getIncidentPermissionDeniedReason,
+  resolveIncidentActionAccess,
+} from './incidentAuthorization';
 import type { Incident, IncidentSeverity } from '../../types/incident';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; label: string }> = {
@@ -37,6 +42,8 @@ const IncidentArchive: React.FC = () => {
   const navigate = useNavigate();
   const { message } = App.useApp();
   const isDark = useThemeStore((s) => s.isDark);
+  const permissions = useAuthStore((state) => state.permissions);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<IncidentSeverity | 'all'>('all');
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -47,6 +54,8 @@ const IncidentArchive: React.FC = () => {
   const [previewIncident, setPreviewIncident] = useState<Incident | null>(null);
   const [exportingKey, setExportingKey] = useState<string | null>(null);
   const tableRef = usePaginationQuickJumperAccessibility('incident-archive');
+  const authorization = useMemo(() => ({ permissions, capabilities }), [capabilities, permissions]);
+  const actionAccess = useMemo(() => resolveIncidentActionAccess(authorization), [authorization]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['incidentArchive'] ?? 20);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -179,8 +188,8 @@ const IncidentArchive: React.FC = () => {
           <Tooltip title="预览归档结论">
             <Button type="link" size="small" icon={<span className="material-symbols-outlined text-sm">visibility</span>} onClick={() => setPreviewIncident(record)} />
           </Tooltip>
-          <Tooltip title="打开详情">
-            <Button type="link" size="small" icon={<span className="material-symbols-outlined text-sm">open_in_new</span>} onClick={() => navigate(`/incidents/detail/${record.id}`)} />
+          <Tooltip title={actionAccess.canReadIncident ? '打开详情' : getIncidentPermissionDeniedReason('read')}>
+            <Button type="link" size="small" disabled={!actionAccess.canReadIncident} icon={<span className="material-symbols-outlined text-sm">open_in_new</span>} onClick={() => navigate(`/incidents/detail/${record.id}`)} />
           </Tooltip>
           <Tooltip title="导出 Markdown 报告">
             <Button
@@ -202,7 +211,7 @@ const IncidentArchive: React.FC = () => {
         </div>
       ),
     },
-  ], [exportingKey, handleDownloadMarkdown, handleOpenPdfReport, navigate]);
+  ], [actionAccess.canReadIncident, exportingKey, handleDownloadMarkdown, handleOpenPdfReport, navigate]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -314,7 +323,7 @@ const IncidentArchive: React.FC = () => {
         footer={previewIncident ? [
           <Button key="markdown" icon={<span className="material-symbols-outlined text-sm">description</span>} loading={exportingKey === `${previewIncident.id}:markdown`} onClick={() => { void handleDownloadMarkdown(previewIncident); }}>导出 Markdown</Button>,
           <Button key="pdf" icon={<span className="material-symbols-outlined text-sm">picture_as_pdf</span>} onClick={() => handleOpenPdfReport(previewIncident)}>保存为 PDF</Button>,
-          <Button key="detail" type="primary" onClick={() => navigate(`/incidents/detail/${previewIncident.id}`)}>打开详情</Button>,
+          <Button key="detail" type="primary" disabled={!actionAccess.canReadIncident} onClick={() => navigate(`/incidents/detail/${previewIncident.id}`)}>打开详情</Button>,
         ] : null}
         destroyOnHidden
       >
@@ -333,7 +342,7 @@ const IncidentArchive: React.FC = () => {
           </div>
           {previewIncident && (
             <div className="flex justify-end">
-              <Button type="primary" onClick={() => navigate(`/incidents/detail/${previewIncident.id}`)}>
+              <Button type="primary" disabled={!actionAccess.canReadIncident} onClick={() => navigate(`/incidents/detail/${previewIncident.id}`)}>
                 打开详情
               </Button>
             </div>
