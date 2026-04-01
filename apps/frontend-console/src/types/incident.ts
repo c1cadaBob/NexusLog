@@ -68,6 +68,12 @@ export interface Incident {
   tags: string[];
   createdAt: number;
   updatedAt: number;
+  sourceAlertId?: string;
+  createdBy?: string;
+  rootCause?: string;
+  resolution?: string;
+  slaResponseMinutes?: number;
+  slaResolveMinutes?: number;
 
   /** 归档时的研判结论（仅当 status=archived 时有效） */
   verdict?: string;

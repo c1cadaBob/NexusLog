@@ -93,6 +93,7 @@ func (h *Handler) ListIncidents(c *gin.Context) {
 	filters := &IncidentFilters{
 		Status:   strings.TrimSpace(c.Query("status")),
 		Severity: strings.TrimSpace(c.Query("severity")),
+		Query:    strings.TrimSpace(c.Query("query")),
 	}
 
 	items, total, err := h.svc.ListIncidents(c.Request.Context(), tenantID, page, pageSize, filters)

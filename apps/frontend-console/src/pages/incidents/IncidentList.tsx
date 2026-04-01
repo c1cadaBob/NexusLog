@@ -87,9 +87,10 @@ const IncidentList: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const filters: { status?: string; severity?: string } = {};
+      const filters: { status?: string; severity?: string; query?: string } = {};
       if (statusFilter !== 'all') filters.status = statusFilter;
       if (severityFilter !== 'all') filters.severity = severityFilter;
+      if (search.trim()) filters.query = search.trim();
 
       const { items, total: t } = await fetchIncidents(currentPage, pageSize, filters);
       setIncidents(items);
@@ -103,7 +104,7 @@ const IncidentList: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, statusFilter, severityFilter]);
+  }, [currentPage, pageSize, search, statusFilter, severityFilter]);
 
   // 加载 SLA 统计（基于当前页数据 + SLA 汇总）
   const loadStats = useCallback(async () => {
@@ -137,24 +138,6 @@ const IncidentList: React.FC = () => {
   useEffect(() => {
     loadStats();
   }, [loadStats]);
-
-  // 客户端搜索过滤（API 无 keyword 搜索时）
-  const filtered = useMemo(() => {
-    if (!search) return incidents;
-    const kw = search.toLowerCase();
-    return incidents.filter((inc) =>
-      inc.title.toLowerCase().includes(kw) ||
-      inc.source.toLowerCase().includes(kw) ||
-      inc.id.toLowerCase().includes(kw),
-    );
-  }, [incidents, search]);
-
-  // 分页后的数据（搜索时客户端分页）
-  const pagedData = useMemo(() => {
-    if (!search) return filtered;
-    const start = (currentPage - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, search, currentPage, pageSize]);
 
   // 创建事件
   const handleCreateIncident = useCallback(async () => {
@@ -328,13 +311,10 @@ const IncidentList: React.FC = () => {
           style={{ width: 140 }}
           options={[
             { value: 'all', label: '状态: 全部' },
-            { value: 'detected', label: '已检测' },
             { value: 'alerted', label: '已告警' },
             { value: 'acknowledged', label: '已响应' },
             { value: 'analyzing', label: '分析中' },
-            { value: 'mitigated', label: '已止损' },
             { value: 'resolved', label: '已解决' },
-            { value: 'postmortem', label: '复盘中' },
             { value: 'archived', label: '已归档' },
           ]}
         />
@@ -346,7 +326,7 @@ const IncidentList: React.FC = () => {
       ) : (
         <div ref={incidentsTableRef}>
           <Table<Incident>
-            dataSource={search ? pagedData : filtered}
+            dataSource={incidents}
             columns={columns}
             rowKey="id"
             size="small"
@@ -354,9 +334,9 @@ const IncidentList: React.FC = () => {
             pagination={{
               current: currentPage,
               pageSize,
-              total: search ? filtered.length : total,
+              total,
               showSizeChanger: true,
-              showQuickJumper: true,
+              showQuickJumper: total > pageSize,
               showTotal: (t, range) => `显示 ${range[0]}-${range[1]} 条，共 ${t} 条`,
               pageSizeOptions: ['10', '20', '50'],
               onChange: (page, size) => { setCurrentPage(page); setPageSize(size); },

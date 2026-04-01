@@ -194,6 +194,12 @@ function mapBackendIncidentToFrontend(r: BackendIncident): Incident {
     tags: [],
     createdAt,
     updatedAt,
+    sourceAlertId: r.source_alert_id || undefined,
+    createdBy: r.created_by || undefined,
+    rootCause: r.root_cause || undefined,
+    resolution: r.resolution || undefined,
+    slaResponseMinutes: typeof r.sla_response_minutes === 'number' ? r.sla_response_minutes : undefined,
+    slaResolveMinutes: typeof r.sla_resolve_minutes === 'number' ? r.sla_resolve_minutes : undefined,
     verdict: r.verdict || undefined,
   };
 }
@@ -201,6 +207,7 @@ function mapBackendIncidentToFrontend(r: BackendIncident): Incident {
 export interface IncidentFilters {
   status?: IncidentStatus | string;
   severity?: IncidentSeverity | string;
+  query?: string;
   /** Time range: start timestamp (ms) */
   from?: number;
   /** Time range: end timestamp (ms) */
@@ -244,6 +251,9 @@ export async function fetchIncidents(
   }
   if (filters?.severity && filters.severity !== 'all') {
     query.severity = toBackendSeverity(filters.severity);
+  }
+  if (filters?.query) {
+    query.query = filters.query.trim();
   }
 
   const envelope = await requestIncidentApi<{ items: BackendIncident[] }>('', {

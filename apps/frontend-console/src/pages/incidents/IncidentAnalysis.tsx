@@ -1,273 +1,316 @@
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Select, Descriptions, Modal, Button, Space, Empty } from 'antd';
+import { Button, Card, Empty, Input, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { fetchIncidents } from '../../api/incident';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useThemeStore } from '../../stores/themeStore';
+import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 import { COLORS } from '../../theme/tokens';
-import type { IncidentAnalysis as AnalysisType, RootCauseCategory, ActionType } from '../../types/incident';
+import type { Incident, IncidentSeverity, IncidentStatus, RootCauseCategory } from '../../types/incident';
 
-// ============================================================================
-// 配置映射
-// ============================================================================
-
-const ROOT_CAUSE_CONFIG: Record<RootCauseCategory, { label: string; color: string; icon: string }> = {
-  config: { label: '配置错误', color: COLORS.warning, icon: 'settings_suggest' },
-  capacity: { label: '容量不足', color: '#f97316', icon: 'storage' },
-  dependency: { label: '依赖故障', color: COLORS.danger, icon: 'link_off' },
-  code_defect: { label: '代码缺陷', color: '#8b5cf6', icon: 'bug_report' },
-  security: { label: '安全事件', color: '#ef4444', icon: 'gpp_maybe' },
-  network: { label: '网络问题', color: COLORS.info, icon: 'wifi_off' },
-  hardware: { label: '硬件故障', color: '#64748b', icon: 'memory' },
-  unknown: { label: '未知', color: '#94a3b8', icon: 'help' },
+const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; label: string }> = {
+  P0: { color: COLORS.danger, label: 'P0 紧急' },
+  P1: { color: '#f97316', label: 'P1 严重' },
+  P2: { color: COLORS.warning, label: 'P2 一般' },
+  P3: { color: COLORS.info, label: 'P3 提示' },
 };
 
-const ACTION_TYPE_LABEL: Record<ActionType, string> = {
-  rollback: '回滚', scale_up: '扩容', restart: '重启',
-  rate_limit: '限流', hotfix: '热修复', config_change: '配置变更', other: '其他',
+const STATUS_CONFIG: Record<IncidentStatus, { color: string; label: string }> = {
+  detected: { color: 'default', label: '已检测' },
+  alerted: { color: 'orange', label: '已告警' },
+  acknowledged: { color: 'blue', label: '已响应' },
+  analyzing: { color: 'processing', label: '分析中' },
+  mitigated: { color: 'cyan', label: '已止损' },
+  resolved: { color: 'success', label: '已解决' },
+  postmortem: { color: 'purple', label: '复盘中' },
+  archived: { color: 'default', label: '已归档' },
 };
 
-// ============================================================================
-// 模拟数据
-// ============================================================================
+const ROOT_CAUSE_CONFIG: Record<RootCauseCategory, { label: string; color: string }> = {
+  config: { label: '配置错误', color: COLORS.warning },
+  capacity: { label: '容量不足', color: '#f97316' },
+  dependency: { label: '依赖故障', color: COLORS.danger },
+  code_defect: { label: '代码缺陷', color: '#8b5cf6' },
+  security: { label: '安全事件', color: '#ef4444' },
+  network: { label: '网络问题', color: COLORS.info },
+  hardware: { label: '硬件故障', color: '#64748b' },
+  unknown: { label: '待补充', color: '#94a3b8' },
+};
 
-const now = Date.now();
-const MOCK_ANALYSES: AnalysisType[] = [
-  {
-    id: 'ana-001', incidentId: 'INC-20260219-003', category: 'capacity',
-    summary: 'ES node-05 JVM 堆内存溢出导致节点不可用',
-    detail: '由于近期日志量增长 40%，node-05 的 JVM heap size 配置（8GB）不足以处理当前索引负载，导致频繁 Full GC 最终 OOM。',
-    impactScope: 'ES 集群降级为黄色状态，search-service 查询延迟从 200ms 升至 5s',
-    affectedServiceCount: 2, affectedUserCount: 320,
-    actions: [
-      { id: 'act-001', type: 'restart', description: '重启 ES node-05 节点', operator: '王运维', executedAt: now - 84600000, result: 'success' },
-      { id: 'act-002', type: 'config_change', description: '调整 JVM heap size 从 8GB 到 16GB', operator: '王运维', executedAt: now - 80000000, result: 'success' },
-    ],
-    preventionPlan: '1. 设置 JVM heap 使用率 75% 告警阈值\n2. 制定 ES 集群容量规划，按月评估\n3. 启用自动扩容策略',
-    analyst: '王运维', createdAt: now - 82000000,
-  },
-  {
-    id: 'ana-002', incidentId: 'INC-20260218-004', category: 'config',
-    summary: 'Kafka 消费者组配置不当导致消息积压',
-    detail: '消费者组 max.poll.records 设置过低（100），且 session.timeout.ms 过短导致频繁 rebalance，消费速度跟不上生产速度。',
-    impactScope: '日志处理管道延迟 30 分钟，影响实时告警的时效性',
-    affectedServiceCount: 2, affectedUserCount: 0,
-    actions: [
-      { id: 'act-003', type: 'config_change', description: '调整 max.poll.records=500, session.timeout.ms=30000', operator: '赵运维', executedAt: now - 170000000, result: 'success' },
-      { id: 'act-004', type: 'scale_up', description: '增加消费者实例从 3 个到 6 个', operator: '赵运维', executedAt: now - 169000000, result: 'success' },
-    ],
-    preventionPlan: '1. 建立 Kafka 消费延迟监控看板\n2. 设置 lag > 5000 的告警规则\n3. 消费者配置纳入配置管理平台',
-    analyst: '赵运维', createdAt: now - 168000000,
-  },
-  {
-    id: 'ana-003', incidentId: 'INC-20260215-005', category: 'config',
-    summary: 'Gateway TLS 证书过期未及时续期',
-    detail: '证书管理流程缺失，未设置证书到期提醒。证书于 2026-02-15 00:00 过期，导致所有外部 HTTPS 请求返回 503。',
-    impactScope: '所有外部 API 不可用，持续约 20 分钟，影响 8500 用户',
-    affectedServiceCount: 10, affectedUserCount: 8500,
-    actions: [
-      { id: 'act-005', type: 'config_change', description: '紧急更新 TLS 证书', operator: '张运维', executedAt: now - 430200000, result: 'success' },
-      { id: 'act-006', type: 'hotfix', description: '部署证书自动续期脚本', operator: '张运维', executedAt: now - 428000000, result: 'success' },
-    ],
-    preventionPlan: '1. 部署 cert-manager 自动续期\n2. 证书到期前 30/7/1 天三级告警\n3. 建立证书资产清单',
-    analyst: '张运维', createdAt: now - 429000000,
-  },
-];
+function summarizeText(value?: string, maxLength: number = 64): string {
+  const normalized = (value || '').trim();
+  if (!normalized) return '-';
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength)}…`;
+}
 
+function formatDateTime(timestamp?: number | null): string {
+  if (!timestamp) return '-';
+  return new Date(timestamp).toLocaleString('zh-CN');
+}
 
-// ============================================================================
-// IncidentAnalysis 主组件
-// ============================================================================
+function classifyRootCause(rootCause?: string): RootCauseCategory {
+  const text = (rootCause || '').toLowerCase();
+  if (!text) return 'unknown';
+  if (/(配置|参数|证书|密钥|权限|config|setting|certificate|secret|permission)/.test(text)) return 'config';
+  if (/(容量|磁盘|内存|cpu|负载|堆|oom|capacity|memory|disk|heap)/.test(text)) return 'capacity';
+  if (/(依赖|数据库|es|redis|kafka|mq|dependency|upstream|downstream|mysql|postgres)/.test(text)) return 'dependency';
+  if (/(代码|缺陷|bug|异常逻辑|panic|nil pointer|defect|regression)/.test(text)) return 'code_defect';
+  if (/(安全|攻击|漏洞|入侵|security|cve|attack)/.test(text)) return 'security';
+  if (/(网络|连接|超时|dns|丢包|gateway|network|timeout)/.test(text)) return 'network';
+  if (/(硬件|主机|节点|磁盘阵列|电源|hardware|host|node)/.test(text)) return 'hardware';
+  return 'unknown';
+}
 
 const IncidentAnalysis: React.FC = () => {
-  const isDark = useThemeStore((s) => s.isDark);
   const navigate = useNavigate();
-  const [categoryFilter, setCategoryFilter] = useState<RootCauseCategory | 'all'>('all');
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [selected, setSelected] = useState<AnalysisType | null>(null);
+  const isDark = useThemeStore((s) => s.isDark);
+  const [search, setSearch] = useState('');
+  const [severityFilter, setSeverityFilter] = useState<IncidentSeverity | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<IncidentStatus | 'all'>('all');
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const tableRef = usePaginationQuickJumperAccessibility('incident-analysis');
 
-  const filtered = useMemo(() => {
-    if (categoryFilter === 'all') return MOCK_ANALYSES;
-    return MOCK_ANALYSES.filter((a) => a.category === categoryFilter);
-  }, [categoryFilter]);
+  const storedPageSize = usePreferencesStore((s) => s.pageSizes['incidentAnalysis'] ?? 20);
+  const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
+  const [pageSize, setPageSizeState] = useState(storedPageSize);
+  const setPageSize = useCallback((size: number) => {
+    setPageSizeState(size);
+    setStoredPageSize('incidentAnalysis', size);
+  }, [setStoredPageSize]);
 
-  // 根因分布统计
-  const categoryStats = useMemo(() => {
-    const counts: Partial<Record<RootCauseCategory, number>> = {};
-    MOCK_ANALYSES.forEach((a) => { counts[a.category] = (counts[a.category] ?? 0) + 1; });
-    return Object.entries(counts).map(([k, v]) => ({
-      category: k as RootCauseCategory,
-      count: v,
-      ...ROOT_CAUSE_CONFIG[k as RootCauseCategory],
-    }));
-  }, []);
+  const loadIncidents = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const filters: { status?: string; severity?: string; query?: string } = {};
+      if (statusFilter !== 'all') filters.status = statusFilter;
+      if (severityFilter !== 'all') filters.severity = severityFilter;
+      if (search.trim()) filters.query = search.trim();
+      const response = await fetchIncidents(currentPage, pageSize, filters);
+      setIncidents(response.items);
+      setTotal(response.total);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '加载根因分析列表失败';
+      setError(msg);
+      setIncidents([]);
+      setTotal(0);
+      message.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentPage, pageSize, search, severityFilter, statusFilter]);
 
-  const columns: ColumnsType<AnalysisType> = useMemo(() => [
+  useEffect(() => {
+    void loadIncidents();
+  }, [loadIncidents]);
+
+  const stats = useMemo(() => {
+    const withRootCause = incidents.filter((incident) => Boolean(incident.rootCause?.trim())).length;
+    const withResolution = incidents.filter((incident) => Boolean(incident.resolution?.trim())).length;
+    const archived = incidents.filter((incident) => incident.status === 'archived').length;
+    return [
+      { label: '当前筛选事件', value: total, icon: 'assignment', color: COLORS.primary },
+      { label: '当前页已填根因', value: withRootCause, icon: 'biotech', color: '#8b5cf6' },
+      { label: '当前页已填方案', value: withResolution, icon: 'build', color: COLORS.success },
+      { label: '当前页已归档', value: archived, icon: 'archive', color: '#64748b' },
+    ];
+  }, [incidents, total]);
+
+  const columns: ColumnsType<Incident> = useMemo(() => [
     {
       title: '事件 ID',
-      dataIndex: 'incidentId',
-      key: 'incidentId',
+      dataIndex: 'id',
+      key: 'id',
       width: 180,
-      render: (v: string) => (
-        <Button type="link" size="small" className="font-mono text-xs p-0" onClick={(e) => { e.stopPropagation(); navigate(`/incidents/detail/${v}`); }}>
-          {v}
+      render: (value: string) => (
+        <Button type="link" size="small" className="font-mono text-xs p-0" onClick={() => navigate(`/incidents/detail/${value}`)}>
+          {value}
         </Button>
       ),
     },
     {
-      title: '根因分类',
-      dataIndex: 'category',
-      key: 'category',
-      width: 120,
-      render: (v: RootCauseCategory) => {
-        const cfg = ROOT_CAUSE_CONFIG[v];
-        return (
-          <span className="flex items-center gap-1">
-            <span className="material-symbols-outlined text-sm" style={{ color: cfg.color }}>{cfg.icon}</span>
-            <Tag color={cfg.color} style={{ margin: 0 }}>{cfg.label}</Tag>
-          </span>
-        );
-      },
+      title: '级别',
+      dataIndex: 'severity',
+      key: 'severity',
+      width: 100,
+      render: (value: IncidentSeverity) => <Tag color={SEVERITY_CONFIG[value].color}>{SEVERITY_CONFIG[value].label}</Tag>,
     },
     {
-      title: '根因概述',
-      dataIndex: 'summary',
-      key: 'summary',
-      render: (v: string) => <span className="text-sm">{v}</span>,
-    },
-    {
-      title: '影响范围',
-      key: 'impact',
-      width: 140,
-      render: (_: unknown, r: AnalysisType) => (
-        <div className="text-xs">
-          <div>{r.affectedServiceCount} 个服务</div>
-          <div className="opacity-50">{r.affectedUserCount.toLocaleString()} 用户</div>
+      title: '事件标题',
+      dataIndex: 'title',
+      key: 'title',
+      render: (value: string, record: Incident) => (
+        <div>
+          <div className="text-sm font-medium">{value}</div>
+          <div className="text-xs opacity-50 mt-0.5">{record.source}</div>
         </div>
       ),
     },
     {
-      title: '处置动作',
-      key: 'actions',
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
       width: 100,
-      render: (_: unknown, r: AnalysisType) => <span className="text-sm">{r.actions.length} 项</span>,
+      render: (value: IncidentStatus) => <Tag color={STATUS_CONFIG[value].color}>{STATUS_CONFIG[value].label}</Tag>,
     },
     {
-      title: '分析人',
-      dataIndex: 'analyst',
-      key: 'analyst',
+      title: '根因分类',
+      key: 'category',
       width: 100,
+      render: (_: unknown, record: Incident) => {
+        const category = classifyRootCause(record.rootCause);
+        return <Tag color={ROOT_CAUSE_CONFIG[category].color}>{ROOT_CAUSE_CONFIG[category].label}</Tag>;
+      },
+    },
+    {
+      title: '根因概述',
+      dataIndex: 'rootCause',
+      key: 'rootCause',
+      render: (value?: string) => <span className="text-xs">{summarizeText(value)}</span>,
+    },
+    {
+      title: '处置方案',
+      dataIndex: 'resolution',
+      key: 'resolution',
+      render: (value?: string) => <span className="text-xs">{summarizeText(value)}</span>,
+    },
+    {
+      title: '更新时间',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      width: 180,
+      render: (value: number) => <span className="text-xs opacity-70">{formatDateTime(value)}</span>,
     },
     {
       title: '操作',
-      key: 'ops',
+      key: 'actions',
       width: 80,
-      render: (_: unknown, record: AnalysisType) => (
-        <Button
-          type="link"
-          size="small"
-          icon={<span className="material-symbols-outlined text-sm">visibility</span>}
-          onClick={(e) => { e.stopPropagation(); setSelected(record); setDetailOpen(true); }}
-        />
+      render: (_: unknown, record: Incident) => (
+        <Tooltip title="查看详情并补充分析">
+          <Button
+            type="link"
+            size="small"
+            icon={<span className="material-symbols-outlined text-sm">open_in_new</span>}
+            onClick={() => navigate(`/incidents/detail/${record.id}`)}
+          />
+        </Tooltip>
       ),
     },
-  ], []);
+  ], [navigate]);
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <span className="text-lg font-semibold">根因分析与研判</span>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <div className="text-lg font-semibold">根因分析</div>
+          <div className="text-xs opacity-50 mt-1">基于真实事件数据展示根因、处置和归档分析结果</div>
+        </div>
+        <Space>
+          <Button onClick={() => void loadIncidents()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+            刷新
+          </Button>
+        </Space>
       </div>
 
-      {/* 根因分布卡片 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {categoryStats.map((s) => (
-          <Card key={s.category} size="small" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }} styles={{ body: { padding: '16px 20px' } }}>
+        {stats.map((item) => (
+          <Card key={item.label} size="small" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }} styles={{ body: { padding: '16px 20px' } }}>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-xs opacity-50 mb-1">{s.label}</div>
-                <div className="text-2xl font-bold" style={{ color: s.color }}>{s.count}</div>
+                <div className="text-xs opacity-50 mb-1">{item.label}</div>
+                <div className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</div>
               </div>
-              <span className="material-symbols-outlined text-2xl" style={{ color: s.color, opacity: 0.6 }}>{s.icon}</span>
+              <span className="material-symbols-outlined text-2xl" style={{ color: item.color, opacity: 0.6 }}>{item.icon}</span>
             </div>
           </Card>
         ))}
       </div>
 
-      {/* 筛选 */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Input.Search
+          id="incident-analysis-search"
+          name="incident-analysis-search"
+          placeholder="按事件 ID、标题、根因、处置方案搜索..."
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setCurrentPage(1);
+          }}
+          allowClear
+          style={{ flex: 1, minWidth: 260 }}
+        />
         <Select
-          value={categoryFilter}
-          onChange={setCategoryFilter}
-          style={{ width: 180 }}
+          value={severityFilter}
+          onChange={(value) => {
+            setSeverityFilter(value);
+            setCurrentPage(1);
+          }}
+          style={{ width: 140 }}
           options={[
-            { value: 'all', label: '所有根因分类' },
-            ...Object.entries(ROOT_CAUSE_CONFIG).map(([k, v]) => ({ value: k, label: v.label })),
+            { value: 'all', label: '所有级别' },
+            { value: 'P0', label: 'P0 紧急' },
+            { value: 'P1', label: 'P1 严重' },
+            { value: 'P2', label: 'P2 一般' },
+            { value: 'P3', label: 'P3 提示' },
+          ]}
+        />
+        <Select
+          value={statusFilter}
+          onChange={(value) => {
+            setStatusFilter(value);
+            setCurrentPage(1);
+          }}
+          style={{ width: 160 }}
+          options={[
+            { value: 'all', label: '状态: 全部' },
+            { value: 'alerted', label: '已告警' },
+            { value: 'acknowledged', label: '已响应' },
+            { value: 'analyzing', label: '分析中' },
+            { value: 'resolved', label: '已解决' },
+            { value: 'archived', label: '已归档' },
           ]}
         />
       </div>
 
-      {/* 分析列表 */}
-      <Table<AnalysisType>
-        dataSource={filtered}
-        columns={columns}
-        rowKey="id"
-        size="small"
-        pagination={false}
-        onRow={(record) => ({
-          onClick: () => { setSelected(record); setDetailOpen(true); },
-          style: { cursor: 'pointer' },
-        })}
-        scroll={{ x: 900 }}
-      />
-
-      {/* 分析详情弹窗 */}
-      <Modal
-        title={selected ? `根因分析 - ${selected.incidentId}` : '根因分析'}
-        open={detailOpen}
-        onCancel={() => setDetailOpen(false)}
-        width={700}
-        footer={<Button onClick={() => setDetailOpen(false)}>关闭</Button>}
-      >
-        {selected && (
-          <div className="flex flex-col gap-4 mt-4">
-            <Descriptions column={2} size="small" bordered>
-              <Descriptions.Item label="根因分类" span={2}>
-                <Tag color={ROOT_CAUSE_CONFIG[selected.category].color} style={{ margin: 0 }}>
-                  {ROOT_CAUSE_CONFIG[selected.category].label}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="根因概述" span={2}>{selected.summary}</Descriptions.Item>
-              <Descriptions.Item label="详细分析" span={2}>
-                <span className="text-xs whitespace-pre-wrap">{selected.detail}</span>
-              </Descriptions.Item>
-              <Descriptions.Item label="影响范围" span={2}>
-                <span className="text-xs">{selected.impactScope}</span>
-              </Descriptions.Item>
-              <Descriptions.Item label="影响服务数">{selected.affectedServiceCount}</Descriptions.Item>
-              <Descriptions.Item label="影响用户数">{selected.affectedUserCount.toLocaleString()}</Descriptions.Item>
-            </Descriptions>
-
-            {/* 处置动作 */}
-            <Card size="small" title="处置动作" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }}>
-              {selected.actions.map((act) => (
-                <div key={act.id} className="flex items-center gap-3 py-2 border-b last:border-b-0" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }}>
-                  <Tag style={{ margin: 0 }}>{ACTION_TYPE_LABEL[act.type]}</Tag>
-                  <span className="text-sm flex-1">{act.description}</span>
-                  <Tag color={act.result === 'success' ? 'success' : act.result === 'failed' ? 'error' : 'warning'} style={{ margin: 0 }}>
-                    {act.result === 'success' ? '成功' : act.result === 'failed' ? '失败' : '部分成功'}
-                  </Tag>
-                  <span className="text-xs opacity-50">{act.operator}</span>
-                </div>
-              ))}
-            </Card>
-
-            {/* 预防措施 */}
-            <Card size="small" title="预防措施" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }}>
-              <pre className="text-xs whitespace-pre-wrap m-0 opacity-80">{selected.preventionPlan}</pre>
-            </Card>
-          </div>
-        )}
-      </Modal>
+      {error ? (
+        <Empty description={error} />
+      ) : (
+        <div ref={tableRef}>
+          <Table<Incident>
+            rowKey="id"
+            columns={columns}
+            dataSource={incidents}
+            loading={loading}
+            pagination={{
+              current: currentPage,
+              pageSize,
+              total,
+              showSizeChanger: true,
+              showQuickJumper: total > pageSize,
+              pageSizeOptions: ['10', '20', '50', '100'],
+              showTotal: (count, range) => `显示 ${range[0]}-${range[1]} 条，共 ${count} 条`,
+              onChange: (page, size) => {
+                const nextSize = size ?? pageSize;
+                if (nextSize !== pageSize) {
+                  setPageSize(nextSize);
+                  setCurrentPage(1);
+                  return;
+                }
+                setCurrentPage(page);
+              },
+              position: ['bottomLeft'],
+            }}
+            scroll={{ x: 1200 }}
+            locale={{ emptyText: loading ? '加载中...' : '暂无分析数据' }}
+          />
+        </div>
+      )}
     </div>
   );
 };

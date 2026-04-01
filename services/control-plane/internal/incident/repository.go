@@ -18,6 +18,7 @@ var (
 type IncidentFilters struct {
 	Status   string // open, acknowledged, investigating, resolved, closed
 	Severity string // critical, major, minor
+	Query    string // id, title, description, assignee, source alert, root cause, resolution, verdict
 }
 
 // Incident represents an incident entity.
@@ -105,6 +106,20 @@ func (r *RepositoryPG) ListIncidents(ctx context.Context, tenantID string, page,
 		if s := strings.TrimSpace(filters.Severity); s != "" {
 			where = append(where, fmt.Sprintf("severity = $%d", argIdx))
 			args = append(args, s)
+			argIdx++
+		}
+		if q := strings.ToLower(strings.TrimSpace(filters.Query)); q != "" {
+			where = append(where, fmt.Sprintf(`(
+				LOWER(id::text) LIKE $%d OR
+				LOWER(title) LIKE $%d OR
+				LOWER(COALESCE(description, '')) LIKE $%d OR
+				LOWER(COALESCE(source_alert_id::text, '')) LIKE $%d OR
+				LOWER(COALESCE(assigned_to::text, '')) LIKE $%d OR
+				LOWER(COALESCE(root_cause, '')) LIKE $%d OR
+				LOWER(COALESCE(resolution, '')) LIKE $%d OR
+				LOWER(COALESCE(verdict, '')) LIKE $%d
+			)`, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx))
+			args = append(args, "%"+q+"%")
 			argIdx++
 		}
 	}

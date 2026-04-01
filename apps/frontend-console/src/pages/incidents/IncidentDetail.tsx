@@ -15,6 +15,7 @@ import {
   resolveIncident,
   closeIncident,
   archiveIncident,
+  updateIncident,
 } from '../../api/incident';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
 
@@ -167,11 +168,38 @@ const TimelineTab: React.FC<{ incidentId: string; events: TimelineEvent[]; loadi
 // Tab 3: 根因分析面板（API 暂无，保留空状态）
 // ============================================================================
 
-const AnalysisTab: React.FC<{ incidentId: string }> = () => (
-  <Empty description="暂无根因分析记录">
-    <Button type="primary" icon={<span className="material-symbols-outlined text-sm">add</span>} disabled>新建分析（敬请期待）</Button>
-  </Empty>
-);
+const AnalysisTab: React.FC<{ incident: Incident; onEdit: () => void }> = ({ incident, onEdit }) => {
+  if (!incident.rootCause && !incident.resolution) {
+    return (
+      <Empty description="暂无根因分析记录">
+        <Button type="primary" icon={<span className="material-symbols-outlined text-sm">edit_note</span>} onClick={onEdit}>
+          补充根因分析
+        </Button>
+      </Empty>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Descriptions column={1} size="small" bordered>
+        <Descriptions.Item label="根因分析">
+          <span className="text-xs whitespace-pre-wrap">{incident.rootCause || '-'}</span>
+        </Descriptions.Item>
+        <Descriptions.Item label="处置方案">
+          <span className="text-xs whitespace-pre-wrap">{incident.resolution || '-'}</span>
+        </Descriptions.Item>
+        <Descriptions.Item label="最后更新时间">
+          {incident.updatedAt ? new Date(incident.updatedAt).toLocaleString('zh-CN') : '-'}
+        </Descriptions.Item>
+      </Descriptions>
+      <div>
+        <Button type="primary" icon={<span className="material-symbols-outlined text-sm">edit</span>} onClick={onEdit}>
+          编辑分析
+        </Button>
+      </div>
+    </div>
+  );
+};
 
 // ============================================================================
 // Tab 4: 归档面板（已归档时显示 verdict）
@@ -211,6 +239,9 @@ const IncidentDetail: React.FC = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
   const [archiveVerdict, setArchiveVerdict] = useState('');
+  const [analysisModalOpen, setAnalysisModalOpen] = useState(false);
+  const [analysisRootCause, setAnalysisRootCause] = useState('');
+  const [analysisResolution, setAnalysisResolution] = useState('');
 
   const loadDetail = useCallback(async () => {
     if (!id) return;
@@ -265,6 +296,33 @@ const IncidentDetail: React.FC = () => {
       setActionLoading(false);
     }
   }, [loadDetail, loadTimeline]);
+
+  const openAnalysisEditor = useCallback(() => {
+    setAnalysisRootCause(incident?.rootCause || '');
+    setAnalysisResolution(incident?.resolution || '');
+    setAnalysisModalOpen(true);
+  }, [incident]);
+
+  const handleSaveAnalysis = useCallback(async () => {
+    if (!id) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await updateIncident(id, {
+        root_cause: analysisRootCause.trim(),
+        resolution: analysisResolution.trim(),
+      });
+      message.success('根因分析已保存');
+      setAnalysisModalOpen(false);
+      await loadDetail();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '保存根因分析失败';
+      message.error(msg);
+    } finally {
+      setActionLoading(false);
+    }
+  }, [analysisResolution, analysisRootCause, id, loadDetail]);
 
   const handleArchive = useCallback(async () => {
     if (!id || !archiveVerdict.trim()) {
@@ -387,7 +445,7 @@ const IncidentDetail: React.FC = () => {
                 <span className="material-symbols-outlined text-sm">biotech</span> 根因分析
               </span>
             ),
-            children: <AnalysisTab incidentId={incident.id} />,
+            children: <AnalysisTab incident={incident} onEdit={openAnalysisEditor} />,
           },
           {
             key: 'archive',
@@ -400,6 +458,37 @@ const IncidentDetail: React.FC = () => {
           },
         ]}
       />
+
+      <Modal
+        title="编辑根因分析"
+        open={analysisModalOpen}
+        onCancel={() => setAnalysisModalOpen(false)}
+        onOk={() => { void handleSaveAnalysis(); }}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={actionLoading}
+      >
+        <div className="flex flex-col gap-4 py-2">
+          <div>
+            <div className="text-sm mb-2">根因分析</div>
+            <Input.TextArea
+              value={analysisRootCause}
+              onChange={(event) => setAnalysisRootCause(event.target.value)}
+              placeholder="例如：Kafka 消费配置不合理导致消息积压"
+              rows={4}
+            />
+          </div>
+          <div>
+            <div className="text-sm mb-2">处置方案</div>
+            <Input.TextArea
+              value={analysisResolution}
+              onChange={(event) => setAnalysisResolution(event.target.value)}
+              placeholder="例如：调整配置并扩容消费者实例"
+              rows={4}
+            />
+          </div>
+        </div>
+      </Modal>
 
       {/* 归档弹窗 */}
       <Modal
