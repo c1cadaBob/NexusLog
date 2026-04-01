@@ -64,6 +64,8 @@ make e2e-smoke-ci
 >
 > 如目标环境的登录账号不是默认演示账号，可显式设置 `E2E_LOGIN_USERNAME` 与 `E2E_LOGIN_PASSWORD`；GitHub Actions 手动工作流 `Playwright Regression Suites` 也会透传这两个环境变量。
 >
+> `tests/auth.spec.js` 中的注册用例会在断言完成后自动清理自己创建的 `e2e_reg_*` 测试账号；如历史环境已残留 `e2e_login_* / e2e_reg_* / e2e_reset_*` 账号，可在仓库根目录执行 `scripts/cleanup-e2e-users.sh --dry-run` 或 `scripts/cleanup-e2e-users.sh --apply` 进行治理。
+>
 > Playwright 入口现在会先执行一次本地租户自校验：若未显式传入 `E2E_TENANT_ID`，会调用仓库根目录下的 `scripts/local/ensure-local-tenant-config.sh`，自动修正 `./.runtime/tenant/local-tenant-id` 与 `app-config.local.json` 的漂移问题，再把修正后的租户注入测试进程。
 >
 > 优先级如下：`E2E_TENANT_ID` > 自动同步结果 > `INGEST_DEFAULT_TENANT_ID` > `./.runtime/tenant/local-tenant-id`。

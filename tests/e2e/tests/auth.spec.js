@@ -3,6 +3,7 @@ const { test, expect } = require("@playwright/test");
 // 认证接口要求租户头；前端会从 localStorage 读取该值并透传到 X-Tenant-ID。
 const { resolveE2ETenantId } = require("./support/runtimeTenant");
 const { E2E_LOGIN_USERNAME, E2E_LOGIN_PASSWORD } = require("./support/runtimeUser");
+const { purgeRuntimeTestUserById } = require("./support/runtimeUserCleanup");
 
 const TENANT_ID = resolveE2ETenantId();
 const REGISTER_ACCEPTABLE_STATUSES = [200, 201, 429];
@@ -27,38 +28,47 @@ test.describe("认证功能链路", () => {
     const username = `e2e_reg_${suffix}`;
     const email = `e2e_reg_${suffix}@example.com`;
     const password = "Password123";
+    let createdUserId = "";
 
-    await page.goto("/#/register");
-    await expect(page.getByRole("heading", { name: "创建账号" })).toBeVisible();
+    try {
+      await page.goto("/#/register");
+      await expect(page.getByRole("heading", { name: "创建账号" })).toBeVisible();
 
-    await page.getByLabel("用户名").fill(username);
-    await page.getByLabel("邮箱").fill(email);
-    await page.getByPlaceholder("请输入密码（至少 8 位）").fill(password);
-    await page.getByPlaceholder("请再次输入密码").fill(password);
-    await page.getByRole("checkbox", { name: /我已阅读并同意/ }).check();
+      await page.getByLabel("用户名").fill(username);
+      await page.getByLabel("邮箱").fill(email);
+      await page.getByPlaceholder("请输入密码（至少 8 位）").fill(password);
+      await page.getByPlaceholder("请再次输入密码").fill(password);
+      await page.getByRole("checkbox", { name: /我已阅读并同意/ }).check();
 
-    const submitButton = page.getByRole("button", { name: "创建账号" });
-    const [registerResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" && response.url().includes("/api/v1/auth/register"),
-        { timeout: 15000 },
-      ),
-      submitButton.click(),
-    ]);
+      const submitButton = page.getByRole("button", { name: "创建账号" });
+      const [registerResponse] = await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.request().method() === "POST" && response.url().includes("/api/v1/auth/register"),
+          { timeout: 15000 },
+        ),
+        submitButton.click(),
+      ]);
 
-    const status = registerResponse.status();
-    expect(REGISTER_ACCEPTABLE_STATUSES).toContain(status);
+      const status = registerResponse.status();
+      expect(REGISTER_ACCEPTABLE_STATUSES).toContain(status);
 
-    if (status === 429) {
       const body = await registerResponse.json().catch(() => null);
-      expect(body?.code).toBe("AUTH_REGISTER_RATE_LIMITED");
-      await expect(page).toHaveURL(/#\/register$/);
-      return;
-    }
+      if (status === 429) {
+        expect(body?.code).toBe("AUTH_REGISTER_RATE_LIMITED");
+        await expect(page).toHaveURL(/#\/register$/);
+        return;
+      }
 
-    await expect(page).toHaveURL(/#\/login$/, { timeout: 10000 });
-    await expect(page.locator("#login-username")).toBeVisible();
+      createdUserId = body?.data?.user_id || "";
+      expect(createdUserId).toBeTruthy();
+      await expect(page).toHaveURL(/#\/login$/, { timeout: 10000 });
+      await expect(page.locator("#login-username")).toBeVisible();
+    } finally {
+      if (createdUserId) {
+        purgeRuntimeTestUserById({ tenantId: TENANT_ID, userId: createdUserId, username });
+      }
+    }
   });
 
   test("登录", async ({ page }) => {
