@@ -161,13 +161,7 @@ func (h *ChannelHandler) ListChannels(c *gin.Context) {
 		pageSize = 20
 	}
 
-	readScope, err := cpMiddleware.ResolveTenantReadScope(c.Request.Context(), tenantID, cpMiddleware.AuthenticatedUserID(c), h.repo)
-	if err != nil {
-		h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to authorize request", nil)
-		return
-	}
-
-	items, total, err := h.repo.ListChannelsForScope(c.Request.Context(), readScope, page, pageSize)
+	items, total, err := h.repo.ListChannels(c.Request.Context(), tenantID, page, pageSize)
 	if err != nil {
 		h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to list channels", nil)
 		return
@@ -190,13 +184,7 @@ func (h *ChannelHandler) GetChannel(c *gin.Context) {
 		return
 	}
 
-	readScope, err := cpMiddleware.ResolveTenantReadScope(c.Request.Context(), tenantID, cpMiddleware.AuthenticatedUserID(c), h.repo)
-	if err != nil {
-		h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to authorize request", nil)
-		return
-	}
-
-	ch, err := h.repo.GetChannelForScope(c.Request.Context(), readScope, id)
+	ch, err := h.repo.GetChannel(c.Request.Context(), tenantID, id)
 	if err != nil {
 		if err == ErrChannelNotFound {
 			h.writeError(c, http.StatusNotFound, ErrorCodeNotFound, "channel not found", nil)

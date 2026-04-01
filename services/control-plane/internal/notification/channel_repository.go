@@ -257,7 +257,7 @@ func (r *ChannelRepository) UpdateChannel(ctx context.Context, tenantID, id stri
 	}
 
 	updates := []string{"updated_at = now()"}
-	args := []interface{}{tenantID, id}
+	args := []interface{}{id, tenantID}
 	argIdx := 3
 	if name != nil {
 		updates = append(updates, fmt.Sprintf("name = $%d", argIdx))

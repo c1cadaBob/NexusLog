@@ -38,7 +38,7 @@ func newChannelTestRouter(handler *ChannelHandler) *gin.Engine {
 	return router
 }
 
-func TestChannelHandler_GetChannel_GlobalTenantRead(t *testing.T) {
+func TestChannelHandler_GetChannel_TenantScoped(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
@@ -49,24 +49,10 @@ func TestChannelHandler_GetChannel_GlobalTenantRead(t *testing.T) {
 	router := newChannelTestRouter(handler)
 	now := time.Now().UTC()
 
-	mock.ExpectQuery(regexp.QuoteMeta(cpAuthorizationContextQuery)).
-		WithArgs("20000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001").
-		WillReturnRows(
-			sqlmock.NewRows([]string{"username", "name", "permissions"}).
-				AddRow("cross-tenant-reader", "viewer", []byte(`["notification.channel.read_metadata","all_tenants"]`)),
-		)
-	mock.ExpectQuery("FROM legacy_permission_mapping").
-		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
-	mock.ExpectQuery("FROM authz_version").
-		WithArgs("10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001").
-		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(1))
-	mock.ExpectQuery("FROM subject_reserved_policy").
-		WithArgs("10000000-0000-0000-0000-000000000001", "cross-tenant-reader").
-		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}))
 	mock.ExpectQuery("FROM notification_channels").
-		WithArgs("channel-1").
+		WithArgs("channel-1", "10000000-0000-0000-0000-000000000001").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "name", "type", "config", "enabled", "created_by", "created_at", "updated_at"}).
-			AddRow("channel-1", "00000000-0000-0000-0000-000000000002", "cross-tenant-channel", "email", []byte(`{"smtp_host":"smtp.example.com"}`), true, "user-1", now.Add(-time.Hour), now))
+			AddRow("channel-1", "10000000-0000-0000-0000-000000000001", "tenant-channel", "email", []byte(`{"smtp_host":"smtp.example.com"}`), true, "user-1", now.Add(-time.Hour), now))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/notification/channels/channel-1", nil)
 	req.Header.Set("X-Tenant-ID", "10000000-0000-0000-0000-000000000001")
@@ -82,7 +68,7 @@ func TestChannelHandler_GetChannel_GlobalTenantRead(t *testing.T) {
 	}
 }
 
-func TestChannelHandler_ListChannels_GlobalTenantRead(t *testing.T) {
+func TestChannelHandler_ListChannels_TenantScoped(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
@@ -93,26 +79,13 @@ func TestChannelHandler_ListChannels_GlobalTenantRead(t *testing.T) {
 	router := newChannelTestRouter(handler)
 	now := time.Now().UTC()
 
-	mock.ExpectQuery(regexp.QuoteMeta(cpAuthorizationContextQuery)).
-		WithArgs("20000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001").
-		WillReturnRows(
-			sqlmock.NewRows([]string{"username", "name", "permissions"}).
-				AddRow("cross-tenant-reader", "viewer", []byte(`["notification.channel.read_metadata","all_tenants"]`)),
-		)
-	mock.ExpectQuery("FROM legacy_permission_mapping").
-		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
-	mock.ExpectQuery("FROM authz_version").
-		WithArgs("10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000001").
-		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(1))
-	mock.ExpectQuery("FROM subject_reserved_policy").
-		WithArgs("10000000-0000-0000-0000-000000000001", "cross-tenant-reader").
-		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}))
-	mock.ExpectQuery("SELECT COUNT\\(1\\) FROM notification_channels$").
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(1) FROM notification_channels WHERE tenant_id = $1::uuid`)).
+		WithArgs("10000000-0000-0000-0000-000000000001").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery("FROM notification_channels").
-		WithArgs(0, 20).
+		WithArgs("10000000-0000-0000-0000-000000000001", 0, 20).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "name", "type", "config", "enabled", "created_by", "created_at", "updated_at"}).
-			AddRow("channel-1", "00000000-0000-0000-0000-000000000002", "cross-tenant-channel", "email", []byte(`{"smtp_host":"smtp.example.com"}`), true, "user-1", now.Add(-time.Hour), now))
+			AddRow("channel-1", "10000000-0000-0000-0000-000000000001", "tenant-channel", "email", []byte(`{"smtp_host":"smtp.example.com"}`), true, "user-1", now.Add(-time.Hour), now))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/notification/channels", nil)
 	req.Header.Set("X-Tenant-ID", "10000000-0000-0000-0000-000000000001")
@@ -136,6 +109,9 @@ func TestChannelHandler_ListChannels_GlobalTenantRead(t *testing.T) {
 	}
 	if body.Meta.Total != 1 || len(body.Data.Items) != 1 {
 		t.Fatalf("expected 1 channel, got total=%d items=%d", body.Meta.Total, len(body.Data.Items))
+	}
+	if body.Data.Items[0].TenantID != "10000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected tenant-scoped result, got tenant=%s", body.Data.Items[0].TenantID)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("expectations: %v", err)
