@@ -292,22 +292,14 @@ const RolePermissions: React.FC = () => {
         </Card>
       </div>
 
-      {!loadError ? (
-        <div style={{ padding: '12px 24px 0', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {!loadError && actionAccess.isViewOnly ? (
+        <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
           <Alert
             showIcon
             type="info"
-            message="角色治理说明"
-            description="系统保留角色仍会在当前页面展示，便于审计与查看；但它们不会出现在“用户管理”的可分配角色下拉中。"
+            message="当前会话为查看模式"
+            description="你可以查看角色和权限详情，但复制完整权限列表需要额外的角色权限复制能力。"
           />
-          {actionAccess.isViewOnly ? (
-            <Alert
-              showIcon
-              type="info"
-              message="当前会话为查看模式"
-              description="你可以查看角色和权限详情，但复制完整权限列表需要额外的角色权限复制能力。"
-            />
-          ) : null}
         </div>
       ) : null}
 
