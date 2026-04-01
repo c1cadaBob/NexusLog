@@ -38,9 +38,13 @@ import {
 } from '../../api/user';
 import {
   getAssignableRoles,
+  getUserGovernanceNotice,
   isProtectedRole,
   isProtectedUser,
+  isTestGovernanceUser,
   protectedGovernanceTagLabel,
+  resolveUserGovernanceTags,
+  testGovernanceTagLabel,
 } from './securityGovernance';
 import {
   canApplyPrimaryRoleChange,
@@ -109,6 +113,23 @@ function renderRoleTags(roles: RoleData[] | undefined, limit = 2) {
         </Tag>
       ))}
       {safeRoles.length > limit ? <Tag color="default">+{safeRoles.length - limit}</Tag> : null}
+    </Space>
+  );
+}
+
+function renderUserGovernanceTags(user?: Pick<UserData, 'username' | 'roles'> | null) {
+  const governanceTags = resolveUserGovernanceTags(user);
+  if (governanceTags.length === 0) {
+    return <span style={{ color: '#94a3b8' }}>-</span>;
+  }
+
+  return (
+    <Space size={4} wrap>
+      {governanceTags.map((tag) => (
+        <Tooltip key={tag.key} title={tag.description}>
+          <Tag color={tag.color}>{tag.label}</Tag>
+        </Tooltip>
+      ))}
     </Space>
   );
 }
@@ -273,6 +294,8 @@ const UserManagement: React.FC = () => {
   const activeUsersCount = users.filter((user) => user.status === 'active').length;
   const disabledUsersCount = users.filter((user) => user.status === 'disabled').length;
   const identifiedRoleUsersCount = users.filter((user) => (user.roles?.length ?? 0) > 0).length;
+  const protectedUsersCount = users.filter((user) => isProtectedUser(user)).length;
+  const testUsersCount = users.filter((user) => isTestGovernanceUser(user)).length;
   const selectedActiveCount = selectedUsers.filter((user) => user.status === 'active').length;
   const selectedDisabledCount = selectedUsers.filter((user) => user.status === 'disabled').length;
   const canOpenCreateUserModal = actionAccess.canCreateUser;
@@ -284,6 +307,7 @@ const UserManagement: React.FC = () => {
   const currentPageSummary = filtersActive
     ? `当前筛选页返回 ${users.length} 条；后端命中 ${total} 条`
     : `当前页已加载 ${users.length} 条；后端总数 ${total} 条`;
+  const governanceSummary = `当前页识别到 ${protectedUsersCount} 个${protectedGovernanceTagLabel}、${testUsersCount} 个${testGovernanceTagLabel}`;
 
   const refreshPageData = useCallback(async () => {
     clearSelection();
@@ -578,7 +602,11 @@ const UserManagement: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 500 }}>{getUserDisplayName(record)}</span>
               {record.id === currentSessionUserId ? <Tag color="success">当前登录</Tag> : null}
-              {isProtectedUser(record) ? <Tag color="magenta">{protectedGovernanceTagLabel}</Tag> : null}
+              {resolveUserGovernanceTags(record).map((tag) => (
+                <Tooltip key={tag.key} title={tag.description}>
+                  <Tag color={tag.color}>{tag.label}</Tag>
+                </Tooltip>
+              ))}
             </div>
             <div style={{ fontSize: 12, color: palette.textSecondary }}>{record.username}</div>
             <div style={{ fontSize: 12, color: palette.textSecondary, fontFamily: 'JetBrains Mono, monospace' }}>
@@ -800,7 +828,7 @@ const UserManagement: React.FC = () => {
         style={{
           padding: '16px 24px 0',
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
           gap: 16,
           flexShrink: 0,
         }}
@@ -846,6 +874,28 @@ const UserManagement: React.FC = () => {
             </div>
             <div style={{ padding: 8, borderRadius: 8, background: `${COLORS.purple}15`, color: COLORS.purple }}>
               <span className="material-symbols-outlined">shield</span>
+            </div>
+          </div>
+        </Card>
+        <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: 13, color: palette.textSecondary }}>{protectedGovernanceTagLabel}</div>
+              <div style={{ fontSize: 28, fontWeight: 700 }}>{protectedUsersCount}</div>
+            </div>
+            <div style={{ padding: 8, borderRadius: 8, background: '#eb2f9615', color: '#eb2f96' }}>
+              <span className="material-symbols-outlined">admin_panel_settings</span>
+            </div>
+          </div>
+        </Card>
+        <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: 13, color: palette.textSecondary }}>{testGovernanceTagLabel}</div>
+              <div style={{ fontSize: 28, fontWeight: 700 }}>{testUsersCount}</div>
+            </div>
+            <div style={{ padding: 8, borderRadius: 8, background: `${COLORS.warning}15`, color: COLORS.warning }}>
+              <span className="material-symbols-outlined">science</span>
             </div>
           </div>
         </Card>
@@ -929,7 +979,7 @@ const UserManagement: React.FC = () => {
             showIcon
             type="info"
             message={currentPageSummary}
-            description={filtersActive ? '搜索与筛选已切换为服务端查询；角色显示仍通过详情接口回填。' : '角色显示已通过详情接口回填。'}
+            description={`${filtersActive ? '搜索与筛选已切换为服务端查询；角色显示仍通过详情接口回填。' : '角色显示已通过详情接口回填。'} ${governanceSummary}`}
           />
         )}
       </div>
@@ -1196,12 +1246,12 @@ const UserManagement: React.FC = () => {
           <Result status="warning" title="加载用户详情失败" subTitle={detailError.message} extra={<Button onClick={() => detailUser && void openDetailDrawer(detailUser)}>重试</Button>} />
         ) : detailUser ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {isProtectedUser(detailUser) ? (
+            {getUserGovernanceNotice(detailUser) ? (
               <Alert
                 showIcon
-                type="info"
-                message="系统保留账号"
-                description="该账号由系统治理规则保护，仅用于平台管理或自动化审计归因，不支持在当前页面修改状态或角色。"
+                type={getUserGovernanceNotice(detailUser)?.type}
+                message={getUserGovernanceNotice(detailUser)?.message}
+                description={getUserGovernanceNotice(detailUser)?.description}
               />
             ) : null}
             <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
@@ -1216,6 +1266,7 @@ const UserManagement: React.FC = () => {
                 <Descriptions.Item label="状态">
                   <Tag color={detailUser.status === 'active' ? 'success' : 'default'}>{getStatusLabel(detailUser.status)}</Tag>
                 </Descriptions.Item>
+                <Descriptions.Item label="治理标签">{renderUserGovernanceTags(detailUser)}</Descriptions.Item>
                 <Descriptions.Item label="角色">{renderRoleTags(detailUser.roles, 6)}</Descriptions.Item>
                 <Descriptions.Item label="用户 ID">
                   <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{detailUser.id}</span>
