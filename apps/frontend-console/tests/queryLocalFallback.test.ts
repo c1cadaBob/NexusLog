@@ -26,7 +26,7 @@ vi.mock('../src/config/runtime-config', () => ({
   }),
 }));
 
-import { fetchAggregateStats, fetchDashboardOverview, queryRealtimeLogs } from '../src/api/query';
+import { fetchAggregateStats, fetchAnomalyStats, fetchDashboardOverview, queryRealtimeLogs } from '../src/api/query';
 import { ACCESS_TOKEN_KEY, TOKEN_EXPIRES_AT_KEY } from '../src/utils/authStorage';
 
 describe('query api emergency fallback', () => {
@@ -163,5 +163,53 @@ describe('query api emergency fallback', () => {
     expect(result.total).toBe(10000);
     expect(result.totalIsLowerBound).toBe(true);
     expect(result.hasNext).toBe(true);
+  });
+
+  it('falls back to aggregate-derived anomaly stats when anomaly endpoint is temporarily unavailable', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, 'standard-demo-token');
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          code: 'QUERY_SERVICE_UNAVAILABLE',
+          message: 'search backend is temporarily unavailable',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'ok',
+          data: {
+            buckets: [
+              { key: '2026-04-01T00:00:00Z', count: 100 },
+              { key: '2026-04-01T01:00:00Z', count: 110 },
+              { key: '2026-04-01T02:00:00Z', count: 95 },
+              { key: '2026-04-01T03:00:00Z', count: 105 },
+              { key: '2026-04-01T04:00:00Z', count: 520 },
+              { key: '2026-04-01T05:00:00Z', count: 98 },
+            ],
+          },
+        }),
+      } as Response);
+
+    const result = await fetchAnomalyStats({
+      timeRange: '24h',
+      filters: { service: 'audit.log' },
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain('/api/v1/query/stats/anomalies');
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[1]?.[0])).toContain('/api/v1/query/stats/aggregate');
+    expect(result.trend.length).toBe(6);
+    expect(result.summary.total_anomalies).toBeGreaterThan(0);
+    expect(result.anomalies[0]).toEqual(expect.objectContaining({
+      title: '日志量激增',
+      service: 'audit.log',
+      metric: 'log_volume',
+    }));
   });
 });

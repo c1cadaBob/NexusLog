@@ -1455,46 +1455,10 @@ function resolveAnomalyStatus(timestamp: string): DetectedAnomaly['status'] {
   return Date.now() - ts <= 2 * 60 * 60 * 1000 ? 'active' : 'investigating';
 }
 
-function buildLocalAnomalyStats(params: FetchAnomalyStatsParams): FetchAnomalyStatsResult {
-  const timeRange = resolveAnomalyTimeRange(params.timeRange);
-  const logs = filterLocalDemoLogs({
-    keywords: params.keywords,
-    filters: params.filters,
-    timeRange,
-  });
-  const from = new Date(timeRange.from);
-  const to = new Date(timeRange.to);
-  const bucketSize = resolveAnomalyBucketSize(params.timeRange);
-  const buckets: Array<{ time: string; actual: number; errorCount: number }> = [];
-
-  for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += bucketSize) {
-    const time = new Date(cursor).toISOString();
-    buckets.push({ time, actual: 0, errorCount: 0 });
-  }
-
-  logs.forEach((log) => {
-    const ts = Date.parse(log.timestamp);
-    if (Number.isNaN(ts)) {
-      return;
-    }
-    const normalized = Math.floor((ts - from.getTime()) / bucketSize);
-    if (normalized < 0 || normalized >= buckets.length) {
-      return;
-    }
-    buckets[normalized].actual += 1;
-    if (['error', 'fatal', 'warn'].includes(log.level)) {
-      buckets[normalized].errorCount += 1;
-    }
-  });
-
-  const dominantService = logs.reduce<{ service: string; count: number }>((best, log) => {
-    const current = logs.filter((item) => item.service === log.service).length;
-    if (current > best.count) {
-      return { service: log.service || '全局', count: current };
-    }
-    return best;
-  }, { service: '全局', count: 0 }).service || '全局';
-
+function buildAnomalyStatsFromBuckets(
+  buckets: Array<{ time: string; actual: number; errorCount: number }>,
+  dominantService: string,
+): FetchAnomalyStatsResult {
   const actualValues = buckets.map((bucket) => bucket.actual);
   const errorRates = buckets.map((bucket) => (bucket.actual > 0 ? (bucket.errorCount / bucket.actual) * 100 : 0));
   const globalActualStats = computeMeanAndStd(actualValues);
@@ -1593,6 +1557,81 @@ function buildLocalAnomalyStats(params: FetchAnomalyStatsParams): FetchAnomalySt
   };
 }
 
+function resolveFallbackAnomalyService(filters?: Record<string, unknown>): string {
+  const candidate = typeof filters?.service === 'string' ? filters.service.trim() : '';
+  return candidate || '全局';
+}
+
+function resolveAggregateGroupByForAnomalyTimeRange(timeRange: FetchAnomalyStatsParams['timeRange']): FetchAggregateStatsParams['groupBy'] {
+  switch (timeRange) {
+    case '1h':
+    case '6h':
+      return 'minute';
+    case '24h':
+    case '7d':
+    default:
+      return 'hour';
+  }
+}
+
+function buildAggregateBackedAnomalyStats(
+  buckets: AggregateBucket[],
+  dominantService: string,
+): FetchAnomalyStatsResult {
+  const normalizedBuckets = [...buckets]
+    .map((bucket) => ({
+      time: bucket.key,
+      actual: Math.max(0, Number(bucket.count || 0)),
+      errorCount: 0,
+    }))
+    .sort((left, right) => left.time.localeCompare(right.time));
+
+  return buildAnomalyStatsFromBuckets(normalizedBuckets, dominantService);
+}
+
+function buildLocalAnomalyStats(params: FetchAnomalyStatsParams): FetchAnomalyStatsResult {
+  const timeRange = resolveAnomalyTimeRange(params.timeRange);
+  const logs = filterLocalDemoLogs({
+    keywords: params.keywords,
+    filters: params.filters,
+    timeRange,
+  });
+  const from = new Date(timeRange.from);
+  const to = new Date(timeRange.to);
+  const bucketSize = resolveAnomalyBucketSize(params.timeRange);
+  const buckets: Array<{ time: string; actual: number; errorCount: number }> = [];
+
+  for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += bucketSize) {
+    const time = new Date(cursor).toISOString();
+    buckets.push({ time, actual: 0, errorCount: 0 });
+  }
+
+  logs.forEach((log) => {
+    const ts = Date.parse(log.timestamp);
+    if (Number.isNaN(ts)) {
+      return;
+    }
+    const normalized = Math.floor((ts - from.getTime()) / bucketSize);
+    if (normalized < 0 || normalized >= buckets.length) {
+      return;
+    }
+    buckets[normalized].actual += 1;
+    if (['error', 'fatal', 'warn'].includes(log.level)) {
+      buckets[normalized].errorCount += 1;
+    }
+  });
+
+  const dominantService = logs.reduce<{ service: string; count: number }>((best, log) => {
+    const current = logs.filter((item) => item.service === log.service).length;
+    if (current > best.count) {
+      return { service: log.service || '全局', count: current };
+    }
+    return best;
+  }, { service: '全局', count: 0 }).service || '全局';
+
+  return buildAnomalyStatsFromBuckets(buckets, dominantService);
+}
+
 function shouldFallbackToLocalStore(error: unknown): boolean {
   if (shouldUseEmergencyQueryFallback() && error instanceof QueryApiAuthError) {
     return true;
@@ -1603,6 +1642,16 @@ function shouldFallbackToLocalStore(error: unknown): boolean {
   if (error instanceof QueryApiAuthError) {
     return true;
   }
+  if (!(error instanceof QueryApiRequestError)) {
+    return false;
+  }
+  if (error.status >= 500 || error.status === 404) {
+    return true;
+  }
+  return error.code === 'QUERY_SERVICE_UNAVAILABLE' || error.code === 'QUERY_INTERNAL_ERROR';
+}
+
+function shouldFallbackToAggregateDerivedAnomalyStats(error: unknown): boolean {
   if (!(error instanceof QueryApiRequestError)) {
     return false;
   }
@@ -2275,6 +2324,20 @@ export async function fetchAnomalyStats(params: FetchAnomalyStatsParams): Promis
   } catch (error) {
     if (shouldFallbackToLocalStore(error)) {
       return buildLocalAnomalyStats(params);
+    }
+    if (shouldFallbackToAggregateDerivedAnomalyStats(error)) {
+      try {
+        const aggregateResult = await fetchAggregateStats({
+          groupBy: resolveAggregateGroupByForAnomalyTimeRange(params.timeRange),
+          timeRange: params.timeRange,
+          keywords: params.keywords,
+          filters: params.filters,
+          signal: params.signal,
+        });
+        return buildAggregateBackedAnomalyStats(aggregateResult.buckets, resolveFallbackAnomalyService(params.filters));
+      } catch {
+        throw error;
+      }
     }
     throw error;
   }
