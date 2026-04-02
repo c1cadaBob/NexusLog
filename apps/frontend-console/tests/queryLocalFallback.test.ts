@@ -26,7 +26,7 @@ vi.mock('../src/config/runtime-config', () => ({
   }),
 }));
 
-import { fetchAggregateStats, fetchAnomalyStats, fetchDashboardOverview, queryRealtimeLogs } from '../src/api/query';
+import { fetchAggregateStats, fetchAnomalyStats, fetchDashboardOverview, fetchLogClusters, queryRealtimeLogs } from '../src/api/query';
 import { ACCESS_TOKEN_KEY, TOKEN_EXPIRES_AT_KEY } from '../src/utils/authStorage';
 
 describe('query api emergency fallback', () => {
@@ -163,6 +163,114 @@ describe('query api emergency fallback', () => {
     expect(result.total).toBe(10000);
     expect(result.totalIsLowerBound).toBe(true);
     expect(result.hasNext).toBe(true);
+  });
+
+  it('falls back to realtime-log-derived aggregate stats when aggregate endpoint is temporarily unavailable', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, 'standard-demo-token');
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          code: 'QUERY_SERVICE_UNAVAILABLE',
+          message: 'search backend is temporarily unavailable',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'ok',
+          data: {
+            hits: [
+              { id: 'agg-1', timestamp: '2026-04-01T00:00:00Z', level: 'error', service: 'audit.log', message: 'failure 1', fields: {} },
+              { id: 'agg-2', timestamp: '2026-04-01T00:05:00Z', level: 'error', service: 'audit.log', message: 'failure 2', fields: {} },
+              { id: 'agg-3', timestamp: '2026-04-01T00:10:00Z', level: 'warn', service: 'audit.log', message: 'warning 1', fields: {} },
+              { id: 'agg-4', timestamp: '2026-04-01T00:15:00Z', level: 'info', service: 'audit.log', message: 'info 1', fields: {} },
+            ],
+          },
+          meta: {
+            total: 4,
+            page: 1,
+            page_size: 4,
+            has_next: false,
+            query_time_ms: 25,
+            timed_out: false,
+          },
+        }),
+      } as Response);
+
+    const result = await fetchAggregateStats({
+      groupBy: 'level',
+      timeRange: '24h',
+      filters: { service: 'audit.log' },
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain('/api/v1/query/stats/aggregate');
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[1]?.[0])).toContain('/api/v1/query/logs');
+    expect(result.buckets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'error', count: 2 }),
+      expect.objectContaining({ key: 'warn', count: 1 }),
+      expect.objectContaining({ key: 'info', count: 1 }),
+    ]));
+  });
+
+  it('falls back to realtime-log-derived clusters when clustering endpoint is temporarily unavailable', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, 'standard-demo-token');
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          code: 'QUERY_SERVICE_UNAVAILABLE',
+          message: 'search backend is temporarily unavailable',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'ok',
+          data: {
+            hits: [
+              { id: 'cluster-1', timestamp: '2026-04-01T00:00:00Z', level: 'error', service: 'auth-api', host: 'node-1', message: 'user alice login failed from 10.0.0.1', fields: {} },
+              { id: 'cluster-2', timestamp: '2026-04-01T00:01:00Z', level: 'error', service: 'auth-api', host: 'node-1', message: 'user bob login failed from 10.0.0.2', fields: {} },
+              { id: 'cluster-3', timestamp: '2026-04-01T00:02:00Z', level: 'error', service: 'auth-api', host: 'node-2', message: 'user carol login failed from 10.0.0.3', fields: {} },
+            ],
+          },
+          meta: {
+            total: 3,
+            page: 1,
+            page_size: 3,
+            has_next: false,
+            query_time_ms: 18,
+            timed_out: false,
+          },
+        }),
+      } as Response);
+
+    const result = await fetchLogClusters({
+      timeRange: '24h',
+      filters: { service: 'auth-api' },
+      sampleSize: 200,
+      limit: 10,
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain('/api/v1/query/stats/clusters');
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[1]?.[0])).toContain('/api/v1/query/logs');
+    expect(result.summary.analyzed_logs_total).toBe(3);
+    expect(result.summary.unique_patterns).toBeGreaterThan(0);
+    expect(result.patterns[0]).toEqual(expect.objectContaining({
+      level: 'error',
+      occurrences: 3,
+    }));
+    expect(result.patterns[0]?.template).toContain('user {USER_ID}');
   });
 
   it('falls back to aggregate-derived anomaly stats when anomaly endpoint is temporarily unavailable', async () => {

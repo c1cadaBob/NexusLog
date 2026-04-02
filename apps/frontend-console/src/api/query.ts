@@ -1127,19 +1127,16 @@ const CLUSTER_IDENTIFIER_PATTERN = /\b[a-f0-9]{12,}\b/gi;
 const CLUSTER_LONG_NUMBER_PATTERN = /\b\d{3,}\b/g;
 const CLUSTER_PLACEHOLDER_PATTERN = /\{[A-Z_]+\}/g;
 
-function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggregateStatsResult {
-  const logs = filterLocalDemoLogs({
-    keywords: params.keywords,
-    filters: params.filters,
-    timeRange: resolveAggregateTimeRange(params.timeRange),
-  });
+function buildAggregateStatsFromLogs(
+  logs: LogEntry[],
+  groupBy: FetchAggregateStatsParams['groupBy'],
+): FetchAggregateStatsResult {
   const buckets = new Map<string, number>();
-
   const sourceBucketMeta = new Map<string, { label: string; host: string; service: string }>();
 
   logs.forEach((log) => {
     let key = '';
-    switch (params.groupBy) {
+    switch (groupBy) {
       case 'level':
         key = log.level;
         break;
@@ -1154,12 +1151,22 @@ function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggre
         });
         break;
       }
-      case 'hour':
-        key = truncateDateToHour(new Date(log.timestamp)).toISOString();
+      case 'hour': {
+        const timestamp = new Date(log.timestamp);
+        if (Number.isNaN(timestamp.getTime())) {
+          return;
+        }
+        key = truncateDateToHour(timestamp).toISOString();
         break;
-      case 'minute':
-        key = truncateDateToMinute(new Date(log.timestamp)).toISOString();
+      }
+      case 'minute': {
+        const timestamp = new Date(log.timestamp);
+        if (Number.isNaN(timestamp.getTime())) {
+          return;
+        }
+        key = truncateDateToMinute(timestamp).toISOString();
         break;
+      }
       default:
         key = '-';
     }
@@ -1167,7 +1174,7 @@ function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggre
   });
 
   const items = Array.from(buckets.entries()).map(([key, count]) => {
-    if (params.groupBy !== 'source') {
+    if (groupBy !== 'source') {
       return { key, count };
     }
     const sourceMeta = sourceBucketMeta.get(key);
@@ -1179,12 +1186,23 @@ function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggre
       service: sourceMeta?.service,
     };
   });
-  if (params.groupBy === 'hour' || params.groupBy === 'minute') {
+
+  if (groupBy === 'hour' || groupBy === 'minute') {
     items.sort((left, right) => left.key.localeCompare(right.key));
   } else {
     items.sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
   }
+
   return { buckets: items };
+}
+
+function buildLocalAggregateStats(params: FetchAggregateStatsParams): FetchAggregateStatsResult {
+  const logs = filterLocalDemoLogs({
+    keywords: params.keywords,
+    filters: params.filters,
+    timeRange: resolveAggregateTimeRange(params.timeRange),
+  });
+  return buildAggregateStatsFromLogs(logs, params.groupBy);
 }
 
 function resolveClusterTimeRange(timeRange: FetchLogClustersParams['timeRange']): { from: string; to: string } {
@@ -1293,16 +1311,15 @@ function estimateLocalClusterSimilarity(template: string): number {
   return Math.max(72, Math.min(100, score));
 }
 
-function buildLocalLogClusters(params: FetchLogClustersParams): FetchLogClustersResult {
+function buildLogClustersFromLogs(
+  logs: LogEntry[],
+  params: Pick<FetchLogClustersParams, 'timeRange' | 'limit' | 'sampleSize'>,
+  analyzedLogsTotal = logs.length,
+): FetchLogClustersResult {
   const timeRange = resolveClusterTimeRange(params.timeRange);
-  const allLogs = filterLocalDemoLogs({
-    keywords: params.keywords,
-    filters: params.filters,
-    timeRange,
-  });
   const sampleSize = Math.max(1, Math.min(params.sampleSize ?? 400, 1000));
   const limit = Math.max(1, Math.min(params.limit ?? 20, 50));
-  const sampledLogs = allLogs.slice(0, sampleSize);
+  const sampledLogs = logs.slice(0, sampleSize);
   const from = new Date(timeRange.from);
   const to = new Date(timeRange.to);
   const patternMap = new Map<string, {
@@ -1371,13 +1388,23 @@ function buildLocalLogClusters(params: FetchLogClustersParams): FetchLogClusters
 
   return {
     summary: {
-      analyzed_logs_total: allLogs.length,
+      analyzed_logs_total: Math.max(logs.length, Number.isFinite(analyzedLogsTotal) ? analyzedLogsTotal : logs.length),
       sampled_logs: sampledLogs.length,
       unique_patterns: patternMap.size,
       new_patterns_today: patterns.filter((pattern) => Date.parse(pattern.first_seen) >= newPatternCutoff).length,
     },
     patterns: patterns.slice(0, limit),
   };
+}
+
+function buildLocalLogClusters(params: FetchLogClustersParams): FetchLogClustersResult {
+  const timeRange = resolveClusterTimeRange(params.timeRange);
+  const allLogs = filterLocalDemoLogs({
+    keywords: params.keywords,
+    filters: params.filters,
+    timeRange,
+  });
+  return buildLogClustersFromLogs(allLogs, params, allLogs.length);
 }
 
 function resolveAnomalyTimeRange(timeRange: FetchAnomalyStatsParams['timeRange']): { from: string; to: string } {
@@ -1659,6 +1686,64 @@ function shouldFallbackToAggregateDerivedAnomalyStats(error: unknown): boolean {
     return true;
   }
   return error.code === 'QUERY_SERVICE_UNAVAILABLE' || error.code === 'QUERY_INTERNAL_ERROR';
+}
+
+function shouldFallbackToRealtimeLogDerivation(error: unknown): boolean {
+  if (!(error instanceof QueryApiRequestError)) {
+    return false;
+  }
+  if (error.status >= 500 || error.status === 404) {
+    return true;
+  }
+  return error.code === 'QUERY_SERVICE_UNAVAILABLE' || error.code === 'QUERY_INTERNAL_ERROR';
+}
+
+async function fetchRealtimeLogsForDerivedStats(params: {
+  keywords?: string;
+  filters?: Record<string, unknown>;
+  timeRange: { from: string; to: string };
+  limit: number;
+  signal?: AbortSignal;
+}): Promise<{ hits: LogEntry[]; total: number }> {
+  const hits: LogEntry[] = [];
+  const normalizedLimit = Math.max(1, Math.min(params.limit, 2000));
+  const pageSize = Math.min(200, normalizedLimit);
+  let page = 1;
+  let pitId: string | undefined;
+  let searchAfter: unknown[] | undefined;
+  let total = 0;
+
+  while (hits.length < normalizedLimit) {
+    const nextResult = await queryRealtimeLogs({
+      keywords: params.keywords ?? '',
+      page,
+      pageSize: Math.min(pageSize, normalizedLimit - hits.length),
+      filters: params.filters,
+      timeRange: params.timeRange,
+      pitId,
+      searchAfter,
+      signal: params.signal,
+      recordHistory: false,
+    });
+
+    hits.push(...nextResult.hits);
+    total = Math.max(total, nextResult.total, hits.length);
+
+    if (!nextResult.hasNext || nextResult.hits.length === 0) {
+      break;
+    }
+
+    pitId = nextResult.pitId;
+    searchAfter = Array.isArray(nextResult.nextSearchAfter) && nextResult.nextSearchAfter.length > 0
+      ? [...nextResult.nextSearchAfter]
+      : undefined;
+    page += 1;
+  }
+
+  return {
+    hits: hits.slice(0, normalizedLimit),
+    total,
+  };
 }
 
 function getQueryApiBasePath(): string {
@@ -2162,6 +2247,20 @@ export async function fetchAggregateStats(params: FetchAggregateStatsParams): Pr
     if (shouldFallbackToLocalStore(error)) {
       return buildLocalAggregateStats(params);
     }
+    if (shouldFallbackToRealtimeLogDerivation(error)) {
+      try {
+        const realtimeResult = await fetchRealtimeLogsForDerivedStats({
+          keywords: params.keywords,
+          filters: params.filters,
+          timeRange: resolveAggregateTimeRange(params.timeRange),
+          limit: 2000,
+          signal: params.signal,
+        });
+        return buildAggregateStatsFromLogs(realtimeResult.hits, params.groupBy);
+      } catch {
+        throw error;
+      }
+    }
     throw error;
   }
 }
@@ -2289,6 +2388,20 @@ export async function fetchLogClusters(params: FetchLogClustersParams): Promise<
   } catch (error) {
     if (shouldFallbackToLocalStore(error)) {
       return buildLocalLogClusters(params);
+    }
+    if (shouldFallbackToRealtimeLogDerivation(error)) {
+      try {
+        const realtimeResult = await fetchRealtimeLogsForDerivedStats({
+          keywords: params.keywords,
+          filters: params.filters,
+          timeRange: resolveClusterTimeRange(params.timeRange),
+          limit: Math.max(400, Math.min(params.sampleSize ?? 400, 1000)),
+          signal: params.signal,
+        });
+        return buildLogClustersFromLogs(realtimeResult.hits, params, realtimeResult.total);
+      } catch {
+        throw error;
+      }
     }
     throw error;
   }
