@@ -338,12 +338,7 @@ const ReceiptDrawer: React.FC<ReceiptDrawerProps> = ({
             ) : null}
 
             {!loading && items.length === 0 ? (
-              <Alert
-                type="info"
-                showIcon
-                message="当前筛选条件没有命中回执"
-                description="已保留当前 source/package 的范围统计，可调整状态或错误码后重新查看。"
-              />
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件没有命中回执" />
             ) : null}
 
             <Card size="small" title="范围统计">

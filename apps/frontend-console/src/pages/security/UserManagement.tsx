@@ -814,13 +814,8 @@ const UserManagement: React.FC = () => {
       </div>
 
       {isUserManagementReadOnly ? (
-        <div style={{ padding: '16px 24px 0', flexShrink: 0 }}>
-          <Alert
-            showIcon
-            type="info"
-            message="当前会话为只读访问"
-            description="你可以查看用户、角色与详情信息，但不能新增用户、编辑资料、调整角色或变更账号状态。"
-          />
+        <div style={{ padding: '16px 24px 0', flexShrink: 0, fontSize: 13, color: palette.textSecondary }}>
+          当前会话为只读访问，你可以查看用户、角色与详情信息，但不能新增用户、编辑资料、调整角色或变更账号状态。
         </div>
       ) : null}
 
@@ -975,12 +970,10 @@ const UserManagement: React.FC = () => {
             action={<Button size="small" onClick={() => void loadRoles()}>重试角色加载</Button>}
           />
         ) : (
-          <Alert
-            showIcon
-            type="info"
-            message={currentPageSummary}
-            description={`${filtersActive ? '搜索与筛选已切换为服务端查询；角色显示仍通过详情接口回填。' : '角色显示已通过详情接口回填。'} ${governanceSummary}`}
-          />
+          <div style={{ fontSize: 13, color: palette.textSecondary }}>
+            <div>{currentPageSummary}</div>
+            <div>{`${filtersActive ? '搜索与筛选已切换为服务端查询；角色显示仍通过详情接口回填。' : '角色显示已通过详情接口回填。'} ${governanceSummary}`}</div>
+          </div>
         )}
       </div>
 

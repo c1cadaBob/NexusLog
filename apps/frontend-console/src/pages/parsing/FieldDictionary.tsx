@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { Input, Select, Button, Table, Tag, Modal, Form, Space, Alert, message } from 'antd';
+import { Input, Select, Button, Table, Tag, Modal, Form, Space, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
@@ -247,23 +247,6 @@ const FieldDictionary: React.FC = () => {
         />
       </div>
 
-      {/* 命名规范提示 */}
-      <Alert
-        type="info"
-        showIcon
-        icon={<span className="material-symbols-outlined" style={{ fontSize: 20, color: COLORS.primary }}>lightbulb</span>}
-        message="命名规范建议"
-        description={
-          <span>
-            为了保持日志数据的一致性和可搜索性，建议使用小写字母和下划线命名（例如：
-            <code style={{ fontSize: 12, padding: '1px 4px', borderRadius: 4, background: isDark ? '#232f48' : '#f1f5f9', color: COLORS.primary, fontFamily: 'JetBrains Mono, monospace' }}>user_id</code>
-            {' '}而不是{' '}
-            <code style={{ fontSize: 12, padding: '1px 4px', borderRadius: 4, background: isDark ? '#232f48' : '#f1f5f9', color: palette.textSecondary, fontFamily: 'JetBrains Mono, monospace' }}>UserId</code>
-            ）。通用字段应尽量复用已有标准定义。
-            <a style={{ marginLeft: 4, color: COLORS.primary }}>查看完整指南</a>
-          </span>
-        }
-      />
 
       {/* 新建字段弹窗 */}
       <Modal

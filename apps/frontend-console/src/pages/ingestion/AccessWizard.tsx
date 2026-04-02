@@ -387,7 +387,7 @@ const AccessWizard: React.FC = () => {
             {agentsLoading ? (
               <Typography.Text type="secondary">正在加载 Agent 列表...</Typography.Text>
             ) : !agents.length ? (
-              <Alert type="info" showIcon message="当前没有可用 Agent" description="你可以切换到“为新主机生成部署脚本”，先部署 agent 再回来绑定。" />
+              <Typography.Text type="secondary">当前没有可用 Agent，可切换到“为新主机生成部署脚本”，先部署 agent 再回来绑定。</Typography.Text>
             ) : (
               <Form layout="vertical" name="access-wizard-existing-agent">
                 <Form.Item label="Agent">
@@ -438,12 +438,19 @@ const AccessWizard: React.FC = () => {
                     </Form.Item>
                   </Space>
                 )}
-                <Alert
-                  type={releaseConfigUsesPlaceholder ? 'warning' : 'info'}
-                  showIcon
-                  message="发布地址预览"
-                  description={<Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedReleaseBaseUrl || '-'}</Typography.Text>}
-                />
+                {releaseConfigUsesPlaceholder ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="发布地址预览"
+                    description={<Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedReleaseBaseUrl || '-'}</Typography.Text>}
+                  />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <Typography.Text type="secondary">发布地址预览</Typography.Text>
+                    <Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedReleaseBaseUrl || '-'}</Typography.Text>
+                  </div>
+                )}
               </Form>
             </Card>
 
@@ -457,12 +464,19 @@ const AccessWizard: React.FC = () => {
                     <Input name="containerImage" value={containerImage} onChange={(event) => setContainerImage(event.target.value)} placeholder="例如 ghcr.io/<owner>/<repo>/collector-agent:v0.1.0" />
                   </Form.Item>
                 ) : (
-                  <Alert
-                    type={imageConfigUsesPlaceholder ? 'warning' : 'info'}
-                    showIcon
-                    message="镜像地址预览"
-                    description={<Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedContainerImage}</Typography.Text>}
-                  />
+                  imageConfigUsesPlaceholder ? (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="镜像地址预览"
+                      description={<Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedContainerImage}</Typography.Text>}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <Typography.Text type="secondary">镜像地址预览</Typography.Text>
+                      <Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedContainerImage}</Typography.Text>
+                    </div>
+                  )
                 )}
               </Form>
             </Card>
@@ -530,14 +544,11 @@ const AccessWizard: React.FC = () => {
           />
         ) : null}
 
-        <Alert
-          type="info"
-          showIcon
-          message="推荐流程"
-          description={agentMode === 'new'
+        <Typography.Text type="secondary">
+          推荐流程：{agentMode === 'new'
             ? '先生成并执行部署脚本，再创建采集源；如果你已经确定目标 Agent URL，也可以先创建设定。'
             : '已有 Agent 可直接创建采集源；如需迁移到新主机，也可以生成一份新的部署脚本。'}
-        />
+        </Typography.Text>
 
         <Card size="small" type="inner" title="部署脚本生成">
           <Space direction="vertical" style={{ width: '100%' }}>

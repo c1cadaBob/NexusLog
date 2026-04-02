@@ -339,11 +339,9 @@ const LogClustering: React.FC = () => {
       </div>
 
       {hiddenPatternIDs.length > 0 && (
-        <Alert
-          type="info"
-          showIcon
-          message={`当前会话已隐藏 ${hiddenPatternIDs.length} 个模式，可点击“刷新分析”重新拉取全部结果。`}
-        />
+        <div className="text-xs opacity-60">
+          当前会话已隐藏 {hiddenPatternIDs.length} 个模式，可点击“刷新分析”重新拉取全部结果。
+        </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

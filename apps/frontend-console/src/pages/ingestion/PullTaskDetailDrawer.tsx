@@ -325,7 +325,9 @@ const PullTaskDetailDrawer: React.FC<PullTaskDetailDrawerProps> = ({ open, taskI
 
           <Card size="small" title={packageCardTitle}>
             {!canReadPackage ? (
-              <Alert type="info" showIcon message="当前账号缺少 ingest.package.read 权限，无法查看关联增量包。" />
+              <div style={{ padding: '24px 0', textAlign: 'center', color: 'rgba(100, 116, 139, 0.9)' }}>
+                当前账号缺少 ingest.package.read 权限，无法查看关联增量包。
+              </div>
             ) : packagesLoading ? (
               <div style={{ padding: '24px 0', display: 'flex', justifyContent: 'center' }}>
                 <Spin />

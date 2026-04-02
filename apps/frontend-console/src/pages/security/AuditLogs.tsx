@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Alert, Input, Select, Table, Tag, Button, Card, DatePicker, message, Space, Tooltip } from 'antd';
+import { Input, Select, Table, Tag, Button, Card, DatePicker, message, Space, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAuthStore } from '../../stores/authStore';
@@ -410,48 +410,38 @@ const AuditLogs: React.FC = () => {
       </div>
 
       <div style={{ padding: '16px 24px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <Alert
-          showIcon
-          type="info"
-          message="审计治理说明"
-          description={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <span>
-                系统保留账号会持续出现在审计记录中，用于平台治理和自动化归因；筛选时可直接输入{' '}
-                <code>{protectedGovernanceUsernames[0]}</code> 或 <code>{protectedGovernanceUsernames[1]}</code>。
-              </span>
-              <Space wrap>
-                {governanceAuditQuickFilters.map((filter) => {
-                  const button = (
-                    <Button
-                      key={filter.username}
-                      size="small"
-                      onClick={() => applyGovernanceQuickFilter(filter.username)}
-                      disabled={!actionAccess.canReadReservedSubjects}
-                    >
-                      筛选 {filter.label}
-                    </Button>
-                  );
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ color: palette.textSecondary }}>
+            系统保留账号会持续出现在审计记录中，用于平台治理和自动化归因；筛选时可直接输入{' '}
+            <code>{protectedGovernanceUsernames[0]}</code> 或 <code>{protectedGovernanceUsernames[1]}</code>。
+          </span>
+          <Space wrap>
+            {governanceAuditQuickFilters.map((filter) => {
+              const button = (
+                <Button
+                  key={filter.username}
+                  size="small"
+                  onClick={() => applyGovernanceQuickFilter(filter.username)}
+                  disabled={!actionAccess.canReadReservedSubjects}
+                >
+                  筛选 {filter.label}
+                </Button>
+              );
 
-                  return actionAccess.canReadReservedSubjects ? button : (
-                    <Tooltip key={filter.username} title="当前会话缺少 audit.log.read_reserved_subject 能力">
-                      <span>{button}</span>
-                    </Tooltip>
-                  );
-                })}
-                <Tag color="magenta">{protectedGovernanceTagLabel}账号</Tag>
-              </Space>
-            </div>
-          }
-        />
-        {missingAuditRestrictions.length > 0 ? (
-          <Alert
-            showIcon
-            type="info"
-            message="当前会话存在审计动作限制"
-            description={`当前会话仍可查看普通审计记录；${missingAuditRestrictions.join('、')}需要额外能力。`}
-          />
-        ) : null}
+              return actionAccess.canReadReservedSubjects ? button : (
+                <Tooltip key={filter.username} title="当前会话缺少 audit.log.read_reserved_subject 能力">
+                  <span>{button}</span>
+                </Tooltip>
+              );
+            })}
+            <Tag color="magenta">{protectedGovernanceTagLabel}账号</Tag>
+          </Space>
+          {missingAuditRestrictions.length > 0 ? (
+            <span style={{ color: palette.textSecondary }}>
+              当前会话仍可查看普通审计记录；{missingAuditRestrictions.join('、')}需要额外能力。
+            </span>
+          ) : null}
+        </div>
         <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16, alignItems: 'end' }}>
             <div>

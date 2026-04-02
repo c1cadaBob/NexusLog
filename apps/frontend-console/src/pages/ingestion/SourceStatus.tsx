@@ -521,7 +521,7 @@ const SourceStatus: React.FC = () => {
       ) : null}
 
       {!loading && response && !response.items.length ? (
-        <Alert type="info" showIcon message="暂无采集状态数据" description="请先创建采集源并确保 Agent 能被控制面探活。" />
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无采集状态数据" />
       ) : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(320px, 1fr)', gap: 16 }}>

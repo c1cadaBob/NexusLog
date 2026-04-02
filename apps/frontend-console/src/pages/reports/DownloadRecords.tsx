@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Alert, message, Empty, Modal, Form, Input, Select, Button, Pagination, Tooltip } from 'antd';
+import { message, Empty, Modal, Form, Input, Select, Button, Pagination, Tooltip } from 'antd';
 import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
 import {
@@ -243,24 +243,6 @@ const DownloadRecords: React.FC = () => {
           <div className={`flex items-center gap-2 text-sm ${textSecondary}`}>
             <span className="material-symbols-outlined text-[18px]">info</span>
             <p>系统将自动清理生成超过 7 天的文件</p>
-          </div>
-          <div className="mt-4 space-y-3">
-            {actionAccess.isViewOnly ? (
-              <Alert
-                showIcon
-                type="info"
-                message="当前会话为查看模式"
-                description="你可以查看导出记录，但新建导出任务和下载文件需要额外的导出能力。"
-              />
-            ) : null}
-            {!actionAccess.isViewOnly && missingExportActions.length > 0 ? (
-              <Alert
-                showIcon
-                type="info"
-                message="当前会话存在导出动作限制"
-                description={`当前会话仍可查看下载记录；${missingExportActions.join('、')}需要额外能力。`}
-              />
-            ) : null}
           </div>
         </div>
         <div className={`flex flex-wrap items-center gap-4 ${filterBg} p-1.5 rounded-xl`}>

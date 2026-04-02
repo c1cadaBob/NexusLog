@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Alert, App, Button, Card, Drawer, Empty, Input, Result, Space, Table, Tag, Tooltip } from 'antd';
+import { App, Button, Card, Drawer, Empty, Input, Result, Space, Table, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
@@ -293,13 +293,8 @@ const RolePermissions: React.FC = () => {
       </div>
 
       {!loadError && actionAccess.isViewOnly ? (
-        <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
-          <Alert
-            showIcon
-            type="info"
-            message="当前会话为查看模式"
-            description="你可以查看角色和权限详情，但复制完整权限列表需要额外的角色权限复制能力。"
-          />
+        <div style={{ padding: '12px 24px 0', flexShrink: 0, fontSize: 13, color: palette.textSecondary }}>
+          当前会话为查看模式，你可以查看角色和权限详情，但复制完整权限列表需要额外的角色权限复制能力。
         </div>
       ) : null}
 
@@ -360,20 +355,14 @@ const RolePermissions: React.FC = () => {
         {selectedRole ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {isProtectedRole(selectedRole) ? (
-              <Alert
-                showIcon
-                type="info"
-                message="系统保留角色"
-                description="该角色由系统治理规则保护，当前页面仅提供查看与审计用途，不支持通过此页直接变更。"
-              />
+              <div style={{ fontSize: 13, color: palette.textSecondary }}>
+                系统保留角色：该角色由系统治理规则保护，当前页面仅提供查看与审计用途，不支持通过此页直接变更。
+              </div>
             ) : null}
             {!actionAccess.canCopyPermissions ? (
-              <Alert
-                showIcon
-                type="info"
-                message="权限复制受限"
-                description="当前会话可以查看完整权限列表，但复制操作需要额外的角色权限复制能力。"
-              />
+              <div style={{ fontSize: 13, color: palette.textSecondary }}>
+                权限复制受限：当前会话可以查看完整权限列表，但复制操作需要额外的角色权限复制能力。
+              </div>
             ) : null}
             <Card size="small" style={{ background: palette.bgContainer, borderColor: palette.border }}>
               <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', rowGap: 12, columnGap: 12 }}>

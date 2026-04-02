@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Input, Select, Button, Table, Tag, Modal, Form, Space, message, Alert } from 'antd';
+import { Input, Select, Button, Table, Tag, Modal, Form, Space, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
@@ -287,18 +287,6 @@ const FieldMapping: React.FC = () => {
         />
       </div>
 
-      {/* 提示信息 */}
-      <Alert
-        type="info"
-        showIcon
-        message="字段映射提示"
-        description={
-          <span>
-            确保目标字段名称符合 Elastic Common Schema (ECS) 标准，以获得最佳兼容性。对于日期字段，您可能需要配置特定的格式模式。
-            <a style={{ marginLeft: 4, color: COLORS.primary }}>查看文档</a>
-          </span>
-        }
-      />
 
       {/* 添加映射弹窗 */}
       <Modal

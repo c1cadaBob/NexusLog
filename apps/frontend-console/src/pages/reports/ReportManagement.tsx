@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, message, Tooltip } from 'antd';
+import { message, Tooltip } from 'antd';
 import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
 import { resolveReportManagementActionAccess } from './reportManagementAuthorization';
@@ -218,24 +218,6 @@ const ReportManagement: React.FC = () => {
               </button>
             </span>
           </Tooltip>
-        </div>
-        <div className="space-y-3">
-          {actionAccess.isViewOnly ? (
-            <Alert
-              showIcon
-              type="info"
-              message="当前会话为查看模式"
-              description="你可以查看报表模板，但创建、编辑、生成和删除报表需要额外的报表管理能力。"
-            />
-          ) : null}
-          {!actionAccess.isViewOnly && missingReportActions.length > 0 ? (
-            <Alert
-              showIcon
-              type="info"
-              message="当前会话存在报表动作限制"
-              description={`当前会话仍可查看报表列表；${missingReportActions.join('、')}需要额外能力。`}
-            />
-          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-4 mt-2">
           <div className="relative flex-1 min-w-[280px] max-w-md group">

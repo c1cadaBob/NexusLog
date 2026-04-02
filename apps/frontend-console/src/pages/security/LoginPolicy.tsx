@@ -398,12 +398,9 @@ const LoginPolicy: React.FC = () => {
       </div>
 
       <div style={{ padding: '16px 24px 0', flexShrink: 0 }}>
-        <Alert
-          showIcon
-          type="info"
-          message="当前版本先保存到浏览器本地"
-          description="登录策略会持久化到当前访问地址的浏览器存储中。不同来源地址（例如 localhost 与 192.168.0.202）会分别保存各自的策略副本。"
-        />
+        <div style={{ fontSize: 13, color: palette.textSecondary }}>
+          登录策略当前保存在浏览器本地，不同来源地址会分别维护各自的策略副本。
+        </div>
       </div>
 
       <div
@@ -457,7 +454,7 @@ const LoginPolicy: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {toggleItem('启用 TOTP 验证', '强制用户绑定 Google Authenticator 或类似应用', settings.totpEnabled, (value) => setSettings((previous) => ({ ...previous, totpEnabled: value })), 'login-policy-totp-enabled')}
                 {toggleItem('启用短信验证', '登录异常 IP 时发送短信验证码', settings.smsEnabled, (value) => setSettings((previous) => ({ ...previous, smsEnabled: value })), 'login-policy-sms-enabled')}
-                <Alert showIcon type="info" message="启用 MFA 将显著提升账户安全性，建议管理员账户强制开启 TOTP。" />
+                <div style={{ fontSize: 12, color: palette.textSecondary }}>建议管理员账户强制开启 TOTP。</div>
               </div>
             </Card>
 
@@ -667,11 +664,17 @@ const LoginPolicy: React.FC = () => {
                   />
                   <Button aria-label="添加 IP 白名单规则" onClick={handleAddIp}>添加</Button>
                 </div>
-                <Alert
-                  showIcon
-                  type={settings.ipWhitelistEnabled && settings.ipWhitelist.length === 0 ? 'warning' : 'info'}
-                  message={settings.ipWhitelistEnabled ? `已启用白名单，共 ${settings.ipWhitelist.length} 条规则` : '白名单未启用，当前允许所有 IP 访问'}
-                />
+                {settings.ipWhitelistEnabled && settings.ipWhitelist.length === 0 ? (
+                  <Alert
+                    showIcon
+                    type="warning"
+                    message="已启用白名单，但当前没有规则"
+                  />
+                ) : (
+                  <div style={{ fontSize: 12, color: palette.textSecondary }}>
+                    {settings.ipWhitelistEnabled ? `已启用白名单，共 ${settings.ipWhitelist.length} 条规则` : '白名单未启用，当前允许所有 IP 访问'}
+                  </div>
+                )}
                 <Table<IpWhitelistItem>
                   columns={ipColumns}
                   dataSource={settings.ipWhitelist}

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, message, Tooltip } from 'antd';
+import { message, Tooltip } from 'antd';
 import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
 import { resolveScheduledTasksActionAccess } from './scheduledTasksAuthorization';
@@ -289,15 +289,6 @@ const ScheduledTasks: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto pt-6 pb-8">
         <div className="max-w-[1400px] mx-auto flex flex-col gap-6">
-          {actionAccess.isViewOnly ? (
-            <Alert
-              showIcon
-              type="info"
-              message="当前会话为查看模式"
-              description="你可以查看定时任务及执行状态，但创建、编辑、启停和删除任务需要额外的调度管理能力。"
-            />
-          ) : null}
-
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className={`${cardBg} border ${borderColor} rounded-xl p-4 flex items-center gap-4`}>
               <div className="p-3 bg-blue-500/10 rounded-lg text-blue-500">
