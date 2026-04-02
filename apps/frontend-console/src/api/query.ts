@@ -2218,9 +2218,16 @@ export interface AggregateBucket {
   service?: string;
 }
 
+export interface QueryResultFallbackInfo {
+  kind: 'realtime-log-derived' | 'aggregate-derived' | 'local-demo';
+  label: string;
+  description: string;
+}
+
 /** Aggregate stats result */
 export interface FetchAggregateStatsResult {
   buckets: AggregateBucket[];
+  fallbackInfo?: QueryResultFallbackInfo;
 }
 
 /** Fetch aggregate stats from query API */
@@ -2256,7 +2263,14 @@ export async function fetchAggregateStats(params: FetchAggregateStatsParams): Pr
           limit: 2000,
           signal: params.signal,
         });
-        return buildAggregateStatsFromLogs(realtimeResult.hits, params.groupBy);
+        return {
+          ...buildAggregateStatsFromLogs(realtimeResult.hits, params.groupBy),
+          fallbackInfo: {
+            kind: 'realtime-log-derived',
+            label: '已使用实时日志降级计算',
+            description: '聚合统计接口暂不可用，当前结果由实时日志命中结果临时推导生成。',
+          },
+        };
       } catch {
         throw error;
       }
@@ -2309,6 +2323,7 @@ export interface FetchAnomalyStatsResult {
   summary: AnomalySummary;
   trend: AnomalyTrendPoint[];
   anomalies: DetectedAnomaly[];
+  fallbackInfo?: QueryResultFallbackInfo;
 }
 
 export interface LogClusterTrendPoint {
@@ -2356,6 +2371,7 @@ export interface FetchLogClustersParams {
 export interface FetchLogClustersResult {
   summary: LogClusterSummary;
   patterns: LogClusterPattern[];
+  fallbackInfo?: QueryResultFallbackInfo;
 }
 
 export async function fetchLogClusters(params: FetchLogClustersParams): Promise<FetchLogClustersResult> {
@@ -2398,7 +2414,14 @@ export async function fetchLogClusters(params: FetchLogClustersParams): Promise<
           limit: Math.max(400, Math.min(params.sampleSize ?? 400, 1000)),
           signal: params.signal,
         });
-        return buildLogClustersFromLogs(realtimeResult.hits, params, realtimeResult.total);
+        return {
+          ...buildLogClustersFromLogs(realtimeResult.hits, params, realtimeResult.total),
+          fallbackInfo: {
+            kind: 'realtime-log-derived',
+            label: '已使用实时日志降级计算',
+            description: '聚类分析接口暂不可用，当前模式结果由实时日志命中结果临时推导生成。',
+          },
+        };
       } catch {
         throw error;
       }
@@ -2447,7 +2470,21 @@ export async function fetchAnomalyStats(params: FetchAnomalyStatsParams): Promis
           filters: params.filters,
           signal: params.signal,
         });
-        return buildAggregateBackedAnomalyStats(aggregateResult.buckets, resolveFallbackAnomalyService(params.filters));
+        const fallbackInfo: QueryResultFallbackInfo = aggregateResult.fallbackInfo?.kind === 'realtime-log-derived'
+          ? {
+            kind: 'realtime-log-derived',
+            label: '已使用实时日志降级计算',
+            description: '异常检测接口暂不可用，且聚合统计已回退为实时日志推导，当前异常结果为降级计算结果。',
+          }
+          : {
+            kind: 'aggregate-derived',
+            label: '已使用聚合统计降级计算',
+            description: '异常检测接口暂不可用，当前异常结果由聚合统计临时推导生成。',
+          };
+        return {
+          ...buildAggregateBackedAnomalyStats(aggregateResult.buckets, resolveFallbackAnomalyService(params.filters)),
+          fallbackInfo,
+        };
       } catch {
         throw error;
       }

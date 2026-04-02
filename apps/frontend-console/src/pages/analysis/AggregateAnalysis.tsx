@@ -8,6 +8,7 @@ import {
   fetchAggregateStats,
   type AggregateBucket,
   type FetchAggregateStatsParams,
+  type QueryResultFallbackInfo,
 } from '../../api/query';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
 
@@ -389,6 +390,7 @@ const AggregateAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [buckets, setBuckets] = useState<AggregateBucket[]>([]);
+  const [fallbackInfo, setFallbackInfo] = useState<QueryResultFallbackInfo | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [detailPage, setDetailPage] = useState(1);
   const [detailPageSize, setDetailPageSize] = useState(20);
@@ -416,6 +418,7 @@ const AggregateAnalysis: React.FC = () => {
       }
 
       setBuckets(result.buckets ?? []);
+      setFallbackInfo(result.fallbackInfo ?? null);
       setLastUpdatedAt(new Date());
     } catch (err) {
       if (controller.signal.aborted || isAbortError(err)) {
@@ -427,6 +430,7 @@ const AggregateAnalysis: React.FC = () => {
       messageApi.error(nextError);
       if (buckets.length === 0) {
         setBuckets([]);
+        setFallbackInfo(null);
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -559,7 +563,9 @@ const AggregateAnalysis: React.FC = () => {
   const resultLevel = error && buckets.length > 0 ? 'warning' : undefined;
   const resultStatusTag = error && buckets.length > 0
     ? <Tag color="warning">展示最近一次成功结果</Tag>
-    : <Tag color="processing">{TIME_RANGE_LABEL_MAP[queryState.timeRange]}</Tag>;
+    : fallbackInfo
+      ? <Tag color="gold">{fallbackInfo.label}</Tag>
+      : <Tag color="processing">{TIME_RANGE_LABEL_MAP[queryState.timeRange]}</Tag>;
 
   const shouldRenderResults = loading || buckets.length > 0 || Boolean(error && buckets.length > 0);
 
@@ -586,6 +592,7 @@ const AggregateAnalysis: React.FC = () => {
               </Text>
             )}
             {error && buckets.length > 0 && <Tag color="warning">接口异常时保留上次成功结果</Tag>}
+            {fallbackInfo && <Tag color="gold">{fallbackInfo.label}</Tag>}
           </div>
         </div>
         <Button
@@ -692,6 +699,15 @@ const AggregateAnalysis: React.FC = () => {
           type="error"
           message="聚合查询失败"
           description={error}
+        />
+      )}
+
+      {fallbackInfo && (
+        <Alert
+          showIcon
+          type="warning"
+          message={fallbackInfo.label}
+          description={fallbackInfo.description}
         />
       )}
 

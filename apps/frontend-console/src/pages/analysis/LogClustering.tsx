@@ -20,6 +20,7 @@ import {
   type FetchLogClustersResult,
   type LogClusterPattern,
   type LogClusterSample,
+  type QueryResultFallbackInfo,
 } from '../../api/query';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
@@ -189,6 +190,7 @@ const LogClustering: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<FetchLogClustersResult>(EMPTY_RESULT);
+  const [fallbackInfo, setFallbackInfo] = useState<QueryResultFallbackInfo | null>(null);
   const [selectedPatternID, setSelectedPatternID] = useState<string | null>(null);
   const [hiddenPatternIDs, setHiddenPatternIDs] = useState<string[]>([]);
 
@@ -210,11 +212,13 @@ const LogClustering: React.FC = () => {
         return;
       }
       setResult(nextResult);
+      setFallbackInfo(nextResult.fallbackInfo ?? null);
     } catch (loadError) {
       if (isAbortError(loadError)) {
         return;
       }
       setResult(EMPTY_RESULT);
+      setFallbackInfo(null);
       setError(loadError instanceof Error ? loadError.message : '聚类分析加载失败，请稍后重试');
     } finally {
       if (!signal?.aborted) {
@@ -321,6 +325,7 @@ const LogClustering: React.FC = () => {
           <span className="text-xs" style={{ opacity: 0.55 }}>基于真实日志样本的模式聚合与相似分析</span>
         </div>
         <Space wrap>
+          {fallbackInfo && <Tag color="gold" style={{ margin: 0 }}>{fallbackInfo.label}</Tag>}
           <Segmented
             value={timeRange}
             onChange={(value) => setTimeRange(value as ClusterTimeRange)}
@@ -418,6 +423,16 @@ const LogClustering: React.FC = () => {
             showIcon
             message="聚类分析加载失败"
             description={error}
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
+        {fallbackInfo && (
+          <Alert
+            type="warning"
+            showIcon
+            message={fallbackInfo.label}
+            description={fallbackInfo.description}
             style={{ marginBottom: 16 }}
           />
         )}

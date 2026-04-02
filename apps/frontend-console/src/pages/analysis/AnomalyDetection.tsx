@@ -21,6 +21,7 @@ import {
   type DetectedAnomaly,
   type FetchAnomalyStatsParams,
   type FetchAnomalyStatsResult,
+  type QueryResultFallbackInfo,
 } from '../../api/query';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
@@ -189,6 +190,7 @@ const AnomalyDetection: React.FC = () => {
   const [error, setError] = useState('');
   const [refreshToken, setRefreshToken] = useState(0);
   const [result, setResult] = useState<FetchAnomalyStatsResult>(EMPTY_RESULT);
+  const [fallbackInfo, setFallbackInfo] = useState<QueryResultFallbackInfo | null>(null);
   const [selectedAnomaly, setSelectedAnomaly] = useState<DetectedAnomaly | null>(null);
 
   const loadAnomalies = useCallback(async (signal?: AbortSignal) => {
@@ -200,11 +202,13 @@ const AnomalyDetection: React.FC = () => {
         return;
       }
       setResult(nextResult);
+      setFallbackInfo(nextResult.fallbackInfo ?? null);
     } catch (loadError) {
       if (isAbortError(loadError)) {
         return;
       }
       setResult(EMPTY_RESULT);
+      setFallbackInfo(null);
       setError(loadError instanceof Error ? loadError.message : '异常检测加载失败，请稍后重试');
     } finally {
       if (!signal?.aborted) {
@@ -258,6 +262,7 @@ const AnomalyDetection: React.FC = () => {
               {result.summary.total_anomalies > 0 ? '已检测到异常' : '实时监控中'}
             </span>
           </Tag>
+          {fallbackInfo && <Tag color="gold" style={{ margin: 0 }}>{fallbackInfo.label}</Tag>}
         </div>
         <Space wrap>
           <Select
@@ -281,6 +286,15 @@ const AnomalyDetection: React.FC = () => {
           showIcon
           message="异常检测加载失败"
           description={error}
+        />
+      )}
+
+      {fallbackInfo && (
+        <Alert
+          type="warning"
+          showIcon
+          message={fallbackInfo.label}
+          description={fallbackInfo.description}
         />
       )}
 

@@ -211,6 +211,10 @@ describe('query api emergency fallback', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain('/api/v1/query/stats/aggregate');
     expect(String(vi.mocked(globalThis.fetch).mock.calls[1]?.[0])).toContain('/api/v1/query/logs');
+    expect(result.fallbackInfo).toEqual(expect.objectContaining({
+      kind: 'realtime-log-derived',
+      label: '已使用实时日志降级计算',
+    }));
     expect(result.buckets).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: 'error', count: 2 }),
       expect.objectContaining({ key: 'warn', count: 1 }),
@@ -264,6 +268,10 @@ describe('query api emergency fallback', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain('/api/v1/query/stats/clusters');
     expect(String(vi.mocked(globalThis.fetch).mock.calls[1]?.[0])).toContain('/api/v1/query/logs');
+    expect(result.fallbackInfo).toEqual(expect.objectContaining({
+      kind: 'realtime-log-derived',
+      label: '已使用实时日志降级计算',
+    }));
     expect(result.summary.analyzed_logs_total).toBe(3);
     expect(result.summary.unique_patterns).toBeGreaterThan(0);
     expect(result.patterns[0]).toEqual(expect.objectContaining({
@@ -312,6 +320,10 @@ describe('query api emergency fallback', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain('/api/v1/query/stats/anomalies');
     expect(String(vi.mocked(globalThis.fetch).mock.calls[1]?.[0])).toContain('/api/v1/query/stats/aggregate');
+    expect(result.fallbackInfo).toEqual(expect.objectContaining({
+      kind: 'aggregate-derived',
+      label: '已使用聚合统计降级计算',
+    }));
     expect(result.trend.length).toBe(6);
     expect(result.summary.total_anomalies).toBeGreaterThan(0);
     expect(result.anomalies[0]).toEqual(expect.objectContaining({
