@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Alert, App, Button, Card, Empty, Input, Select, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Empty, Input, Pagination, Select, Tag, Typography } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import ChartWrapper from '../../components/charts/ChartWrapper';
@@ -390,6 +390,8 @@ const AggregateAnalysis: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [buckets, setBuckets] = useState<AggregateBucket[]>([]);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [detailPage, setDetailPage] = useState(1);
+  const [detailPageSize, setDetailPageSize] = useState(20);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const loadData = useCallback(async (state: AggregateFormState) => {
@@ -487,6 +489,14 @@ const AggregateAnalysis: React.FC = () => {
     return [...buckets].sort((left, right) => Number(right.count || 0) - Number(left.count || 0));
   }, [buckets, isTemporal]);
   const displayBuckets = useMemo(() => (isTemporal ? buckets : topBuckets), [buckets, isTemporal, topBuckets]);
+  const detailPageCount = useMemo(
+    () => Math.max(1, Math.ceil(displayBuckets.length / detailPageSize)),
+    [detailPageSize, displayBuckets.length],
+  );
+  const pagedDisplayBuckets = useMemo(() => {
+    const startIndex = (detailPage - 1) * detailPageSize;
+    return displayBuckets.slice(startIndex, startIndex + detailPageSize);
+  }, [detailPage, detailPageSize, displayBuckets]);
 
   const summaryCards = useMemo(() => {
     return [
@@ -552,6 +562,16 @@ const AggregateAnalysis: React.FC = () => {
     : <Tag color="processing">{TIME_RANGE_LABEL_MAP[queryState.timeRange]}</Tag>;
 
   const shouldRenderResults = loading || buckets.length > 0 || Boolean(error && buckets.length > 0);
+
+  useEffect(() => {
+    setDetailPage(1);
+  }, [queryState.groupBy, queryState.keywords, queryState.service, queryState.timeRange]);
+
+  useEffect(() => {
+    if (detailPage > detailPageCount) {
+      setDetailPage(detailPageCount);
+    }
+  }, [detailPage, detailPageCount]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -809,8 +829,9 @@ const AggregateAnalysis: React.FC = () => {
             ) : displayBuckets.length === 0 ? (
               <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+              <div className="flex flex-col gap-4">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
                       <th style={{ textAlign: 'left', padding: '10px 12px', width: 72, fontWeight: 600 }}>排名</th>
@@ -829,7 +850,7 @@ const AggregateAnalysis: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {displayBuckets.map((bucket, index) => {
+                    {pagedDisplayBuckets.map((bucket, index) => {
                       const count = Number(bucket.count || 0);
                       const share = summary.totalCount > 0 ? (count / summary.totalCount) * 100 : 0;
                       const displayValue = resolveBucketDisplayValue(queryState.groupBy, bucket);
@@ -839,10 +860,11 @@ const AggregateAnalysis: React.FC = () => {
                         : COLORS.primary;
                       const sourceHost = resolveSourceBucketHost(bucket);
                       const sourceService = resolveSourceBucketService(bucket);
+                      const rank = (detailPage - 1) * detailPageSize + index + 1;
 
                       return (
-                        <tr key={`${bucketIdentity}-${index}`} style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
-                          <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}>#{index + 1}</td>
+                        <tr key={`${bucketIdentity}-${rank}`} style={{ borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+                          <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}>#{rank}</td>
                           {queryState.groupBy === 'source' ? (
                             <>
                               <td style={{ padding: '10px 12px' }}>
@@ -908,6 +930,25 @@ const AggregateAnalysis: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  显示第 {(detailPage - 1) * detailPageSize + 1} - {Math.min(detailPage * detailPageSize, displayBuckets.length)} 条，共 {formatCount(displayBuckets.length)} 条
+                </Text>
+                <Pagination
+                  current={detailPage}
+                  pageSize={detailPageSize}
+                  total={displayBuckets.length}
+                  showSizeChanger
+                  pageSizeOptions={["10", "20", "50", "100"]}
+                  onChange={(page, pageSize) => {
+                    setDetailPage(page);
+                    setDetailPageSize(pageSize);
+                  }}
+                  showTotal={(total) => `共 ${formatCount(total)} 条`}
+                  size="small"
+                />
+              </div>
+            </div>
             )}
           </Card>
         </>
