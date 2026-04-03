@@ -1072,10 +1072,10 @@ const Dashboard: React.FC = () => {
       </Row>
 
       {/* 快速操作 + 审计日志 */}
-      <Row gutter={[24, 24]}>
+      <Row gutter={[24, 24]} align="stretch">
         {/* 快速操作入口 */}
-        <Col xs={24} lg={12}>
-          <div className="flex flex-col gap-3 h-full justify-center">
+        <Col xs={24} lg={12} className="flex">
+          <div className="flex h-full w-full flex-col gap-3">
             {/* 大按钮: 新建采集源 */}
             <Tooltip title={dashboardEntryAccess.ingestSourceCreate.allowed ? undefined : dashboardEntryAccess.ingestSourceCreate.deniedTooltip}>
               <Card
@@ -1137,12 +1137,13 @@ const Dashboard: React.FC = () => {
             </Tooltip>
 
             {/* 小按钮: 创建索引 + 生成报表 */}
-            <Row gutter={12}>
-              <Col span={12}>
+            <Row gutter={12} className="mt-auto" align="stretch">
+              <Col span={12} className="flex">
                 <Tooltip title={dashboardEntryAccess.storageIndexCreate.allowed ? undefined : dashboardEntryAccess.storageIndexCreate.deniedTooltip}>
                   <Card
+                    className="h-full w-full"
                     hoverable={dashboardEntryAccess.storageIndexCreate.allowed}
-                    styles={{ body: { padding: '12px', textAlign: 'center' } }}
+                    styles={{ body: { padding: '12px', textAlign: 'center', height: '100%' } }}
                     onClick={() => handleProtectedNavigate(
                       '/storage/indices',
                       dashboardEntryAccess.storageIndexCreate.allowed,
@@ -1155,11 +1156,12 @@ const Dashboard: React.FC = () => {
                   </Card>
                 </Tooltip>
               </Col>
-              <Col span={12}>
+              <Col span={12} className="flex">
                 <Tooltip title={dashboardEntryAccess.reportGenerate.allowed ? '进入报表管理' : dashboardEntryAccess.reportGenerate.deniedTooltip}>
                   <Card
+                    className="h-full w-full"
                     hoverable={dashboardEntryAccess.reportGenerate.allowed}
-                    styles={{ body: { padding: '12px', textAlign: 'center' } }}
+                    styles={{ body: { padding: '12px', textAlign: 'center', height: '100%' } }}
                     onClick={() => handleProtectedNavigate(
                       '/reports/management',
                       dashboardEntryAccess.reportGenerate.allowed,
@@ -1177,8 +1179,9 @@ const Dashboard: React.FC = () => {
         </Col>
 
         {/* 最近审计活动 */}
-        <Col xs={24} lg={12}>
+        <Col xs={24} lg={12} className="flex">
           <Card
+            className="h-full w-full flex flex-col"
             title={<span className="text-sm font-bold">最近审计活动</span>}
             extra={
               <Tooltip title={dashboardEntryAccess.auditLogs.allowed ? undefined : dashboardEntryAccess.auditLogs.deniedTooltip}>
@@ -1196,8 +1199,16 @@ const Dashboard: React.FC = () => {
                 </Button>
               </Tooltip>
             }
+            styles={{
+              body: {
+                display: 'flex',
+                flex: 1,
+                minHeight: 0,
+                flexDirection: 'column',
+              },
+            }}
           >
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1">
               {auditLogs.length > 0 ? auditLogs.map((audit, idx) => {
                 const cfg = auditTypeConfig[audit.type] || auditTypeConfig.update;
                 return (
