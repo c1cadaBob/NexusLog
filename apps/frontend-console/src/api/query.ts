@@ -1733,8 +1733,9 @@ async function fetchRealtimeLogsForDerivedStats(params: {
       break;
     }
 
-    pitId = nextResult.pitId;
-    searchAfter = Array.isArray(nextResult.nextSearchAfter) && nextResult.nextSearchAfter.length > 0
+    const nextPitId = typeof nextResult.pitId === 'string' ? nextResult.pitId.trim() : '';
+    pitId = nextPitId || undefined;
+    searchAfter = pitId && Array.isArray(nextResult.nextSearchAfter) && nextResult.nextSearchAfter.length > 0
       ? [...nextResult.nextSearchAfter]
       : undefined;
     page += 1;

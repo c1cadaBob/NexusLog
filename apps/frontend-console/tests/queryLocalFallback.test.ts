@@ -332,4 +332,110 @@ describe('query api emergency fallback', () => {
       metric: 'log_volume',
     }));
   });
+
+  it('falls back to realtime-log-derived anomaly stats without sending cursor before pit id is available', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, 'standard-demo-token');
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          code: 'QUERY_SERVICE_UNAVAILABLE',
+          message: 'search backend is temporarily unavailable',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          code: 'QUERY_SERVICE_UNAVAILABLE',
+          message: 'search backend is temporarily unavailable',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'ok',
+          data: {
+            hits: Array.from({ length: 200 }, (_, index) => ({
+              id: `page-1-${index}`,
+              timestamp: `2026-04-01T00:${String(index % 60).padStart(2, '0')}:00Z`,
+              level: index === 199 ? 'error' : 'info',
+              service: 'secure',
+              host: 'node-1',
+              message: index === 199 ? 'failed password from 10.0.0.8' : `page1 log ${index}`,
+              fields: {},
+            })),
+          },
+          meta: {
+            total: 220,
+            page: 1,
+            page_size: 200,
+            has_next: true,
+            query_time_ms: 18,
+            timed_out: false,
+            next_search_after: ['2026-04-01T00:59:00Z', 199],
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'ok',
+          data: {
+            hits: Array.from({ length: 20 }, (_, index) => ({
+              id: `page-2-${index}`,
+              timestamp: `2026-04-01T01:${String(index).padStart(2, '0')}:00Z`,
+              level: index === 0 ? 'error' : 'info',
+              service: 'secure',
+              host: 'node-1',
+              message: index === 0 ? 'connection closed by invalid user' : `page2 log ${index}`,
+              fields: {},
+            })),
+          },
+          meta: {
+            total: 220,
+            page: 2,
+            page_size: 20,
+            has_next: false,
+            query_time_ms: 20,
+            timed_out: false,
+            pit_id: 'pit-opened-on-page-2',
+          },
+        }),
+      } as Response);
+
+    const result = await fetchAnomalyStats({
+      timeRange: '24h',
+      filters: { service: 'secure' },
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(4);
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toContain('/api/v1/query/stats/anomalies');
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[1]?.[0])).toContain('/api/v1/query/stats/aggregate');
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[2]?.[0])).toContain('/api/v1/query/logs');
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[3]?.[0])).toContain('/api/v1/query/logs');
+
+    const firstLogsBody = JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[2]?.[1]?.body ?? '{}'));
+    const secondLogsBody = JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[3]?.[1]?.body ?? '{}'));
+
+    expect(firstLogsBody.page).toBe(1);
+    expect(firstLogsBody.search_after).toBeUndefined();
+    expect(firstLogsBody.pit_id).toBeUndefined();
+    expect(secondLogsBody.page).toBe(2);
+    expect(secondLogsBody.search_after).toBeUndefined();
+    expect(secondLogsBody.pit_id).toBeUndefined();
+
+    expect(result.fallbackInfo).toEqual(expect.objectContaining({
+      kind: 'realtime-log-derived',
+      label: '已使用实时日志降级计算',
+    }));
+    expect(result.trend.length).toBeGreaterThan(0);
+    expect(result.summary.total_anomalies).toBeGreaterThanOrEqual(0);
+  });
 });
