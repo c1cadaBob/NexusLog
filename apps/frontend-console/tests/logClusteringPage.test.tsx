@@ -181,4 +181,35 @@ describe('LogClustering page', () => {
       filters: { level: 'error' },
     }));
   });
+
+  it('keeps previous clustering result visible when refresh fails', async () => {
+    fetchLogClustersMock.mockReset();
+    fetchLogClustersMock
+      .mockResolvedValueOnce(buildMockResult())
+      .mockRejectedValueOnce(new Error('search backend is temporarily unavailable'));
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(fetchLogClustersMock).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Connection timed out to database/).length).toBeGreaterThan(0);
+      expect(screen.getByText(/最近更新：/)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新分析' }));
+
+    await waitFor(() => {
+      expect(fetchLogClustersMock).toHaveBeenCalledTimes(2);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('当前结果为最近一次成功查询的数据')).toBeTruthy();
+      expect(screen.getAllByText(/Connection timed out to database/).length).toBeGreaterThan(0);
+    });
+
+    expect(screen.queryByText('聚类分析加载失败')).toBeNull();
+  });
 });

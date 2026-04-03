@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -13,6 +13,7 @@ import {
   Space,
   Statistic,
   Tag,
+  Typography,
 } from 'antd';
 import type { EChartsCoreOption } from 'echarts/core';
 import ChartWrapper from '../../components/charts/ChartWrapper';
@@ -26,6 +27,8 @@ import {
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import { buildAlertRuleDraftFromAnomaly, savePendingAlertRuleDraft } from '../../utils/alertRulePrefill';
+
+const { Text } = Typography;
 
 const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
 
@@ -192,6 +195,8 @@ const AnomalyDetection: React.FC = () => {
   const [result, setResult] = useState<FetchAnomalyStatsResult>(EMPTY_RESULT);
   const [fallbackInfo, setFallbackInfo] = useState<QueryResultFallbackInfo | null>(null);
   const [selectedAnomaly, setSelectedAnomaly] = useState<DetectedAnomaly | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const hasSuccessfulResultRef = useRef(false);
 
   const loadAnomalies = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -201,14 +206,18 @@ const AnomalyDetection: React.FC = () => {
       if (signal?.aborted) {
         return;
       }
+      hasSuccessfulResultRef.current = true;
       setResult(nextResult);
       setFallbackInfo(nextResult.fallbackInfo ?? null);
+      setLastUpdatedAt(new Date());
     } catch (loadError) {
       if (isAbortError(loadError)) {
         return;
       }
-      setResult(EMPTY_RESULT);
-      setFallbackInfo(null);
+      if (!hasSuccessfulResultRef.current) {
+        setResult(EMPTY_RESULT);
+        setFallbackInfo(null);
+      }
       setError(loadError instanceof Error ? loadError.message : '异常检测加载失败，请稍后重试');
     } finally {
       if (!signal?.aborted) {
@@ -240,6 +249,8 @@ const AnomalyDetection: React.FC = () => {
     () => result.anomalies.filter((item) => item.status === 'active' || item.status === 'investigating').length,
     [result.anomalies],
   );
+  const hasRetainedResult = Boolean(lastUpdatedAt);
+  const staleResultVisible = Boolean(error && hasRetainedResult);
 
   const handleCreateAlert = useCallback(() => {
     if (!selectedAnomaly) {
@@ -254,15 +265,25 @@ const AnomalyDetection: React.FC = () => {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <h2 className="text-xl font-bold m-0">异常检测</h2>
-          <Tag color={result.summary.total_anomalies > 0 ? 'warning' : 'success'} style={{ margin: 0 }}>
-            <span className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              {result.summary.total_anomalies > 0 ? '已检测到异常' : '实时监控中'}
-            </span>
-          </Tag>
-          {fallbackInfo && <Tag color="gold" style={{ margin: 0 }}>{fallbackInfo.label}</Tag>}
+        <div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-xl font-bold m-0">异常检测</h2>
+            <Tag color={result.summary.total_anomalies > 0 ? 'warning' : 'success'} style={{ margin: 0 }}>
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                {result.summary.total_anomalies > 0 ? '已检测到异常' : '实时监控中'}
+              </span>
+            </Tag>
+          </div>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {lastUpdatedAt && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                最近更新：{lastUpdatedAt.toLocaleString('zh-CN')}
+              </Text>
+            )}
+            {staleResultVisible && <Tag color="warning" style={{ margin: 0 }}>接口异常时保留上次成功结果</Tag>}
+            {fallbackInfo && <Tag color="gold" style={{ margin: 0 }}>{fallbackInfo.label}</Tag>}
+          </div>
         </div>
         <Space wrap>
           <Select
@@ -280,11 +301,20 @@ const AnomalyDetection: React.FC = () => {
         </Space>
       </div>
 
-      {error && (
+      {error && !hasRetainedResult && (
         <Alert
           type="error"
           showIcon
           message="异常检测加载失败"
+          description={error}
+        />
+      )}
+
+      {staleResultVisible && (
+        <Alert
+          type="warning"
+          showIcon
+          message="当前结果为最近一次成功查询的数据"
           description={error}
         />
       )}
@@ -335,7 +365,7 @@ const AnomalyDetection: React.FC = () => {
           title="日志量异常趋势"
           subtitle={TIME_RANGE_LABELS[selectedTimeRange]}
           loading={loading}
-          error={error || undefined}
+          error={error && !hasRetainedResult ? error || undefined : undefined}
           empty={result.trend.length === 0}
           option={timelineOption}
           height={360}

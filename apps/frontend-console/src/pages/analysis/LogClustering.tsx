@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   App,
@@ -13,6 +13,7 @@ import {
   Statistic,
   Tabs,
   Tag,
+  Typography,
 } from 'antd';
 import {
   fetchLogClusters,
@@ -24,6 +25,8 @@ import {
 } from '../../api/query';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
+
+const { Text } = Typography;
 
 const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
 
@@ -191,6 +194,8 @@ const LogClustering: React.FC = () => {
   const [error, setError] = useState('');
   const [result, setResult] = useState<FetchLogClustersResult>(EMPTY_RESULT);
   const [fallbackInfo, setFallbackInfo] = useState<QueryResultFallbackInfo | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const hasSuccessfulResultRef = useRef(false);
   const [selectedPatternID, setSelectedPatternID] = useState<string | null>(null);
   const [hiddenPatternIDs, setHiddenPatternIDs] = useState<string[]>([]);
 
@@ -211,14 +216,18 @@ const LogClustering: React.FC = () => {
       if (signal?.aborted) {
         return;
       }
+      hasSuccessfulResultRef.current = true;
       setResult(nextResult);
       setFallbackInfo(nextResult.fallbackInfo ?? null);
+      setLastUpdatedAt(new Date());
     } catch (loadError) {
       if (isAbortError(loadError)) {
         return;
       }
-      setResult(EMPTY_RESULT);
-      setFallbackInfo(null);
+      if (!hasSuccessfulResultRef.current) {
+        setResult(EMPTY_RESULT);
+        setFallbackInfo(null);
+      }
       setError(loadError instanceof Error ? loadError.message : '聚类分析加载失败，请稍后重试');
     } finally {
       if (!signal?.aborted) {
@@ -273,6 +282,9 @@ const LogClustering: React.FC = () => {
     setRefreshToken((current) => current + 1);
   }, []);
 
+  const hasRetainedResult = Boolean(lastUpdatedAt);
+  const staleResultVisible = Boolean(error && hasRetainedResult);
+
   const handleApplySearch = useCallback((value: string) => {
     const normalized = value.trim();
     setKeywordInput(value);
@@ -322,10 +334,18 @@ const LogClustering: React.FC = () => {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-bold m-0">聚类分析</h2>
-          <span className="text-xs" style={{ opacity: 0.55 }}>基于真实日志样本的模式聚合与相似分析</span>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <span className="text-xs" style={{ opacity: 0.55 }}>基于真实日志样本的模式聚合与相似分析</span>
+            {lastUpdatedAt && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                最近更新：{lastUpdatedAt.toLocaleString('zh-CN')}
+              </Text>
+            )}
+            {staleResultVisible && <Tag color="warning" style={{ margin: 0 }}>接口异常时保留上次成功结果</Tag>}
+            {fallbackInfo && <Tag color="gold" style={{ margin: 0 }}>{fallbackInfo.label}</Tag>}
+          </div>
         </div>
         <Space wrap>
-          {fallbackInfo && <Tag color="gold" style={{ margin: 0 }}>{fallbackInfo.label}</Tag>}
           <Segmented
             value={timeRange}
             onChange={(value) => setTimeRange(value as ClusterTimeRange)}
@@ -417,11 +437,21 @@ const LogClustering: React.FC = () => {
         )}
         styles={{ body: { padding: visiblePatterns.length === 0 ? 24 : 16 } }}
       >
-        {error && (
+        {error && !hasRetainedResult && (
           <Alert
             type="error"
             showIcon
             message="聚类分析加载失败"
+            description={error}
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
+        {staleResultVisible && (
+          <Alert
+            type="warning"
+            showIcon
+            message="当前结果为最近一次成功查询的数据"
             description={error}
             style={{ marginBottom: 16 }}
           />

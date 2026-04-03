@@ -225,4 +225,35 @@ describe('AnomalyDetection page', () => {
     expect(draft?.name).toContain('日志量激增');
     expect(draft?.description).toContain('来源：异常检测');
   });
+
+  it('keeps previous anomaly result visible when refresh fails', async () => {
+    fetchAnomalyStatsMock.mockReset();
+    fetchAnomalyStatsMock
+      .mockResolvedValueOnce(buildMockResult())
+      .mockRejectedValueOnce(new Error('search backend is temporarily unavailable'));
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(fetchAnomalyStatsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('日志量激增').length).toBeGreaterThan(0);
+      expect(screen.getByText(/最近更新：/)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /刷新检测/ }));
+
+    await waitFor(() => {
+      expect(fetchAnomalyStatsMock).toHaveBeenCalledTimes(2);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('当前结果为最近一次成功查询的数据')).toBeTruthy();
+      expect(screen.getAllByText('日志量激增').length).toBeGreaterThan(0);
+    });
+
+    expect(screen.queryByText('异常检测加载失败')).toBeNull();
+  });
 });
