@@ -40,8 +40,10 @@ export interface ChartWrapperProps {
   title?: string;
   /** 副标题 */
   subtitle?: string;
-  /** 图表高度，默认 300 */
-  height?: number;
+  /** 图表高度，默认 300；也支持 `100%` 这类字符串高度 */
+  height?: number | string;
+  /** 是否按父容器剩余高度拉伸 */
+  fullHeight?: boolean;
   /** 是否加载中 */
   loading?: boolean;
   /** 错误信息 */
@@ -60,6 +62,7 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
   title,
   subtitle,
   height = 300,
+  fullHeight = false,
   loading = false,
   error,
   empty = false,
@@ -119,6 +122,9 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
     instance.setOption(mergedOption, true);
   }, [mergedOption, loading, error, empty]);
 
+  const resolvedHeight = typeof height === 'number' ? `${height}px` : height;
+  const minHeight = typeof height === 'number' ? height : 220;
+
   // 渲染内容区域
   const renderContent = () => {
     const mask = (() => {
@@ -135,12 +141,21 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
     })();
 
     return (
-      <div style={{ position: 'relative', width: '100%', height }}>
+      <div
+        style={{
+          position: 'relative',
+          width: '100%',
+          height: resolvedHeight,
+          minHeight,
+          flex: fullHeight ? 1 : undefined,
+        }}
+      >
         <div
           ref={chartRef}
           style={{
             width: '100%',
-            height,
+            height: '100%',
+            minHeight,
             visibility: mask ? 'hidden' : 'visible',
           }}
         />
@@ -163,7 +178,11 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
 
   // 如果没有标题，直接渲染图表
   if (!title) {
-    return <div className={className}>{renderContent()}</div>;
+    return (
+      <div className={fullHeight ? `${className ?? ''} h-full flex flex-col`.trim() : className}>
+        {renderContent()}
+      </div>
+    );
   }
 
   return (
@@ -179,8 +198,13 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
         </div>
       }
       extra={actions}
-      className={className}
-      styles={{ body: { padding: '12px 16px' } }}
+      className={fullHeight ? `${className ?? ''} h-full flex flex-col`.trim() : className}
+      styles={{
+        body: {
+          padding: '12px 16px',
+          ...(fullHeight ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' as const } : {}),
+        },
+      }}
     >
       {renderContent()}
     </Card>

@@ -1009,13 +1009,15 @@ const Dashboard: React.FC = () => {
       <InfrastructureMonitor data={metricsOverview} isLoading={isLoading} />
 
       {/* 图表 + 异常服务排行 */}
-      <Row gutter={[24, 24]}>
-        <Col xs={24} lg={16}>
+      <Row gutter={[24, 24]} align="stretch">
+        <Col xs={24} lg={16} className="flex">
           <ChartWrapper
             title="日志量趋势"
             subtitle={`${formatOverviewRangeLabel(overviewRange)} ES 聚合结果`}
             option={logTrendOption}
-            height={220}
+            height="100%"
+            fullHeight
+            className="w-full"
             actions={
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1.5 text-[10px] opacity-60">
@@ -1025,7 +1027,7 @@ const Dashboard: React.FC = () => {
             }
           />
         </Col>
-        <Col xs={24} lg={8}>
+        <Col xs={24} lg={8} className="flex">
           <Card
             title={<span className="text-sm font-bold">活跃主机 / 服务 Top 5</span>}
             extra={
