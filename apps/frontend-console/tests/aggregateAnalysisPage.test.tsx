@@ -143,6 +143,10 @@ describe('AggregateAnalysis page', () => {
       expect(screen.getAllByText('ERROR').length).toBeGreaterThan(0);
     });
 
+    await waitFor(() => {
+      expect(fetchAggregateStatsMock).toHaveBeenCalledTimes(1);
+    });
+
     expect(screen.getByTestId('chart-日志级别分布').textContent).toContain('最近 7 天');
   });
 

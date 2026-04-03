@@ -395,6 +395,7 @@ const AggregateAnalysis: React.FC = () => {
   const [detailPage, setDetailPage] = useState(1);
   const [detailPageSize, setDetailPageSize] = useState(20);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const bucketsRef = useRef<AggregateBucket[]>([]);
 
   const loadData = useCallback(async (state: AggregateFormState) => {
     abortControllerRef.current?.abort();
@@ -417,7 +418,9 @@ const AggregateAnalysis: React.FC = () => {
         return;
       }
 
-      setBuckets(result.buckets ?? []);
+      const nextBuckets = result.buckets ?? [];
+      bucketsRef.current = nextBuckets;
+      setBuckets(nextBuckets);
       setFallbackInfo(result.fallbackInfo ?? null);
       setLastUpdatedAt(new Date());
     } catch (err) {
@@ -426,9 +429,11 @@ const AggregateAnalysis: React.FC = () => {
       }
 
       const nextError = err instanceof Error ? err.message : '聚合查询失败';
+      const hasPreviousBuckets = bucketsRef.current.length > 0;
       setError(nextError);
       messageApi.error(nextError);
-      if (buckets.length === 0) {
+      if (!hasPreviousBuckets) {
+        bucketsRef.current = [];
         setBuckets([]);
         setFallbackInfo(null);
       }
@@ -440,7 +445,7 @@ const AggregateAnalysis: React.FC = () => {
         abortControllerRef.current = null;
       }
     }
-  }, [buckets.length, messageApi]);
+  }, [messageApi]);
 
   useEffect(() => {
     loadData(queryState);
