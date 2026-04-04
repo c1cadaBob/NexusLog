@@ -13,10 +13,10 @@ import {
   Space,
   Statistic,
   Tag,
-  Typography,
 } from 'antd';
 import type { EChartsCoreOption } from 'echarts/core';
 import ChartWrapper from '../../components/charts/ChartWrapper';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 import {
   fetchAnomalyStats,
   type DetectedAnomaly,
@@ -27,8 +27,6 @@ import {
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import { buildAlertRuleDraftFromAnomaly, savePendingAlertRuleDraft } from '../../utils/alertRulePrefill';
-
-const { Text } = Typography;
 
 const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
 
@@ -264,42 +262,37 @@ const AnomalyDetection: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-xl font-bold m-0">异常检测</h2>
-            <Tag color={result.summary.total_anomalies > 0 ? 'warning' : 'success'} style={{ margin: 0 }}>
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                {result.summary.total_anomalies > 0 ? '已检测到异常' : '实时监控中'}
-              </span>
-            </Tag>
-          </div>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            {lastUpdatedAt && (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                最近更新：{lastUpdatedAt.toLocaleString('zh-CN')}
-              </Text>
-            )}
-            {staleResultVisible && <Tag color="warning" style={{ margin: 0 }}>接口异常时保留上次成功结果</Tag>}
-            {fallbackInfo && <Tag color="gold" style={{ margin: 0 }}>{fallbackInfo.label}</Tag>}
-          </div>
-        </div>
-        <Space wrap>
-          <Select
-            id="anomaly_time_range"
-            aria-label="异常检测时间范围"
-            value={selectedTimeRange}
-            onChange={(value) => setSelectedTimeRange(value as AnomalyTimeRange)}
-            options={TIME_RANGE_OPTIONS}
-            style={{ width: 160 }}
-            size="small"
-          />
-          <Button onClick={handleRefresh} loading={loading} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
-            刷新检测
-          </Button>
-        </Space>
-      </div>
+      <AnalysisPageHeader
+        title="异常检测"
+        subtitle="基于真实日志趋势与错误率的异常检测"
+        statusTag={(
+          <Tag color={result.summary.total_anomalies > 0 ? 'warning' : 'success'} style={{ margin: 0 }}>
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              {result.summary.total_anomalies > 0 ? '已检测到异常' : '实时监控中'}
+            </span>
+          </Tag>
+        )}
+        lastUpdatedAt={lastUpdatedAt}
+        showRetainedResultTag={staleResultVisible}
+        fallbackLabel={fallbackInfo?.label ?? null}
+        actions={(
+          <>
+            <Select
+              id="anomaly_time_range"
+              aria-label="异常检测时间范围"
+              value={selectedTimeRange}
+              onChange={(value) => setSelectedTimeRange(value as AnomalyTimeRange)}
+              options={TIME_RANGE_OPTIONS}
+              style={{ width: 160 }}
+              size="small"
+            />
+            <Button size="small" onClick={handleRefresh} loading={loading} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+              刷新数据
+            </Button>
+          </>
+        )}
+      />
 
       {error && !hasRetainedResult && (
         <Alert
@@ -383,7 +376,7 @@ const AnomalyDetection: React.FC = () => {
           {loading && result.anomalies.length === 0 ? (
             <Card loading variant="borderless" styles={{ body: { padding: 0 } }} />
           ) : result.anomalies.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前时间范围内未检测到显著异常。" />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件下未检测到异常结果，请尝试扩展时间范围或稍后刷新。" />
           ) : (
             <div className="flex flex-col gap-2">
               {result.anomalies.map((anomaly) => {

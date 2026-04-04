@@ -243,7 +243,7 @@ describe('AnomalyDetection page', () => {
       expect(screen.getByText(/最近更新：/)).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /刷新检测/ }));
+    fireEvent.click(screen.getByRole('button', { name: /刷新数据/ }));
 
     await waitFor(() => {
       expect(fetchAnomalyStatsMock).toHaveBeenCalledTimes(2);

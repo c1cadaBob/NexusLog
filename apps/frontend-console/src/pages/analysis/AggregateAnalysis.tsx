@@ -11,6 +11,7 @@ import {
   type QueryResultFallbackInfo,
 } from '../../api/query';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 const { Text } = Typography;
 
@@ -586,30 +587,24 @@ const AggregateAnalysis: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-xl font-bold m-0">聚合分析</h2>
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            <span className="text-xs opacity-50">Log Analysis / Aggregation</span>
-            {lastUpdatedAt && (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                最近更新：{lastUpdatedAt.toLocaleString('zh-CN')}
-              </Text>
-            )}
-            {error && buckets.length > 0 && <Tag color="warning">接口异常时保留上次成功结果</Tag>}
-            {fallbackInfo && <Tag color="gold">{fallbackInfo.label}</Tag>}
-          </div>
-        </div>
-        <Button
-          icon={<span className="material-symbols-outlined text-sm">refresh</span>}
-          type="primary"
-          size="small"
-          loading={loading}
-          onClick={handleRefresh}
-        >
-          刷新
-        </Button>
-      </div>
+      <AnalysisPageHeader
+        title="聚合分析"
+        subtitle="基于真实日志的分组统计与趋势聚合分析"
+        lastUpdatedAt={lastUpdatedAt}
+        showRetainedResultTag={Boolean(error && buckets.length > 0)}
+        fallbackLabel={fallbackInfo?.label ?? null}
+        actions={(
+          <Button
+            icon={<span className="material-symbols-outlined text-sm">refresh</span>}
+            type="primary"
+            size="small"
+            loading={loading}
+            onClick={handleRefresh}
+          >
+            刷新数据
+          </Button>
+        )}
+      />
 
       <Card
         title={

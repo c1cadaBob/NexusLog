@@ -13,7 +13,6 @@ import {
   Statistic,
   Tabs,
   Tag,
-  Typography,
 } from 'antd';
 import {
   fetchLogClusters,
@@ -23,10 +22,9 @@ import {
   type LogClusterSample,
   type QueryResultFallbackInfo,
 } from '../../api/query';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
-
-const { Text } = Typography;
 
 const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
 
@@ -331,41 +329,38 @@ const LogClustering: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-xl font-bold m-0">聚类分析</h2>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <span className="text-xs" style={{ opacity: 0.55 }}>基于真实日志样本的模式聚合与相似分析</span>
-            {lastUpdatedAt && (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                最近更新：{lastUpdatedAt.toLocaleString('zh-CN')}
-              </Text>
-            )}
-            {staleResultVisible && <Tag color="warning" style={{ margin: 0 }}>接口异常时保留上次成功结果</Tag>}
-            {fallbackInfo && <Tag color="gold" style={{ margin: 0 }}>{fallbackInfo.label}</Tag>}
-          </div>
-        </div>
-        <Space wrap>
-          <Segmented
-            value={timeRange}
-            onChange={(value) => setTimeRange(value as ClusterTimeRange)}
-            options={TIME_RANGE_OPTIONS}
-            size="small"
-          />
-          <Button onClick={handleRefresh} loading={loading}>刷新分析</Button>
-          <Button
-            type="primary"
-            onClick={handleExportReport}
-            icon={<span className="material-symbols-outlined text-sm">download</span>}
-          >
-            导出报告
-          </Button>
-        </Space>
-      </div>
+      <AnalysisPageHeader
+        title="聚类分析"
+        subtitle="基于真实日志样本的模式聚合与相似分析"
+        lastUpdatedAt={lastUpdatedAt}
+        showRetainedResultTag={staleResultVisible}
+        fallbackLabel={fallbackInfo?.label ?? null}
+        actions={(
+          <>
+            <Segmented
+              value={timeRange}
+              onChange={(value) => setTimeRange(value as ClusterTimeRange)}
+              options={TIME_RANGE_OPTIONS}
+              size="small"
+            />
+            <Button size="small" onClick={handleRefresh} loading={loading} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+              刷新数据
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              onClick={handleExportReport}
+              icon={<span className="material-symbols-outlined text-sm">download</span>}
+            >
+              导出报告
+            </Button>
+          </>
+        )}
+      />
 
       {hiddenPatternIDs.length > 0 && (
         <div className="text-xs opacity-60">
-          当前会话已隐藏 {hiddenPatternIDs.length} 个模式，可点击“刷新分析”重新拉取全部结果。
+          当前会话已隐藏 {hiddenPatternIDs.length} 个模式，可点击“刷新数据”重新拉取全部结果。
         </div>
       )}
 
@@ -472,7 +467,7 @@ const LogClustering: React.FC = () => {
         ) : visiblePatterns.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="当前条件下暂无可展示的聚类模式，请尝试切换时间范围、级别或关键词。"
+            description="当前筛选条件下暂无聚类模式，请尝试调整时间范围、级别或关键词。"
           />
         ) : (
           <div className="flex flex-col gap-4">
