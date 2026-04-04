@@ -13,6 +13,7 @@ import {
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 import { COLORS } from '../../theme/tokens';
 import type { Incident, IncidentSeverity, IncidentStatus, SLAConfig } from '../../types/incident';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 const SLA_CONFIGS: SLAConfig[] = [
   { severity: 'P0', maxAckMinutes: 5, maxResolveMinutes: 60, escalationRules: [
@@ -114,6 +115,7 @@ const IncidentSLA: React.FC = () => {
   const [summary, setSummary] = useState<SLASummary>({ totalIncidents: 0, compliantIncidents: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
   const tableRef = usePaginationQuickJumperAccessibility('incident-sla');
@@ -143,6 +145,7 @@ const IncidentSLA: React.FC = () => {
       setIncidents(incidentResponse.items);
       setTotal(incidentResponse.total);
       setSummary(slaSummary);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载 SLA 页面失败';
       setError(msg);
@@ -257,15 +260,16 @@ const IncidentSLA: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <div className="text-lg font-semibold">SLA 监控</div>
-          <div className="text-xs opacity-50 mt-1">展示真实事件的响应/解决时效与升级层级</div>
-        </div>
-        <Button onClick={() => void loadData()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
-          刷新
-        </Button>
-      </div>
+      <AnalysisPageHeader
+        title="SLA 监控"
+        subtitle="展示真实事件的响应、解决时效与升级层级"
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <Button size="small" onClick={() => void loadData()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+            刷新数据
+          </Button>
+        )}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {cards.map((card) => (

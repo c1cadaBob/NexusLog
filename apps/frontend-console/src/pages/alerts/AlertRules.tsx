@@ -23,6 +23,7 @@ import {
   resolveSuggestedNotificationChannelIDs,
   type PendingAlertRuleDraft,
 } from '../../utils/alertRulePrefill';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 const severityTagColor: Record<AlertSeverity, string> = {
   critical: 'error',
@@ -67,6 +68,7 @@ const AlertRules: React.FC = () => {
   const [pendingPrefillDraft, setPendingPrefillDraft] = useState<PendingAlertRuleDraft | null>(null);
   const [availableChannels, setAvailableChannels] = useState<NotificationChannel[]>([]);
   const [channelsLoaded, setChannelsLoaded] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const loadRules = useCallback(async () => {
     setLoading(true);
@@ -74,6 +76,7 @@ const AlertRules: React.FC = () => {
     try {
       const { items } = await fetchAlertRules(1, 200);
       setRules(items);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载告警规则失败';
       setError(msg);
@@ -538,20 +541,24 @@ const AlertRules: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>告警规则</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>配置告警条件和通知路由</p>
-        </div>
-        <Space>
-          <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
-            帮助文档
-          </Button>
-          <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>} onClick={() => openCreate()}>
-            新建规则
-          </Button>
-        </Space>
-      </div>
+      <AnalysisPageHeader
+        title="告警规则"
+        subtitle="配置告警条件、通知路由与执行状态"
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <Space>
+            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+              帮助文档
+            </Button>
+            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={loadRules}>
+              刷新数据
+            </Button>
+            <Button size="small" type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>} onClick={() => openCreate()}>
+              新建规则
+            </Button>
+          </Space>
+        )}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <Card size="small" styles={{ body: { padding: 16 } }}>
@@ -640,9 +647,6 @@ const AlertRules: React.FC = () => {
               ]}
             />
           </div>
-          <Space>
-            <Button type="text" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>refresh</span>} onClick={loadRules} />
-          </Space>
         </div>
 
         <div style={{ flex: 1, overflow: 'auto' }}>

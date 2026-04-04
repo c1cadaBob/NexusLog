@@ -18,6 +18,7 @@ import {
   type AlertNotificationSummary,
 } from '../../api/alert';
 import { persistPendingRealtimeStartupQuery } from '../search/realtimeStartupQuery';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 const formatTimeAgo = (timestamp: number): string => {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -99,6 +100,7 @@ const AlertList: React.FC = () => {
   const [alerts, setAlerts] = useState<AlertEventSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<AlertSeverity | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<AlertStatus | 'all'>('all');
@@ -168,6 +170,7 @@ const AlertList: React.FC = () => {
         setTotalAlerts(total);
         setStats(summary);
         setSelectedRowKeys((previous) => previous.filter((key) => items.some((item) => item.id === String(key))));
+        setLastUpdatedAt(new Date());
       } catch (err) {
         if (latestLoadSeqRef.current !== currentSeq) {
           return;
@@ -527,21 +530,24 @@ const AlertList: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>告警列表</h2>
-          <Tag color="blue">Live</Tag>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Button
-            type="text"
-            shape="circle"
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>refresh</span>}
-            onClick={() => { void loadAlerts({ force: true }); }}
-          />
-          <Badge status="success" text="系统正常" />
-        </div>
-      </div>
+      <AnalysisPageHeader
+        title="告警列表"
+        subtitle="展示实时告警状态、通知分发与处置进度"
+        statusTag={<Tag color="blue" style={{ margin: 0 }}>Live</Tag>}
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <>
+            <Badge status="success" text="系统正常" />
+            <Button
+              size="small"
+              icon={<span className="material-symbols-outlined text-sm">refresh</span>}
+              onClick={() => { void loadAlerts({ force: true }); }}
+            >
+              刷新数据
+            </Button>
+          </>
+        )}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <Card size="small" styles={{ body: { padding: '20px' } }}>

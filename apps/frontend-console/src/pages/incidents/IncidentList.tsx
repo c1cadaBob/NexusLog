@@ -41,6 +41,7 @@ import {
   getIncidentPermissionDeniedReason,
   resolveIncidentActionAccess,
 } from './incidentAuthorization';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; label: string; icon: string }> = {
   P0: { color: COLORS.danger, label: 'P0 紧急', icon: 'crisis_alert' },
@@ -113,6 +114,7 @@ const IncidentList: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [stats, setStats] = useState<{ label: string; value: number; icon: string; color: string }[]>([]);
 
   const [users, setUsers] = useState<UserData[]>([]);
@@ -166,6 +168,7 @@ const IncidentList: React.FC = () => {
       const { items, total: nextTotal } = await fetchIncidents(currentPage, pageSize, filters);
       setIncidents(items);
       setTotal(nextTotal);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const nextError = err instanceof Error ? err.message : '加载事件列表失败';
       setError(nextError);
@@ -517,17 +520,24 @@ const IncidentList: React.FC = () => {
   return (
     <div className="flex flex-col gap-4">
       {modalContextHolder}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <span className="text-lg font-semibold">事件管理</span>
-          {stats.length > 0 && <Badge count={stats[0].value} style={{ backgroundColor: COLORS.danger }} />}
-        </div>
-        <Tooltip title={actionAccess.canCreateIncident ? '创建事件' : getIncidentPermissionDeniedReason('create')}>
-          <Button type="primary" disabled={!actionAccess.canCreateIncident} icon={<span className="material-symbols-outlined text-sm">add</span>} onClick={handleCreateIncident}>
-            创建事件
-          </Button>
-        </Tooltip>
-      </div>
+      <AnalysisPageHeader
+        title="事件管理"
+        subtitle="集中查看真实事件状态、指派、流转与归档"
+        statusTag={stats.length > 0 ? <Badge count={stats[0].value} style={{ backgroundColor: COLORS.danger }} /> : null}
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <>
+            <Button size="small" icon={<span className="material-symbols-outlined text-sm">refresh</span>} onClick={() => { void loadIncidents(); }}>
+              刷新数据
+            </Button>
+            <Tooltip title={actionAccess.canCreateIncident ? '创建事件' : getIncidentPermissionDeniedReason('create')}>
+              <Button size="small" type="primary" disabled={!actionAccess.canCreateIncident} icon={<span className="material-symbols-outlined text-sm">add</span>} onClick={handleCreateIncident}>
+                创建事件
+              </Button>
+            </Tooltip>
+          </>
+        )}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {stats.map((item) => (
