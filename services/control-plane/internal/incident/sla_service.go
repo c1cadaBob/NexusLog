@@ -19,7 +19,9 @@ type SLASummary struct {
 // GetSLASummary returns SLA summary for a tenant.
 // Response time = acknowledged_at - created_at (minutes)
 // Resolve time = resolved_at - created_at (minutes)
-// SLA compliance = % of incidents where response <= sla_response_minutes AND resolve <= sla_resolve_minutes
+// SLA compliance = % of incidents where response <= effective_sla_response_minutes
+// and resolve <= effective_sla_resolve_minutes. When incident-specific SLA values are
+// not configured, severity defaults are used so the summary stays aligned with the SLA page.
 func (r *RepositoryPG) GetSLASummary(ctx context.Context, tenantID string) (*SLASummary, error) {
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" {
@@ -52,27 +54,45 @@ WHERE tenant_id = $1::uuid AND resolved_at IS NOT NULL
 		}
 	}
 
-	// SLA compliance: incidents with sla_response_minutes AND sla_resolve_minutes set
-	// where response_time <= sla_response_minutes AND resolve_time <= sla_resolve_minutes
+	// SLA compliance: count all incidents in tenant for the total, and treat incidents as compliant
+	// only when both response and resolve timestamps exist and stay within the effective SLA.
+	// If incident-specific SLA values are missing, fall back to severity defaults used by the UI.
 	complianceQuery := `
-WITH with_sla AS (
+WITH scoped AS (
     SELECT
         id,
         EXTRACT(EPOCH FROM (acknowledged_at - created_at)) / 60 AS response_mins,
         EXTRACT(EPOCH FROM (resolved_at - created_at)) / 60 AS resolve_mins,
-        sla_response_minutes,
-        sla_resolve_minutes
+        acknowledged_at IS NOT NULL AS has_response,
+        resolved_at IS NOT NULL AS has_resolution,
+        COALESCE(
+            sla_response_minutes,
+            CASE severity
+                WHEN 'critical' THEN 5
+                WHEN 'major' THEN 15
+                ELSE 30
+            END
+        ) AS effective_response_minutes,
+        COALESCE(
+            sla_resolve_minutes,
+            CASE severity
+                WHEN 'critical' THEN 60
+                WHEN 'major' THEN 240
+                ELSE 480
+            END
+        ) AS effective_resolve_minutes
     FROM incidents
     WHERE tenant_id = $1::uuid
-      AND sla_response_minutes IS NOT NULL
-      AND sla_resolve_minutes IS NOT NULL
-      AND acknowledged_at IS NOT NULL
-      AND resolved_at IS NOT NULL
 )
 SELECT
     COUNT(*) AS total,
-    COUNT(*) FILTER (WHERE response_mins <= sla_response_minutes AND resolve_mins <= sla_resolve_minutes) AS compliant
-FROM with_sla
+    COUNT(*) FILTER (
+        WHERE has_response
+          AND has_resolution
+          AND response_mins <= effective_response_minutes
+          AND resolve_mins <= effective_resolve_minutes
+    ) AS compliant
+FROM scoped
 `
 	if err := r.db.QueryRowContext(ctx, complianceQuery, tenantID).Scan(&summary.TotalIncidents, &summary.CompliantIncidents); err != nil {
 		return nil, fmt.Errorf("sla compliance: %w", err)

@@ -305,6 +305,7 @@ const IncidentSLA: React.FC = () => {
         <Input.Search
           id="incident-sla-search"
           name="incident-sla-search"
+          autoComplete="off"
           placeholder="按事件 ID、标题、负责人搜索..."
           value={search}
           onChange={(event) => {
