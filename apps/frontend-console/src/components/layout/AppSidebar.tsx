@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Menu, Badge, theme } from 'antd';
 import type { MenuProps } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -177,10 +177,15 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggleCollapse }) 
     () => getSelectedKey(location.pathname, filteredSections),
     [location.pathname, filteredSections],
   );
-  const defaultOpenKeys = useMemo(
+  const routeOpenKeys = useMemo(
     () => getOpenKeysForPath(location.pathname, filteredSections),
     [location.pathname, filteredSections],
   );
+  const [openKeys, setOpenKeys] = useState<string[]>(collapsed ? [] : routeOpenKeys);
+
+  useEffect(() => {
+    setOpenKeys(collapsed ? [] : routeOpenKeys);
+  }, [collapsed, routeOpenKeys]);
 
   const menuItems = useMemo(
     () => buildMenuItems(filteredSections, unreadCount, collapsed),
@@ -245,7 +250,8 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed, onToggleCollapse }) 
         <Menu
           mode="inline"
           selectedKeys={[selectedKey]}
-          defaultOpenKeys={collapsed ? [] : defaultOpenKeys}
+          openKeys={collapsed ? [] : openKeys}
+          onOpenChange={(keys) => setOpenKeys(keys as string[])}
           items={menuItems}
           onClick={handleClick}
           style={{ border: 'none' }}
