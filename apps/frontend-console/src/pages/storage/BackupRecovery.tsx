@@ -13,6 +13,7 @@ import {
   type BackupSnapshot,
 } from '../../api/export';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 const SNAPSHOT_STATE_MAP: Record<string, { color: string; label: string }> = {
   SUCCESS: { color: 'success', label: '成功' },
@@ -36,6 +37,7 @@ const BackupRecovery: React.FC = () => {
   const [createLoading, setCreateLoading] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [form] = Form.useForm();
   const [restoreForm] = Form.useForm();
 
@@ -45,6 +47,7 @@ const BackupRecovery: React.FC = () => {
     try {
       const repos = await fetchBackupRepositories();
       setRepositories(repos);
+      setLastUpdatedAt(new Date());
       if (repos.length > 0 && !selectedRepo) {
         setSelectedRepo(repos[0].name);
       }
@@ -67,6 +70,7 @@ const BackupRecovery: React.FC = () => {
     try {
       const list = await fetchBackupSnapshots(selectedRepo);
       setSnapshots(list);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载快照失败';
       setError(msg);
@@ -222,33 +226,35 @@ const BackupRecovery: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>备份与恢复</h2>
-          <p style={{ margin: 0, fontSize: 13, color: p.textSecondary }}>管理索引快照仓库及数据恢复</p>
-        </div>
-        <Space>
-          <Select
-            placeholder="选择仓库"
-            value={selectedRepo || undefined}
-            onChange={setSelectedRepo}
-            style={{ width: 200 }}
-            loading={loadingRepos}
-            options={repositories.map((r) => ({ value: r.name, label: `${r.name} (${r.type})` }))}
-          />
-          <Button
-            type="primary"
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add_a_photo</span>}
-            onClick={() => setShowCreateModal(true)}
-            disabled={!selectedRepo}
-          >
-            创建快照
-          </Button>
-          <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={loadSnapshots}>
-            刷新
-          </Button>
-        </Space>
-      </div>
+      <AnalysisPageHeader
+        title="备份与恢复"
+        subtitle="管理索引快照仓库及数据恢复"
+        statusTag={<Tag color={selectedRepo ? 'blue' : 'default'} style={{ margin: 0 }}>{selectedRepo ? `仓库：${selectedRepo}` : '未选择仓库'}</Tag>}
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <>
+            <Select
+              placeholder="选择仓库"
+              value={selectedRepo || undefined}
+              onChange={setSelectedRepo}
+              style={{ width: 200 }}
+              loading={loadingRepos}
+              options={repositories.map((r) => ({ value: r.name, label: `${r.name} (${r.type})` }))}
+            />
+            <Button
+              type="primary"
+              icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add_a_photo</span>}
+              onClick={() => setShowCreateModal(true)}
+              disabled={!selectedRepo}
+            >
+              创建快照
+            </Button>
+            <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={() => void loadSnapshots()}>
+              刷新数据
+            </Button>
+          </>
+        )}
+      />
 
       <Card
         style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}

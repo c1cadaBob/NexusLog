@@ -7,6 +7,7 @@ import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
 import { fetchRoles, type RoleData } from '../../api/user';
 import { isProtectedRole, protectedGovernanceTagLabel } from './securityGovernance';
 import { resolveRolePermissionsActionAccess } from './rolePermissionsAuthorization';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 interface LoadErrorState {
   message: string;
@@ -44,6 +45,7 @@ const RolePermissions: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [loadError, setLoadError] = useState<LoadErrorState | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [selectedRole, setSelectedRole] = useState<RoleData | null>(null);
   const actionAccess = useMemo(
     () => resolveRolePermissionsActionAccess({ capabilities }),
@@ -56,6 +58,7 @@ const RolePermissions: React.FC = () => {
       const list = await fetchRoles();
       setRoles(list);
       setLoadError(null);
+      setLastUpdatedAt(new Date());
     } catch (error) {
       setRoles([]);
       setLoadError(toLoadError(error, '加载角色列表失败'));
@@ -210,30 +213,34 @@ const RolePermissions: React.FC = () => {
         style={{
           padding: '16px 24px',
           borderBottom: `1px solid ${palette.border}`,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-end',
           flexShrink: 0,
           background: isDark ? '#111722' : palette.bgContainer,
         }}
       >
-        <div>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>角色权限</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: palette.textSecondary }}>
-            管理用户角色及对应的功能模块访问权限
-          </p>
-        </div>
-        <Input
-          id="role-search"
-          name="role_search"
-          aria-label="搜索角色"
-          prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: palette.textSecondary }}>search</span>}
-          placeholder="搜索角色..."
-          value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value)}
-          style={{ width: 220 }}
-          allowClear
-          disabled={Boolean(loadError)}
+        <AnalysisPageHeader
+          title="角色权限"
+          subtitle="管理用户角色及对应的功能模块访问权限"
+          statusTag={<Tag color="purple" style={{ margin: 0 }}>IAM</Tag>}
+          lastUpdatedAt={lastUpdatedAt}
+          actions={(
+            <>
+              <Input
+                id="role-search"
+                name="role_search"
+                aria-label="搜索角色"
+                prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: palette.textSecondary }}>search</span>}
+                placeholder="搜索角色..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                style={{ width: 220 }}
+                allowClear
+                disabled={Boolean(loadError)}
+              />
+              <Button size="small" icon={<span className="material-symbols-outlined text-sm">refresh</span>} onClick={() => void loadRoles()} loading={loading}>
+                刷新数据
+              </Button>
+            </>
+          )}
         />
       </div>
 

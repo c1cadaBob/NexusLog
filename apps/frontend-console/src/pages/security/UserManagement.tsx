@@ -54,6 +54,7 @@ import {
   getPrimaryRoleChangeDeniedReason,
   resolveUserManagementActionAccess,
 } from './userManagementAuthorization';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 interface LoadErrorState {
   message: string;
@@ -165,6 +166,7 @@ const UserManagement: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [userLoadError, setUserLoadError] = useState<LoadErrorState | null>(null);
   const [roleLoadError, setRoleLoadError] = useState<LoadErrorState | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
@@ -223,6 +225,7 @@ const UserManagement: React.FC = () => {
         setUsers(hydratedUsers);
         setTotal(response.total);
         setUserLoadError(null);
+        setLastUpdatedAt(new Date());
       } catch (error) {
         setUsers([]);
         setTotal(0);
@@ -239,6 +242,7 @@ const UserManagement: React.FC = () => {
       const roleList = await fetchRoles();
       setRoles(roleList);
       setRoleLoadError(null);
+      setLastUpdatedAt(new Date());
     } catch (error) {
       setRoles([]);
       setRoleLoadError(toLoadError(error, '加载角色列表失败'));
@@ -761,56 +765,44 @@ const UserManagement: React.FC = () => {
         style={{
           padding: '16px 24px',
           borderBottom: `1px solid ${palette.border}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
           flexShrink: 0,
           background: isDark ? '#111722' : palette.bgContainer,
         }}
       >
-        <div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 12,
-              color: palette.textSecondary,
-              marginBottom: 4,
-            }}
-          >
-            <span>安全与审计</span>
-            <span className="material-symbols-outlined" style={{ fontSize: 10 }}>chevron_right</span>
-            <span style={{ color: COLORS.primary, fontWeight: 500 }}>用户管理</span>
-          </div>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>用户管理</h2>
-        </div>
-        <Space wrap>
-          <Button onClick={() => void refreshPageData()} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>}>
-            刷新
-          </Button>
-          <Tooltip title={actionAccess.canInviteUser ? '普通账号邀请入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过邀请创建' : '当前会话缺少用户邀请权限；后续该入口会按 iam.user.invite 单独开放'}>
-            <span>
-              <Button disabled icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>person_add</span>}>
-                邀请用户
+        <AnalysisPageHeader
+          title="用户管理"
+          subtitle="安全与审计 / 用户管理"
+          statusTag={isUserManagementReadOnly ? <Tag color="default" style={{ margin: 0 }}>只读</Tag> : <Tag color="blue" style={{ margin: 0 }}>IAM</Tag>}
+          lastUpdatedAt={lastUpdatedAt}
+          actions={(
+            <>
+              <Button onClick={() => void refreshPageData()} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>}>
+                刷新数据
               </Button>
-            </span>
-          </Tooltip>
-          <Tooltip title={actionAccess.canImportUser ? '普通账号导入入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过导入创建' : '当前会话缺少用户导入权限；后续该入口会按 iam.user.import 单独开放'}>
-            <span>
-              <Button disabled icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>upload_file</span>}>
-                导入用户
-              </Button>
-            </span>
-          </Tooltip>
-          <Tooltip title={canOpenCreateUserModal ? undefined : '当前会话缺少新增用户权限'}>
-            <span>
-              <Button type="primary" disabled={Boolean(userLoadError) || !canOpenCreateUserModal} onClick={openCreateModal} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>}>
-                新增用户
-              </Button>
-            </span>
-          </Tooltip>
-        </Space>
+              <Tooltip title={actionAccess.canInviteUser ? '普通账号邀请入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过邀请创建' : '当前会话缺少用户邀请权限；后续该入口会按 iam.user.invite 单独开放'}>
+                <span>
+                  <Button disabled icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>person_add</span>}>
+                    邀请用户
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={actionAccess.canImportUser ? '普通账号导入入口规划中；系统保留账号仅能由系统治理流程维护，不支持通过导入创建' : '当前会话缺少用户导入权限；后续该入口会按 iam.user.import 单独开放'}>
+                <span>
+                  <Button disabled icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>upload_file</span>}>
+                    导入用户
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={canOpenCreateUserModal ? undefined : '当前会话缺少新增用户权限'}>
+                <span>
+                  <Button type="primary" disabled={Boolean(userLoadError) || !canOpenCreateUserModal} onClick={openCreateModal} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>}>
+                    新增用户
+                  </Button>
+                </span>
+              </Tooltip>
+            </>
+          )}
+        />
       </div>
 
       {isUserManagementReadOnly ? (

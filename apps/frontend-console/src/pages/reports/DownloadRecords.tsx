@@ -12,6 +12,7 @@ import {
 import { resolveDownloadRecordsActionAccess } from './downloadRecordsAuthorization';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
 import { useUnnamedFormFieldAccessibility } from '../../components/common/useUnnamedFormFieldAccessibility';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 const FORMAT_OPTIONS = [
   { value: 'csv', label: 'CSV' },
@@ -66,6 +67,7 @@ const DownloadRecords: React.FC = () => {
   const createExportModalRef = useUnnamedFormFieldAccessibility('download-records-create-export');
   const [createLoading, setCreateLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [form] = Form.useForm();
 
   const authorization = useMemo(
@@ -108,6 +110,7 @@ const DownloadRecords: React.FC = () => {
       const res = await fetchExportJobs(page, pageSize);
       setJobs(res.items);
       setTotal(res.total);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载失败';
       setError(msg);
@@ -215,35 +218,35 @@ const DownloadRecords: React.FC = () => {
   return (
     <div className={`flex flex-col h-full overflow-hidden ${pageBg}`}>
       <header className={`w-full px-8 py-6 border-b ${borderColor} ${headerBg} shrink-0 z-10 -mx-6 -mt-6`}>
-        <div className="flex flex-col gap-1 mb-6">
-          <div className="flex items-center justify-between">
-            <h1 className={`text-2xl md:text-3xl font-bold ${textColor} tracking-tight`}>下载记录</h1>
-            <div className="flex items-center gap-2">
-              <Tooltip title={actionAccess.canCreateExportJob ? undefined : '当前会话缺少 export.job.create / logs:export 能力'}>
-                <span>
-                  <button
-                    onClick={openCreateExportModal}
-                    disabled={!actionAccess.canCreateExportJob}
-                    className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="material-symbols-outlined text-[20px]">add</span>新建导出
-                  </button>
-                </span>
-              </Tooltip>
-              <button
-                onClick={handleRefresh}
-                disabled={loading}
-                className={`flex items-center gap-2 px-4 py-2 ${buttonBg} ${buttonHoverBg} ${textColor} text-sm font-medium rounded-lg`}
-              >
-                <span className={`material-symbols-outlined text-[20px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
-                刷新列表
-              </button>
-            </div>
-          </div>
-          <div className={`flex items-center gap-2 text-sm ${textSecondary}`}>
-            <span className="material-symbols-outlined text-[18px]">info</span>
-            <p>系统将自动清理生成超过 7 天的文件</p>
-          </div>
+        <div className="mb-6">
+          <AnalysisPageHeader
+            title="下载记录"
+            subtitle="系统将自动清理生成超过 7 天的文件"
+            lastUpdatedAt={lastUpdatedAt}
+            actions={(
+              <>
+                <Tooltip title={actionAccess.canCreateExportJob ? undefined : '当前会话缺少 export.job.create / logs:export 能力'}>
+                  <span>
+                    <button
+                      onClick={openCreateExportModal}
+                      disabled={!actionAccess.canCreateExportJob}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">add</span>新建导出
+                    </button>
+                  </span>
+                </Tooltip>
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} ${buttonHoverBg} ${textColor} text-sm font-medium rounded-lg`}
+                >
+                  <span className={`material-symbols-outlined text-[20px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
+                  刷新数据
+                </button>
+              </>
+            )}
+          />
         </div>
         <div className={`flex flex-wrap items-center gap-4 ${filterBg} p-1.5 rounded-xl`}>
           <div className="relative group flex-1 min-w-[200px]">
