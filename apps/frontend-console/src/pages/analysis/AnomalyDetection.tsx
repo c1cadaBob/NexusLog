@@ -448,6 +448,13 @@ const AnomalyDetection: React.FC = () => {
               style={{ width: 160 }}
               size="small"
             />
+            <Button
+              size="small"
+              onClick={() => navigate('/help/faq')}
+              icon={<span className="material-symbols-outlined text-sm">support_agent</span>}
+            >
+              帮助
+            </Button>
             <Button size="small" onClick={handleRefresh} loading={loading} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
               刷新数据
             </Button>

@@ -26,6 +26,7 @@ const AppLayout: React.FC = () => {
   const [isMobile, setIsMobile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const useCompactDesktopBottomPadding = location.pathname === '/analysis/anomaly';
+  const showGlobalSupportButton = location.pathname !== '/analysis/anomaly';
 
   // 响应式检测
   useEffect(() => {
@@ -113,15 +114,17 @@ const AppLayout: React.FC = () => {
       {isMobile && <MobileBottomNav />}
 
       {/* 右下角帮助按钮 */}
-      <FloatButton
-        icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>support_agent</span>}
-        tooltip="帮助"
-        style={{
-          bottom: isMobile
-            ? `calc(${MOBILE_FLOAT_BUTTON_OFFSET}px + env(safe-area-inset-bottom))`
-            : DESKTOP_FLOAT_BUTTON_OFFSET,
-        }}
-      />
+      {showGlobalSupportButton && (
+        <FloatButton
+          icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>support_agent</span>}
+          tooltip="帮助"
+          style={{
+            bottom: isMobile
+              ? `calc(${MOBILE_FLOAT_BUTTON_OFFSET}px + env(safe-area-inset-bottom))`
+              : DESKTOP_FLOAT_BUTTON_OFFSET,
+          }}
+        />
+      )}
     </Layout>
   );
 };
