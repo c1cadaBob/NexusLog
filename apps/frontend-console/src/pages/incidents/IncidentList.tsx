@@ -527,6 +527,9 @@ const IncidentList: React.FC = () => {
         lastUpdatedAt={lastUpdatedAt}
         actions={(
           <>
+            <Button size="small" icon={<span className="material-symbols-outlined text-sm">support_agent</span>} onClick={() => navigate('/help/faq')}>
+              帮助
+            </Button>
             <Button size="small" icon={<span className="material-symbols-outlined text-sm">refresh</span>} onClick={() => { void loadIncidents(); }}>
               刷新数据
             </Button>

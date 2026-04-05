@@ -435,6 +435,13 @@ const IncidentDetail: React.FC = () => {
             </Button>
             <Button
               size="small"
+              icon={<span className="material-symbols-outlined text-sm">support_agent</span>}
+              onClick={() => navigate('/help/faq')}
+            >
+              帮助
+            </Button>
+            <Button
+              size="small"
               icon={<span className="material-symbols-outlined text-sm">refresh</span>}
               onClick={handleRefresh}
             >

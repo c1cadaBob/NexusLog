@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button, Card, Tag, Modal, Form, Input, Select, Checkbox, Space, message, Spin, Empty } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
@@ -77,6 +78,7 @@ const formatRecipientSummary = (value: unknown): string => {
 // ============================================================================
 
 const NotificationConfig: React.FC = () => {
+  const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const [form] = Form.useForm();
 
@@ -290,6 +292,9 @@ const NotificationConfig: React.FC = () => {
         lastUpdatedAt={lastUpdatedAt}
         actions={(
           <Space>
+            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>support_agent</span>} onClick={() => navigate('/help/faq')}>
+              帮助
+            </Button>
             <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={() => void loadChannels(true)}>
               刷新数据
             </Button>

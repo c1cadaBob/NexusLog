@@ -135,6 +135,7 @@ const IncidentArchiveReport: React.FC = () => {
             actions={(
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <Button size="small" onClick={() => navigate('/incidents/archive')}>返回归档列表</Button>
+                <Button size="small" icon={<span className="material-symbols-outlined text-sm">support_agent</span>} onClick={() => navigate('/help/faq')}>帮助</Button>
                 <Tooltip title={actionAccess.canReadIncident ? '打开事件详情' : getIncidentPermissionDeniedReason('read')}>
                   <Button size="small" disabled={!actionAccess.canReadIncident} onClick={() => navigate(`/incidents/detail/${incident.id}`)}>打开事件详情</Button>
                 </Tooltip>

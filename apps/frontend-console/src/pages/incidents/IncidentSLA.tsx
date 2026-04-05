@@ -265,9 +265,14 @@ const IncidentSLA: React.FC = () => {
         subtitle="展示真实事件的响应、解决时效与升级层级"
         lastUpdatedAt={lastUpdatedAt}
         actions={(
-          <Button size="small" onClick={() => void loadData()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
-            刷新数据
-          </Button>
+          <>
+            <Button size="small" onClick={() => navigate('/help/faq')} icon={<span className="material-symbols-outlined text-sm">support_agent</span>}>
+              帮助
+            </Button>
+            <Button size="small" onClick={() => void loadData()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+              刷新数据
+            </Button>
+          </>
         )}
       />
 

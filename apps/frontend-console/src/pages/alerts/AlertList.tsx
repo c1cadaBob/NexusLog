@@ -566,6 +566,13 @@ const AlertList: React.FC = () => {
             <Badge status="success" text="系统正常" />
             <Button
               size="small"
+              onClick={() => navigate('/help/faq')}
+              icon={<span className="material-symbols-outlined text-sm">support_agent</span>}
+            >
+              帮助
+            </Button>
+            <Button
+              size="small"
               icon={<span className="material-symbols-outlined text-sm">refresh</span>}
               onClick={() => { void loadAlerts({ force: true }); }}
             >

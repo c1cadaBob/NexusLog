@@ -120,9 +120,14 @@ const IncidentTimeline: React.FC = () => {
         subtitle="追踪事件从触发到归档的全生命周期过程"
         lastUpdatedAt={lastUpdatedAt}
         actions={(
-          <Button size="small" onClick={handleRefresh} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
-            刷新数据
-          </Button>
+          <>
+            <Button size="small" onClick={() => navigate('/help/faq')} icon={<span className="material-symbols-outlined text-sm">support_agent</span>}>
+              帮助
+            </Button>
+            <Button size="small" onClick={handleRefresh} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+              刷新数据
+            </Button>
+          </>
         )}
       />
 

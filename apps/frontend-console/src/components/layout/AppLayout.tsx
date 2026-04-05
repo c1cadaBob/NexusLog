@@ -25,9 +25,9 @@ const AppLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const isAnalysisPage = location.pathname.startsWith('/analysis/');
-  const useCompactDesktopBottomPadding = isAnalysisPage;
-  const showGlobalSupportButton = !isAnalysisPage;
+  const useHeaderHelpLayout = ['/analysis/', '/alerts/', '/incidents/'].some((prefix) => location.pathname.startsWith(prefix));
+  const useCompactDesktopBottomPadding = useHeaderHelpLayout;
+  const showGlobalSupportButton = !useHeaderHelpLayout;
 
   // 响应式检测
   useEffect(() => {

@@ -203,9 +203,14 @@ const IncidentAnalysis: React.FC = () => {
         subtitle="基于真实事件数据展示根因、处置和归档分析结果"
         lastUpdatedAt={lastUpdatedAt}
         actions={(
-          <Button size="small" onClick={() => void loadIncidents()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
-            刷新数据
-          </Button>
+          <>
+            <Button size="small" onClick={() => navigate('/help/faq')} icon={<span className="material-symbols-outlined text-sm">support_agent</span>}>
+              帮助
+            </Button>
+            <Button size="small" onClick={() => void loadIncidents()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+              刷新数据
+            </Button>
+          </>
         )}
       />
 

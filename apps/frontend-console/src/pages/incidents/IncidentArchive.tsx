@@ -224,6 +224,9 @@ const IncidentArchive: React.FC = () => {
         lastUpdatedAt={lastUpdatedAt}
         actions={(
           <div className="flex items-center gap-2 flex-wrap">
+            <Button size="small" onClick={() => navigate('/help/faq')} icon={<span className="material-symbols-outlined text-sm">support_agent</span>}>
+              帮助
+            </Button>
             <Button size="small" onClick={() => void loadIncidents()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
               刷新数据
             </Button>

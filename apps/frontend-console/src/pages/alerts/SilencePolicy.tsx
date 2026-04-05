@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Input, Table, Tag, Button, Card, Space, Modal, Form, DatePicker, message, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
@@ -56,6 +57,7 @@ const arrayToMatchers = (arr: { name: string; value: string }[]): Record<string,
 // ============================================================================
 
 const SilencePolicy: React.FC = () => {
+  const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const [form] = Form.useForm();
 
@@ -297,6 +299,9 @@ const SilencePolicy: React.FC = () => {
         lastUpdatedAt={lastUpdatedAt}
         actions={(
           <Space>
+            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>support_agent</span>} onClick={() => navigate('/help/faq')}>
+              帮助
+            </Button>
             <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={() => void loadData()}>
               刷新数据
             </Button>

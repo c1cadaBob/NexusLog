@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { App, Input, Select, Table, Tag, Button, Card, Space, Modal, Form, Switch, Spin, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
@@ -51,6 +51,7 @@ const formatTimeAgo = (timestamp: number): string => {
 const AlertRules: React.FC = () => {
   const { message } = App.useApp();
   const location = useLocation();
+  const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const [form] = Form.useForm();
 
@@ -547,8 +548,8 @@ const AlertRules: React.FC = () => {
         lastUpdatedAt={lastUpdatedAt}
         actions={(
           <Space>
-            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
-              帮助文档
+            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>support_agent</span>} onClick={() => navigate('/help/faq')}>
+              帮助
             </Button>
             <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={loadRules}>
               刷新数据
