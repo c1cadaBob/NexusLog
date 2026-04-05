@@ -23,6 +23,7 @@ import {
   getIncidentPermissionDeniedReason,
   resolveIncidentActionAccess,
 } from './incidentAuthorization';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 // ============================================================================
 // 共享配置映射
@@ -245,6 +246,7 @@ const IncidentDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [timelineLoading, setTimelineLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
   const [archiveVerdict, setArchiveVerdict] = useState('');
@@ -261,6 +263,7 @@ const IncidentDetail: React.FC = () => {
     try {
       const inc = await fetchIncidentDetail(id);
       setIncident(inc);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载事件详情失败';
       setError(msg);
@@ -277,6 +280,7 @@ const IncidentDetail: React.FC = () => {
     try {
       const events = await fetchIncidentTimeline(id);
       setTimeline(events);
+      setLastUpdatedAt(new Date());
     } catch {
       setTimeline([]);
     } finally {
@@ -397,40 +401,54 @@ const IncidentDetail: React.FC = () => {
   const sevCfg = SEVERITY_CONFIG[incident.severity];
   const staCfg = STATUS_CONFIG[incident.status];
 
+  const handleRefresh = () => {
+    void loadDetail();
+    void loadTimeline();
+  };
+
   return (
     <div className="flex flex-col gap-4">
-      {/* 顶部：返回 + 标题 + 状态操作 */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <Button
-            type="text"
-            size="small"
-            icon={<span className="material-symbols-outlined text-base">arrow_back</span>}
-            onClick={() => navigate('/incidents/list')}
-          />
-          <span className="material-symbols-outlined text-lg" style={{ color: sevCfg.color }}>{sevCfg.icon}</span>
-          <span className="text-lg font-semibold">{incident.title}</span>
-          <Tag color={sevCfg.color} style={{ margin: 0 }}>{sevCfg.label}</Tag>
-          <Tag color={staCfg.color} style={{ margin: 0 }}>{staCfg.label}</Tag>
-        </div>
-        <Space>
-          {incident.status === 'alerted' && actionAccess.canUpdateIncident && (
-            <Button type="primary" loading={actionLoading} onClick={() => handleTransition(() => acknowledgeIncident(id), '已响应')}>确认响应</Button>
-          )}
-          {incident.status === 'acknowledged' && actionAccess.canUpdateIncident && (
-            <Button type="primary" loading={actionLoading} onClick={() => handleTransition(() => investigateIncident(id), '分析中')}>开始分析</Button>
-          )}
-          {incident.status === 'analyzing' && actionAccess.canUpdateIncident && (
-            <Button type="primary" loading={actionLoading} onClick={() => handleTransition(() => resolveIncident(id), '已解决')}>标记解决</Button>
-          )}
-          {incident.status === 'resolved' && actionAccess.canArchiveIncident && (
-            <Button type="primary" loading={actionLoading} onClick={() => setArchiveModalOpen(true)}>归档</Button>
-          )}
-          {incident.status === 'postmortem' && actionAccess.canArchiveIncident && (
-            <Button type="primary" loading={actionLoading} onClick={() => setArchiveModalOpen(true)}>归档</Button>
-          )}
-        </Space>
-      </div>
+      <AnalysisPageHeader
+        title={incident.title}
+        subtitle={`事件详情 · ${incident.id}`}
+        statusTag={(
+          <>
+            <Tag color={sevCfg.color} style={{ margin: 0 }}>{sevCfg.label}</Tag>
+            <Tag color={staCfg.color} style={{ margin: 0 }}>{staCfg.label}</Tag>
+          </>
+        )}
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <Space wrap>
+            <Button
+              size="small"
+              icon={<span className="material-symbols-outlined text-sm">arrow_back</span>}
+              onClick={() => navigate('/incidents/list')}
+            >
+              返回列表
+            </Button>
+            <Button
+              size="small"
+              icon={<span className="material-symbols-outlined text-sm">refresh</span>}
+              onClick={handleRefresh}
+            >
+              刷新数据
+            </Button>
+            {incident.status === 'alerted' && actionAccess.canUpdateIncident && (
+              <Button size="small" type="primary" loading={actionLoading} onClick={() => handleTransition(() => acknowledgeIncident(id), '已响应')}>确认响应</Button>
+            )}
+            {incident.status === 'acknowledged' && actionAccess.canUpdateIncident && (
+              <Button size="small" type="primary" loading={actionLoading} onClick={() => handleTransition(() => investigateIncident(id), '分析中')}>开始分析</Button>
+            )}
+            {incident.status === 'analyzing' && actionAccess.canUpdateIncident && (
+              <Button size="small" type="primary" loading={actionLoading} onClick={() => handleTransition(() => resolveIncident(id), '已解决')}>标记解决</Button>
+            )}
+            {(incident.status === 'resolved' || incident.status === 'postmortem') && actionAccess.canArchiveIncident && (
+              <Button size="small" type="primary" loading={actionLoading} onClick={() => setArchiveModalOpen(true)}>归档</Button>
+            )}
+          </Space>
+        )}
+      />
 
       {!actionAccess.hasAnyWriteAccess && (
         <Card size="small">

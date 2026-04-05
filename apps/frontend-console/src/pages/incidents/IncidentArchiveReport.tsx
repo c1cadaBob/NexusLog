@@ -4,7 +4,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { fetchIncidentDetail, fetchIncidentTimeline } from '../../api/incident';
 import type { Incident, TimelineEvent } from '../../types/incident';
 import {
-  buildIncidentArchivePrintRoute,
   buildIncidentArchiveReportFilename,
   downloadBlobFile,
   downloadIncidentArchiveMarkdown,
@@ -16,6 +15,7 @@ import {
   getIncidentPermissionDeniedReason,
   resolveIncidentActionAccess,
 } from './incidentAuthorization';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 const IncidentArchiveReport: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -32,6 +32,7 @@ const IncidentArchiveReport: React.FC = () => {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const loadReport = useCallback(async () => {
     if (!id) return;
@@ -44,6 +45,7 @@ const IncidentArchiveReport: React.FC = () => {
       ]);
       setIncident(detail);
       setTimeline(incidentTimeline);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const nextError = err instanceof Error ? err.message : '加载归档报告失败';
       setError(nextError);
@@ -118,18 +120,31 @@ const IncidentArchiveReport: React.FC = () => {
         }
       `}</style>
       <div className="incident-report-shell" style={{ maxWidth: 960, margin: '0 auto', padding: 24 }}>
-        <div className="incident-report-toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Button onClick={() => navigate('/incidents/archive')}>返回归档列表</Button>
-            <Tooltip title={actionAccess.canReadIncident ? '打开事件详情' : getIncidentPermissionDeniedReason('read')}>
-              <Button disabled={!actionAccess.canReadIncident} onClick={() => navigate(`/incidents/detail/${incident.id}`)}>打开事件详情</Button>
-            </Tooltip>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Button icon={<span className="material-symbols-outlined text-sm">description</span>} onClick={handleDownloadMarkdown}>下载 Markdown</Button>
-            <Button icon={<span className="material-symbols-outlined text-sm">code</span>} onClick={handleDownloadHtml}>下载 HTML</Button>
-            <Button type="primary" icon={<span className="material-symbols-outlined text-sm">picture_as_pdf</span>} onClick={() => window.print()}>保存为 PDF</Button>
-          </div>
+        <div className="incident-report-toolbar" style={{ marginBottom: 16 }}>
+          <AnalysisPageHeader
+            title="事件归档报告"
+            subtitle="用于归档留痕、复盘共享与外部汇报"
+            statusTag={(
+              <>
+                <Tag color="blue" style={{ margin: 0 }}>事件 ID：{incident.id}</Tag>
+                <Tag color={archived ? 'success' : 'warning'} style={{ margin: 0 }}>{archived ? '已归档' : '未归档'}</Tag>
+                <Tag color="purple" style={{ margin: 0 }}>{incident.severity}</Tag>
+              </>
+            )}
+            lastUpdatedAt={lastUpdatedAt}
+            actions={(
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button size="small" onClick={() => navigate('/incidents/archive')}>返回归档列表</Button>
+                <Tooltip title={actionAccess.canReadIncident ? '打开事件详情' : getIncidentPermissionDeniedReason('read')}>
+                  <Button size="small" disabled={!actionAccess.canReadIncident} onClick={() => navigate(`/incidents/detail/${incident.id}`)}>打开事件详情</Button>
+                </Tooltip>
+                <Button size="small" icon={<span className="material-symbols-outlined text-sm">refresh</span>} onClick={() => void loadReport()}>刷新数据</Button>
+                <Button size="small" icon={<span className="material-symbols-outlined text-sm">description</span>} onClick={handleDownloadMarkdown}>下载 Markdown</Button>
+                <Button size="small" icon={<span className="material-symbols-outlined text-sm">code</span>} onClick={handleDownloadHtml}>下载 HTML</Button>
+                <Button size="small" type="primary" icon={<span className="material-symbols-outlined text-sm">picture_as_pdf</span>} onClick={() => window.print()}>保存为 PDF</Button>
+              </div>
+            )}
+          />
         </div>
 
         {!archived && (
@@ -145,13 +160,7 @@ const IncidentArchiveReport: React.FC = () => {
         <Card className="incident-report-card" style={{ borderRadius: 16, boxShadow: '0 8px 30px rgba(15, 23, 42, 0.08)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
             <div>
-              <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>事件归档报告</div>
-              <div style={{ fontSize: 14, color: '#475569' }}>用于归档留痕、复盘共享与外部汇报</div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Tag color="blue">事件 ID：{incident.id}</Tag>
-              <Tag color={archived ? 'success' : 'warning'}>{archived ? '已归档' : '未归档'}</Tag>
-              <Tag color="purple">{incident.severity}</Tag>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#475569' }}>归档快照</div>
             </div>
           </div>
 
