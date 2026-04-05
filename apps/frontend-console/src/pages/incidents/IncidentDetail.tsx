@@ -24,6 +24,7 @@ import {
   resolveIncidentActionAccess,
 } from './incidentAuthorization';
 import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
+import { classifyRootCause, ROOT_CAUSE_CONFIG } from '../../utils/incidentRootCause';
 
 // ============================================================================
 // 共享配置映射
@@ -189,6 +190,11 @@ const AnalysisTab: React.FC<{ incident: Incident; onEdit: () => void; canEdit: b
   return (
     <div className="flex flex-col gap-4">
       <Descriptions column={1} size="small" bordered>
+        <Descriptions.Item label="根因分类">
+          <Tag color={ROOT_CAUSE_CONFIG[classifyRootCause(incident.rootCause)].color}>
+            {ROOT_CAUSE_CONFIG[classifyRootCause(incident.rootCause)].label}
+          </Tag>
+        </Descriptions.Item>
         <Descriptions.Item label="根因分析">
           <span className="text-xs whitespace-pre-wrap">{incident.rootCause || '-'}</span>
         </Descriptions.Item>
