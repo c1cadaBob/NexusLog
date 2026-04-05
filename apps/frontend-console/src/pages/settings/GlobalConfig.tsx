@@ -80,6 +80,10 @@ const GlobalConfig: React.FC = () => {
             <p className={`${textSecondary} mt-1`}>管理集群元数据、存储后端、邮件服务及外部认证设置。</p>
           </div>
           <div className="flex gap-3">
+            <button onClick={() => { window.location.hash = '#/help/faq'; }} className={`flex items-center justify-center gap-2 h-10 px-4 rounded-lg ${buttonBg} ${buttonHover} ${textColor} text-sm font-bold transition-colors`}>
+              <span className="material-symbols-outlined text-[18px]">help</span>
+              帮助
+            </button>
             <button className={`flex items-center justify-center h-10 px-4 rounded-lg ${buttonBg} ${buttonHover} ${textColor} text-sm font-bold transition-colors`}>
               重置
             </button>

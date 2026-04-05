@@ -362,6 +362,13 @@ const SystemParameters: React.FC = () => {
           <p className={`text-sm ${textSecondary}`}>管理系统的核心配置，包括性能、网络及安全设置。</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => { window.location.hash = '#/help/faq'; }}
+            className={`px-4 py-2 text-sm font-medium ${textSecondary} ${buttonBg} border ${borderColor} rounded-lg ${buttonHover} transition-colors flex items-center gap-2`}
+          >
+            <span className="material-symbols-outlined text-[18px]">help</span>
+            帮助
+          </button>
           {saveMessage && (
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${saveMessage.type === 'success' ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#ef4444]/10 text-[#ef4444]'}`}>
               <span className="material-symbols-outlined text-[18px]">{saveMessage.type === 'success' ? 'check_circle' : 'error'}</span>

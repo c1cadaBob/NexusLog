@@ -37,9 +37,9 @@ const ConfigVersions: React.FC = () => {
           <p className={`text-xs ${textSecondary}`}>管理系统配置版本，支持对比与回滚 (Manage configuration versions, compare and rollback)</p>
         </div>
         <div className="flex items-center gap-3">
-          <button className={`flex items-center gap-2 px-3 py-1.5 text-sm ${versionText} ${isDark ? 'hover:text-white hover:bg-white/5' : 'hover:text-slate-900 hover:bg-slate-100'} rounded-lg transition-colors border ${borderColor}`}>
+          <button onClick={() => { window.location.hash = '#/help/faq'; }} className={`flex items-center gap-2 px-3 py-1.5 text-sm ${versionText} ${isDark ? 'hover:text-white hover:bg-white/5' : 'hover:text-slate-900 hover:bg-slate-100'} rounded-lg transition-colors border ${borderColor}`}>
             <span className="material-symbols-outlined text-[18px]">help</span>
-            <span>帮助文档</span>
+            <span>帮助</span>
           </button>
           <button className="bg-[#135bec] hover:bg-[#1050d0] text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-blue-900/20 flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]">save</span>

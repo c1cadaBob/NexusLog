@@ -381,6 +381,9 @@ const LoginPolicy: React.FC = () => {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+              帮助
+            </Button>
             <Popconfirm
               title="恢复默认设置？"
               description="该操作会重置当前表单，需再次点击“保存设置”后才会持久化。"

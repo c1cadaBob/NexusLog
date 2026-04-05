@@ -236,6 +236,9 @@ const RolePermissions: React.FC = () => {
                 allowClear
                 disabled={Boolean(loadError)}
               />
+              <Button size="small" onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined text-sm">help</span>}>
+                帮助
+              </Button>
               <Button size="small" icon={<span className="material-symbols-outlined text-sm">refresh</span>} onClick={() => void loadRoles()} loading={loading}>
                 刷新数据
               </Button>

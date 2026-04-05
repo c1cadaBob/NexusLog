@@ -396,17 +396,25 @@ const AuditLogs: React.FC = () => {
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>审计日志</h2>
           <Tag style={{ fontSize: 10 }}>Audit Logs</Tag>
         </div>
-        <Tooltip title={actionAccess.canExportAuditLogs ? '当前会话已具备审计导出能力；正式导出接口接入后将直接落到导出任务' : '当前会话缺少审计导出权限；正式导出将按 audit.log.export 单独开放'}>
-          <span>
-            <Button
-              disabled={!actionAccess.canExportAuditLogs}
-              onClick={handleExportAuditLogs}
-              icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>}
-            >
-              导出日志
-            </Button>
-          </span>
-        </Tooltip>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Button
+            onClick={() => { window.location.hash = '#/help/faq'; }}
+            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}
+          >
+            帮助
+          </Button>
+          <Tooltip title={actionAccess.canExportAuditLogs ? '当前会话已具备审计导出能力；正式导出接口接入后将直接落到导出任务' : '当前会话缺少审计导出权限；正式导出将按 audit.log.export 单独开放'}>
+            <span>
+              <Button
+                disabled={!actionAccess.canExportAuditLogs}
+                onClick={handleExportAuditLogs}
+                icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>}
+              >
+                导出日志
+              </Button>
+            </span>
+          </Tooltip>
+        </div>
       </div>
 
       <div style={{ padding: '16px 24px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
