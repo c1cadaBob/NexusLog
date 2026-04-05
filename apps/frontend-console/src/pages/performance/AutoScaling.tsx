@@ -29,7 +29,7 @@ const AutoScaling: React.FC = () => {
           <button className={`md:hidden ${textSecondary}`}>
             <span className="material-symbols-outlined">menu</span>
           </button>
-          <h1 className={`text-xl font-semibold ${textColor}`}>扩缩容策略</h1>
+          <h1 className={`text-2xl font-bold ${textColor}`}>扩缩容策略</h1>
           <span className={`hidden sm:inline-block px-2 py-0.5 rounded-full ${tagBg} border ${tagBorder} text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'} font-medium`}>Auto-Scaling</span>
         </div>
         <div className="flex items-center gap-3">

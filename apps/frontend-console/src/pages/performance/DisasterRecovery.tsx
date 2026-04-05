@@ -26,7 +26,7 @@ const DisasterRecovery: React.FC = () => {
         </div>
         <div className={`flex flex-wrap justify-between items-end gap-4 border-b ${borderColor} pb-6`}>
           <div className="flex flex-col gap-1">
-            <h1 className={`${textColor} text-3xl font-bold tracking-tight`}>灾备状态监控</h1>
+            <h1 className={`${textColor} text-2xl font-bold tracking-tight`}>灾备状态监控</h1>
             <p className={`${textSecondary} text-sm`}>实时监控主备集群同步状态及故障转移就绪情况</p>
           </div>
           <div className="flex gap-3">

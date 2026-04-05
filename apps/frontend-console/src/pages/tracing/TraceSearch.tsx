@@ -114,7 +114,7 @@ const TraceSearch: React.FC = () => {
     <div className="flex flex-col h-full gap-6">
       <div className={`h-16 border-b ${borderColor} ${headerBg} backdrop-blur z-10 flex items-center justify-between px-6 shrink-0 -mx-6 -mt-6`}>
         <div className="flex items-center gap-4">
-          <h1 className={`text-xl font-bold ${textColor} tracking-tight flex items-center gap-2`}>
+          <h1 className={`text-2xl font-bold ${textColor} tracking-tight flex items-center gap-2`}>
             <span className={`material-symbols-outlined ${textSecondary}`}>search</span>
             Trace 搜索
           </h1>

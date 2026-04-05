@@ -117,7 +117,7 @@ const CostOverview: React.FC = () => {
       {/* 头部 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>成本概览</h2>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>成本概览</h2>
           <div style={{ fontSize: 13, color: p.textSecondary, marginTop: 4 }}>实时监控您的基础设施支出与资源使用情况</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

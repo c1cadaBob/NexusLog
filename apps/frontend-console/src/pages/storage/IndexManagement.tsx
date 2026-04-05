@@ -144,7 +144,7 @@ const IndexManagement: React.FC = () => {
       {/* 头部 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>索引管理</h2>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>索引管理</h2>
           <p style={{ margin: 0, fontSize: 12, color: p.textSecondary }}>管理和监控 Elasticsearch 索引状态、健康度和存储使用情况。</p>
         </div>
         <Space>

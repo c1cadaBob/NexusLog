@@ -86,7 +86,7 @@ const PluginMarket: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 24 }}>
       {/* 头部 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>插件市场 Plugin Market</h2>
+        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>插件市场 Plugin Market</h2>
         <Space>
           <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
             帮助

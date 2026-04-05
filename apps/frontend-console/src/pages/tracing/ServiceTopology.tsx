@@ -88,7 +88,7 @@ const ServiceTopology: React.FC = () => {
     <div className={`flex flex-col h-full overflow-hidden relative -mx-6 -mt-6 -mb-6 ${pageBg}`}>
       <header className={`h-16 border-b ${borderColor} ${headerBg} flex items-center justify-between px-6 z-10 shrink-0`}>
         <div className="flex items-center gap-4">
-          <h2 className={`text-lg font-bold ${textColor} font-display`}>服务拓扑图</h2>
+          <h2 className={`text-2xl font-bold ${textColor} font-display tracking-tight`}>服务拓扑图</h2>
           <div className={`h-6 w-px ${isDark ? 'bg-border-dark' : 'bg-slate-200'}`}></div>
           <div className="relative group">
             <button className={`flex items-center gap-2 text-sm ${textSecondary} font-medium px-3 py-1.5 rounded ${cardBg} border ${borderColor}`}>

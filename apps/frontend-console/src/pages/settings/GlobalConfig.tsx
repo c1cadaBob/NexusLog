@@ -76,7 +76,7 @@ const GlobalConfig: React.FC = () => {
         </div>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className={`${textColor} text-3xl font-bold tracking-tight`}>全局配置</h1>
+            <h1 className={`${textColor} text-2xl font-bold tracking-tight`}>全局配置</h1>
             <p className={`${textSecondary} mt-1`}>管理集群元数据、存储后端、邮件服务及外部认证设置。</p>
           </div>
           <div className="flex gap-3">

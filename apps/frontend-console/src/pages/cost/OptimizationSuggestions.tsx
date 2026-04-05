@@ -60,7 +60,7 @@ const OptimizationSuggestions: React.FC = () => {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="material-symbols-outlined" style={{ color: COLORS.primary, fontSize: 24 }}>savings</span>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>优化建议 (Optimization Suggestions)</h2>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>优化建议 (Optimization Suggestions)</h2>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>

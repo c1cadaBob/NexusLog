@@ -254,9 +254,9 @@ const ScheduledTasks: React.FC = () => {
 
   return (
     <div className={`flex flex-col h-full overflow-hidden ${pageBg}`}>
-      <header className={`h-16 border-b ${borderColor} ${headerBg} backdrop-blur-sm px-8 flex items-center justify-between shrink-0 -mx-6 -mt-6`}>
+      <header className={`min-h-[80px] border-b ${borderColor} ${headerBg} backdrop-blur-sm px-8 py-4 flex items-center justify-between shrink-0 -mx-6 -mt-6`}>
         <div className="flex flex-col">
-          <h1 className={`${textColor} text-lg font-display font-semibold leading-tight`}>定时任务管理</h1>
+          <h1 className={`${textColor} text-2xl font-display font-bold leading-tight tracking-tight`}>定时任务管理</h1>
           <p className={`${textSecondary} text-xs font-normal`}>管理和监控自动生成的报表任务</p>
         </div>
         <div className="flex items-center gap-4">

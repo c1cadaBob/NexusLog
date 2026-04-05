@@ -68,7 +68,7 @@ const BudgetAlerts: React.FC = () => {
       {/* 头部 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>预算告警管理</h2>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>预算告警管理</h2>
           <Tag color="blue">企业版</Tag>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

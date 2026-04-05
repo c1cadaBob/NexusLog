@@ -370,7 +370,7 @@ const LoginPolicy: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <h2 style={{ margin: '8px 0 0', fontSize: 22, fontWeight: 700 }}>登录安全配置</h2>
+              <h2 style={{ margin: '8px 0 0', fontSize: 24, fontWeight: 700 }}>登录安全配置</h2>
               <Tag color={isDirty ? 'warning' : 'success'}>{isDirty ? '有未保存变更' : '已保存'}</Tag>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: 13, color: palette.textSecondary }}>

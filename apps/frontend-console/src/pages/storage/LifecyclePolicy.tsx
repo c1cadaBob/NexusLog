@@ -124,7 +124,7 @@ const LifecyclePolicy: React.FC = () => {
       {/* 头部 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>生命周期策略 (Lifecycle Policies)</h2>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>生命周期策略 (Lifecycle Policies)</h2>
           <p style={{ margin: 0, fontSize: 13, color: p.textSecondary }}>Automate index management over time: Hot to Warm, to Cold, then Delete.</p>
         </div>
         <Space>

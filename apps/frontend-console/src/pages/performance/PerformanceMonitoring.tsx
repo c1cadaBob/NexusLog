@@ -194,7 +194,7 @@ const PerformanceMonitoring: React.FC = () => {
         className={`flex items-center justify-between px-6 py-4 border-b ${borderColor} ${headerBg} shrink-0 -mx-6 -mt-6`}
       >
         <div className="flex flex-col">
-          <h2 className={`text-xl font-bold ${textColor} tracking-tight`}>
+          <h2 className={`text-2xl font-bold ${textColor} tracking-tight`}>
             实时系统性能 (Real-time System Performance)
           </h2>
           <p className={`text-sm ${textSecondary} mt-1`}>

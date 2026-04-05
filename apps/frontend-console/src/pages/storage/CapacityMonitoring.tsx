@@ -117,7 +117,7 @@ const CapacityMonitoring: React.FC = () => {
       {/* 头部 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>容量监控</h2>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>容量监控</h2>
           <Tag color="success">运行正常</Tag>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

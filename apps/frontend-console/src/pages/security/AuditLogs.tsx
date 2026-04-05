@@ -393,7 +393,7 @@ const AuditLogs: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <div style={{ height: 56, padding: '0 24px', borderBottom: `1px solid ${palette.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: isDark ? '#111722' : palette.bgContainer }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>审计日志</h2>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>审计日志</h2>
           <Tag style={{ fontSize: 10 }}>Audit Logs</Tag>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

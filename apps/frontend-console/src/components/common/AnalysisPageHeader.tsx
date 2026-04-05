@@ -23,14 +23,14 @@ const AnalysisPageHeader: React.FC<AnalysisPageHeaderProps> = ({
   actions,
 }) => {
   return (
-    <div className="flex items-start justify-between flex-wrap gap-3">
+    <div className="flex items-start justify-between flex-wrap gap-4">
       <div>
         <div className="flex items-center gap-3 flex-wrap">
-          <h2 className="text-xl font-bold m-0">{title}</h2>
+          <h2 className="text-2xl font-bold tracking-tight m-0">{title}</h2>
           {statusTag}
         </div>
-        <div className="flex items-center gap-2 mt-1 flex-wrap">
-          {subtitle ? <span className="text-xs opacity-55">{subtitle}</span> : null}
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+          {subtitle ? <span className="text-sm opacity-60">{subtitle}</span> : null}
           {lastUpdatedAt ? (
             <Text type="secondary" style={{ fontSize: 12 }}>
               最近更新：{lastUpdatedAt.toLocaleString('zh-CN')}
@@ -40,7 +40,7 @@ const AnalysisPageHeader: React.FC<AnalysisPageHeaderProps> = ({
           {fallbackLabel ? <Tag color="gold" style={{ margin: 0 }}>{fallbackLabel}</Tag> : null}
         </div>
       </div>
-      {actions ? <div className="flex items-center flex-wrap gap-2">{actions}</div> : null}
+      {actions ? <div className="flex items-center flex-wrap gap-3">{actions}</div> : null}
     </div>
   );
 };
