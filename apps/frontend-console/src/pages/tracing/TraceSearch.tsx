@@ -126,11 +126,15 @@ const TraceSearch: React.FC = () => {
           </nav>
         </div>
         <div className="flex items-center gap-3">
-          <button className={`p-2 ${textSecondary} ${isDark ? 'hover:text-white hover:bg-white/5' : 'hover:text-slate-900 hover:bg-slate-100'} rounded-lg transition-colors`}>
-            <span className="material-symbols-outlined">notifications</span>
+          <button
+            onClick={() => { window.location.hash = '#/help/faq'; }}
+            className={`flex items-center gap-2 px-3 py-2 ${textSecondary} ${isDark ? 'hover:text-white hover:bg-white/5' : 'hover:text-slate-900 hover:bg-slate-100'} rounded-lg transition-colors`}
+          >
+            <span className="material-symbols-outlined text-[18px]">help</span>
+            <span>帮助</span>
           </button>
           <button className={`p-2 ${textSecondary} ${isDark ? 'hover:text-white hover:bg-white/5' : 'hover:text-slate-900 hover:bg-slate-100'} rounded-lg transition-colors`}>
-            <span className="material-symbols-outlined">help</span>
+            <span className="material-symbols-outlined">notifications</span>
           </button>
         </div>
       </div>

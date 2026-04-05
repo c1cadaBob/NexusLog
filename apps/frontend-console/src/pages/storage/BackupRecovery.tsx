@@ -233,6 +233,9 @@ const BackupRecovery: React.FC = () => {
         lastUpdatedAt={lastUpdatedAt}
         actions={(
           <>
+            <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+              帮助
+            </Button>
             <Select
               placeholder="选择仓库"
               value={selectedRepo || undefined}

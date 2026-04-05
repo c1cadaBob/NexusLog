@@ -99,6 +99,13 @@ const ServiceTopology: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => { window.location.hash = '#/help/faq'; }}
+            className={`flex items-center gap-2 px-3 py-1.5 text-sm ${textSecondary} font-medium rounded ${cardBg} border ${borderColor}`}
+          >
+            <span className="material-symbols-outlined text-[18px]">help</span>
+            帮助
+          </button>
           <div className="relative">
             <span className={`material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 ${textSecondary} text-[18px]`}>search</span>
             <input 

@@ -148,6 +148,9 @@ const IndexManagement: React.FC = () => {
           <p style={{ margin: 0, fontSize: 12, color: p.textSecondary }}>管理和监控 Elasticsearch 索引状态、健康度和存储使用情况。</p>
         </div>
         <Space>
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+            帮助
+          </Button>
           <Button
             icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>}
             onClick={() => message.info('正在刷新...')}

@@ -30,6 +30,10 @@ const DisasterRecovery: React.FC = () => {
             <p className={`${textSecondary} text-sm`}>实时监控主备集群同步状态及故障转移就绪情况</p>
           </div>
           <div className="flex gap-3">
+            <button onClick={() => { window.location.hash = '#/help/faq'; }} className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${borderColor} ${hoverBg} ${textColor} text-sm font-medium transition-colors`}>
+              <span className="material-symbols-outlined text-[20px]">help</span>
+              帮助
+            </button>
             <button className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${borderColor} ${hoverBg} ${textColor} text-sm font-medium transition-colors`}>
               <span className="material-symbols-outlined text-[20px]">edit</span>
               修改复制配置

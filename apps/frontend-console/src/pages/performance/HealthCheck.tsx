@@ -215,9 +215,14 @@ const HealthCheck: React.FC = () => {
           <span className="material-symbols-outlined text-sm">chevron_right</span>
           <span className={`${textColor} text-sm font-medium`}>健康检查阈值配置</span>
         </div>
-        <Button type="primary" onClick={handleCreate}>
-          新建阈值
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+            帮助
+          </Button>
+          <Button type="primary" onClick={handleCreate}>
+            新建阈值
+          </Button>
+        </div>
       </div>
 
       {/* Content */}

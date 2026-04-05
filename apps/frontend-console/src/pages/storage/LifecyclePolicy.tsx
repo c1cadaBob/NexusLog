@@ -128,6 +128,9 @@ const LifecyclePolicy: React.FC = () => {
           <p style={{ margin: 0, fontSize: 13, color: p.textSecondary }}>Automate index management over time: Hot to Warm, to Cold, then Delete.</p>
         </div>
         <Space>
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+            帮助
+          </Button>
           <Input
             prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: p.textSecondary }}>search</span>}
             placeholder="Search policies..."

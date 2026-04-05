@@ -88,6 +88,10 @@ const TraceAnalysis: React.FC = () => {
               </div>
             </div>
             <div className="flex gap-3">
+              <button onClick={() => { window.location.hash = '#/help/faq'; }} className={`flex items-center gap-2 px-3 py-1.5 ${cardBg} ${isDark ? 'hover:bg-[#2a3850]' : 'hover:bg-slate-100'} ${textColor} text-sm font-medium rounded border ${borderColor} transition-colors`}>
+                <span className="material-symbols-outlined text-sm">help</span>
+                帮助
+              </button>
               <button className={`flex items-center gap-2 px-3 py-1.5 ${cardBg} ${isDark ? 'hover:bg-[#2a3850]' : 'hover:bg-slate-100'} ${textColor} text-sm font-medium rounded border ${borderColor} transition-colors`}>
                 <span className="material-symbols-outlined text-sm">download</span>
                 导出

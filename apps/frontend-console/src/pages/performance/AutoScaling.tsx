@@ -33,11 +33,15 @@ const AutoScaling: React.FC = () => {
           <span className={`hidden sm:inline-block px-2 py-0.5 rounded-full ${tagBg} border ${tagBorder} text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'} font-medium`}>Auto-Scaling</span>
         </div>
         <div className="flex items-center gap-3">
-          <button className={`flex items-center justify-center size-9 rounded-lg ${textSecondary} ${hoverBg} transition-colors`}>
-            <span className="material-symbols-outlined">notifications</span>
+          <button
+            onClick={() => { window.location.hash = '#/help/faq'; }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${textSecondary} ${hoverBg} transition-colors`}
+          >
+            <span className="material-symbols-outlined text-[18px]">help</span>
+            <span>帮助</span>
           </button>
           <button className={`flex items-center justify-center size-9 rounded-lg ${textSecondary} ${hoverBg} transition-colors`}>
-            <span className="material-symbols-outlined">help</span>
+            <span className="material-symbols-outlined">notifications</span>
           </button>
         </div>
       </div>

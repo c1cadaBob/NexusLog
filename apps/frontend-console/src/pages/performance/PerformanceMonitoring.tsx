@@ -202,6 +202,13 @@ const PerformanceMonitoring: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => { window.location.hash = '#/help/faq'; }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md ${headerBg} border ${borderColor} ${textColor} text-sm font-medium`}
+          >
+            <span className="material-symbols-outlined text-[18px]">help</span>
+            帮助
+          </button>
           <Select
             placeholder="选择 Agent"
             value={selectedAgentId ?? undefined}

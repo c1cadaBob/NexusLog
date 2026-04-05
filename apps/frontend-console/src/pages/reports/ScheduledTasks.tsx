@@ -260,6 +260,13 @@ const ScheduledTasks: React.FC = () => {
           <p className={`${textSecondary} text-xs font-normal`}>管理和监控自动生成的报表任务</p>
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => { window.location.hash = '#/help/faq'; }}
+            className={`flex items-center gap-2 h-9 px-4 ${inputBg} border ${borderColor} ${textColor} text-sm font-medium rounded-lg transition-colors`}
+          >
+            <span className="material-symbols-outlined text-lg">help</span>
+            <span>帮助</span>
+          </button>
           <div className="relative">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary text-lg">search</span>
             <input

@@ -121,6 +121,9 @@ const CapacityMonitoring: React.FC = () => {
           <Tag color="success">运行正常</Tag>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+            帮助
+          </Button>
           <Button style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>calendar_today</span>
             最近 30 天

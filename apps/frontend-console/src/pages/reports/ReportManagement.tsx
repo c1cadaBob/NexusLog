@@ -206,18 +206,27 @@ const ReportManagement: React.FC = () => {
             <h1 className={`text-2xl font-bold leading-tight ${textColor}`}>报表管理</h1>
             <p className={`text-sm ${textSecondary} mt-1`}>管理和预览您的系统日志报表模板</p>
           </div>
-          <Tooltip title={actionAccess.canCreateReport ? undefined : '当前会话缺少 report.create 能力'}>
-            <span>
-              <button
-                onClick={handleCreate}
-                disabled={!actionAccess.canCreateReport}
-                className="flex items-center gap-2 rounded-lg bg-primary hover:bg-primary-hover text-white px-5 py-2.5 text-sm font-bold transition-all shadow-lg shadow-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <span className="material-symbols-outlined text-[20px]">add</span>
-                <span>创建报表</span>
-              </button>
-            </span>
-          </Tooltip>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { window.location.hash = '#/help/faq'; }}
+              className={`flex items-center gap-2 rounded-lg border ${borderColor} ${inputBg} ${textColor} px-4 py-2.5 text-sm font-medium transition-all`}
+            >
+              <span className="material-symbols-outlined text-[18px]">help</span>
+              <span>帮助</span>
+            </button>
+            <Tooltip title={actionAccess.canCreateReport ? undefined : '当前会话缺少 report.create 能力'}>
+              <span>
+                <button
+                  onClick={handleCreate}
+                  disabled={!actionAccess.canCreateReport}
+                  className="flex items-center gap-2 rounded-lg bg-primary hover:bg-primary-hover text-white px-5 py-2.5 text-sm font-bold transition-all shadow-lg shadow-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[20px]">add</span>
+                  <span>创建报表</span>
+                </button>
+              </span>
+            </Tooltip>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-4 mt-2">
           <div className="relative flex-1 min-w-[280px] max-w-md group">
