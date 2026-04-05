@@ -557,6 +557,7 @@ const IncidentList: React.FC = () => {
         <Input.Search
           id="incident-list-search"
           name="incident-list-search"
+          autoComplete="off"
           placeholder="按事件 ID、标题、来源搜索..."
           value={search}
           onChange={(event) => {
@@ -681,6 +682,14 @@ const IncidentList: React.FC = () => {
             rowSelection={{
               selectedRowKeys,
               onChange: (keys) => setSelectedRowKeys(keys),
+              getTitleCheckboxProps: () => ({
+                name: 'incident-list-select-all',
+                'aria-label': '选择全部事件',
+              }),
+              getCheckboxProps: (record) => ({
+                name: `incident-list-select-${record.id}`,
+                'aria-label': `选择事件 ${record.id}`,
+              }),
             }}
             pagination={{
               current: currentPage,

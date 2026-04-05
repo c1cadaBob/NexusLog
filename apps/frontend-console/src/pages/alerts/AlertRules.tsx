@@ -625,6 +625,7 @@ const AlertRules: React.FC = () => {
             <Input
               id="alert-rules-search"
               name="alertRulesSearch"
+              autoComplete="off"
               aria-label="搜索告警规则"
               prefix={<span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>search</span>}
               placeholder="搜索规则名称或查询..."
@@ -678,15 +679,15 @@ const AlertRules: React.FC = () => {
         forceRender
         confirmLoading={submitting}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }} onValuesChange={(c) => c.ruleType && setRuleType(c.ruleType)}>
+        <Form form={form} layout="vertical" autoComplete="off" style={{ marginTop: 16 }} onValuesChange={(c) => c.ruleType && setRuleType(c.ruleType)}>
           <Form.Item name="name" label="规则名称" rules={[{ required: true, message: '请输入规则名称' }]}>
-            <Input id="name" placeholder="输入规则名称" />
+            <Input id="name" name="alertRuleName" autoComplete="off" placeholder="输入规则名称" />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea id="description" placeholder="输入规则描述" rows={2} />
+            <Input.TextArea id="description" name="alertRuleDescription" autoComplete="off" placeholder="输入规则描述" rows={2} />
           </Form.Item>
           <Form.Item name="owner" label="负责人">
-            <Input id="owner" placeholder="例如：service-oncall / 团队负责人" />
+            <Input id="owner" name="alertRuleOwner" autoComplete="off" placeholder="例如：service-oncall / 团队负责人" />
           </Form.Item>
           <Form.Item name="labels" label="标签">
             <Select
@@ -725,10 +726,10 @@ const AlertRules: React.FC = () => {
           {ruleType === 'keyword' && (
             <>
               <Form.Item name="keywordField" label="字段" initialValue="message">
-                <Input id="keywordField" placeholder="message" />
+                <Input id="keywordField" name="alertRuleKeywordField" autoComplete="off" placeholder="message" />
               </Form.Item>
               <Form.Item name="keyword" label="关键词" rules={[{ required: true, message: '请输入关键词' }]}>
-                <Input id="keyword" placeholder="如: error, exception" />
+                <Input id="keyword" name="alertRuleKeyword" autoComplete="off" placeholder="如: error, exception" />
               </Form.Item>
             </>
           )}
@@ -738,17 +739,17 @@ const AlertRules: React.FC = () => {
                 <Select id="level" aria-label="日志等级" options={[{ value: 'ERROR', label: 'ERROR' }, { value: 'WARN', label: 'WARN' }, { value: 'INFO', label: 'INFO' }]} />
               </Form.Item>
               <Form.Item name="conditionThreshold" label="阈值" rules={[{ required: true }]}>
-                <Input id="conditionThreshold" type="number" placeholder="如: 10" />
+                <Input id="conditionThreshold" name="alertRuleConditionThreshold" autoComplete="off" type="number" placeholder="如: 10" />
               </Form.Item>
               <Form.Item name="windowSeconds" label="时间窗口(秒)" initialValue={300}>
-                <Input id="windowSeconds" type="number" placeholder="300" />
+                <Input id="windowSeconds" name="alertRuleWindowSeconds" autoComplete="off" type="number" placeholder="300" />
               </Form.Item>
             </>
           )}
           {ruleType === 'threshold' && (
             <>
               <Form.Item name="conditionMetric" label="指标名称">
-                <Input id="conditionMetric" placeholder="如: cpu_usage" />
+                <Input id="conditionMetric" name="alertRuleConditionMetric" autoComplete="off" placeholder="如: cpu_usage" />
               </Form.Item>
               <Form.Item name="conditionOperator" label="操作符" initialValue="gt">
                 <Select
@@ -765,7 +766,7 @@ const AlertRules: React.FC = () => {
                 />
               </Form.Item>
               <Form.Item name="conditionThreshold" label="阈值">
-                <Input id="conditionThreshold" type="number" placeholder="如: 90" />
+                <Input id="conditionThreshold" name="alertRuleConditionThreshold" autoComplete="off" type="number" placeholder="如: 90" />
               </Form.Item>
             </>
           )}
