@@ -1,6 +1,7 @@
 package alert
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -36,6 +37,56 @@ func newEventTestRouter(handler *EventHandler) *gin.Engine {
 	})
 	RegisterAlertEventRoutes(router, handler)
 	return router
+}
+
+func TestEventHandler_ResolveEvent_AllowsGlobalTenantMutation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	handler := NewEventHandler(db)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		ctx := context.WithValue(c.Request.Context(), "authorization_ready", true)
+		ctx = context.WithValue(ctx, "user_scopes", []string{"all_tenants", "tenant"})
+		ctx = context.WithValue(ctx, "user_capabilities", []string{"*"})
+		c.Request = c.Request.WithContext(ctx)
+		c.Set("tenant_id", "10000000-0000-0000-0000-000000000001")
+		c.Set("user_id", "20000000-0000-0000-0000-000000000001")
+		c.Set("authorization_ready", true)
+		c.Set("user_scopes", []string{"all_tenants", "tenant"})
+		c.Set("user_capabilities", []string{"*"})
+		c.Next()
+	})
+	RegisterAlertEventRoutes(router, handler)
+
+	firedAt := time.Now().UTC().Add(-time.Hour)
+	resolvedAt := time.Now().UTC()
+	mock.ExpectQuery(`FROM alert_events[\s\S]*WHERE id = \$1::uuid`).
+		WithArgs("bf50d840-fbef-4a38-ba5f-e1bc66bee6ec").
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "id", "rule_id", "severity", "status", "title", "detail", "source_id", "fired_at", "resolved_at"}).
+			AddRow("30000000-0000-0000-0000-000000000001", "bf50d840-fbef-4a38-ba5f-e1bc66bee6ec", "rule-1", "critical", "firing", "cross-tenant", "detail", "source-1", firedAt, nil))
+	mock.ExpectQuery(`UPDATE alert_events[\s\S]*WHERE tenant_id = \$1::uuid[\s\S]*AND id = \$2::uuid`).
+		WithArgs("30000000-0000-0000-0000-000000000001", "bf50d840-fbef-4a38-ba5f-e1bc66bee6ec", "resolved").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "rule_id", "severity", "status", "title", "detail", "source_id", "fired_at", "resolved_at"}).
+			AddRow("bf50d840-fbef-4a38-ba5f-e1bc66bee6ec", "rule-1", "critical", "resolved", "cross-tenant", "detail", "source-1", firedAt, resolvedAt))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/alert/events/bf50d840-fbef-4a38-ba5f-e1bc66bee6ec/resolve", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if !regexp.MustCompile(`"status":"resolved"`).Match(resp.Body.Bytes()) {
+		t.Fatalf("expected resolved response, got %s", resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
 }
 
 func TestEventHandler_ListEvents_GlobalTenantRead(t *testing.T) {

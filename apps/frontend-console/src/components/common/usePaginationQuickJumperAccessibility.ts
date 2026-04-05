@@ -14,6 +14,9 @@ export function usePaginationQuickJumperAccessibility(prefix: string) {
           return Array.from(scopedInputs);
         }
       }
+      if (typeof document === 'undefined') {
+        return [];
+      }
       return Array.from(document.querySelectorAll<HTMLInputElement>(QUICK_JUMPER_SELECTOR));
     };
 
@@ -33,9 +36,13 @@ export function usePaginationQuickJumperAccessibility(prefix: string) {
 
     applyAccessibilityAttributes();
 
-    const animationFrameID = window.requestAnimationFrame(() => {
-      applyAccessibilityAttributes();
-    });
+    const animationFrameID = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame(() => {
+          applyAccessibilityAttributes();
+        })
+      : window.setTimeout(() => {
+          applyAccessibilityAttributes();
+        }, 0);
     const timeoutID = window.setTimeout(() => {
       applyAccessibilityAttributes();
     }, 0);
@@ -44,14 +51,21 @@ export function usePaginationQuickJumperAccessibility(prefix: string) {
       applyAccessibilityAttributes();
     });
 
-    observer.observe(containerRef.current ?? document.body, {
-      childList: true,
-      subtree: true,
-    });
+    const observeTarget = containerRef.current ?? (typeof document !== 'undefined' ? document.body : null);
+    if (observeTarget) {
+      observer.observe(observeTarget, {
+        childList: true,
+        subtree: true,
+      });
+    }
 
     return () => {
       observer.disconnect();
-      window.cancelAnimationFrame(animationFrameID);
+      if (typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(animationFrameID);
+      } else {
+        window.clearTimeout(animationFrameID);
+      }
       window.clearTimeout(timeoutID);
     };
   }, [prefix]);

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Input, Select, Table, Tag, Button, Card, Statistic, Space, Modal, message, Badge, Spin, Empty, Tooltip } from 'antd';
+import { App, Input, Select, Table, Tag, Button, Card, Statistic, Space, Modal, Badge, Spin, Empty, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
@@ -19,6 +19,7 @@ import {
 } from '../../api/alert';
 import { persistPendingRealtimeStartupQuery } from '../search/realtimeStartupQuery';
 import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
+import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 
 const formatTimeAgo = (timestamp: number): string => {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -89,6 +90,7 @@ const formatNotificationTooltip = (summary?: AlertNotificationSummary): string =
 };
 
 const AlertList: React.FC = () => {
+  const { message: messageApi } = App.useApp();
   const navigate = useNavigate();
   const isDark = useThemeStore((s) => s.isDark);
   const markAllAsRead = useAlertStore((s) => s.markAllAsRead);
@@ -117,6 +119,7 @@ const AlertList: React.FC = () => {
   const storedPageSize = usePreferencesStore((s) => s.pageSizes['alertList'] ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
+  const paginationAccessibilityRef = usePaginationQuickJumperAccessibility('alert-list');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalAlerts, setTotalAlerts] = useState(0);
   const [stats, setStats] = useState<AlertEventListSummary>(emptyAlertSummary);
@@ -182,7 +185,7 @@ const AlertList: React.FC = () => {
         setStats(emptyAlertSummary);
         setSelectedRowKeys([]);
         if (!options.silent) {
-          message.error(msg);
+          messageApi.error(msg);
         }
       } finally {
         if (loadRequestRef.current?.seq === currentSeq) {
@@ -196,7 +199,7 @@ const AlertList: React.FC = () => {
 
     loadRequestRef.current = { key: requestKey, promise: request, seq: currentSeq };
     return request;
-  }, [currentPage, pageSize, search, severityFilter, statusFilter]);
+  }, [currentPage, messageApi, pageSize, search, severityFilter, statusFilter]);
 
   const startPollTimer = useCallback(() => {
     clearPollTimer();
@@ -234,25 +237,35 @@ const AlertList: React.FC = () => {
   }, [clearPollTimer, loadAlerts, startPollTimer]);
 
 
+  const handleMutationError = useCallback(async (err: unknown, fallbackMessage: string) => {
+    const typedError = err as Error & { status?: number; code?: string };
+    if (typedError?.status === 404 || typedError?.code === 'RES_NOT_FOUND') {
+      messageApi.warning('告警已不存在，列表已自动刷新');
+      await loadAlerts({ force: true, silent: true });
+      return;
+    }
+    messageApi.error(typedError?.message || fallbackMessage);
+  }, [loadAlerts, messageApi]);
+
   const handleAcknowledge = useCallback(async (id: string) => {
     try {
       await acknowledgeAlertEvent(id);
-      message.success('告警已确认');
+      messageApi.success('告警已确认');
       await loadAlerts({ force: true });
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '确认告警失败');
+      await handleMutationError(err, '确认告警失败');
     }
-  }, [loadAlerts]);
+  }, [handleMutationError, loadAlerts, messageApi]);
 
   const handleResolve = useCallback(async (id: string) => {
     try {
       await resolveAlertEvent(id);
-      message.success('告警已解决');
+      messageApi.success('告警已解决');
       await loadAlerts({ force: true });
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '解决告警失败');
+      await handleMutationError(err, '解决告警失败');
     }
-  }, [loadAlerts]);
+  }, [handleMutationError, loadAlerts, messageApi]);
 
   const handleSilence = useCallback((id: string) => {
     setSingleSilenceTargetID(id);
@@ -281,25 +294,38 @@ const AlertList: React.FC = () => {
       if (targetIDs.length === 0) return;
       setBatchRunning(true);
       try {
-        if (type === 'acknowledge') {
-          await Promise.all(targetIDs.map((id) => acknowledgeAlertEvent(id)));
-          message.success(`已确认 ${targetIDs.length} 条告警`);
-        } else if (type === 'resolve') {
-          await Promise.all(targetIDs.map((id) => resolveAlertEvent(id)));
-          message.success(`已解决 ${targetIDs.length} 条告警`);
-        } else {
-          await Promise.all(targetIDs.map((id) => silenceAlertEvent(id, { reason: silenceReason, durationSeconds: silenceDuration })));
-          message.success(`已静默 ${targetIDs.length} 条告警`);
+        const tasks = targetIDs.map((id) => {
+          if (type === 'acknowledge') {
+            return acknowledgeAlertEvent(id);
+          }
+          if (type === 'resolve') {
+            return resolveAlertEvent(id);
+          }
+          return silenceAlertEvent(id, { reason: silenceReason, durationSeconds: silenceDuration });
+        });
+        const results = await Promise.allSettled(tasks);
+        const successCount = results.filter((result) => result.status === 'fulfilled').length;
+        const missingCount = results.filter((result) => result.status === 'rejected' && (((result.reason as { status?: number; code?: string })?.status === 404) || ((result.reason as { status?: number; code?: string })?.code === 'RES_NOT_FOUND'))).length;
+        const failureCount = results.length - successCount - missingCount;
+
+        if (successCount > 0) {
+          const actionLabel = type === 'acknowledge' ? '确认' : type === 'resolve' ? '解决' : '静默';
+          messageApi.success(`已${actionLabel} ${successCount} 条告警`);
         }
+        if (missingCount > 0) {
+          messageApi.warning(`${missingCount} 条告警已不存在，列表已自动刷新`);
+        }
+        if (failureCount > 0) {
+          messageApi.error(`${failureCount} 条告警操作失败，请重试`);
+        }
+
         setSelectedRowKeys([]);
         await loadAlerts({ force: true });
-      } catch (err) {
-        message.error(err instanceof Error ? err.message : '批量操作失败');
       } finally {
         setBatchRunning(false);
       }
     },
-    [loadAlerts, selectedRowKeys, silenceDuration, silenceReason],
+    [loadAlerts, messageApi, selectedRowKeys, silenceDuration, silenceReason],
   );
 
   const confirmBatchSilence = useCallback(async () => {
@@ -307,7 +333,7 @@ const AlertList: React.FC = () => {
       if (singleSilenceTargetID) {
         setBatchRunning(true);
         await silenceAlertEvent(singleSilenceTargetID, { reason: silenceReason, durationSeconds: silenceDuration });
-        message.success('告警已静默');
+        messageApi.success('告警已静默');
         await loadAlerts({ force: true });
       } else {
         await executeBatch('silence');
@@ -316,11 +342,11 @@ const AlertList: React.FC = () => {
       setSingleSilenceTargetID(null);
       setSilenceReason('');
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '静默告警失败');
+      await handleMutationError(err, '静默告警失败');
     } finally {
       setBatchRunning(false);
     }
-  }, [executeBatch, loadAlerts, silenceDuration, silenceReason, singleSilenceTargetID]);
+  }, [executeBatch, handleMutationError, loadAlerts, messageApi, silenceDuration, silenceReason, singleSilenceTargetID]);
 
   const columns: ColumnsType<AlertEventSummary> = [
     {
@@ -529,7 +555,7 @@ const AlertList: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
+    <div ref={paginationAccessibilityRef} style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
       <AnalysisPageHeader
         title="告警列表"
         subtitle="展示实时告警状态、通知分发与处置进度"

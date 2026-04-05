@@ -3,6 +3,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { App } from 'antd';
 import { MemoryRouter } from 'react-router-dom';
 import AlertList from '../src/pages/alerts/AlertList';
 
@@ -121,9 +122,11 @@ describe('AlertList pagination', () => {
       });
 
     render(
-      <MemoryRouter>
-        <AlertList />
-      </MemoryRouter>,
+      <App>
+        <MemoryRouter>
+          <AlertList />
+        </MemoryRouter>
+      </App>,
     );
 
     await waitFor(() => {

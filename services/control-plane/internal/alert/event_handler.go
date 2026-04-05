@@ -34,7 +34,13 @@ type alertEventActionRequest struct {
 	DurationSeconds int    `json:"duration_seconds"`
 }
 
+type alertEventMutationScope struct {
+	TenantID string
+	Global   bool
+}
+
 type alertEventMutationTarget struct {
+	TenantID   string
 	ID         string
 	RuleID     string
 	Severity   string
@@ -277,8 +283,12 @@ func (h *EventHandler) ResolveEvent(c *gin.Context) {
 }
 
 func (h *EventHandler) SilenceEvent(c *gin.Context) {
-	tenantID := getTenantID(c)
-	if tenantID == "" {
+	mutationScope, err := resolveAlertEventMutationScope(c, h.db)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to authorize request", nil)
+		return
+	}
+	if mutationScope.TenantID == "" {
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
 		return
 	}
@@ -288,7 +298,7 @@ func (h *EventHandler) SilenceEvent(c *gin.Context) {
 		return
 	}
 
-	target, err := h.getEventMutationTarget(c, tenantID, eventID)
+	target, err := h.getEventMutationTarget(c, mutationScope, eventID)
 	if err != nil {
 		h.writeMutationLoadError(c, err)
 		return
@@ -324,7 +334,7 @@ func (h *EventHandler) SilenceEvent(c *gin.Context) {
 		createdBy := getActorID(c)
 		_, err := h.silenceSvc.Create(
 			c.Request.Context(),
-			tenantID,
+			target.TenantID,
 			createdBy,
 			matchers,
 			strings.TrimSpace(req.Reason),
@@ -337,7 +347,7 @@ func (h *EventHandler) SilenceEvent(c *gin.Context) {
 		}
 	}
 
-	updated, err := h.updateEventStatus(c, tenantID, eventID, "silenced")
+	updated, err := h.updateEventStatus(c, target.TenantID, eventID, "silenced")
 	if err != nil {
 		h.writeMutationPersistError(c, err, "failed to silence alert event")
 		return
@@ -346,8 +356,12 @@ func (h *EventHandler) SilenceEvent(c *gin.Context) {
 }
 
 func (h *EventHandler) transitionEvent(c *gin.Context, nextStatus string) {
-	tenantID := getTenantID(c)
-	if tenantID == "" {
+	mutationScope, err := resolveAlertEventMutationScope(c, h.db)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, ErrorCodeInternalError, "failed to authorize request", nil)
+		return
+	}
+	if mutationScope.TenantID == "" {
 		writeError(c, http.StatusBadRequest, ErrorCodeRequestInvalidParams, "X-Tenant-ID header is required", nil)
 		return
 	}
@@ -357,7 +371,7 @@ func (h *EventHandler) transitionEvent(c *gin.Context, nextStatus string) {
 		return
 	}
 
-	target, err := h.getEventMutationTarget(c, tenantID, eventID)
+	target, err := h.getEventMutationTarget(c, mutationScope, eventID)
 	if err != nil {
 		h.writeMutationLoadError(c, err)
 		return
@@ -371,12 +385,25 @@ func (h *EventHandler) transitionEvent(c *gin.Context, nextStatus string) {
 		return
 	}
 
-	updated, err := h.updateEventStatus(c, tenantID, eventID, nextStatus)
+	updated, err := h.updateEventStatus(c, target.TenantID, eventID, nextStatus)
 	if err != nil {
 		h.writeMutationPersistError(c, err, "failed to update alert event")
 		return
 	}
 	writeSuccess(c, http.StatusOK, h.toAlertEvent(updated), gin.H{"updated": true})
+}
+
+func resolveAlertEventMutationScope(c *gin.Context, db *sql.DB) (alertEventMutationScope, error) {
+	scope := alertEventMutationScope{TenantID: getTenantID(c)}
+	if scope.TenantID == "" {
+		return scope, nil
+	}
+	readScope, err := resolveReadScope(c.Request.Context(), db, scope.TenantID, getActorID(c))
+	if err != nil {
+		return alertEventMutationScope{}, err
+	}
+	scope.Global = readScope.Global
+	return scope, nil
 }
 
 func isAlertEventTransitionAllowed(currentStatus, nextStatus string) bool {
@@ -397,9 +424,10 @@ func isAlertEventTransitionAllowed(currentStatus, nextStatus string) bool {
 	}
 }
 
-func (h *EventHandler) getEventMutationTarget(c *gin.Context, tenantID, eventID string) (alertEventMutationTarget, error) {
+func (h *EventHandler) getEventMutationTarget(c *gin.Context, scope alertEventMutationScope, eventID string) (alertEventMutationTarget, error) {
 	query := `
 SELECT
+    tenant_id::text,
     id::text,
     COALESCE(rule_id::text, ''),
     severity,
@@ -410,12 +438,17 @@ SELECT
     fired_at,
     resolved_at
 FROM alert_events
-WHERE tenant_id = $1::uuid
-  AND id = $2::uuid
+WHERE id = $1::uuid
 `
+	args := []any{eventID}
+	if !scope.Global {
+		query += "  AND tenant_id = $2::uuid\n"
+		args = append(args, scope.TenantID)
+	}
 	var target alertEventMutationTarget
 	var resolvedAt sql.NullTime
-	if err := h.db.QueryRowContext(c.Request.Context(), query, tenantID, eventID).Scan(
+	if err := h.db.QueryRowContext(c.Request.Context(), query, args...).Scan(
+		&target.TenantID,
 		&target.ID,
 		&target.RuleID,
 		&target.Severity,
