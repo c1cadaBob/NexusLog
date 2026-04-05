@@ -94,12 +94,19 @@ const TicketPortal: React.FC = () => {
   return (
     <div className={`flex flex-col h-full overflow-hidden ${pageBg} -mx-6 -mt-6 -mb-6 relative`}>
       {/* Top Header */}
-      <header className={`flex items-center justify-between px-6 py-5 border-b ${borderColor} ${headerBg} backdrop-blur-md sticky top-0 z-20 shrink-0`}>
+      <header className={`flex flex-wrap items-start justify-between gap-4 px-6 py-5 border-b ${borderColor} ${headerBg} backdrop-blur-md sticky top-0 z-20 shrink-0`}>
         <div className="flex flex-col gap-1">
-          <h2 className={`${textColor} text-2xl font-bold leading-tight tracking-tight`}>技术工单</h2>
+          <h1 className={`${textColor} text-2xl font-bold leading-tight tracking-tight`}>技术工单</h1>
           <p className={`${textSecondary} text-sm`}>提交并管理您的技术支持请求，我们会尽快响应。</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center flex-wrap justify-end gap-3">
+          <button
+            onClick={() => { window.location.hash = '#/help/faq'; }}
+            className={`flex items-center gap-2 rounded-lg h-10 px-4 border ${borderColor} ${cardBg} ${textColor} text-sm font-medium transition-colors ${isDark ? 'hover:bg-[#2a3850]' : 'hover:bg-slate-100'}`}
+          >
+            <span className="material-symbols-outlined text-lg">help</span>
+            <span>帮助</span>
+          </button>
           <div className="relative hidden sm:block">
             <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary} material-symbols-outlined text-lg`}>search</span>
             <input

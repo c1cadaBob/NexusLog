@@ -356,12 +356,12 @@ const SystemParameters: React.FC = () => {
   return (
     <div className="flex flex-col h-full gap-6">
       {/* Header */}
-      <header className={`flex items-center justify-between px-8 py-6 border-b ${borderColor} ${headerBg} shrink-0 -mx-6 -mt-6`}>
+      <header className={`flex flex-wrap items-start justify-between gap-4 px-8 py-6 border-b ${borderColor} ${headerBg} shrink-0 -mx-6 -mt-6`}>
         <div className="flex flex-col gap-1">
           <h1 className={`text-2xl font-bold ${textColor} tracking-tight`}>系统参数配置</h1>
           <p className={`text-sm ${textSecondary}`}>管理系统的核心配置，包括性能、网络及安全设置。</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center flex-wrap justify-end gap-3">
           <button
             onClick={() => { window.location.hash = '#/help/faq'; }}
             className={`px-4 py-2 text-sm font-medium ${textSecondary} ${buttonBg} border ${borderColor} rounded-lg ${buttonHover} transition-colors flex items-center gap-2`}

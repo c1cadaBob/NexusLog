@@ -86,9 +86,9 @@ const ServiceTopology: React.FC = () => {
 
   return (
     <div className={`flex flex-col h-full overflow-hidden relative -mx-6 -mt-6 -mb-6 ${pageBg}`}>
-      <header className={`h-16 border-b ${borderColor} ${headerBg} flex items-center justify-between px-6 z-10 shrink-0`}>
-        <div className="flex items-center gap-4">
-          <h2 className={`text-2xl font-bold ${textColor} font-display tracking-tight`}>服务拓扑图</h2>
+      <header className={`min-h-[80px] border-b ${borderColor} ${headerBg} flex flex-wrap items-start justify-between gap-4 px-6 py-4 z-10 shrink-0`}>
+        <div className="flex flex-wrap items-center gap-4">
+          <h1 className={`text-2xl font-bold ${textColor} font-display tracking-tight`}>服务拓扑图</h1>
           <div className={`h-6 w-px ${isDark ? 'bg-border-dark' : 'bg-slate-200'}`}></div>
           <div className="relative group">
             <button className={`flex items-center gap-2 text-sm ${textSecondary} font-medium px-3 py-1.5 rounded ${cardBg} border ${borderColor}`}>
@@ -98,7 +98,7 @@ const ServiceTopology: React.FC = () => {
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center flex-wrap justify-end gap-3">
           <button
             onClick={() => { window.location.hash = '#/help/faq'; }}
             className={`flex items-center gap-2 px-3 py-1.5 text-sm ${textSecondary} font-medium rounded ${cardBg} border ${borderColor}`}

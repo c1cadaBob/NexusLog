@@ -31,12 +31,12 @@ const ConfigVersions: React.FC = () => {
   return (
     <div className="flex flex-col min-h-full -m-4 md:-m-6">
       {/* Top Bar */}
-      <header className={`flex items-center justify-between px-8 py-4 border-b ${borderColor} ${headerBg} backdrop-blur z-10 shrink-0 sticky top-0`}>
+      <header className={`flex flex-wrap items-start justify-between gap-4 px-8 py-4 min-h-[80px] border-b ${borderColor} ${headerBg} backdrop-blur z-10 shrink-0 sticky top-0`}>
         <div>
-          <h2 className={`text-xl font-bold ${textColor} tracking-tight`}>配置历史 (Config History)</h2>
-          <p className={`text-xs ${textSecondary}`}>管理系统配置版本，支持对比与回滚 (Manage configuration versions, compare and rollback)</p>
+          <h1 className={`text-2xl font-bold ${textColor} tracking-tight`}>配置历史 (Config History)</h1>
+          <p className={`text-sm ${textSecondary}`}>管理系统配置版本，支持对比与回滚 (Manage configuration versions, compare and rollback)</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center flex-wrap gap-3 justify-end">
           <button onClick={() => { window.location.hash = '#/help/faq'; }} className={`flex items-center gap-2 px-3 py-1.5 text-sm ${versionText} ${isDark ? 'hover:text-white hover:bg-white/5' : 'hover:text-slate-900 hover:bg-slate-100'} rounded-lg transition-colors border ${borderColor}`}>
             <span className="material-symbols-outlined text-[18px]">help</span>
             <span>帮助</span>

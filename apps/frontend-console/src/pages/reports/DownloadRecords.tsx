@@ -232,6 +232,14 @@ const DownloadRecords: React.FC = () => {
                   <span className="material-symbols-outlined text-[20px]">help</span>
                   帮助
                 </button>
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} ${buttonHoverBg} ${textColor} text-sm font-medium rounded-lg`}
+                >
+                  <span className={`material-symbols-outlined text-[20px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
+                  刷新数据
+                </button>
                 <Tooltip title={actionAccess.canCreateExportJob ? undefined : '当前会话缺少 export.job.create / logs:export 能力'}>
                   <span>
                     <button
@@ -243,14 +251,6 @@ const DownloadRecords: React.FC = () => {
                     </button>
                   </span>
                 </Tooltip>
-                <button
-                  onClick={handleRefresh}
-                  disabled={loading}
-                  className={`flex items-center gap-2 px-4 py-2 ${buttonBg} ${buttonHoverBg} ${textColor} text-sm font-medium rounded-lg`}
-                >
-                  <span className={`material-symbols-outlined text-[20px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
-                  刷新数据
-                </button>
               </>
             )}
           />

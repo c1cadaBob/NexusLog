@@ -73,10 +73,10 @@ const TraceAnalysis: React.FC = () => {
     <div className={`flex flex-col h-full overflow-hidden ${pageBg} -mx-6 -mt-6 -mb-6`}>
       <header className={`${headerBg} border-b ${borderColor} px-6 py-4 shadow-sm z-10 flex-shrink-0`}>
         <div className="flex flex-col gap-4">
-          <div className="flex items-start justify-between">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h2 className={`text-2xl font-bold ${textColor} tracking-tight`}>Trace 详情</h2>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <h1 className={`text-2xl font-bold ${textColor} tracking-tight`}>Trace 详情</h1>
                 <span className="px-2 py-0.5 rounded text-xs font-medium bg-danger/20 text-danger border border-danger/30">错误</span>
               </div>
               <div className={`flex items-center gap-2 ${textSecondary} text-sm font-mono`}>
@@ -87,7 +87,7 @@ const TraceAnalysis: React.FC = () => {
                 </button>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3 justify-end">
               <button onClick={() => { window.location.hash = '#/help/faq'; }} className={`flex items-center gap-2 px-3 py-1.5 ${cardBg} ${isDark ? 'hover:bg-[#2a3850]' : 'hover:bg-slate-100'} ${textColor} text-sm font-medium rounded border ${borderColor} transition-colors`}>
                 <span className="material-symbols-outlined text-sm">help</span>
                 帮助
