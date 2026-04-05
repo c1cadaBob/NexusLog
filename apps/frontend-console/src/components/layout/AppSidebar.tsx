@@ -3,7 +3,7 @@ import { Menu, Badge, theme } from 'antd';
 import type { MenuProps } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MENU_SECTIONS } from '../../constants/menu';
-import { canAccessRoute } from '../../auth/routeAuthorization';
+import { canAccessRoute, findRouteAuthorizationRule } from '../../auth/routeAuthorization';
 import { useAlertStore } from '../../stores/alertStore';
 import { useAuthStore } from '../../stores/authStore';
 import type { AuthorizationSnapshot } from '../../types/authz';
@@ -14,14 +14,20 @@ interface AppSidebarProps {
   onToggleCollapse?: () => void;
 }
 
+function resolveSidebarPath(pathname: string): string {
+  const matchedRule = findRouteAuthorizationRule(pathname);
+  return matchedRule?.fallbackPath ?? pathname;
+}
+
 /** 根据路径查找父级菜单 key，用于自动展开（基于已过滤的 sections） */
 export function getOpenKeysForPath(pathname: string, sections: typeof MENU_SECTIONS): string[] {
+  const resolvedPath = resolveSidebarPath(pathname);
   const openKeys: string[] = [];
   for (const section of sections) {
     for (const item of section.items) {
       if (item.children) {
         for (const child of item.children) {
-          if (child.path === pathname) {
+          if (child.path === resolvedPath) {
             openKeys.push(item.label);
           }
         }
@@ -33,12 +39,13 @@ export function getOpenKeysForPath(pathname: string, sections: typeof MENU_SECTI
 
 /** 获取当前选中的菜单 key（基于已过滤的 sections） */
 function getSelectedKey(pathname: string, sections: typeof MENU_SECTIONS): string {
+  const resolvedPath = resolveSidebarPath(pathname);
   for (const section of sections) {
     for (const item of section.items) {
-      if (item.path === pathname) return item.path;
+      if (item.path === resolvedPath) return item.path;
       if (item.children) {
         for (const child of item.children) {
-          if (child.path === pathname) return child.path;
+          if (child.path === resolvedPath) return child.path;
         }
       }
     }
@@ -47,7 +54,7 @@ function getSelectedKey(pathname: string, sections: typeof MENU_SECTIONS): strin
     for (const item of section.items) {
       if (item.children) {
         for (const child of item.children) {
-          if (child.path && pathname.startsWith(child.path)) return child.path;
+          if (child.path && resolvedPath.startsWith(child.path)) return child.path;
         }
       }
     }
