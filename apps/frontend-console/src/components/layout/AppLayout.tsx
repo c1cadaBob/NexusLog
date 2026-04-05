@@ -25,8 +25,9 @@ const AppLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const useCompactDesktopBottomPadding = location.pathname === '/analysis/anomaly';
-  const showGlobalSupportButton = location.pathname !== '/analysis/anomaly';
+  const isAnalysisPage = location.pathname.startsWith('/analysis/');
+  const useCompactDesktopBottomPadding = isAnalysisPage;
+  const showGlobalSupportButton = !isAnalysisPage;
 
   // 响应式检测
   useEffect(() => {

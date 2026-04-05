@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   App,
@@ -180,6 +181,7 @@ function downloadAsJson(filename: string, payload: unknown) {
 }
 
 const LogClustering: React.FC = () => {
+  const navigate = useNavigate();
   const { message } = App.useApp();
   const isDark = useThemeStore((state) => state.isDark);
 
@@ -343,6 +345,13 @@ const LogClustering: React.FC = () => {
               options={TIME_RANGE_OPTIONS}
               size="small"
             />
+            <Button
+              size="small"
+              onClick={() => navigate('/help/faq')}
+              icon={<span className="material-symbols-outlined text-sm">support_agent</span>}
+            >
+              帮助
+            </Button>
             <Button size="small" onClick={handleRefresh} loading={loading} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
               刷新数据
             </Button>

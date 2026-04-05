@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Alert, App, Button, Card, Empty, Input, Pagination, Select, Tag, Typography } from 'antd';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
@@ -383,6 +384,7 @@ function buildPieChartOption(buckets: AggregateBucket[], groupBy: AggregateGroup
 }
 
 const AggregateAnalysis: React.FC = () => {
+  const navigate = useNavigate();
   const isDark = useThemeStore((state) => state.isDark);
   const { message: messageApi } = App.useApp();
 
@@ -594,15 +596,24 @@ const AggregateAnalysis: React.FC = () => {
         showRetainedResultTag={Boolean(error && buckets.length > 0)}
         fallbackLabel={fallbackInfo?.label ?? null}
         actions={(
-          <Button
-            icon={<span className="material-symbols-outlined text-sm">refresh</span>}
-            type="primary"
-            size="small"
-            loading={loading}
-            onClick={handleRefresh}
-          >
-            刷新数据
-          </Button>
+          <>
+            <Button
+              size="small"
+              onClick={() => navigate('/help/faq')}
+              icon={<span className="material-symbols-outlined text-sm">support_agent</span>}
+            >
+              帮助
+            </Button>
+            <Button
+              icon={<span className="material-symbols-outlined text-sm">refresh</span>}
+              type="primary"
+              size="small"
+              loading={loading}
+              onClick={handleRefresh}
+            >
+              刷新数据
+            </Button>
+          </>
         )}
       />
 
