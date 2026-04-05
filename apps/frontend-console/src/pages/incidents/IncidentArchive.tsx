@@ -261,6 +261,7 @@ const IncidentArchive: React.FC = () => {
         <Input.Search
           id="incident-archive-search"
           name="incident-archive-search"
+          autoComplete="off"
           placeholder="按事件 ID、标题、结论搜索..."
           value={search}
           onChange={(event) => {
@@ -345,13 +346,6 @@ const IncidentArchive: React.FC = () => {
             <div className="text-xs opacity-50 mb-1">研判结论</div>
             <div className="text-sm whitespace-pre-wrap">{previewIncident?.verdict || '暂无研判结论'}</div>
           </div>
-          {previewIncident && (
-            <div className="flex justify-end">
-              <Button type="primary" disabled={!actionAccess.canReadIncident} onClick={() => navigate(`/incidents/detail/${previewIncident.id}`)}>
-                打开详情
-              </Button>
-            </div>
-          )}
         </div>
       </Modal>
     </div>

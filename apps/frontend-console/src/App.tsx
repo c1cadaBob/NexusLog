@@ -161,6 +161,7 @@ const App: React.FC = () => {
                 <Route path="/alerts/silence" element={<SilencePolicy />} />
 
                 {/* 事件管理 */}
+                <Route path="/incidents" element={<Navigate to="/incidents/list" replace />} />
                 <Route path="/incidents/list" element={<IncidentList />} />
                 <Route path="/incidents/detail/:id" element={<IncidentDetail />} />
                 <Route path="/incidents/timeline" element={<IncidentTimeline />} />
