@@ -250,6 +250,7 @@ const IncidentAnalysis: React.FC = () => {
         <Input.Search
           id="incident-analysis-search"
           name="incident-analysis-search"
+          autoComplete="off"
           placeholder="按事件 ID、标题、根因、处置方案搜索..."
           value={search}
           onChange={(event) => {
