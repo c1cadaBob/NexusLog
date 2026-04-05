@@ -27,10 +27,16 @@ import {
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS } from '../../theme/tokens';
 import { buildAlertRuleDraftFromAnomaly, savePendingAlertRuleDraft } from '../../utils/alertRulePrefill';
+import { persistPendingRealtimeStartupQuery } from '../search/realtimeStartupQuery';
+import { buildRealtimePresetQuery } from '../search/realtimePresetQuery';
+import type { RealtimeQueryFilters } from '../search/realtimeQueryFilterTypes';
 
 const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
 
 type AnomalyTimeRange = FetchAnomalyStatsParams['timeRange'];
+type AnomalyMetricFilter = DetectedAnomaly['metric'] | 'all';
+type AnomalySeverityFilter = DetectedAnomaly['severity'] | 'all';
+type AnomalyStatusFilter = DetectedAnomaly['status'] | 'all';
 
 const TIME_RANGE_OPTIONS: Array<{ value: AnomalyTimeRange; label: string }> = [
   { value: '1h', label: '过去 1 小时' },
@@ -88,6 +94,74 @@ function formatDateTime(value: string): string {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+function formatMetricValue(value: number): string {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+  const absolute = Math.abs(value);
+  const precision = absolute >= 100 ? 0 : absolute >= 10 ? 1 : 2;
+  return NUMBER_FORMATTER.format(Number(value.toFixed(precision)));
+}
+
+function formatDeltaValue(value: number): string {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+  const prefix = value > 0 ? '+' : '';
+  return `${prefix}${formatMetricValue(value)}`;
+}
+
+function resolveMetricSuffix(metric: string): string {
+  return metric === 'error_rate' ? '%' : '';
+}
+
+function calculateDeviationPercent(anomaly: DetectedAnomaly): number {
+  const actual = Number(anomaly.actual_value) || 0;
+  const expected = Number(anomaly.expected_value) || 0;
+  if (expected <= 0) {
+    return actual > 0 ? 100 : 0;
+  }
+  return Math.round((Math.abs(actual - expected) / expected) * 100);
+}
+
+function resolveRelatedLogWindow(timeRange: AnomalyTimeRange, timestamp: string): { from: string; to: string } | null {
+  const center = new Date(timestamp);
+  if (Number.isNaN(center.getTime())) {
+    return null;
+  }
+  const windowMsByRange: Record<AnomalyTimeRange, number> = {
+    '1h': 10 * 60 * 1000,
+    '6h': 30 * 60 * 1000,
+    '24h': 2 * 60 * 60 * 1000,
+    '7d': 6 * 60 * 60 * 1000,
+  };
+  const halfWindowMs = windowMsByRange[timeRange] ?? 30 * 60 * 1000;
+  return {
+    from: new Date(center.getTime() - halfWindowMs).toISOString(),
+    to: new Date(center.getTime() + halfWindowMs).toISOString(),
+  };
+}
+
+function buildRelatedLogPresetQuery(anomaly: DetectedAnomaly, timeRange: AnomalyTimeRange): string {
+  const filters: RealtimeQueryFilters = {};
+  if (anomaly.service && anomaly.service !== '全局') {
+    filters.service = anomaly.service;
+  }
+  if (anomaly.metric === 'error_rate') {
+    filters.level = 'error';
+  }
+  const presetQuery = buildRealtimePresetQuery({
+    queryText: '',
+    filters,
+  });
+  const timeWindow = resolveRelatedLogWindow(timeRange, anomaly.timestamp);
+  if (!timeWindow) {
+    return presetQuery;
+  }
+  const timeClause = `time:[${timeWindow.from},${timeWindow.to}]`;
+  return [presetQuery, timeClause].filter(Boolean).join(' ').trim();
 }
 
 function formatAxisLabel(value: string, timeRange: AnomalyTimeRange): string {
@@ -193,6 +267,10 @@ const AnomalyDetection: React.FC = () => {
   const [result, setResult] = useState<FetchAnomalyStatsResult>(EMPTY_RESULT);
   const [fallbackInfo, setFallbackInfo] = useState<QueryResultFallbackInfo | null>(null);
   const [selectedAnomaly, setSelectedAnomaly] = useState<DetectedAnomaly | null>(null);
+  const [selectedService, setSelectedService] = useState<string>('all');
+  const [selectedMetric, setSelectedMetric] = useState<AnomalyMetricFilter>('all');
+  const [selectedSeverity, setSelectedSeverity] = useState<AnomalySeverityFilter>('all');
+  const [selectedStatus, setSelectedStatus] = useState<AnomalyStatusFilter>('all');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const hasSuccessfulResultRef = useRef(false);
 
@@ -243,12 +321,49 @@ const AnomalyDetection: React.FC = () => {
     setSelectedAnomaly(anomaly);
   }, []);
 
-  const activeCount = useMemo(
-    () => result.anomalies.filter((item) => item.status === 'active' || item.status === 'investigating').length,
+  const serviceOptions = useMemo(
+    () => Array.from(new Set(result.anomalies.map((item) => item.service.trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right, 'zh-CN')),
     [result.anomalies],
   );
+  const metricOptions = useMemo(
+    () => Array.from(new Set(result.anomalies.map((item) => item.metric.trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right, 'zh-CN')),
+    [result.anomalies],
+  );
+  const filteredAnomalies = useMemo(
+    () => result.anomalies.filter((item) => {
+      if (selectedService !== 'all' && item.service !== selectedService) {
+        return false;
+      }
+      if (selectedMetric !== 'all' && item.metric !== selectedMetric) {
+        return false;
+      }
+      if (selectedSeverity !== 'all' && item.severity !== selectedSeverity) {
+        return false;
+      }
+      if (selectedStatus !== 'all' && item.status !== selectedStatus) {
+        return false;
+      }
+      return true;
+    }),
+    [result.anomalies, selectedMetric, selectedService, selectedSeverity, selectedStatus],
+  );
+  const activeCount = useMemo(
+    () => filteredAnomalies.filter((item) => item.status === 'active' || item.status === 'investigating').length,
+    [filteredAnomalies],
+  );
+  const hasActiveFilters = selectedService !== 'all' || selectedMetric !== 'all' || selectedSeverity !== 'all' || selectedStatus !== 'all';
   const hasRetainedResult = Boolean(lastUpdatedAt);
   const staleResultVisible = Boolean(error && hasRetainedResult);
+
+  useEffect(() => {
+    if (!selectedAnomaly) {
+      return;
+    }
+    const refreshedSelection = result.anomalies.find((item) => item.id === selectedAnomaly.id);
+    if (refreshedSelection) {
+      setSelectedAnomaly(refreshedSelection);
+    }
+  }, [result.anomalies, selectedAnomaly]);
 
   const handleCreateAlert = useCallback(() => {
     if (!selectedAnomaly) {
@@ -259,6 +374,16 @@ const AnomalyDetection: React.FC = () => {
     navigate('/alerts/rules');
     message.success('已根据当前异常预填告警规则，请确认后保存');
   }, [message, navigate, selectedAnomaly]);
+
+  const handleViewRelatedLogs = useCallback(() => {
+    if (!selectedAnomaly) {
+      return;
+    }
+    persistPendingRealtimeStartupQuery(buildRelatedLogPresetQuery(selectedAnomaly, selectedTimeRange));
+    navigate('/search/realtime');
+    setSelectedAnomaly(null);
+    message.success('已按当前异常预填日志检索条件');
+  }, [message, navigate, selectedAnomaly, selectedTimeRange]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -321,7 +446,7 @@ const AnomalyDetection: React.FC = () => {
         />
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
         <Card>
           <Statistic
             title="当前异常数"
@@ -351,7 +476,85 @@ const AnomalyDetection: React.FC = () => {
             prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.info }}>timeline</span>}
           />
         </Card>
+        <Card>
+          <Statistic
+            title="影响服务"
+            value={formatCount(result.summary.affected_services)}
+            prefix={<span className="material-symbols-outlined text-base" style={{ color: COLORS.primary }}>dns</span>}
+          />
+        </Card>
       </div>
+
+      <Card size="small">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Select
+            aria-label="按服务筛选异常"
+            value={selectedService}
+            onChange={setSelectedService}
+            style={{ width: 180 }}
+            size="small"
+            options={[
+              { value: 'all', label: '全部服务' },
+              ...serviceOptions.map((service) => ({ value: service, label: service })),
+            ]}
+          />
+          <Select
+            aria-label="按指标筛选异常"
+            value={selectedMetric}
+            onChange={(value) => setSelectedMetric(value as AnomalyMetricFilter)}
+            style={{ width: 160 }}
+            size="small"
+            options={[
+              { value: 'all', label: '全部指标' },
+              ...metricOptions.map((metric) => ({ value: metric, label: metric })),
+            ]}
+          />
+          <Select
+            aria-label="按严重性筛选异常"
+            value={selectedSeverity}
+            onChange={(value) => setSelectedSeverity(value as AnomalySeverityFilter)}
+            style={{ width: 160 }}
+            size="small"
+            options={[
+              { value: 'all', label: '全部严重性' },
+              { value: 'critical', label: '严重' },
+              { value: 'high', label: '高' },
+              { value: 'medium', label: '中' },
+              { value: 'low', label: '低' },
+            ]}
+          />
+          <Select
+            aria-label="按状态筛选异常"
+            value={selectedStatus}
+            onChange={(value) => setSelectedStatus(value as AnomalyStatusFilter)}
+            style={{ width: 160 }}
+            size="small"
+            options={[
+              { value: 'all', label: '全部状态' },
+              { value: 'active', label: '活跃' },
+              { value: 'investigating', label: '调查中' },
+              { value: 'resolved', label: '已解决' },
+              { value: 'dismissed', label: '已忽略' },
+            ]}
+          />
+          {hasActiveFilters && (
+            <Button
+              size="small"
+              onClick={() => {
+                setSelectedService('all');
+                setSelectedMetric('all');
+                setSelectedSeverity('all');
+                setSelectedStatus('all');
+              }}
+            >
+              清空筛选
+            </Button>
+          )}
+          <span className="text-xs opacity-60 ml-auto">
+            当前展示 {filteredAnomalies.length} / {result.anomalies.length} 条异常
+          </span>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.95fr] gap-4">
         <ChartWrapper
@@ -368,18 +571,21 @@ const AnomalyDetection: React.FC = () => {
           title={(
             <div className="flex items-center justify-between gap-3">
               <span>检测到的异常</span>
-              <Tag style={{ margin: 0 }}>{activeCount} Active</Tag>
+              <Space size={6} wrap>
+                <Tag style={{ margin: 0 }}>{filteredAnomalies.length} 条</Tag>
+                <Tag color="processing" style={{ margin: 0 }}>{activeCount} 活跃/调查中</Tag>
+              </Space>
             </div>
           )}
           styles={{ body: { padding: '8px 12px', maxHeight: 360, overflowY: 'auto' } }}
         >
-          {loading && result.anomalies.length === 0 ? (
+          {loading && filteredAnomalies.length === 0 ? (
             <Card loading variant="borderless" styles={{ body: { padding: 0 } }} />
-          ) : result.anomalies.length === 0 ? (
+          ) : filteredAnomalies.length === 0 ? (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件下未检测到异常结果，请尝试扩展时间范围或稍后刷新。" />
           ) : (
             <div className="flex flex-col gap-2">
-              {result.anomalies.map((anomaly) => {
+              {filteredAnomalies.map((anomaly) => {
                 const severity = SEVERITY_MAP[anomaly.severity];
                 const isCritical = anomaly.severity === 'critical';
                 return (
@@ -389,6 +595,7 @@ const AnomalyDetection: React.FC = () => {
                     onClick={() => handleViewDetail(anomaly)}
                     style={{
                       borderLeft: `3px solid ${severity.color}`,
+                      outline: selectedAnomaly?.id === anomaly.id ? `1px solid ${severity.color}` : 'none',
                       backgroundColor: isCritical
                         ? (isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)')
                         : (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
@@ -410,7 +617,10 @@ const AnomalyDetection: React.FC = () => {
                       <span>服务: <strong>{anomaly.service}</strong></span>
                       <span>指标: <strong>{anomaly.metric}</strong></span>
                     </div>
-                    <Button size="small" block type="default" className="text-xs">
+                    <Button size="small" block type="default" className="text-xs" onClick={(event) => {
+                      event.stopPropagation();
+                      handleViewDetail(anomaly);
+                    }}>
                       <span className="material-symbols-outlined text-sm mr-1">troubleshoot</span>
                       查看异常详情
                     </Button>
@@ -437,10 +647,11 @@ const AnomalyDetection: React.FC = () => {
         onClose={() => setSelectedAnomaly(null)}
         width={480}
         footer={selectedAnomaly ? (
-          <Space style={{ width: '100%' }}>
+          <div className="flex items-center gap-2 w-full">
+            <Button block onClick={handleViewRelatedLogs}>查看相关日志</Button>
             <Button type="primary" block onClick={handleCreateAlert}>创建告警规则</Button>
             <Button block onClick={() => setSelectedAnomaly(null)}>关闭</Button>
-          </Space>
+          </div>
         ) : null}
       >
         {selectedAnomaly && (
@@ -452,23 +663,44 @@ const AnomalyDetection: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <Card size="small">
-                <Statistic title="预期值" value={selectedAnomaly.expected_value} valueStyle={{ fontSize: 20 }} />
+                <Statistic title="预期值" value={formatMetricValue(selectedAnomaly.expected_value)} suffix={resolveMetricSuffix(selectedAnomaly.metric)} valueStyle={{ fontSize: 20 }} />
               </Card>
               <Card size="small">
                 <Statistic
                   title="实际值"
-                  value={selectedAnomaly.actual_value}
+                  value={formatMetricValue(selectedAnomaly.actual_value)}
+                  suffix={resolveMetricSuffix(selectedAnomaly.metric)}
                   valueStyle={{
                     fontSize: 20,
                     color: selectedAnomaly.actual_value > selectedAnomaly.expected_value ? COLORS.danger : COLORS.success,
                   }}
                 />
               </Card>
+              <Card size="small">
+                <Statistic
+                  title="偏差值"
+                  value={formatDeltaValue(selectedAnomaly.actual_value - selectedAnomaly.expected_value)}
+                  suffix={resolveMetricSuffix(selectedAnomaly.metric)}
+                  valueStyle={{
+                    fontSize: 18,
+                    color: selectedAnomaly.actual_value > selectedAnomaly.expected_value ? COLORS.danger : COLORS.success,
+                  }}
+                />
+              </Card>
+              <Card size="small">
+                <Statistic title="偏差比例" value={calculateDeviationPercent(selectedAnomaly)} suffix="%" valueStyle={{ fontSize: 18 }} />
+              </Card>
             </div>
 
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="服务">{selectedAnomaly.service}</Descriptions.Item>
               <Descriptions.Item label="指标">{selectedAnomaly.metric}</Descriptions.Item>
+              <Descriptions.Item label="严重性">
+                <Tag color={SEVERITY_MAP[selectedAnomaly.severity].tagColor} style={{ margin: 0 }}>{SEVERITY_MAP[selectedAnomaly.severity].label}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="状态">
+                <Tag color={STATUS_MAP[selectedAnomaly.status].tagColor} style={{ margin: 0 }}>{STATUS_MAP[selectedAnomaly.status].label}</Tag>
+              </Descriptions.Item>
               <Descriptions.Item label="置信度">
                 <Progress percent={selectedAnomaly.confidence} size="small" style={{ margin: 0, width: 140 }} />
               </Descriptions.Item>
