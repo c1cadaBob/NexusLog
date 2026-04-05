@@ -357,6 +357,13 @@ const AnomalyDetection: React.FC = () => {
   const hasRetainedResult = Boolean(lastUpdatedAt);
   const staleResultVisible = Boolean(error && hasRetainedResult);
   const shouldFillBottomPanels = bottomPanelsHeight !== null;
+  const anomalyCardMinHeight = useMemo(() => {
+    if (!shouldFillBottomPanels || !bottomPanelsHeight) {
+      return 132;
+    }
+    const estimatedHeaderOffset = 112;
+    return Math.max(132, Math.min(168, Math.floor((bottomPanelsHeight - estimatedHeaderOffset) / 3)));
+  }, [bottomPanelsHeight, shouldFillBottomPanels]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -371,7 +378,7 @@ const AnomalyDetection: React.FC = () => {
       }
 
       const { top } = container.getBoundingClientRect();
-      const nextHeight = Math.max(420, Math.floor(window.innerHeight - top - 24));
+      const nextHeight = Math.max(420, Math.floor(window.innerHeight - top - 12));
       setBottomPanelsHeight((current) => (current === nextHeight ? current : nextHeight));
     };
 
@@ -579,7 +586,7 @@ const AnomalyDetection: React.FC = () => {
               清空筛选
             </Button>
           )}
-          <span className="text-xs opacity-60 ml-auto">
+          <span className="text-xs opacity-60 ml-auto whitespace-nowrap">
             当前展示 {filteredAnomalies.length} / {result.anomalies.length} 条异常
           </span>
         </div>
@@ -625,16 +632,17 @@ const AnomalyDetection: React.FC = () => {
             ) : filteredAnomalies.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件下未检测到异常结果，请尝试扩展时间范围或稍后刷新。" />
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {filteredAnomalies.map((anomaly) => {
                   const severity = SEVERITY_MAP[anomaly.severity];
                   const isCritical = anomaly.severity === 'critical';
                   return (
                     <div
                       key={anomaly.id}
-                      className="p-3 rounded-lg cursor-pointer transition-colors"
+                      className="p-3 rounded-lg cursor-pointer transition-colors flex flex-col gap-2"
                       onClick={() => handleViewDetail(anomaly)}
                       style={{
+                        minHeight: anomalyCardMinHeight,
                         borderLeft: `3px solid ${severity.color}`,
                         outline: selectedAnomaly?.id === anomaly.id ? `1px solid ${severity.color}` : 'none',
                         backgroundColor: isCritical
@@ -642,23 +650,34 @@ const AnomalyDetection: React.FC = () => {
                           : (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
                       }}
                     >
-                      <div className="flex items-start justify-between mb-1.5 gap-4">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="material-symbols-outlined text-base" style={{ color: severity.color }}>{severity.icon}</span>
-                          <span className="text-sm font-medium">{anomaly.title}</span>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
+                          <span className="material-symbols-outlined text-base shrink-0" style={{ color: severity.color }}>{severity.icon}</span>
+                          <span className="text-sm font-medium break-all">{anomaly.title}</span>
                           {anomaly.status === 'active' && (
                             <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>NEW</Tag>
                           )}
                         </div>
-                        <span className="text-xs opacity-50 font-mono">{formatDateTime(anomaly.timestamp)}</span>
+                        <span className="text-xs opacity-50 font-mono whitespace-nowrap shrink-0 text-right">{formatDateTime(anomaly.timestamp)}</span>
                       </div>
-                      <div className="text-xs opacity-70 mb-2">{anomaly.description}</div>
-                      <div className="flex items-center gap-4 text-xs opacity-60 mb-2 flex-wrap">
+                      <div
+                        className="text-xs opacity-70"
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          minHeight: 36,
+                        }}
+                      >
+                        {anomaly.description}
+                      </div>
+                      <div className="flex items-center gap-4 text-xs opacity-60 flex-wrap">
                         <span>置信度: <strong>{anomaly.confidence}%</strong></span>
                         <span>服务: <strong>{anomaly.service}</strong></span>
                         <span>指标: <strong>{anomaly.metric}</strong></span>
                       </div>
-                      <Button size="small" block type="default" className="text-xs" onClick={(event) => {
+                      <Button size="small" block type="default" className="text-xs mt-auto" onClick={(event) => {
                         event.stopPropagation();
                         handleViewDetail(anomaly);
                       }}>
