@@ -73,28 +73,40 @@ const QuerySyntax: React.FC = () => {
   return (
     <div className={`flex flex-col h-full overflow-hidden ${pageBg}`}>
       {/* Header */}
-      <header className={`h-16 border-b ${borderColor} ${headerBg} backdrop-blur-sm px-8 flex items-center justify-between shrink-0 -mx-6 -mt-6 z-10`}>
-        <div className="flex items-center gap-2 text-sm">
-          <span className={textSecondary}>帮助中心</span>
-          <span className={`material-symbols-outlined text-[14px] ${textSecondary}`}>chevron_right</span>
-          <span className={`${textColor} font-medium`}>查询语法指南</span>
-        </div>
-        <div className="relative w-96">
-          <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <span className={`material-symbols-outlined ${textSecondary} text-[20px]`}>search</span>
-          </span>
-          <input
-            id="query-syntax-search"
-            name="querySyntaxSearch"
-            className={`block w-full rounded-lg border ${borderColor} ${inputBg} py-1.5 pl-10 pr-3 ${textColor} placeholder-[#94a3b8] focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec] sm:text-sm sm:leading-6 focus:outline-none transition-all`}
-            placeholder="搜索文档内容 (Ctrl+K)..."
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-            <kbd className={`inline-flex items-center rounded border ${borderColor} px-1 font-mono text-[10px] font-medium ${textSecondary}`}>⌘K</kbd>
+      <header className={`min-h-[80px] border-b ${borderColor} ${headerBg} backdrop-blur-sm px-8 py-4 flex flex-wrap items-start justify-between gap-4 shrink-0 -mx-6 -mt-6 z-10`}>
+        <div className="flex flex-col gap-1">
+          <h1 className={`text-2xl font-bold ${textColor} tracking-tight`}>查询语法指南</h1>
+          <div className={`flex items-center gap-2 text-sm ${textSecondary}`}>
+            <span>帮助中心</span>
+            <span className="material-symbols-outlined text-[14px]">chevron_right</span>
+            <span>查询语法指南</span>
           </div>
+        </div>
+        <div className="flex items-center flex-wrap justify-end gap-3 w-full lg:w-auto">
+          <div className="relative w-full max-w-2xl lg:w-96">
+            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <span className={`material-symbols-outlined ${textSecondary} text-[20px]`}>search</span>
+            </span>
+            <input
+              id="query-syntax-search"
+              name="querySyntaxSearch"
+              className={`block w-full rounded-lg border ${borderColor} ${inputBg} py-2.5 pl-10 pr-3 ${textColor} placeholder-[#94a3b8] focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec] sm:text-sm sm:leading-6 focus:outline-none transition-all`}
+              placeholder="搜索文档内容 (Ctrl+K)..."
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+              <kbd className={`inline-flex items-center rounded border ${borderColor} px-1 font-mono text-[10px] font-medium ${textSecondary}`}>⌘K</kbd>
+            </div>
+          </div>
+          <button
+            onClick={() => { window.location.hash = '#/help/tickets'; }}
+            className="flex items-center gap-2 rounded-lg h-11 px-4 bg-[#135bec] hover:bg-[#1048c0] text-white text-sm font-semibold shadow-lg shadow-[#135bec]/20 transition-all active:scale-95"
+          >
+            <span className="material-symbols-outlined text-lg">confirmation_number</span>
+            <span>工单入口</span>
+          </button>
         </div>
       </header>
 
@@ -122,9 +134,9 @@ const QuerySyntax: React.FC = () => {
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto p-10 scroll-smooth">
           <div className="max-w-3xl mx-auto pb-32">
-            <div className="mb-10">
-              <h1 className={`text-4xl font-extrabold ${textColor} tracking-tight mb-4`}>查询语法指南</h1>
-              <p className={`text-lg ${textSecondary} leading-relaxed`}>掌握 Log System 的查询语法 (LQL)，帮助您快速从海量日志中定位问题、分析趋势。</p>
+            <div className={`mb-10 rounded-2xl border ${borderColor} ${cardBg} p-6`}>
+              <h2 className={`text-2xl font-bold ${textColor} tracking-tight mb-3`}>快速开始</h2>
+              <p className={`text-base ${textSecondary} leading-relaxed`}>掌握 Log System 的查询语法 (LQL)，帮助您快速从海量日志中定位问题、分析趋势。</p>
             </div>
 
             {/* Section: Basic Search */}

@@ -64,6 +64,7 @@ const FAQ: React.FC = () => {
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, 'yes' | 'no'>>({});
 
   const pageBg = isDark ? 'bg-[#0b1121]' : 'bg-slate-50';
+  const headerBg = isDark ? 'bg-[#111722]/95' : 'bg-white/95';
   const cardBg = isDark ? 'bg-[#1e293b]' : 'bg-white';
   const cardOpenBg = isDark ? 'open:bg-[#232f48]' : 'open:bg-slate-50';
   const borderColor = isDark ? 'border-[#334155]' : 'border-slate-200';
@@ -113,44 +114,54 @@ const FAQ: React.FC = () => {
 
   return (
     <div className={`flex flex-col h-full overflow-hidden ${pageBg} -mx-6 -mt-6 -mb-6`}>
+      <header className={`flex flex-wrap items-start justify-between gap-4 px-6 py-5 border-b ${borderColor} ${headerBg} backdrop-blur-md sticky top-0 z-20 shrink-0`}>
+        <div className="flex flex-col gap-1">
+          <h1 className={`${textColor} text-2xl font-bold leading-tight tracking-tight`}>常见问题解答</h1>
+          <p className={`${textSecondary} text-sm`}>快速查找日志接入、告警配置和权限管理的常见问题。</p>
+        </div>
+        <div className="flex items-center flex-wrap justify-end gap-3 w-full lg:w-auto">
+          <div className="relative w-full max-w-2xl lg:w-96 group">
+            <div className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 ${textSecondary} group-focus-within:text-[#135bec] transition-colors`}>
+              <span className="material-symbols-outlined text-lg">search</span>
+            </div>
+            <input
+              id="faq-search"
+              name="faqSearch"
+              className={`block w-full rounded-xl border ${borderColor} ${inputBg} py-3 pl-12 pr-4 ${textColor} placeholder-[#94a3b8] focus:border-[#135bec] focus:outline-none focus:ring-1 focus:ring-[#135bec] transition-all`}
+              placeholder="如何帮助您？ (例如: 配置 Logstash, 邮件告警失效)"
+              type="text"
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setSelectedTag(null); }}
+            />
+            {searchTerm && (
+              <button onClick={() => setSearchTerm('')} className={`absolute inset-y-0 right-12 flex items-center px-2 ${textSecondary} hover:text-[#135bec]`}>
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            )}
+            <div className="absolute inset-y-0 right-2 flex items-center">
+              <kbd className={`hidden rounded border ${borderColor} ${kbdBg} px-2 py-0.5 text-xs font-medium ${textSecondary} md:inline-block`}>⌘K</kbd>
+            </div>
+          </div>
+          <button
+            onClick={() => { window.location.hash = '#/help/tickets'; }}
+            className={`flex items-center gap-2 rounded-lg h-11 px-4 bg-[#135bec] hover:bg-[#1048c0] text-white text-sm font-semibold shadow-lg shadow-[#135bec]/20 transition-all active:scale-95`}
+          >
+            <span className="material-symbols-outlined text-lg">confirmation_number</span>
+            <span>工单入口</span>
+          </button>
+        </div>
+      </header>
       <div className="flex-1 overflow-y-auto scroll-smooth">
-        <div className="mx-auto w-full max-w-5xl px-6 py-10 lg:px-12">
-          {/* Hero / Search */}
-          <div className="mb-12 flex flex-col items-center text-center">
-            <div className="mb-6 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#135bec]/20 text-[#135bec]">
-              <span className="material-symbols-outlined text-3xl">live_help</span>
-            </div>
-            <h1 className={`mb-4 text-3xl font-bold tracking-tight ${textColor} md:text-4xl`}>常见问题解答</h1>
-            <p className={`mb-8 max-w-2xl ${textSecondary}`}>这里汇集了关于日志接入、告警配置和权限管理的常见问题。如果您找不到答案，请联系我们的支持团队。</p>
-            <div className="relative w-full max-w-2xl group">
-              <div className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 ${textSecondary} group-focus-within:text-[#135bec] transition-colors`}>
-                <span className="material-symbols-outlined text-lg">search</span>
-              </div>
-              <input
-                id="faq-search"
-                name="faqSearch"
-                className={`block w-full rounded-xl border ${borderColor} ${inputBg} py-4 pl-12 pr-4 ${textColor} placeholder-[#94a3b8] shadow-lg ${isDark ? 'shadow-black/20' : 'shadow-slate-200/50'} focus:border-[#135bec] focus:outline-none focus:ring-1 focus:ring-[#135bec] transition-all`}
-                placeholder="如何帮助您？ (例如: 配置 Logstash, 邮件告警失效)"
-                type="text"
-                value={searchTerm}
-                onChange={(e) => { setSearchTerm(e.target.value); setSelectedTag(null); }}
-              />
-              {searchTerm && (
-                <button onClick={() => setSearchTerm('')} className={`absolute inset-y-0 right-12 flex items-center px-2 ${textSecondary} hover:text-[#135bec]`}>
-                  <span className="material-symbols-outlined text-lg">close</span>
-                </button>
-              )}
-              <div className="absolute inset-y-0 right-2 flex items-center">
-                <kbd className={`hidden rounded border ${borderColor} ${kbdBg} px-2 py-0.5 text-xs font-medium ${textSecondary} md:inline-block`}>⌘K</kbd>
-              </div>
-            </div>
+        <div className="mx-auto w-full max-w-5xl px-6 py-8 lg:px-12">
+          <div className={`mb-8 rounded-2xl border ${borderColor} ${cardBg} p-6`}>
+            <p className={`${textSecondary}`}>这里汇集了关于日志接入、告警配置和权限管理的常见问题。如果您仍然找不到答案，可以直接提交技术工单。</p>
             {(searchTerm || selectedTag) && (
               <div className={`mt-4 text-sm ${textSecondary}`}>
                 找到 {filteredFaqData.reduce((acc, cat) => acc + cat.questions.length, 0)} 个相关问题
                 {selectedTag && <button onClick={() => setSelectedTag(null)} className="ml-2 text-[#135bec] hover:text-[#1048c0]">清除筛选</button>}
               </div>
             )}
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               <span className={`text-sm ${textSecondary} py-1`}>热门搜索:</span>
               {popularTags.map((tag) => (
                 <button key={tag} onClick={() => handleTagClick(tag)}
@@ -223,13 +234,6 @@ const FAQ: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating Action Button */}
-      <div className="fixed bottom-8 right-8 z-50">
-        <button className="group flex items-center gap-2 rounded-full bg-[#135bec] px-5 py-3 text-white shadow-lg shadow-[#135bec]/30 hover:bg-[#1048c0] hover:scale-105 transition-all">
-          <span className="material-symbols-outlined">support_agent</span>
-          <span className="font-medium">联系支持</span>
-        </button>
-      </div>
     </div>
   );
 };
