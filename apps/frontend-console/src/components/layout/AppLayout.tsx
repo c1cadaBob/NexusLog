@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Drawer, FloatButton } from 'antd';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import AppSidebar from './AppSidebar';
 import AppHeader from './AppHeader';
 import MobileBottomNav from './MobileBottomNav';
@@ -16,13 +16,16 @@ const FLOAT_BUTTON_SIZE = 40;
 const FLOAT_BUTTON_MARGIN = 24;
 const DESKTOP_FLOAT_BUTTON_OFFSET = 96;
 const DESKTOP_CONTENT_BOTTOM_PADDING = DESKTOP_FLOAT_BUTTON_OFFSET + FLOAT_BUTTON_SIZE;
+const DESKTOP_COMPACT_CONTENT_BOTTOM_PADDING = 32;
 const MOBILE_FLOAT_BUTTON_OFFSET = MOBILE_BOTTOM_NAV_HEIGHT + FLOAT_BUTTON_MARGIN;
 const MOBILE_CONTENT_BOTTOM_PADDING = MOBILE_FLOAT_BUTTON_OFFSET + FLOAT_BUTTON_SIZE + 16;
 
 const AppLayout: React.FC = () => {
+  const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const useCompactDesktopBottomPadding = location.pathname === '/analysis/anomaly';
 
   // 响应式检测
   useEffect(() => {
@@ -97,7 +100,9 @@ const AppLayout: React.FC = () => {
             margin: '0 auto',
             paddingBottom: isMobile
               ? `calc(${MOBILE_CONTENT_BOTTOM_PADDING}px + env(safe-area-inset-bottom))`
-              : DESKTOP_CONTENT_BOTTOM_PADDING,
+              : useCompactDesktopBottomPadding
+                ? DESKTOP_COMPACT_CONTENT_BOTTOM_PADDING
+                : DESKTOP_CONTENT_BOTTOM_PADDING,
           }}
         >
           <Outlet />
