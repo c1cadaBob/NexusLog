@@ -121,6 +121,9 @@ const CostOverview: React.FC = () => {
           <div style={{ fontSize: 13, color: p.textSecondary, marginTop: 4 }}>实时监控您的基础设施支出与资源使用情况</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+            帮助
+          </Button>
           <Button style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>calendar_today</span>
             最近 30 天

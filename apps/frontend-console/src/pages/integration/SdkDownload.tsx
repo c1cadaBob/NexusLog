@@ -133,6 +133,9 @@ const SdkDownload: React.FC = () => {
             value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             style={{ width: 280 }} allowClear
           />
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+            帮助
+          </Button>
           <Button type="text" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>notifications</span>} />
         </div>
       </div>

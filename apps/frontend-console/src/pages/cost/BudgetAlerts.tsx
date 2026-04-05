@@ -72,6 +72,9 @@ const BudgetAlerts: React.FC = () => {
           <Tag color="blue">企业版</Tag>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+            帮助
+          </Button>
           <Input
             prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: p.textSecondary }}>search</span>}
             placeholder="搜索预算策略..."

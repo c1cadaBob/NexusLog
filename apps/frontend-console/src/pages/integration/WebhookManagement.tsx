@@ -268,6 +268,9 @@ const WebhookManagement: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+            帮助
+          </Button>
           <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>menu_book</span>}>
             开发文档
           </Button>

@@ -63,8 +63,10 @@ const OptimizationSuggestions: React.FC = () => {
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>优化建议 (Optimization Suggestions)</h2>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
+            帮助
+          </Button>
           <Button type="text" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>notifications</span>} />
-          <Button type="text" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>help</span>} />
         </div>
       </div>
 

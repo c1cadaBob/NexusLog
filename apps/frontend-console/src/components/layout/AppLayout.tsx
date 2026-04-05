@@ -25,7 +25,7 @@ const AppLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const useHeaderHelpLayout = ['/analysis/', '/alerts/', '/incidents/', '/security/', '/settings/'].some((prefix) => location.pathname.startsWith(prefix));
+  const useHeaderHelpLayout = ['/analysis/', '/alerts/', '/incidents/', '/security/', '/settings/', '/integration/', '/cost/'].some((prefix) => location.pathname.startsWith(prefix));
   const useCompactDesktopBottomPadding = useHeaderHelpLayout;
   const showGlobalSupportButton = !useHeaderHelpLayout;
 
