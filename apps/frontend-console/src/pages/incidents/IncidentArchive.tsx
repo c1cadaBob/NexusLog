@@ -18,6 +18,7 @@ import {
   resolveIncidentActionAccess,
 } from './incidentAuthorization';
 import type { Incident, IncidentSeverity } from '../../types/incident';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; label: string }> = {
   P0: { color: COLORS.danger, label: 'P0 紧急' },
@@ -49,6 +50,7 @@ const IncidentArchive: React.FC = () => {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [previewIncident, setPreviewIncident] = useState<Incident | null>(null);
@@ -75,6 +77,7 @@ const IncidentArchive: React.FC = () => {
       const response = await fetchIncidents(currentPage, pageSize, filters);
       setIncidents(response.items);
       setTotal(response.total);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载归档列表失败';
       setError(msg);
@@ -215,28 +218,30 @@ const IncidentArchive: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <div className="text-lg font-semibold">归档管理</div>
-          <div className="text-xs opacity-50 mt-1">展示已归档事件及其研判结论，支持跳转查看完整处理闭环</div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button onClick={() => void loadIncidents()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
-            刷新
-          </Button>
-          <Button
-            type="primary"
-            disabled={!previewIncident || !shouldAllowIncidentArchiveReport(previewIncident)}
-            icon={<span className="material-symbols-outlined text-sm">description</span>}
-            onClick={() => {
-              if (!previewIncident) return;
-              void handleDownloadMarkdown(previewIncident);
-            }}
-          >
-            导出当前预览
-          </Button>
-        </div>
-      </div>
+      <AnalysisPageHeader
+        title="归档管理"
+        subtitle="展示已归档事件及其研判结论，支持导出和跳转查看完整处理闭环"
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button size="small" onClick={() => void loadIncidents()} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+              刷新数据
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              disabled={!previewIncident || !shouldAllowIncidentArchiveReport(previewIncident)}
+              icon={<span className="material-symbols-outlined text-sm">description</span>}
+              onClick={() => {
+                if (!previewIncident) return;
+                void handleDownloadMarkdown(previewIncident);
+              }}
+            >
+              导出当前预览
+            </Button>
+          </div>
+        )}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {stats.map((item) => (

@@ -11,6 +11,7 @@ import {
   deleteNotificationChannel,
   testNotificationChannel,
 } from '../../api/notification';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 type SupportedChannelType = 'email' | 'dingtalk' | 'sms';
 
@@ -82,6 +83,7 @@ const NotificationConfig: React.FC = () => {
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -97,6 +99,7 @@ const NotificationConfig: React.FC = () => {
     try {
       const items = await fetchNotificationChannels({ force });
       setChannels(items);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载通知渠道失败';
       setError(msg);
@@ -281,19 +284,24 @@ const NotificationConfig: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
-      {/* 头部 */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>
-            通知配置 <span style={{ fontSize: 16, fontWeight: 400, color: '#94a3b8', marginLeft: 8 }}>(Notification Config)</span>
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: 14, color: '#94a3b8' }}>管理告警通知渠道、Webhooks 集成及联系人组排班。</p>
-        </div>
-        <Space>
-          <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>history</span>}>发送日志</Button>
-          <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>} onClick={openCreate}>新建渠道</Button>
-        </Space>
-      </div>
+      <AnalysisPageHeader
+        title="通知配置"
+        subtitle="管理告警通知渠道、Webhook 集成及联系人组排班"
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <Space>
+            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={() => void loadChannels(true)}>
+              刷新数据
+            </Button>
+            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>history</span>}>
+              发送日志
+            </Button>
+            <Button size="small" type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>} onClick={openCreate}>
+              新建渠道
+            </Button>
+          </Space>
+        )}
+      />
 
       {/* 统计 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -13,6 +13,7 @@ import {
 } from '../../api/alert';
 import dayjs from 'dayjs';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 // ============================================================================
 // 辅助
@@ -61,6 +62,7 @@ const SilencePolicy: React.FC = () => {
   const [silences, setSilences] = useState<AlertSilence[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [currentSilence, setCurrentSilence] = useState<AlertSilence | null>(null);
@@ -76,6 +78,7 @@ const SilencePolicy: React.FC = () => {
     try {
       const items = await fetchAlertSilences();
       setSilences(items);
+      setLastUpdatedAt(new Date());
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载静默策略失败';
       message.error(msg);
@@ -288,22 +291,26 @@ const SilencePolicy: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
-      {/* 头部 */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
-        <div style={{ maxWidth: 640 }}>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700 }}>静默策略</h1>
-          <p style={{ margin: '8px 0 0', fontSize: 14, color: '#94a3b8' }}>
-            管理告警静默规则，在特定的维护窗口或已知故障期间屏蔽指定告警的通知发送。
-          </p>
-        </div>
-        <Button
-          type="primary"
-          icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>}
-          onClick={openCreate}
-        >
-          新建静默策略
-        </Button>
-      </div>
+      <AnalysisPageHeader
+        title="静默策略"
+        subtitle="在维护窗口或已知故障期间屏蔽指定告警的通知发送"
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <Space>
+            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={() => void loadData()}>
+              刷新数据
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>}
+              onClick={openCreate}
+            >
+              新建静默策略
+            </Button>
+          </Space>
+        )}
+      />
 
       {/* 统计 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(1, 1fr)', gap: 16 }}>

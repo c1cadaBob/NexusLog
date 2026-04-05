@@ -12,6 +12,7 @@ import {
   getIncidentPermissionDeniedReason,
   resolveIncidentActionAccess,
 } from './incidentAuthorization';
+import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 // ============================================================================
 // 事件类型配置
@@ -58,6 +59,7 @@ const IncidentTimeline: React.FC = () => {
   const [incidentsLoading, setIncidentsLoading] = useState(true);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   // 加载事件列表（用于下拉选择）
   const loadIncidents = useCallback(async () => {
@@ -65,6 +67,7 @@ const IncidentTimeline: React.FC = () => {
     try {
       const { items } = await fetchIncidents(1, 100);
       setIncidents(items);
+      setLastUpdatedAt(new Date());
     } catch {
       setIncidents([]);
     } finally {
@@ -83,6 +86,7 @@ const IncidentTimeline: React.FC = () => {
     try {
       const events = await fetchIncidentTimeline(selectedIncident);
       setTimeline(events);
+      setLastUpdatedAt(new Date());
     } catch {
       setTimeline([]);
     } finally {
@@ -104,12 +108,23 @@ const IncidentTimeline: React.FC = () => {
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [timeline, typeFilter]);
 
+  const handleRefresh = useCallback(() => {
+    void loadIncidents();
+    void loadTimeline();
+  }, [loadIncidents, loadTimeline]);
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <span className="text-lg font-semibold">全流程时间线</span>
-        <span className="text-xs opacity-50">事件全生命周期追踪</span>
-      </div>
+      <AnalysisPageHeader
+        title="全流程时间线"
+        subtitle="追踪事件从触发到归档的全生命周期过程"
+        lastUpdatedAt={lastUpdatedAt}
+        actions={(
+          <Button size="small" onClick={handleRefresh} icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+            刷新数据
+          </Button>
+        )}
+      />
 
       {/* 筛选栏 */}
       <div className="flex items-center gap-3 flex-wrap">
