@@ -272,7 +272,9 @@ const AnomalyDetection: React.FC = () => {
   const [selectedSeverity, setSelectedSeverity] = useState<AnomalySeverityFilter>('all');
   const [selectedStatus, setSelectedStatus] = useState<AnomalyStatusFilter>('all');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [bottomPanelsHeight, setBottomPanelsHeight] = useState<number | null>(null);
   const hasSuccessfulResultRef = useRef(false);
+  const bottomPanelsRef = useRef<HTMLDivElement | null>(null);
 
   const loadAnomalies = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -354,6 +356,33 @@ const AnomalyDetection: React.FC = () => {
   const hasActiveFilters = selectedService !== 'all' || selectedMetric !== 'all' || selectedSeverity !== 'all' || selectedStatus !== 'all';
   const hasRetainedResult = Boolean(lastUpdatedAt);
   const staleResultVisible = Boolean(error && hasRetainedResult);
+  const shouldFillBottomPanels = bottomPanelsHeight !== null;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const updateBottomPanelsHeight = () => {
+      const container = bottomPanelsRef.current;
+      if (!container || window.innerWidth < 1280) {
+        setBottomPanelsHeight(null);
+        return;
+      }
+
+      const { top } = container.getBoundingClientRect();
+      const nextHeight = Math.max(420, Math.floor(window.innerHeight - top - 24));
+      setBottomPanelsHeight((current) => (current === nextHeight ? current : nextHeight));
+    };
+
+    const frame = window.requestAnimationFrame(updateBottomPanelsHeight);
+    window.addEventListener('resize', updateBottomPanelsHeight);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', updateBottomPanelsHeight);
+    };
+  }, [loading, error, result.anomalies.length, filteredAnomalies.length, fallbackInfo?.label, lastUpdatedAt?.getTime(), selectedTimeRange]);
 
   useEffect(() => {
     if (!selectedAnomaly) {
@@ -556,80 +585,93 @@ const AnomalyDetection: React.FC = () => {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.95fr] gap-4">
-        <ChartWrapper
-          title="日志量异常趋势"
-          subtitle={TIME_RANGE_LABELS[selectedTimeRange]}
-          loading={loading}
-          error={error && !hasRetainedResult ? error || undefined : undefined}
-          empty={result.trend.length === 0}
-          option={timelineOption}
-          height={360}
-        />
+      <div
+        ref={bottomPanelsRef}
+        className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.95fr] gap-4"
+      >
+        <div style={shouldFillBottomPanels ? { height: bottomPanelsHeight } : undefined}>
+          <ChartWrapper
+            title="日志量异常趋势"
+            subtitle={TIME_RANGE_LABELS[selectedTimeRange]}
+            loading={loading}
+            error={error && !hasRetainedResult ? error || undefined : undefined}
+            empty={result.trend.length === 0}
+            option={timelineOption}
+            height={shouldFillBottomPanels ? '100%' : 360}
+            fullHeight={shouldFillBottomPanels}
+          />
+        </div>
 
-        <Card
-          title={(
-            <div className="flex items-center justify-between gap-3">
-              <span>检测到的异常</span>
-              <Space size={6} wrap>
-                <Tag style={{ margin: 0 }}>{filteredAnomalies.length} 条</Tag>
-                <Tag color="processing" style={{ margin: 0 }}>{activeCount} 活跃/调查中</Tag>
-              </Space>
-            </div>
-          )}
-          styles={{ body: { padding: '8px 12px', maxHeight: 360, overflowY: 'auto' } }}
-        >
-          {loading && filteredAnomalies.length === 0 ? (
-            <Card loading variant="borderless" styles={{ body: { padding: 0 } }} />
-          ) : filteredAnomalies.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件下未检测到异常结果，请尝试扩展时间范围或稍后刷新。" />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {filteredAnomalies.map((anomaly) => {
-                const severity = SEVERITY_MAP[anomaly.severity];
-                const isCritical = anomaly.severity === 'critical';
-                return (
-                  <div
-                    key={anomaly.id}
-                    className="p-3 rounded-lg cursor-pointer transition-colors"
-                    onClick={() => handleViewDetail(anomaly)}
-                    style={{
-                      borderLeft: `3px solid ${severity.color}`,
-                      outline: selectedAnomaly?.id === anomaly.id ? `1px solid ${severity.color}` : 'none',
-                      backgroundColor: isCritical
-                        ? (isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)')
-                        : (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
-                    }}
-                  >
-                    <div className="flex items-start justify-between mb-1.5 gap-4">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="material-symbols-outlined text-base" style={{ color: severity.color }}>{severity.icon}</span>
-                        <span className="text-sm font-medium">{anomaly.title}</span>
-                        {anomaly.status === 'active' && (
-                          <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>NEW</Tag>
-                        )}
+        <div style={shouldFillBottomPanels ? { height: bottomPanelsHeight } : undefined}>
+          <Card
+            className={shouldFillBottomPanels ? 'h-full flex flex-col' : undefined}
+            title={(
+              <div className="flex items-center justify-between gap-3">
+                <span>检测到的异常</span>
+                <Space size={6} wrap>
+                  <Tag style={{ margin: 0 }}>{filteredAnomalies.length} 条</Tag>
+                  <Tag color="processing" style={{ margin: 0 }}>{activeCount} 活跃/调查中</Tag>
+                </Space>
+              </div>
+            )}
+            styles={{
+              body: shouldFillBottomPanels
+                ? { padding: '8px 12px', flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }
+                : { padding: '8px 12px', maxHeight: 360, overflowY: 'auto' },
+            }}
+          >
+            {loading && filteredAnomalies.length === 0 ? (
+              <Card loading variant="borderless" styles={{ body: { padding: 0 } }} />
+            ) : filteredAnomalies.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件下未检测到异常结果，请尝试扩展时间范围或稍后刷新。" />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {filteredAnomalies.map((anomaly) => {
+                  const severity = SEVERITY_MAP[anomaly.severity];
+                  const isCritical = anomaly.severity === 'critical';
+                  return (
+                    <div
+                      key={anomaly.id}
+                      className="p-3 rounded-lg cursor-pointer transition-colors"
+                      onClick={() => handleViewDetail(anomaly)}
+                      style={{
+                        borderLeft: `3px solid ${severity.color}`,
+                        outline: selectedAnomaly?.id === anomaly.id ? `1px solid ${severity.color}` : 'none',
+                        backgroundColor: isCritical
+                          ? (isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)')
+                          : (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
+                      }}
+                    >
+                      <div className="flex items-start justify-between mb-1.5 gap-4">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="material-symbols-outlined text-base" style={{ color: severity.color }}>{severity.icon}</span>
+                          <span className="text-sm font-medium">{anomaly.title}</span>
+                          {anomaly.status === 'active' && (
+                            <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>NEW</Tag>
+                          )}
+                        </div>
+                        <span className="text-xs opacity-50 font-mono">{formatDateTime(anomaly.timestamp)}</span>
                       </div>
-                      <span className="text-xs opacity-50 font-mono">{formatDateTime(anomaly.timestamp)}</span>
+                      <div className="text-xs opacity-70 mb-2">{anomaly.description}</div>
+                      <div className="flex items-center gap-4 text-xs opacity-60 mb-2 flex-wrap">
+                        <span>置信度: <strong>{anomaly.confidence}%</strong></span>
+                        <span>服务: <strong>{anomaly.service}</strong></span>
+                        <span>指标: <strong>{anomaly.metric}</strong></span>
+                      </div>
+                      <Button size="small" block type="default" className="text-xs" onClick={(event) => {
+                        event.stopPropagation();
+                        handleViewDetail(anomaly);
+                      }}>
+                        <span className="material-symbols-outlined text-sm mr-1">troubleshoot</span>
+                        查看异常详情
+                      </Button>
                     </div>
-                    <div className="text-xs opacity-70 mb-2">{anomaly.description}</div>
-                    <div className="flex items-center gap-4 text-xs opacity-60 mb-2 flex-wrap">
-                      <span>置信度: <strong>{anomaly.confidence}%</strong></span>
-                      <span>服务: <strong>{anomaly.service}</strong></span>
-                      <span>指标: <strong>{anomaly.metric}</strong></span>
-                    </div>
-                    <Button size="small" block type="default" className="text-xs" onClick={(event) => {
-                      event.stopPropagation();
-                      handleViewDetail(anomaly);
-                    }}>
-                      <span className="material-symbols-outlined text-sm mr-1">troubleshoot</span>
-                      查看异常详情
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
 
       <Drawer
