@@ -14,44 +14,12 @@
           }
         }
       },
-      "warm": {
-        "min_age": "3d",
-        "actions": {
-          "readonly": {},
-          "shrink": {
-            "number_of_shards": 1
-          },
-          "forcemerge": {
-            "max_num_segments": 1
-          },
-          "set_priority": {
-            "priority": 50
-          },
-          "allocate": {
-            "number_of_replicas": 0,
-            "require": {
-              "data": "warm"
-            }
-          }
-        }
-      },
-      "cold": {
-        "min_age": "30d",
-        "actions": {
-          "set_priority": {
-            "priority": 0
-          },
-          "allocate": {
-            "number_of_replicas": 0,
-            "require": {
-              "data": "cold"
-            }
-          }
-        }
-      },
       "delete": {
-        "min_age": "90d",
+        "min_age": "15d",
         "actions": {
+          "wait_for_snapshot": {
+            "policy": "nexuslog-snapshot-policy"
+          },
           "delete": {}
         }
       }

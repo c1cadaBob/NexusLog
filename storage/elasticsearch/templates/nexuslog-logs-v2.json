@@ -3,7 +3,7 @@
   "template": {
     "settings": {
       "number_of_shards": 3,
-      "number_of_replicas": 1,
+      "number_of_replicas": 0,
       "refresh_interval": "5s",
       "codec": "best_compression",
       "index.lifecycle.name": "nexuslog-logs-ilm",

@@ -183,6 +183,7 @@ curl -X PUT "http://localhost:9200/_snapshot/nexuslog-snapshots/manual-$(date +%
 - 当前本地 Elasticsearch 许可证是 `basic`，因此该方案可用于“快照备份 / 冷归档”，但不等同于 `searchable snapshot` 冷层。
 - 不建议把飞牛 NAS 的 NFS/SMB 共享目录直接映射到 Elasticsearch `path.data`。
 - 如果你只是执行 `make local-deploy`，且已提前设置 `ES_SNAPSHOT_REPO_HOST_PATH`，本地 bootstrap 会自动注册快照仓库与策略。
+- 当前单节点本地部署已收口为“热存储仅保留最近 15 天日志”；超过 15 天的日志会等待 `nexuslog-snapshot-policy` 快照后再从 ES 删除。
 
 ### Step 3：执行冒烟检查
 
