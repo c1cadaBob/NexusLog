@@ -1,6 +1,7 @@
 {
   "_comment": "NexusLog Elasticsearch 快照策略 | change_level: normal | 生效时间: 分钟级 | 方案A 默认适配 NAS 共享文件系统仓库",
-  "name": "nexuslog-snapshot-policy",
+  "policy_id": "nexuslog-snapshot-policy",
+  "name": "<nexuslog-snapshot-{now/d}>",
   "schedule": "0 0 2 * * ?",
   "repository": "nexuslog-snapshots",
   "config": {

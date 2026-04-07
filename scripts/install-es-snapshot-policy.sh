@@ -9,6 +9,7 @@ cd "$ROOT_DIR"
 ES_HOST="${ES_HOST:-http://localhost:9200}"
 SNAPSHOT_POLICY_FILE="${SNAPSHOT_POLICY_FILE:-storage/elasticsearch/snapshots/snapshot-policy.json}"
 SNAPSHOT_POLICY_NAME="${SNAPSHOT_POLICY_NAME:-}"
+SNAPSHOT_NAME_TEMPLATE="${SNAPSHOT_NAME_TEMPLATE:-}"
 SNAPSHOT_POLICY_SCHEDULE="${SNAPSHOT_POLICY_SCHEDULE:-}"
 SNAPSHOT_POLICY_REPOSITORY="${SNAPSHOT_POLICY_REPOSITORY:-}"
 SNAPSHOT_POLICY_EXECUTE_NOW="${SNAPSHOT_POLICY_EXECUTE_NOW:-false}"
@@ -71,10 +72,22 @@ wait_for_elasticsearch
 
 policy_name="$SNAPSHOT_POLICY_NAME"
 if [[ -z "$policy_name" ]]; then
+  policy_name="$(jq -r '.policy_id // .policy_name // empty' "$SNAPSHOT_POLICY_FILE")"
+fi
+if [[ -z "$policy_name" ]]; then
   policy_name="$(jq -r '.name // empty' "$SNAPSHOT_POLICY_FILE")"
 fi
 if [[ -z "$policy_name" ]]; then
   error "snapshot policy name is empty"
+  exit 1
+fi
+
+snapshot_name_template="$SNAPSHOT_NAME_TEMPLATE"
+if [[ -z "$snapshot_name_template" ]]; then
+  snapshot_name_template="$(jq -r '.snapshot_name // .name_template // .name // empty' "$SNAPSHOT_POLICY_FILE")"
+fi
+if [[ -z "$snapshot_name_template" ]]; then
+  error "snapshot name template is empty"
   exit 1
 fi
 
@@ -99,9 +112,11 @@ fi
 payload_file="$(mktemp)"
 trap 'rm -f "$payload_file"' EXIT
 jq \
+  --arg name "$snapshot_name_template" \
   --arg schedule "$policy_schedule" \
   --arg repository "$policy_repository" \
   '{
+    name: $name,
     schedule: $schedule,
     repository: $repository,
     config: (.config // {}),
@@ -124,4 +139,4 @@ if [[ "$(normalize_bool "$SNAPSHOT_POLICY_EXECUTE_NOW")" == "true" ]]; then
 fi
 
 info "installed snapshot policy successfully"
-echo "OK: policy=$policy_name repository=$policy_repository schedule=$policy_schedule ES_HOST=$ES_HOST"
+echo "OK: policy=$policy_name snapshot_name=$snapshot_name_template repository=$policy_repository schedule=$policy_schedule ES_HOST=$ES_HOST"
