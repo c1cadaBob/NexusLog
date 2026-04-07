@@ -6,7 +6,7 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push test-contracts stream-install-es stream-register-schemas stream-deploy-local stream-bootstrap-local stream-compare
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-suite e2e-list-regression e2e-list-debug e2e-list-full e2e-list-chrome e2e-suite e2e-smoke e2e-regression e2e-debug e2e-full e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome e2e-smoke-ci local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate es-install-snapshot-repository es-install-snapshot-policy es-bootstrap-snapshots es-install-alerts-storage es-install-audit-storage es-bootstrap-operational-storage
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-suite e2e-list-regression e2e-list-debug e2e-list-full e2e-list-chrome e2e-suite e2e-smoke e2e-regression e2e-debug e2e-full e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome e2e-smoke-ci local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate es-install-snapshot-repository es-install-snapshot-policy es-bootstrap-snapshots es-install-alerts-storage es-install-audit-storage es-bootstrap-operational-storage es-backfill-operational-history
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
@@ -130,6 +130,19 @@ es-install-audit-storage:
 ## 安装日志/告警/审计的生命周期与快照策略
 es-bootstrap-operational-storage: es-install-snapshot-policy es-install-alerts-storage es-install-audit-storage
 	@echo "✅ Elasticsearch 日志/告警/审计存储策略已安装"
+
+## 将 PostgreSQL 历史告警/审计数据回填到 Elasticsearch
+es-backfill-operational-history:
+	@echo "📦 回填 PostgreSQL 历史告警/审计数据到 Elasticsearch..."
+	@DATABASE_POSTGRESQL_HOST="$${DATABASE_POSTGRESQL_HOST:-localhost}" \
+	DATABASE_POSTGRESQL_PORT="$${DATABASE_POSTGRESQL_PORT:-5432}" \
+	DATABASE_POSTGRESQL_DBNAME="$${DATABASE_POSTGRESQL_DBNAME:-nexuslog}" \
+	DATABASE_POSTGRESQL_USER="$${DATABASE_POSTGRESQL_USER:-nexuslog}" \
+	DATABASE_POSTGRESQL_PASSWORD="$${DATABASE_POSTGRESQL_PASSWORD:-nexuslog_dev}" \
+	DATABASE_POSTGRESQL_SSLMODE="$${DATABASE_POSTGRESQL_SSLMODE:-disable}" \
+	SEARCH_ELASTICSEARCH_ADDRESSES="$${SEARCH_ELASTICSEARCH_ADDRESSES:-http://localhost:9200}" \
+	go run ./services/control-plane/cmd/es-backfill --targets="$${TARGETS:-alerts,audit}" --batch-size="$${BATCH_SIZE:-500}" --refresh="$${REFRESH:-true}"
+	@echo "✅ Elasticsearch 历史数据回填完成"
 
 ## 在本地 Flink 提交流式 SQL 作业
 stream-deploy-local:
@@ -553,6 +566,7 @@ help:
 	@echo "  make es-install-snapshot-repository [ES_HOST=http://localhost:9200] [SNAPSHOT_REPOSITORY_LOCATION=/usr/share/elasticsearch/snapshots] - 安装 ES 文件系统快照仓库"
 	@echo "  make es-install-snapshot-policy [ES_HOST=http://localhost:9200] [SNAPSHOT_POLICY_REPOSITORY=nexuslog-snapshots] - 安装 ES 快照策略"
 	@echo "  make es-bootstrap-snapshots [ES_HOST=http://localhost:9200] - 一次性安装 ES 快照仓库与策略"
+	@echo "  make es-backfill-operational-history [TARGETS=alerts,audit] [BATCH_SIZE=500] - 回填 PostgreSQL 历史告警/审计数据到 ES"
 	@echo "  make e2e-list [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 列出全部 Playwright E2E 用例"
 	@echo "  make e2e-list-regression [E2E_BASE_URL=http://127.0.0.1:3000] - 列出回归套件用例"
 	@echo "  make e2e-list-debug [E2E_BASE_URL=http://127.0.0.1:3000] - 列出调试套件用例"
