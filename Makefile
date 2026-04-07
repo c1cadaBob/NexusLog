@@ -6,7 +6,7 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push test-contracts stream-install-es stream-register-schemas stream-deploy-local stream-bootstrap-local stream-compare
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-suite e2e-list-regression e2e-list-debug e2e-list-full e2e-list-chrome e2e-suite e2e-smoke e2e-regression e2e-debug e2e-full e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome e2e-smoke-ci local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate es-install-snapshot-repository es-install-snapshot-policy es-bootstrap-snapshots
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-suite e2e-list-regression e2e-list-debug e2e-list-full e2e-list-chrome e2e-suite e2e-smoke e2e-regression e2e-debug e2e-full e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome e2e-smoke-ci local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate es-install-snapshot-repository es-install-snapshot-policy es-bootstrap-snapshots es-install-alerts-storage es-install-audit-storage es-bootstrap-operational-storage
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
@@ -114,6 +114,22 @@ es-install-snapshot-policy:
 ## 安装 Elasticsearch 快照仓库与策略
 es-bootstrap-snapshots: es-install-snapshot-repository es-install-snapshot-policy
 	@echo "✅ Elasticsearch 快照仓库与策略已安装"
+
+## 安装告警索引模板、生命周期与快照策略
+es-install-alerts-storage:
+	@echo "🚨 安装 Elasticsearch 告警存储模板与快照策略..."
+	@ES_HOST="$(ES_HOST)" SNAPSHOT_POLICY_FILE="storage/elasticsearch/snapshots/alerts-snapshot-policy.json" ./scripts/install-es-snapshot-policy.sh
+	@ES_HOST="$(ES_HOST)" ILM_POLICY_NAME="nexuslog-alerts-ilm" ILM_POLICY_FILE="storage/elasticsearch/ilm-policies/nexuslog-alerts-ilm.json" INDEX_TEMPLATE_NAME="nexuslog-alerts" INDEX_TEMPLATE_FILE="storage/elasticsearch/index-templates/nexuslog-alerts.json" BOOTSTRAP_WRITE_ALIAS="nexuslog-alerts" BOOTSTRAP_FIRST_INDEX="nexuslog-alerts-000001" ./scripts/install-es-index-template.sh
+
+## 安装审计索引模板、生命周期与快照策略
+es-install-audit-storage:
+	@echo "🛡️ 安装 Elasticsearch 审计存储模板与快照策略..."
+	@ES_HOST="$(ES_HOST)" SNAPSHOT_POLICY_FILE="storage/elasticsearch/snapshots/audit-snapshot-policy.json" ./scripts/install-es-snapshot-policy.sh
+	@ES_HOST="$(ES_HOST)" ILM_POLICY_NAME="nexuslog-audit-ilm" ILM_POLICY_FILE="storage/elasticsearch/ilm-policies/nexuslog-audit-ilm.json" INDEX_TEMPLATE_NAME="nexuslog-audit" INDEX_TEMPLATE_FILE="storage/elasticsearch/index-templates/nexuslog-audit.json" BOOTSTRAP_WRITE_ALIAS="nexuslog-audit" BOOTSTRAP_FIRST_INDEX="nexuslog-audit-000001" ./scripts/install-es-index-template.sh
+
+## 安装日志/告警/审计的生命周期与快照策略
+es-bootstrap-operational-storage: es-install-snapshot-policy es-install-alerts-storage es-install-audit-storage
+	@echo "✅ Elasticsearch 日志/告警/审计存储策略已安装"
 
 ## 在本地 Flink 提交流式 SQL 作业
 stream-deploy-local:

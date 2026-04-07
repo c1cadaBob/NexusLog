@@ -83,3 +83,5 @@ agents/collector-agent/deploy/docker/state/
 # Local Elasticsearch snapshot repository runtime files
 storage/elasticsearch/snapshots/*
 !storage/elasticsearch/snapshots/.gitkeep
+!storage/elasticsearch/snapshots/*-snapshot-policy.json
+!storage/elasticsearch/snapshots/snapshot-policy.json

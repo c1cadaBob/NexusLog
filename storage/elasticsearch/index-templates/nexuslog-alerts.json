@@ -1,15 +1,13 @@
 {
-  "_comment": "NexusLog 告警事件索引模板 | change_level: cab | 生效时间: 发布窗口",
-  "_description": "定义告警事件数据的字段映射和分片策略。",
   "index_patterns": ["nexuslog-alerts-*"],
-  "priority": 200,
+  "priority": 210,
   "template": {
     "settings": {
       "number_of_shards": 1,
-      "number_of_replicas": 1,
+      "number_of_replicas": 0,
       "refresh_interval": "1s",
       "codec": "best_compression",
-      "index.lifecycle.name": "nexuslog-logs-ilm",
+      "index.lifecycle.name": "nexuslog-alerts-ilm",
       "index.lifecycle.rollover_alias": "nexuslog-alerts"
     },
     "mappings": {
@@ -18,26 +16,30 @@
           "type": "date",
           "format": "strict_date_optional_time||epoch_millis"
         },
+        "id": { "type": "keyword" },
         "alert_id": { "type": "keyword" },
+        "tenant_id": { "type": "keyword" },
         "rule_id": { "type": "keyword" },
-        "rule_name": { "type": "keyword" },
         "severity": { "type": "keyword" },
         "status": { "type": "keyword" },
-        "service": { "type": "keyword" },
-        "tenant_id": { "type": "keyword" },
-        "message": { "type": "text" },
-        "context": {
+        "title": { "type": "keyword" },
+        "detail": { "type": "text" },
+        "source_id": { "type": "keyword" },
+        "fired_at": { "type": "date" },
+        "resolved_at": { "type": "date" },
+        "notified_at": { "type": "date" },
+        "count": { "type": "integer" },
+        "notification_result": {
           "type": "object",
           "dynamic": true
-        },
-        "resolved_at": { "type": "date" }
+        }
       }
     }
   },
   "_meta": {
     "description": "NexusLog 告警事件索引模板",
-    "version": "1.0.0",
-    "change_level": "cab",
+    "version": "1.1.0",
+    "change_level": "normal",
     "managed_by": "nexuslog-platform"
   }
 }

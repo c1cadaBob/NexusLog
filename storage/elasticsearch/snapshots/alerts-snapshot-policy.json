@@ -1,0 +1,23 @@
+{
+  "_comment": "NexusLog 告警快照策略 | change_level: normal | 生效时间: 分钟级 | 使用单独快照保留告警与事故证据",
+  "policy_id": "nexuslog-alerts-snapshot-policy",
+  "name": "<nexuslog-alerts-snapshot-{now/d}>",
+  "schedule": "0 30 2 * * ?",
+  "repository": "nexuslog-snapshots",
+  "config": {
+    "indices": ["nexuslog-alerts-*"],
+    "ignore_unavailable": true,
+    "include_global_state": false,
+    "partial": false
+  },
+  "retention": {
+    "expire_after": "180d",
+    "min_count": 14,
+    "max_count": 180
+  },
+  "repository_bootstrap": {
+    "recommended_type": "fs",
+    "recommended_location": "/usr/share/elasticsearch/snapshots",
+    "install_script": "scripts/install-es-snapshot-repository.sh"
+  }
+}

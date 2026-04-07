@@ -1,19 +1,19 @@
 {
-  "_comment": "NexusLog 日志快照策略 | change_level: normal | 生效时间: 分钟级 | 方案A 默认适配 NAS 共享文件系统仓库",
-  "policy_id": "nexuslog-snapshot-policy",
-  "name": "<nexuslog-snapshot-{now/d}>",
-  "schedule": "0 0 2 * * ?",
+  "_comment": "NexusLog 审计快照策略 | change_level: cab | 生效时间: 分钟级 | 至少保留 1 年快照副本",
+  "policy_id": "nexuslog-audit-snapshot-policy",
+  "name": "<nexuslog-audit-snapshot-{now/d}>",
+  "schedule": "0 0 3 * * ?",
   "repository": "nexuslog-snapshots",
   "config": {
-    "indices": ["nexuslog-logs-*"],
+    "indices": ["nexuslog-audit-*"],
     "ignore_unavailable": true,
     "include_global_state": false,
     "partial": false
   },
   "retention": {
-    "expire_after": "30d",
-    "min_count": 7,
-    "max_count": 30
+    "expire_after": "400d",
+    "min_count": 30,
+    "max_count": 400
   },
   "repository_bootstrap": {
     "recommended_type": "fs",
