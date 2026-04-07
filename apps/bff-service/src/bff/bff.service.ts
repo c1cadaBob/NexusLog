@@ -31,6 +31,11 @@ interface AggregatePayload {
   };
 }
 
+interface ParsedHealthPayload {
+  status: string;
+  details: string;
+}
+
 @Injectable()
 export class BffService {
   constructor(
@@ -96,24 +101,27 @@ export class BffService {
     const timeoutMs = this.runtimeConfig.config.requestTimeoutMs;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const path = service === "control-plane" ? "/api/v1/health" : "/healthz";
 
     try {
-      const response = await fetch(`${upstream.replace(/\/$/, "")}/healthz`, {
+      const response = await fetch(`${upstream.replace(/\/$/, "")}${path}`, {
         method: "GET",
         headers: { Accept: "application/json" },
         signal: controller.signal,
       });
       const latencyMs = Date.now() - startedAt;
       const text = await response.text();
-      const details = this.transformDetails(text);
+      const parsed = this.parseHealthPayload(text);
+      const status = response.ok ? parsed.status : "degraded";
+      const available = response.ok && !["degraded", "unhealthy", "unreachable"].includes(status);
       return {
         service,
         upstream,
-        available: response.ok,
+        available,
         latencyMs,
         statusCode: response.status,
-        status: response.ok ? "healthy" : "degraded",
-        details,
+        status,
+        details: parsed.details,
       };
     } catch (error) {
       const latencyMs = Date.now() - startedAt;
@@ -131,18 +139,33 @@ export class BffService {
     }
   }
 
-  private transformDetails(raw: string): string {
+  private parseHealthPayload(raw: string): ParsedHealthPayload {
     const trimmed = raw.trim();
     if (!trimmed) {
-      return "empty response";
+      return { status: "unknown", details: "empty response" };
     }
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
       const status = typeof parsed.status === "string" ? parsed.status : "unknown";
       const service = typeof parsed.service === "string" ? parsed.service : "";
-      return service ? `${service}:${status}` : status;
+      const components = typeof parsed.components === "object" && parsed.components !== null
+        ? (parsed.components as Record<string, unknown>)
+        : null;
+      const reconciler = components && typeof components.operational_es_reconciler === "object" && components.operational_es_reconciler !== null
+        ? (components.operational_es_reconciler as Record<string, unknown>)
+        : null;
+      const reconcilerState = reconciler && typeof reconciler.state === "string" ? reconciler.state : "";
+      const reconcilerDetails = reconcilerState ? ` reconciler:${reconcilerState}` : "";
+      const base = service ? `${service}:${status}` : status;
+      return {
+        status,
+        details: `${base}${reconcilerDetails}`,
+      };
     } catch {
-      return trimmed.slice(0, 200);
+      return {
+        status: "unknown",
+        details: trimmed.slice(0, 200),
+      };
     }
   }
 }

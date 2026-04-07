@@ -16,6 +16,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -30,6 +33,14 @@ import (
 	"github.com/nexuslog/control-plane/internal/middleware"
 	"github.com/nexuslog/control-plane/internal/notification"
 	"github.com/nexuslog/control-plane/internal/resource"
+)
+
+var serviceUpMetric = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "nexuslog_service_up",
+		Help: "Whether the service is up.",
+	},
+	[]string{"service"},
 )
 
 func main() {
@@ -148,6 +159,8 @@ func main() {
 		resource.RegisterAuthorizedRoutes(userRoutes, pgDB, resource.NewThresholdHandler(thresholdRepo))
 	}
 
+	var operationalReconciler *esindex.OperationalReconciler
+
 	// Alert rules API (requires PostgreSQL)
 	if pgDB != nil {
 		alertEventSyncer := esindex.NewAlertEventSyncerFromEnv(pgDB)
@@ -223,10 +236,10 @@ func main() {
 		}
 
 		if isTruthy(getEnv("OPERATIONAL_ES_RECONCILER_ENABLED", "false")) {
-			reconciler := esindex.NewOperationalReconcilerFromEnv(pgDB)
-			if reconciler.Enabled() {
-				go reconciler.Run(workerCtx)
-				log.Printf("operational es reconciler enabled: interval=%s batch_size=%d", reconciler.Interval(), reconciler.BatchSize())
+			operationalReconciler = esindex.NewOperationalReconcilerFromEnv(pgDB)
+			if operationalReconciler.Enabled() {
+				go operationalReconciler.Run(workerCtx)
+				log.Printf("operational es reconciler enabled: interval=%s batch_size=%d", operationalReconciler.Interval(), operationalReconciler.BatchSize())
 			} else {
 				log.Printf("operational es reconciler unavailable: es syncer is not configured")
 			}
@@ -241,20 +254,12 @@ func main() {
 	}
 	// 健康检查端点（Kubernetes 探针使用）
 	router.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"service": "control-plane",
-			"time":    time.Now().UTC().Format(time.RFC3339),
-		})
+		c.JSON(http.StatusOK, buildControlPlaneHealthPayload(operationalReconciler))
 	})
 
 	// API 版本化健康检查端点
 	router.GET("/api/v1/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"service": "control-plane",
-			"time":    time.Now().UTC().Format(time.RFC3339),
-		})
+		c.JSON(http.StatusOK, buildControlPlaneHealthPayload(operationalReconciler))
 	})
 	router.GET("/metrics", func(c *gin.Context) {
 		writeServiceMetrics(c, "control-plane")
@@ -426,16 +431,56 @@ func resolveRequestID(c *gin.Context) string {
 }
 
 func writeServiceMetrics(c *gin.Context, serviceName string) {
-	if c == nil {
+	if c == nil || c.Request == nil {
 		return
 	}
-	c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	c.String(
-		http.StatusOK,
-		"# HELP nexuslog_service_up Whether the service is up.\n"+
-			"# TYPE nexuslog_service_up gauge\n"+
-			fmt.Sprintf("nexuslog_service_up{service=%q} 1\n", serviceName),
-	)
+	serviceUpMetric.WithLabelValues(serviceName).Set(1)
+	promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
+}
+
+func buildControlPlaneHealthPayload(reconciler *esindex.OperationalReconciler) gin.H {
+	now := time.Now().UTC()
+	payload := gin.H{
+		"status":  "healthy",
+		"service": "control-plane",
+		"time":    now.Format(time.RFC3339),
+	}
+	if reconciler == nil {
+		return payload
+	}
+	snapshot := reconciler.Snapshot()
+	component := gin.H{
+		"enabled":               snapshot.Enabled,
+		"healthy":               snapshot.Healthy,
+		"state":                 snapshot.State,
+		"running":               snapshot.Running,
+		"interval":              snapshot.Interval.String(),
+		"batch_size":            snapshot.BatchSize,
+		"last_error":            snapshot.LastError,
+		"last_run_duration_ms":  snapshot.LastRunDuration.Milliseconds(),
+		"last_run_alert_synced": snapshot.LastRunAlertSynced,
+		"last_run_audit_synced": snapshot.LastRunAuditSynced,
+		"total_alert_synced":    snapshot.TotalAlertSynced,
+		"total_audit_synced":    snapshot.TotalAuditSynced,
+		"successful_runs":       snapshot.SuccessfulRuns,
+		"failed_runs":           snapshot.FailedRuns,
+	}
+	if !snapshot.LastRunStartedAt.IsZero() {
+		component["last_run_started_at"] = snapshot.LastRunStartedAt.UTC().Format(time.RFC3339)
+	}
+	if !snapshot.LastRunCompletedAt.IsZero() {
+		component["last_run_completed_at"] = snapshot.LastRunCompletedAt.UTC().Format(time.RFC3339)
+	}
+	if !snapshot.LastSuccessAt.IsZero() {
+		component["last_success_at"] = snapshot.LastSuccessAt.UTC().Format(time.RFC3339)
+	}
+	payload["components"] = gin.H{
+		"operational_es_reconciler": component,
+	}
+	if snapshot.Enabled && !snapshot.Healthy {
+		payload["status"] = "degraded"
+	}
+	return payload
 }
 
 func newPostgresDBFromEnv() (*sql.DB, error) {
