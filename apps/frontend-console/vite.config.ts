@@ -13,6 +13,8 @@ export default defineConfig(({ mode }) => {
   const controlPlaneProxyTarget = process.env.VITE_DEV_CONTROL_PLANE_PROXY_TARGET || ingestProxyTarget
   // audit-api 审计服务
   const auditProxyTarget = process.env.VITE_DEV_AUDIT_PROXY_TARGET || 'http://localhost:8083'
+  // BFF 聚合服务
+  const bffProxyTarget = process.env.VITE_DEV_BFF_PROXY_TARGET || 'http://localhost:3001'
   // export-api 导出服务
   const exportProxyTarget = process.env.VITE_DEV_EXPORT_PROXY_TARGET || 'http://localhost:8084'
   // agent 拉取接口由 collector-agent 提供，默认回退到本机 9091
@@ -92,6 +94,10 @@ export default defineConfig(({ mode }) => {
         },
         '/api/v1/audit': {
           target: auditProxyTarget,
+          changeOrigin: true,
+        },
+        '/api/v1/bff': {
+          target: bffProxyTarget,
           changeOrigin: true,
         },
         '/api/v1/export': {

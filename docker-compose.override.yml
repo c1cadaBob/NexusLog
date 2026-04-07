@@ -33,6 +33,8 @@ services:
       - VITE_DEV_QUERY_PROXY_TARGET=http://query-api:8082
       # audit 接口走 audit-api
       - VITE_DEV_AUDIT_PROXY_TARGET=http://audit-api:8083
+      # BFF 聚合接口走 bff-service
+      - VITE_DEV_BFF_PROXY_TARGET=http://bff-service:3000
       # export 接口走 export-api
       - VITE_DEV_EXPORT_PROXY_TARGET=http://export-api:8084
       # agent 拉取接口走 collector-agent
