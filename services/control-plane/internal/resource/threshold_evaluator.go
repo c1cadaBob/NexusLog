@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nexuslog/control-plane/internal/esindex"
 	"github.com/nexuslog/control-plane/internal/metrics"
 	"github.com/nexuslog/control-plane/internal/notification"
 )
@@ -30,6 +31,7 @@ type ThresholdEvaluator struct {
 	suppressor      *ThresholdSuppressor
 	notifier        ThresholdNotificationDispatcher
 	incidentCreator IncidentCreator
+	eventSyncer     *esindex.AlertEventSyncer
 }
 
 // ThresholdSuppressor prevents duplicate alerts for the same threshold within a cooldown window.
@@ -78,6 +80,11 @@ func (e *ThresholdEvaluator) WithNotifier(notifier ThresholdNotificationDispatch
 // WithIncidentCreator sets the incident creator used after threshold alerts are created.
 func (e *ThresholdEvaluator) WithIncidentCreator(creator IncidentCreator) *ThresholdEvaluator {
 	e.incidentCreator = creator
+	return e
+}
+
+func (e *ThresholdEvaluator) WithEventSyncer(syncer *esindex.AlertEventSyncer) *ThresholdEvaluator {
+	e.eventSyncer = syncer
 	return e
 }
 
@@ -171,7 +178,11 @@ RETURNING id::text
 	err := e.db.QueryRowContext(ctx, query,
 		tenantID, t.ID, t.AlertSeverity, title, detail, agentID, t.MetricName,
 	).Scan(&alertEventID)
-	return alertEventID, err
+	if err != nil {
+		return "", err
+	}
+	e.syncAlertEvent(ctx, alertEventID)
+	return alertEventID, nil
 }
 
 func (e *ThresholdEvaluator) recordNotificationResult(ctx context.Context, alertEventID string, payload map[string]any) error {
@@ -187,5 +198,18 @@ UPDATE alert_events
 SET notification_result = COALESCE(notification_result, '{}'::jsonb) || $2::jsonb
 WHERE id = $1::uuid
 `, alertEventID, raw)
-	return err
+	if err != nil {
+		return err
+	}
+	e.syncAlertEvent(ctx, alertEventID)
+	return nil
+}
+
+func (e *ThresholdEvaluator) syncAlertEvent(ctx context.Context, alertEventID string) {
+	if e == nil || e.eventSyncer == nil {
+		return
+	}
+	if err := e.eventSyncer.SyncByID(ctx, alertEventID); err != nil {
+		log.Printf("resource threshold evaluator: sync alert event %s failed: %v", alertEventID, err)
+	}
 }

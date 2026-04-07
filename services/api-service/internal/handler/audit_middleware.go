@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 const (
@@ -28,6 +32,10 @@ type auditEvent struct {
 // AuditMiddleware creates a Gin middleware that audits write operations by default,
 // and also supports explicit handler-driven audit events for login/read flows.
 func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
+	return AuditMiddlewareWithIndexer(db, newAuditIndexerFromEnv())
+}
+
+func AuditMiddlewareWithIndexer(db *sql.DB, indexer *auditIndexer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := strings.ToUpper(strings.TrimSpace(c.Request.Method))
 		path := c.Request.URL.Path
@@ -52,7 +60,7 @@ func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
 			if action == "" || resourceType == "" {
 				return
 			}
-			go insertAuditLog(db, tenantID, userID, action, resourceType, resourceID, ip, userAgent, auditEntry.Details)
+			go insertAuditLog(db, indexer, tenantID, userID, action, resourceType, resourceID, ip, userAgent, auditEntry.Details)
 			return
 		}
 
@@ -64,7 +72,7 @@ func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
 		if action == "" || resourceType == "" {
 			return
 		}
-		go insertAuditLog(db, tenantID, userID, action, resourceType, resourceID, ip, userAgent, nil)
+		go insertAuditLog(db, indexer, tenantID, userID, action, resourceType, resourceID, ip, userAgent, nil)
 	}
 }
 
@@ -166,10 +174,13 @@ func isPathSegment(s string) bool {
 	return nonIDSegments[strings.ToLower(s)]
 }
 
-func insertAuditLog(db *sql.DB, tenantID, userID, action, resourceType, resourceID, ip, userAgent string, details map[string]any) {
+func insertAuditLog(db *sql.DB, indexer *auditIndexer, tenantID, userID, action, resourceType, resourceID, ip, userAgent string, details map[string]any) {
 	if db == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	detailsJSON := "{}"
 	if details != nil {
 		if encoded, err := json.Marshal(details); err == nil {
@@ -177,9 +188,11 @@ func insertAuditLog(db *sql.DB, tenantID, userID, action, resourceType, resource
 		}
 	}
 
+	auditID := uuid.NewString()
+	createdAt := time.Now().UTC()
 	query := `
-INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at)
-VALUES ($1::uuid, $2::uuid, $3, $4, NULLIF($5,''), $6::jsonb, NULLIF($7,'')::inet, NULLIF($8,''), NOW())
+INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, NULLIF($6,''), $7::jsonb, NULLIF($8,'')::inet, NULLIF($9,''), NOW())
 `
 	var tenantArg, userArg any
 	if tenantID != "" {
@@ -189,5 +202,25 @@ VALUES ($1::uuid, $2::uuid, $3, $4, NULLIF($5,''), $6::jsonb, NULLIF($7,'')::ine
 		userArg = userID
 	}
 
-	_, _ = db.Exec(query, tenantArg, userArg, action, resourceType, resourceID, detailsJSON, ip, userAgent)
+	if _, err := db.ExecContext(ctx, query, auditID, tenantArg, userArg, action, resourceType, resourceID, detailsJSON, ip, userAgent); err != nil {
+		log.Printf("audit middleware: insert audit log failed: %v", err)
+		return
+	}
+	if indexer == nil {
+		return
+	}
+	if err := indexer.Index(ctx, auditIndexDocument{
+		ID:           auditID,
+		TenantID:     strings.TrimSpace(tenantID),
+		UserID:       strings.TrimSpace(userID),
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Details:      cloneMap(details),
+		IPAddress:    ip,
+		UserAgent:    userAgent,
+		CreatedAt:    createdAt,
+	}); err != nil {
+		log.Printf("audit middleware: index audit log failed: %v", err)
+	}
 }

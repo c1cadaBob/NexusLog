@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nexuslog/control-plane/internal/esindex"
 	"github.com/nexuslog/control-plane/internal/httpguard"
 	"github.com/nexuslog/control-plane/internal/notification"
 )
@@ -119,6 +120,7 @@ type Evaluator struct {
 	incidentCreator IncidentCreator
 	silenceChecker  SilenceChecker
 	notifier        NotificationDispatcher
+	eventSyncer     *esindex.AlertEventSyncer
 }
 
 // NewEvaluator creates a new evaluator.
@@ -153,6 +155,11 @@ func (e *Evaluator) WithNotifier(notifier NotificationDispatcher) *Evaluator {
 	return e
 }
 
+func (e *Evaluator) WithEventSyncer(syncer *esindex.AlertEventSyncer) *Evaluator {
+	e.eventSyncer = syncer
+	return e
+}
+
 // WithInterval sets the evaluation interval.
 func (e *Evaluator) WithInterval(d time.Duration) *Evaluator {
 	return &Evaluator{
@@ -166,6 +173,7 @@ func (e *Evaluator) WithInterval(d time.Duration) *Evaluator {
 		incidentCreator: e.incidentCreator,
 		silenceChecker:  e.silenceChecker,
 		notifier:        e.notifier,
+		eventSyncer:     e.eventSyncer,
 	}
 }
 
@@ -182,6 +190,7 @@ func (e *Evaluator) WithSuppressor(s *Suppressor) *Evaluator {
 		incidentCreator: e.incidentCreator,
 		silenceChecker:  e.silenceChecker,
 		notifier:        e.notifier,
+		eventSyncer:     e.eventSyncer,
 	}
 }
 
@@ -259,6 +268,7 @@ RETURNING id::text
 	if err != nil {
 		return err
 	}
+	e.syncAlertEvent(ctx, alertEventID)
 	alertEventsTotal.Inc()
 
 	silenced := false
@@ -518,7 +528,20 @@ UPDATE alert_events
 SET notification_result = COALESCE(notification_result, '{}'::jsonb) || $2::jsonb
 WHERE id = $1::uuid
 `, alertEventID, raw)
-	return err
+	if err != nil {
+		return err
+	}
+	e.syncAlertEvent(ctx, alertEventID)
+	return nil
+}
+
+func (e *Evaluator) syncAlertEvent(ctx context.Context, alertEventID string) {
+	if e == nil || e.eventSyncer == nil {
+		return
+	}
+	if err := e.eventSyncer.SyncByID(ctx, alertEventID); err != nil {
+		log.Printf("alert evaluator: sync alert event %s failed: %v", alertEventID, err)
+	}
 }
 
 func appendTenantFilter(filters []interface{}, tenantID string) []interface{} {

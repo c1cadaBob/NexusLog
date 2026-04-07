@@ -1,6 +1,7 @@
 package alert
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/nexuslog/control-plane/internal/esindex"
 	cpMiddleware "github.com/nexuslog/control-plane/internal/middleware"
 )
 
@@ -60,12 +62,18 @@ type alertEventListSummary struct {
 }
 
 type EventHandler struct {
-	db         *sql.DB
-	silenceSvc *SilenceService
+	db          *sql.DB
+	silenceSvc  *SilenceService
+	eventSyncer *esindex.AlertEventSyncer
 }
 
 func NewEventHandler(db *sql.DB) *EventHandler {
 	return &EventHandler{db: db, silenceSvc: NewSilenceService(db)}
+}
+
+func (h *EventHandler) WithEventSyncer(syncer *esindex.AlertEventSyncer) *EventHandler {
+	h.eventSyncer = syncer
+	return h
 }
 
 func RegisterAlertEventRoutes(router gin.IRouter, handler *EventHandler) {
@@ -352,6 +360,7 @@ func (h *EventHandler) SilenceEvent(c *gin.Context) {
 		h.writeMutationPersistError(c, err, "failed to silence alert event")
 		return
 	}
+	h.syncAlertEvent(c.Request.Context(), updated.ID)
 	writeSuccess(c, http.StatusOK, h.toAlertEvent(updated), gin.H{"updated": true})
 }
 
@@ -390,6 +399,7 @@ func (h *EventHandler) transitionEvent(c *gin.Context, nextStatus string) {
 		h.writeMutationPersistError(c, err, "failed to update alert event")
 		return
 	}
+	h.syncAlertEvent(c.Request.Context(), updated.ID)
 	writeSuccess(c, http.StatusOK, h.toAlertEvent(updated), gin.H{"updated": true})
 }
 
@@ -523,6 +533,15 @@ func (h *EventHandler) toAlertEvent(target alertEventMutationTarget) AlertEvent 
 		FiredAt:    target.FiredAt,
 		ResolvedAt: target.ResolvedAt,
 		Count:      1,
+	}
+}
+
+func (h *EventHandler) syncAlertEvent(ctx context.Context, alertEventID string) {
+	if h == nil || h.eventSyncer == nil {
+		return
+	}
+	if err := h.eventSyncer.SyncByID(ctx, alertEventID); err != nil {
+		log.Printf("alert event sync failed: %v", err)
 	}
 }
 

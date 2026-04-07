@@ -44,6 +44,7 @@ func TestAuditMiddleware_UsesExplicitAuditEventForGet(t *testing.T) {
 
 	mock.ExpectExec("INSERT INTO audit_logs").
 		WithArgs(
+			sqlmock.AnyArg(),
 			"00000000-0000-0000-0000-000000000001",
 			"11111111-1111-1111-1111-111111111111",
 			"users.list",
@@ -93,6 +94,7 @@ func TestAuditMiddleware_ResolvesUserIDAfterDownstreamAuth(t *testing.T) {
 
 	mock.ExpectExec("INSERT INTO audit_logs").
 		WithArgs(
+			sqlmock.AnyArg(),
 			"00000000-0000-0000-0000-000000000001",
 			"22222222-2222-2222-2222-222222222222",
 			"users.create",
@@ -136,6 +138,7 @@ func TestAuditMiddleware_DoesNotTrustSpoofedHeadersWithoutAuthContext(t *testing
 
 	mock.ExpectExec("INSERT INTO audit_logs").
 		WithArgs(
+			sqlmock.AnyArg(),
 			nil,
 			nil,
 			"users.create",
@@ -177,6 +180,7 @@ func TestAuditMiddleware_UsesExplicitAuditEventForAuthRefresh(t *testing.T) {
 
 	mock.ExpectExec("INSERT INTO audit_logs").
 		WithArgs(
+			sqlmock.AnyArg(),
 			"00000000-0000-0000-0000-000000000001",
 			nil,
 			"auth.refresh",
@@ -224,6 +228,7 @@ func TestAuditMiddleware_UsesExplicitAuditEventForAuthRefreshInvalidBody(t *test
 
 	mock.ExpectExec("INSERT INTO audit_logs").
 		WithArgs(
+			sqlmock.AnyArg(),
 			"00000000-0000-0000-0000-000000000001",
 			nil,
 			"auth.refresh",
@@ -264,6 +269,7 @@ func TestAuditMiddleware_UsesExplicitAuditEventForPasswordResetRequest(t *testin
 
 	mock.ExpectExec("INSERT INTO audit_logs").
 		WithArgs(
+			sqlmock.AnyArg(),
 			"00000000-0000-0000-0000-000000000001",
 			nil,
 			"auth.password_reset_request",
@@ -319,6 +325,7 @@ func TestAuditMiddleware_UsesExplicitAuditEventForPasswordResetRequestInvalidBod
 
 	mock.ExpectExec("INSERT INTO audit_logs").
 		WithArgs(
+			sqlmock.AnyArg(),
 			"00000000-0000-0000-0000-000000000001",
 			nil,
 			"auth.password_reset_request",
@@ -359,6 +366,7 @@ func TestAuditMiddleware_UsesExplicitAuditEventForPasswordResetConfirm(t *testin
 
 	mock.ExpectExec("INSERT INTO audit_logs").
 		WithArgs(
+			sqlmock.AnyArg(),
 			"00000000-0000-0000-0000-000000000001",
 			nil,
 			"auth.password_reset_confirm",
@@ -405,6 +413,7 @@ func TestAuditMiddleware_UsesExplicitAuditEventForPasswordResetConfirmInvalidBod
 
 	mock.ExpectExec("INSERT INTO audit_logs").
 		WithArgs(
+			sqlmock.AnyArg(),
 			"00000000-0000-0000-0000-000000000001",
 			nil,
 			"auth.password_reset_confirm",

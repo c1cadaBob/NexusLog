@@ -5,13 +5,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
+
+	"github.com/nexuslog/control-plane/internal/esindex"
 )
 
 // IncidentCreatorPG creates incidents from eligible alerts using PostgreSQL.
 type IncidentCreatorPG struct {
-	db *sql.DB
+	db          *sql.DB
+	eventSyncer *esindex.AlertEventSyncer
 }
 
 type sqlExecutor interface {
@@ -21,6 +25,11 @@ type sqlExecutor interface {
 // NewIncidentCreator creates a new incident creator.
 func NewIncidentCreator(db *sql.DB) *IncidentCreatorPG {
 	return &IncidentCreatorPG{db: db}
+}
+
+func (ic *IncidentCreatorPG) WithEventSyncer(syncer *esindex.AlertEventSyncer) *IncidentCreatorPG {
+	ic.eventSyncer = syncer
+	return ic
 }
 
 // CreateFromAlert auto-creates or links an incident for critical alerts.
@@ -145,6 +154,11 @@ SET notification_result = COALESCE(notification_result, '{}'::jsonb) || $2::json
 WHERE id = $1::uuid
 `, alertEventID, payload); err != nil {
 		return fmt.Errorf("persist incident link: %w", err)
+	}
+	if ic.eventSyncer != nil {
+		if err := ic.eventSyncer.SyncByID(ctx, alertEventID); err != nil {
+			log.Printf("incident creator: sync alert event %s failed: %v", alertEventID, err)
+		}
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nexuslog/control-plane/internal/esindex"
 	"github.com/nexuslog/control-plane/internal/httpguard"
 )
 
@@ -43,6 +44,7 @@ type AlertmanagerBridge struct {
 	interval     time.Duration
 	batchSize    int
 	client       *http.Client
+	eventSyncer  *esindex.AlertEventSyncer
 }
 
 func NewAlertmanagerBridge(db *sql.DB, endpoint, generatorURL string) *AlertmanagerBridge {
@@ -74,6 +76,11 @@ func (b *AlertmanagerBridge) WithBatchSize(batchSize int) *AlertmanagerBridge {
 	if batchSize > 0 {
 		b.batchSize = batchSize
 	}
+	return b
+}
+
+func (b *AlertmanagerBridge) WithEventSyncer(syncer *esindex.AlertEventSyncer) *AlertmanagerBridge {
+	b.eventSyncer = syncer
 	return b
 }
 
@@ -251,7 +258,15 @@ SET notified_at = NOW(),
     notification_result = COALESCE(notification_result, '{}'::jsonb) || $2::jsonb
 WHERE id = $1::uuid
 `, eventID, string(meta))
-	return err
+	if err != nil {
+		return err
+	}
+	if b.eventSyncer != nil {
+		if syncErr := b.eventSyncer.SyncByID(ctx, eventID); syncErr != nil {
+			log.Printf("alertmanager bridge: sync alert event %s failed: %v", eventID, syncErr)
+		}
+	}
+	return nil
 }
 
 func safeAlertLabel(title, fallback string) string {

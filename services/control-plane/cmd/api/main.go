@@ -22,6 +22,7 @@ import (
 
 	"github.com/nexuslog/control-plane/internal/alert"
 	"github.com/nexuslog/control-plane/internal/backup"
+	"github.com/nexuslog/control-plane/internal/esindex"
 	"github.com/nexuslog/control-plane/internal/incident"
 	"github.com/nexuslog/control-plane/internal/ingest"
 	"github.com/nexuslog/control-plane/internal/ingestv3"
@@ -127,13 +128,16 @@ func main() {
 
 	// Metrics report + query API (W3-B6, W3-B8)
 	if pgDB != nil {
+		alertEventSyncer := esindex.NewAlertEventSyncerFromEnv(pgDB)
+		incidentCreator := alert.NewIncidentCreator(pgDB).WithEventSyncer(alertEventSyncer)
 		metricsRepo := metrics.NewRepository(pgDB)
 		metricsSvc := metrics.NewService(metricsRepo)
 		// Threshold evaluator for alert triggering (W3-B7)
 		thresholdRepo := resource.NewThresholdRepository(pgDB)
 		evaluator := resource.NewThresholdEvaluator(thresholdRepo, pgDB).
 			WithNotifier(notifier).
-			WithIncidentCreator(alert.NewIncidentCreator(pgDB))
+			WithIncidentCreator(incidentCreator).
+			WithEventSyncer(alertEventSyncer)
 		metricsSvc.WithEvaluator(evaluator)
 		metricsHandler := metrics.NewHandler(metricsSvc)
 		metrics.RegisterReportRoutes(agentRoutes, metricsHandler)
@@ -146,11 +150,14 @@ func main() {
 
 	// Alert rules API (requires PostgreSQL)
 	if pgDB != nil {
+		alertEventSyncer := esindex.NewAlertEventSyncerFromEnv(pgDB)
+		incidentCreator := alert.NewIncidentCreator(pgDB).WithEventSyncer(alertEventSyncer)
 		alertRuleRepo := alert.NewRuleRepositoryPG(pgDB)
 		alertRuleService := alert.NewRuleService(alertRuleRepo)
 		alertRuleHandler := alert.NewRuleHandler(alertRuleService)
+		alertEventHandler := alert.NewEventHandler(pgDB).WithEventSyncer(alertEventSyncer)
 		alert.RegisterAuthorizedAlertRuleRoutes(userRoutes, pgDB, alertRuleHandler)
-		alert.RegisterAuthorizedAlertEventRoutes(userRoutes, pgDB, alert.NewEventHandler(pgDB))
+		alert.RegisterAuthorizedAlertEventRoutes(userRoutes, pgDB, alertEventHandler)
 
 		// Alert silence policy (W4-B6)
 		silenceSvc := alert.NewSilenceService(pgDB)
@@ -184,9 +191,10 @@ func main() {
 				pgDB,
 				esIndex,
 			).
-				WithIncidentCreator(alert.NewIncidentCreator(pgDB)).
+				WithIncidentCreator(incidentCreator).
 				WithSilenceChecker(silenceSvc).
 				WithNotifier(notifier).
+				WithEventSyncer(alertEventSyncer).
 				WithInterval(evaluatorInterval)
 			go evaluator.Start()
 			go func() {
@@ -206,6 +214,7 @@ func main() {
 				getEnv("ALERTMANAGER_GENERATOR_URL", "http://control-plane:8080"),
 			).
 				WithBatchSize(parseEnvInt("ALERTMANAGER_BRIDGE_BATCH_SIZE", 50)).
+				WithEventSyncer(alertEventSyncer).
 				WithInterval(bridgeInterval)
 			go bridge.Run(workerCtx)
 			log.Printf("alertmanager bridge enabled: endpoint=%s interval=%s", getEnv("ALERTMANAGER_URL", "http://alertmanager:9093"), bridgeInterval)
