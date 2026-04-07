@@ -221,6 +221,18 @@ func main() {
 		} else {
 			log.Printf("alertmanager bridge disabled")
 		}
+
+		if isTruthy(getEnv("OPERATIONAL_ES_RECONCILER_ENABLED", "false")) {
+			reconciler := esindex.NewOperationalReconcilerFromEnv(pgDB)
+			if reconciler.Enabled() {
+				go reconciler.Run(workerCtx)
+				log.Printf("operational es reconciler enabled: interval=%s batch_size=%d", reconciler.Interval(), reconciler.BatchSize())
+			} else {
+				log.Printf("operational es reconciler unavailable: es syncer is not configured")
+			}
+		} else {
+			log.Printf("operational es reconciler disabled")
+		}
 	}
 
 	// Notification channels (requires pgDB, admin only)

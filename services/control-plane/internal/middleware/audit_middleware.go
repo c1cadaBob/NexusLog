@@ -1,12 +1,17 @@
 package middleware
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/nexuslog/control-plane/internal/esindex"
 )
 
 const (
@@ -28,6 +33,10 @@ type AuditEvent struct {
 // AuditMiddleware creates a Gin middleware that audits write operations by default,
 // and also supports explicit handler-driven audit events for read flows.
 func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
+	return AuditMiddlewareWithSyncer(db, esindex.NewAuditLogSyncerFromEnv(db))
+}
+
+func AuditMiddlewareWithSyncer(db *sql.DB, syncer *esindex.AuditLogSyncer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := strings.ToUpper(strings.TrimSpace(c.Request.Method))
 		if !shouldAutoAuditMethod(method) && method != http.MethodGet {
@@ -57,7 +66,7 @@ func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
 			if action == "" || resourceType == "" {
 				return
 			}
-			go insertAuditLog(db, tenantID, userID, action, resourceType, resourceID, ip, userAgent, auditEntry.Details)
+			go insertAuditLog(db, syncer, tenantID, userID, action, resourceType, resourceID, ip, userAgent, auditEntry.Details)
 			return
 		}
 
@@ -65,14 +74,11 @@ func AuditMiddleware(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Insert audit log asynchronously (do not block response)
-		go func() {
-			action, resourceType, resourceID := deriveAuditFields(method, path, c)
-			if action == "" || resourceType == "" {
-				return
-			}
-			insertAuditLog(db, tenantID, userID, action, resourceType, resourceID, ip, userAgent, nil)
-		}()
+		action, resourceType, resourceID := deriveAuditFields(method, path, c)
+		if action == "" || resourceType == "" {
+			return
+		}
+		go insertAuditLog(db, syncer, tenantID, userID, action, resourceType, resourceID, ip, userAgent, nil)
 	}
 }
 
@@ -166,10 +172,13 @@ func isPathSegment(s string) bool {
 	return nonIDSegments[strings.ToLower(s)]
 }
 
-func insertAuditLog(db *sql.DB, tenantID, userID, action, resourceType, resourceID, ip, userAgent string, details map[string]interface{}) {
+func insertAuditLog(db *sql.DB, syncer *esindex.AuditLogSyncer, tenantID, userID, action, resourceType, resourceID, ip, userAgent string, details map[string]any) {
 	if db == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	detailsJSON := "{}"
 	if details != nil {
 		if b, err := json.Marshal(details); err == nil {
@@ -180,18 +189,25 @@ func insertAuditLog(db *sql.DB, tenantID, userID, action, resourceType, resource
 	query := `
 INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at)
 VALUES ($1::uuid, $2::uuid, $3, $4, NULLIF($5,''), $6::jsonb, NULLIF($7,'')::inet, NULLIF($8,''), NOW())
+RETURNING id::text
 `
-	var tenantArg, userArg interface{}
+	var tenantArg, userArg any
 	if tenantID != "" {
 		tenantArg = tenantID
-	} else {
-		tenantArg = nil
 	}
 	if userID != "" {
 		userArg = userID
-	} else {
-		userArg = nil
 	}
 
-	_, _ = db.Exec(query, tenantArg, userArg, action, resourceType, resourceID, detailsJSON, ip, userAgent)
+	var auditID string
+	if err := db.QueryRowContext(ctx, query, tenantArg, userArg, action, resourceType, resourceID, detailsJSON, ip, userAgent).Scan(&auditID); err != nil {
+		log.Printf("control-plane audit middleware: insert audit log failed: %v", err)
+		return
+	}
+	if syncer == nil {
+		return
+	}
+	if err := syncer.SyncByID(ctx, auditID); err != nil {
+		log.Printf("control-plane audit middleware: sync audit log %s failed: %v", strings.TrimSpace(auditID), err)
+	}
 }

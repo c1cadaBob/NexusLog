@@ -35,7 +35,7 @@ func TestAuditMiddleware_UsesExplicitAuditEventForGet(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectExec("INSERT INTO audit_logs").
+	mock.ExpectQuery("INSERT INTO audit_logs").
 		WithArgs(
 			"00000000-0000-0000-0000-000000000001",
 			"20000000-0000-0000-0000-000000000001",
@@ -46,10 +46,10 @@ func TestAuditMiddleware_UsesExplicitAuditEventForGet(t *testing.T) {
 			"192.0.2.10",
 			"cp-audit-test",
 		).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("10000000-0000-0000-0000-000000000001"))
 
 	router := gin.New()
-	router.Use(AuditMiddleware(db))
+	router.Use(AuditMiddlewareWithSyncer(db, nil))
 	router.GET("/api/v1/ingest/pull-sources", func(c *gin.Context) {
 		c.Set(authContextKeyTenantID, "00000000-0000-0000-0000-000000000001")
 		c.Set(authContextKeyUserID, "20000000-0000-0000-0000-000000000001")
@@ -88,7 +88,7 @@ func TestAuditMiddleware_ResolvesUserIDAfterHandlerMutation(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectExec("INSERT INTO audit_logs").
+	mock.ExpectQuery("INSERT INTO audit_logs").
 		WithArgs(
 			"00000000-0000-0000-0000-000000000001",
 			"20000000-0000-0000-0000-000000000001",
@@ -99,10 +99,10 @@ func TestAuditMiddleware_ResolvesUserIDAfterHandlerMutation(t *testing.T) {
 			"192.0.2.11",
 			"cp-auto-audit",
 		).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("10000000-0000-0000-0000-000000000002"))
 
 	router := gin.New()
-	router.Use(AuditMiddleware(db))
+	router.Use(AuditMiddlewareWithSyncer(db, nil))
 	router.POST("/api/v1/ingest", func(c *gin.Context) {
 		c.Set(authContextKeyTenantID, "00000000-0000-0000-0000-000000000001")
 		c.Set(authContextKeyUserID, "20000000-0000-0000-0000-000000000001")
@@ -129,7 +129,7 @@ func TestAuditMiddleware_DoesNotTrustSpoofedHeadersForExplicitAuditEvents(t *tes
 	}
 	defer db.Close()
 
-	mock.ExpectExec("INSERT INTO audit_logs").
+	mock.ExpectQuery("INSERT INTO audit_logs").
 		WithArgs(
 			nil,
 			nil,
@@ -140,10 +140,10 @@ func TestAuditMiddleware_DoesNotTrustSpoofedHeadersForExplicitAuditEvents(t *tes
 			"192.0.2.13",
 			"cp-explicit-spoofed-headers",
 		).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("10000000-0000-0000-0000-000000000003"))
 
 	router := gin.New()
-	router.Use(AuditMiddleware(db))
+	router.Use(AuditMiddlewareWithSyncer(db, nil))
 	router.GET("/api/v1/ingest/pull-sources", func(c *gin.Context) {
 		SetAuditEvent(c, AuditEvent{
 			Action:       "pull_sources.list",
@@ -178,7 +178,7 @@ func TestAuditMiddleware_DoesNotTrustSpoofedHeadersWithoutAuthContext(t *testing
 	}
 	defer db.Close()
 
-	mock.ExpectExec("INSERT INTO audit_logs").
+	mock.ExpectQuery("INSERT INTO audit_logs").
 		WithArgs(
 			nil,
 			nil,
@@ -189,10 +189,10 @@ func TestAuditMiddleware_DoesNotTrustSpoofedHeadersWithoutAuthContext(t *testing
 			"192.0.2.12",
 			"cp-spoofed-headers",
 		).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("10000000-0000-0000-0000-000000000004"))
 
 	router := gin.New()
-	router.Use(AuditMiddleware(db))
+	router.Use(AuditMiddlewareWithSyncer(db, nil))
 	router.POST("/api/v1/ingest", func(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED"})
 	})
