@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Statistic, Select, Button, Row, Col, Table, Tag, Progress, Tooltip, message } from 'antd';
+import { Card, Statistic, Select, Button, Row, Col, Table, Tag, Progress, Tooltip, Empty, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../stores/themeStore';
@@ -14,6 +14,7 @@ import type { EChartsCoreOption } from 'echarts/core';
 import { fetchDashboardOverview, type DashboardOverviewRange, type DashboardOverviewStats } from '../api/query';
 import { fetchAuditLogs, type AuditLogItem } from '../api/audit';
 import { fetchMetricsOverview, type MetricsOverviewData } from '../api/metrics';
+import { fetchBffOverview, type BffOverviewResponse, type BffServiceProbe } from '../api/bff';
 import { persistPendingRealtimeStartupQuery } from './search/realtimeStartupQuery';
 import { buildRealtimePresetQuery } from './search/realtimePresetQuery';
 
@@ -33,6 +34,45 @@ interface DashboardAuditRecord {
 interface DashboardRealtimeTimeRange {
   from: string;
   to: string;
+}
+
+interface PlatformHealthServiceItem {
+  key: string;
+  label: string;
+  probe: BffServiceProbe;
+  reconcilerState?: string | null;
+}
+
+function getHealthStatusTagColor(status: string): 'success' | 'error' | 'warning' | 'processing' | 'default' {
+  if (status === 'healthy') return 'success';
+  if (status === 'degraded' || status === 'unhealthy' || status === 'unreachable') return 'error';
+  if (status === 'unknown') return 'default';
+  return 'processing';
+}
+
+function getHealthStatusLabel(status: string): string {
+  if (status === 'healthy') return '健康';
+  if (status === 'degraded') return '降级';
+  if (status === 'unhealthy') return '异常';
+  if (status === 'unreachable') return '不可达';
+  if (status === 'unknown') return '未知';
+  return status || '未知';
+}
+
+function extractReconcilerState(details?: string): string | null {
+  if (!details) return null;
+  const match = details.match(/reconciler:([^\s]+)/i);
+  return match?.[1] ?? null;
+}
+
+function formatHealthLatency(latencyMs?: number): string {
+  if (typeof latencyMs !== 'number' || Number.isNaN(latencyMs)) return '—';
+  return `${latencyMs} ms`;
+}
+
+function formatCompactPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%';
+  return `${Number(value.toFixed(2))}%`;
 }
 
 function formatCompactCount(value: number): string {
@@ -682,6 +722,126 @@ const InfrastructureMonitor: React.FC<{ data: MetricsOverviewData | null; isLoad
 });
 InfrastructureMonitor.displayName = 'InfrastructureMonitor';
 
+const PlatformHealthOverview: React.FC<{
+  data: BffOverviewResponse | null;
+  isLoading: boolean;
+  staleError: string | null;
+  onOpenDetail: () => void;
+}> = React.memo(({ data, isLoading, staleError, onOpenDetail }) => {
+  const isDark = useThemeStore((s) => s.isDark);
+  const panelBg = isDark ? '#0f172a' : '#f8fafc';
+  const borderColor = isDark ? '#334155' : '#e2e8f0';
+
+  const serviceItems = useMemo<PlatformHealthServiceItem[]>(() => {
+    if (!data) return [];
+    return [
+      {
+        key: 'controlPlane',
+        label: '控制面服务',
+        probe: data.services.controlPlane,
+        reconcilerState: extractReconcilerState(data.services.controlPlane.details),
+      },
+      {
+        key: 'apiService',
+        label: '业务 API',
+        probe: data.services.apiService,
+      },
+      {
+        key: 'queryApi',
+        label: '查询服务',
+        probe: data.services.dataServices.queryApi,
+      },
+      {
+        key: 'auditApi',
+        label: '审计服务',
+        probe: data.services.dataServices.auditApi,
+      },
+      {
+        key: 'exportApi',
+        label: '导出服务',
+        probe: data.services.dataServices.exportApi,
+      },
+    ];
+  }, [data]);
+
+  return (
+    <Card
+      className="w-full"
+      title={<span className="text-sm font-bold">平台健康总览</span>}
+      extra={
+        <Button type="link" size="small" onClick={onOpenDetail}>
+          查看健康页
+        </Button>
+      }
+      loading={isLoading && !data}
+    >
+      {!data ? (
+        <Empty description="暂无平台健康数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-wrap gap-3">
+              <div className="min-w-[120px] rounded-xl border px-4 py-3" style={{ backgroundColor: panelBg, borderColor }}>
+                <div className="text-[11px] opacity-60">服务总数</div>
+                <div className="mt-1 text-xl font-semibold">{data.summary.total}</div>
+              </div>
+              <div className="min-w-[120px] rounded-xl border px-4 py-3" style={{ backgroundColor: panelBg, borderColor }}>
+                <div className="text-[11px] opacity-60">健康服务</div>
+                <div className="mt-1 text-xl font-semibold" style={{ color: COLORS.success }}>{data.summary.healthy}</div>
+              </div>
+              <div className="min-w-[120px] rounded-xl border px-4 py-3" style={{ backgroundColor: panelBg, borderColor }}>
+                <div className="text-[11px] opacity-60">异常服务</div>
+                <div className="mt-1 text-xl font-semibold" style={{ color: data.summary.degraded > 0 ? COLORS.danger : COLORS.success }}>{data.summary.degraded}</div>
+              </div>
+              <div className="min-w-[120px] rounded-xl border px-4 py-3" style={{ backgroundColor: panelBg, borderColor }}>
+                <div className="text-[11px] opacity-60">可用率</div>
+                <div className="mt-1 text-xl font-semibold">{formatCompactPercent(data.summary.availabilityRate)}</div>
+              </div>
+            </div>
+            <div className="text-right text-[11px] opacity-60">
+              <div>生成时间：{formatMonitorTimestamp(data.generatedAt)}</div>
+              <div>缓存：{data.cache.hit ? '命中缓存' : '实时刷新'} / TTL {data.cache.ttlMs} ms</div>
+            </div>
+          </div>
+
+          {staleError ? <Tag color="warning" style={{ width: 'fit-content', margin: 0 }}>最近一次刷新失败，当前展示上次成功结果：{staleError}</Tag> : null}
+
+          <Row gutter={[12, 12]}>
+            {serviceItems.map((item) => (
+              <Col key={item.key} xs={24} md={12} xl={8} xxl={4}>
+                <div className="h-full rounded-xl border p-3" style={{ backgroundColor: panelBg, borderColor }}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold">{item.label}</div>
+                      <div className="mt-1 text-[11px] opacity-60 break-all">{item.probe.upstream}</div>
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1">
+                      <Tag color={getHealthStatusTagColor(item.probe.status)} style={{ margin: 0 }}>
+                        {getHealthStatusLabel(item.probe.status)}
+                      </Tag>
+                      {item.reconcilerState ? (
+                        <Tag color={getHealthStatusTagColor(item.reconcilerState)} style={{ margin: 0 }}>
+                          ES 对账 {getHealthStatusLabel(item.reconcilerState)}
+                        </Tag>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs">
+                    <span className="opacity-60">HTTP {item.probe.statusCode || '—'}</span>
+                    <span className="font-medium">{formatHealthLatency(item.probe.latencyMs)}</span>
+                  </div>
+                  <div className="mt-2 text-[11px] opacity-60 break-all">{item.probe.details || '—'}</div>
+                </div>
+              </Col>
+            ))}
+          </Row>
+        </div>
+      )}
+    </Card>
+  );
+});
+PlatformHealthOverview.displayName = 'PlatformHealthOverview';
+
 // ============================================================================
 // Dashboard 主组件
 // ============================================================================
@@ -704,6 +864,8 @@ const Dashboard: React.FC = () => {
   const [overview, setOverview] = useState<DashboardOverviewStats | null>(null);
   const [overviewRange, setOverviewRange] = useState<DashboardOverviewRange>('24h');
   const [metricsOverview, setMetricsOverview] = useState<MetricsOverviewData | null>(null);
+  const [platformHealth, setPlatformHealth] = useState<BffOverviewResponse | null>(null);
+  const [platformHealthError, setPlatformHealthError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<DashboardAuditRecord[]>([]);
   const [lastUpdated, setLastUpdated] = useState(Date.now());
   const storedRefreshInterval = usePreferencesStore((s) => s.refreshInterval);
@@ -740,9 +902,10 @@ const Dashboard: React.FC = () => {
     setIsLoading(true);
     const refreshRequest = (async () => {
       try {
-        const [overviewResult, metricsOverviewResult, auditLogsResult] = await Promise.allSettled([
+        const [overviewResult, metricsOverviewResult, platformHealthResult, auditLogsResult] = await Promise.allSettled([
           fetchDashboardOverview(nextOverviewRange),
           fetchMetricsOverview('24h', 4),
+          fetchBffOverview(),
           fetchAuditLogs({ page: 1, page_size: 5 }),
         ]);
 
@@ -761,6 +924,16 @@ const Dashboard: React.FC = () => {
           hasSuccessfulUpdate = true;
         } else {
           errors.push(`基础设施监控：${metricsOverviewResult.reason instanceof Error ? metricsOverviewResult.reason.message : '加载失败'}`);
+        }
+
+        if (platformHealthResult.status === 'fulfilled') {
+          setPlatformHealth(platformHealthResult.value);
+          setPlatformHealthError(null);
+          hasSuccessfulUpdate = true;
+        } else {
+          const nextPlatformHealthError = platformHealthResult.reason instanceof Error ? platformHealthResult.reason.message : '加载失败';
+          setPlatformHealthError(nextPlatformHealthError);
+          errors.push(`平台健康：${nextPlatformHealthError}`);
         }
 
         if (auditLogsResult.status === 'fulfilled') {
@@ -1007,6 +1180,14 @@ const Dashboard: React.FC = () => {
 
       {/* 基础设施监控 */}
       <InfrastructureMonitor data={metricsOverview} isLoading={isLoading} />
+
+      {/* 平台健康总览 */}
+      <PlatformHealthOverview
+        data={platformHealth}
+        isLoading={isLoading}
+        staleError={platformHealth && platformHealthError ? platformHealthError : null}
+        onOpenDetail={() => navigate('/performance/health')}
+      />
 
       {/* 图表 + 异常服务排行 */}
       <Row gutter={[24, 24]} align="stretch">
