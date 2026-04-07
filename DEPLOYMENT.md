@@ -80,6 +80,7 @@ make local-deploy
    - 注册 Schema Registry subjects
    - 安装 Elasticsearch v2 template
    - 安装 Elasticsearch 读写别名
+   - 注册 Elasticsearch 文件系统快照仓库与 SLM 快照策略（默认使用 `ES_SNAPSHOT_REPO_HOST_PATH`，未设置时回落到 `./storage/elasticsearch/snapshots`）
    - 自动登录 `api-service` 获取本地 Bearer Token（若未显式提供 `ACCESS_TOKEN`）
    - 创建 / 更新本地 Pull Source
    - 创建 / 复用本地测试告警规则
@@ -126,6 +127,62 @@ TENANT_ID=<your_tenant_uuid> make local-deploy
 ```
 
 但要注意：当前本地采集 / 查询链路仍有若干模块默认依赖兼容租户；如果你改成其他租户且没有同步改完整条链路，前端页面会表现为“登录成功但暂无日志 / 告警数据”。
+
+### Step 2.1：可选接入飞牛 NAS 作为 Elasticsearch 快照仓库（方案 A）
+
+适用场景：你在同一内网已有飞牛 NAS，希望先把它用于快照备份 / 冷归档，而不是直接作为 Elasticsearch 热/温层数据盘。
+
+推荐方式：
+
+1. 先在宿主机上把飞牛 NAS 共享目录挂载为本地路径，例如：
+
+```bash
+sudo mkdir -p /mnt/nexuslog-es-snapshots
+sudo mount -t nfs <NAS_IP>:/<NAS_EXPORT_PATH> /mnt/nexuslog-es-snapshots
+```
+
+2. 启动前给 Compose 指定宿主机挂载路径：
+
+```bash
+export ES_SNAPSHOT_REPO_HOST_PATH=/mnt/nexuslog-es-snapshots
+```
+
+3. 重新拉起 Elasticsearch，使共享目录映射到容器内的 `/usr/share/elasticsearch/snapshots`：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d elasticsearch
+```
+
+4. 安装快照仓库与策略：
+
+```bash
+make es-bootstrap-snapshots ES_HOST=http://localhost:9200
+```
+
+5. 验证仓库与策略已经生效：
+
+```bash
+curl http://localhost:9200/_snapshot/nexuslog-snapshots?pretty
+curl http://localhost:9200/_slm/policy/nexuslog-snapshot-policy?pretty
+```
+
+6. 如需立刻打一份测试快照，可执行：
+
+```bash
+curl -X PUT "http://localhost:9200/_snapshot/nexuslog-snapshots/manual-$(date +%Y%m%d%H%M%S)?wait_for_completion=true" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "indices": "nexuslog-logs-*,nexuslog-alerts-*,nexuslog-audit-*",
+    "ignore_unavailable": true,
+    "include_global_state": false
+  }'
+```
+
+说明：
+
+- 当前本地 Elasticsearch 许可证是 `basic`，因此该方案可用于“快照备份 / 冷归档”，但不等同于 `searchable snapshot` 冷层。
+- 不建议把飞牛 NAS 的 NFS/SMB 共享目录直接映射到 Elasticsearch `path.data`。
+- 如果你只是执行 `make local-deploy`，且已提前设置 `ES_SNAPSHOT_REPO_HOST_PATH`，本地 bootstrap 会自动注册快照仓库与策略。
 
 ### Step 3：执行冒烟检查
 

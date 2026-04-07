@@ -1,5 +1,5 @@
 {
-  "_comment": "NexusLog Elasticsearch 快照策略 | change_level: normal | 生效时间: 分钟级",
+  "_comment": "NexusLog Elasticsearch 快照策略 | change_level: normal | 生效时间: 分钟级 | 方案A 默认适配 NAS 共享文件系统仓库",
   "name": "nexuslog-snapshot-policy",
   "schedule": "0 0 2 * * ?",
   "repository": "nexuslog-snapshots",
@@ -14,13 +14,9 @@
     "min_count": 7,
     "max_count": 30
   },
-  "repository_config": {
-    "type": "s3",
-    "settings": {
-      "bucket": "nexuslog-es-snapshots",
-      "base_path": "elasticsearch/snapshots",
-      "compress": true,
-      "chunk_size": "1gb"
-    }
+  "repository_bootstrap": {
+    "recommended_type": "fs",
+    "recommended_location": "/usr/share/elasticsearch/snapshots",
+    "install_script": "scripts/install-es-snapshot-repository.sh"
   }
 }

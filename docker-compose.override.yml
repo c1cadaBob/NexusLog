@@ -391,7 +391,7 @@ services:
       - path.repo=/usr/share/elasticsearch/snapshots
       - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
     volumes:
-      - ./storage/elasticsearch/snapshots:/usr/share/elasticsearch/snapshots
+      - ${ES_SNAPSHOT_REPO_HOST_PATH:-./storage/elasticsearch/snapshots}:/usr/share/elasticsearch/snapshots
 
   zookeeper:
     cpus: "0.50"

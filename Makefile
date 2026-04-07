@@ -6,7 +6,7 @@
 .PHONY: backend-lint backend-test backend-build
 .PHONY: docker-build docker-push test-contracts stream-install-es stream-register-schemas stream-deploy-local stream-bootstrap-local stream-compare
 .PHONY: db-migrate-up db-migrate-down db-migrate-version db-migrate-create
-.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-suite e2e-list-regression e2e-list-debug e2e-list-full e2e-list-chrome e2e-suite e2e-smoke e2e-regression e2e-debug e2e-full e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome e2e-smoke-ci local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate
+.PHONY: dev-up dev-up-lite dev-down dev-logs dev-test-smoke e2e-list e2e-list-suite e2e-list-regression e2e-list-debug e2e-list-full e2e-list-chrome e2e-suite e2e-smoke e2e-regression e2e-debug e2e-full e2e-smoke-chrome e2e-smoke-headed e2e-smoke-headed-chrome e2e-smoke-ci local-db-migrate-up local-bootstrap local-deploy api-register-smoke api-auth-storage-verify api-auth-chain-test gateway-auth-smoke-test m1-rollback-drill m1-post-release-observe m1-hot-reload-gate es-install-snapshot-repository es-install-snapshot-policy es-bootstrap-snapshots
 
 DB_MIGRATE_SCRIPT := ./scripts/db-migrate.sh
 MIRROR_ENV_FILE := ./.env.mirrors
@@ -100,6 +100,20 @@ stream-install-es:
 stream-register-schemas:
 	@echo "🧬 注册 Schema Registry 契约..."
 	@SCHEMA_REGISTRY_URL="$(SCHEMA_REGISTRY_URL)" ./scripts/register-schema-registry-subjects.sh
+
+## 安装 Elasticsearch 快照仓库
+es-install-snapshot-repository:
+	@echo "🧊 安装 Elasticsearch 快照仓库..."
+	@ES_HOST="$(ES_HOST)" SNAPSHOT_REPOSITORY_NAME="$(SNAPSHOT_REPOSITORY_NAME)" SNAPSHOT_REPOSITORY_LOCATION="$(SNAPSHOT_REPOSITORY_LOCATION)" ./scripts/install-es-snapshot-repository.sh
+
+## 安装 Elasticsearch 快照策略
+es-install-snapshot-policy:
+	@echo "🗂️ 安装 Elasticsearch 快照策略..."
+	@ES_HOST="$(ES_HOST)" SNAPSHOT_POLICY_NAME="$(SNAPSHOT_POLICY_NAME)" SNAPSHOT_POLICY_REPOSITORY="$(SNAPSHOT_POLICY_REPOSITORY)" SNAPSHOT_POLICY_SCHEDULE="$(SNAPSHOT_POLICY_SCHEDULE)" SNAPSHOT_POLICY_EXECUTE_NOW="$(SNAPSHOT_POLICY_EXECUTE_NOW)" ./scripts/install-es-snapshot-policy.sh
+
+## 安装 Elasticsearch 快照仓库与策略
+es-bootstrap-snapshots: es-install-snapshot-repository es-install-snapshot-policy
+	@echo "✅ Elasticsearch 快照仓库与策略已安装"
 
 ## 在本地 Flink 提交流式 SQL 作业
 stream-deploy-local:
@@ -520,6 +534,9 @@ help:
 	@echo "  make dev-down       - 停止 dev 热更新环境"
 	@echo "  make dev-logs       - 查看 dev 热更新日志"
 	@echo "  make dev-test-smoke - 执行 dev 冒烟检查"
+	@echo "  make es-install-snapshot-repository [ES_HOST=http://localhost:9200] [SNAPSHOT_REPOSITORY_LOCATION=/usr/share/elasticsearch/snapshots] - 安装 ES 文件系统快照仓库"
+	@echo "  make es-install-snapshot-policy [ES_HOST=http://localhost:9200] [SNAPSHOT_POLICY_REPOSITORY=nexuslog-snapshots] - 安装 ES 快照策略"
+	@echo "  make es-bootstrap-snapshots [ES_HOST=http://localhost:9200] - 一次性安装 ES 快照仓库与策略"
 	@echo "  make e2e-list [E2E_BASE_URL=http://127.0.0.1:3000] [E2E_PLAYWRIGHT_CONFIG=playwright.config.js] - 列出全部 Playwright E2E 用例"
 	@echo "  make e2e-list-regression [E2E_BASE_URL=http://127.0.0.1:3000] - 列出回归套件用例"
 	@echo "  make e2e-list-debug [E2E_BASE_URL=http://127.0.0.1:3000] - 列出调试套件用例"
