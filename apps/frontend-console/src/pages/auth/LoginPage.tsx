@@ -12,18 +12,18 @@ type ViewType = 'login' | 'forgot-password' | 'sso';
 
 // 产品特性
 const features = [
-  { icon: 'speed', title: '实时日志分析', desc: '毫秒级日志检索，支持 PB 级数据实时查询' },
-  { icon: 'security', title: '企业级安全', desc: '端到端加密，符合 SOC2、GDPR 等合规要求' },
-  { icon: 'insights', title: '智能告警', desc: 'AI 驱动的异常检测，提前发现潜在问题' },
-  { icon: 'hub', title: '无缝集成', desc: '支持 200+ 数据源，一键接入主流云平台' },
+  { icon: 'search', title: '日志检索', desc: '支持实时检索、历史记录与常用查询保存' },
+  { icon: 'notifications_active', title: '告警与事件', desc: '支持查看告警、规则、通知配置与事件流程' },
+  { icon: 'schema', title: '采集与解析', desc: '支持采集源、Agent、字段映射与解析规则管理' },
+  { icon: 'storage', title: '存储与审计', desc: '支持索引、备份、容量监控以及审计日志查看' },
 ];
 
 // 统计数据
 const stats = [
-  { value: '99.99%', label: '系统可用性' },
-  { value: '10PB+', label: '日处理能力' },
-  { value: '200+', label: '已交付企业' },
-  { value: '<100ms', label: '查询响应' },
+  { value: '检索', label: '实时与历史查询' },
+  { value: '告警', label: '规则、通知、静默' },
+  { value: '接入', label: '采集源与解析配置' },
+  { value: '审计', label: '操作留痕与配置管理' },
 ];
 
 // 语言选项
@@ -140,18 +140,18 @@ const LoginPage: React.FC = () => {
 
           {/* 主标题 */}
           <h1 className="text-4xl xl:text-5xl font-bold text-white leading-tight mb-6">
-            企业级日志管理
+            统一日志管理
             <br />
             <span
               className="bg-clip-text text-transparent"
               style={{ backgroundImage: 'linear-gradient(to right, #135bec, #a78bfa)' }}
             >
-              智能分析平台
+              与运维控制台
             </span>
           </h1>
 
           <p className="text-lg mb-10 leading-relaxed" style={{ color: '#94a3b8' }}>
-            私有化部署的日志管理平台，实时收集、存储、分析海量日志数据，助力企业快速定位问题、保障业务稳定运行。
+            当前系统已提供概览、日志检索、告警与事件、采集接入、字段解析、存储巡检、追踪与审计等常用能力，帮助团队完成日常排障与运维管理。
           </p>
 
           {/* 产品特性卡片 */}
@@ -229,7 +229,7 @@ const LoginPage: React.FC = () => {
                 <h1 className="text-xl font-bold text-white lg:hidden">NexusLog</h1>
                 <h2 className="hidden lg:block text-lg font-semibold text-white">欢迎回来</h2>
                 <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
-                  <span className="lg:hidden">欢迎回来，</span>登录以访问您的日志管理控制台
+                  <span className="lg:hidden">欢迎回来，</span>登录后进入日志与运维控制台
                 </p>
               </div>
             )}
