@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, App, Button, Card, Descriptions, Empty, Input, Modal, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Descriptions, Dropdown, Empty, Input, Modal, Select, Space, Spin, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import ChartWrapper from '../../components/charts/ChartWrapper';
@@ -36,6 +36,25 @@ function formatDateTime(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString('zh-CN');
+}
+
+function formatShortDateTime(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatShortId(value?: string, head = 8, tail = 4) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return '-';
+  if (normalized.length <= head + tail + 1) return normalized;
+  return `${normalized.slice(0, head)}…${normalized.slice(-tail)}`;
 }
 
 function formatNumber(value?: number | null) {
@@ -136,7 +155,7 @@ function getRuntimeStatusMeta(status: string) {
   }
 }
 
-function renderPathPreview(value?: string, maxItems = 2) {
+function renderPathPreview(value?: string) {
   const paths = String(value ?? '')
     .split(',')
     .map((item) => item.trim())
@@ -146,19 +165,23 @@ function renderPathPreview(value?: string, maxItems = 2) {
     return <span style={{ color: '#94a3b8', fontSize: 12 }}>-</span>;
   }
 
-  return (
+  const tooltipContent = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {paths.slice(0, maxItems).map((path) => (
-        <Typography.Text
-          key={path}
-          code
-          style={{ margin: 0, fontSize: 12, whiteSpace: 'normal', wordBreak: 'break-all' }}
-        >
-          {path}
-        </Typography.Text>
+      {paths.map((path) => (
+        <span key={path} style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{path}</span>
       ))}
-      {paths.length > maxItems ? (
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>还有 {paths.length - maxItems} 个路径...</span>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+      <Tooltip title={tooltipContent}>
+        <Typography.Text code ellipsis style={{ margin: 0, fontSize: 12, maxWidth: '100%', display: 'inline-block' }}>
+          {paths[0]}
+        </Typography.Text>
+      </Tooltip>
+      {paths.length > 1 ? (
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>共 {paths.length} 个路径</span>
       ) : null}
     </div>
   );
@@ -348,108 +371,162 @@ const SourceStatus: React.FC = () => {
     {
       title: '数据源',
       key: 'source',
-      width: 260,
-      render: (_, item) => (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontWeight: 600 }}>{item.name}</div>
-            {highlightedSourceIdSet.has(item.source_id) ? <Tag color="processing" style={{ marginInlineEnd: 0 }}>刚更新</Tag> : null}
-          </div>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>{item.protocol.toUpperCase()} · {item.source_id}</div>
-        </div>
-      ),
-    },
-    {
-      title: 'Agent / 主机',
-      key: 'agent',
       width: 220,
       render: (_, item) => (
-        <div>
-          <div>{item.agent_hostname || item.host || '-'}</div>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>{item.agent_id || item.agent_base_url || '-'}</div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Tooltip title={item.name}>
+              <Typography.Text strong ellipsis style={{ maxWidth: 160, display: 'block' }}>{item.name}</Typography.Text>
+            </Tooltip>
+            {highlightedSourceIdSet.has(item.source_id) ? <Tag color="processing" style={{ marginInlineEnd: 0 }}>刚更新</Tag> : null}
+          </div>
+          <Tooltip title={item.source_id}>
+            <Typography.Text type="secondary" ellipsis style={{ maxWidth: '100%', display: 'block', fontSize: 12 }}>
+              {`${item.protocol.toUpperCase()} · ${formatShortId(item.source_id)}`}
+            </Typography.Text>
+          </Tooltip>
         </div>
       ),
     },
     {
-      title: '采集路径',
+      title: 'Agent',
+      key: 'agent',
+      width: 190,
+      render: (_, item) => {
+        const primary = item.agent_hostname || item.host || '-';
+        const secondary = item.agent_id || item.agent_base_url || '-';
+        return (
+          <div style={{ minWidth: 0 }}>
+            <Tooltip title={primary}>
+              <Typography.Text ellipsis style={{ maxWidth: '100%', display: 'block' }}>{primary}</Typography.Text>
+            </Tooltip>
+            <Tooltip title={secondary}>
+              <Typography.Text type="secondary" ellipsis style={{ maxWidth: '100%', display: 'block', fontSize: 12 }}>
+                {item.agent_id ? formatShortId(item.agent_id, 6, 4) : secondary}
+              </Typography.Text>
+            </Tooltip>
+          </div>
+        );
+      },
+    },
+    {
+      title: '路径',
       dataIndex: 'path',
       key: 'path',
-      width: 300,
+      width: 220,
       render: (value: string) => renderPathPreview(value),
     },
     {
-      title: '最近包',
-      key: 'package',
-      width: 180,
-      render: (_, item) => (
-        <div style={{ fontSize: 12 }}>
-          <div>记录数：{formatNumber(item.last_package?.record_count)}</div>
-          <div>大小：{formatBytes(item.last_package?.size_bytes)}</div>
-          <div style={{ color: '#94a3b8' }}>{formatDateTime(item.last_package?.created_at)}</div>
-        </div>
-      ),
-    },
-    {
-      title: '最近游标',
-      key: 'cursor',
-      width: 180,
-      render: (_, item) => (
-        <div style={{ fontSize: 12 }}>
-          <div>offset：{formatNumber(item.last_cursor?.last_offset)}</div>
-          <div>cursor：{item.last_cursor?.last_cursor || '-'}</div>
-          <div style={{ color: '#94a3b8' }}>{formatDateTime(item.last_cursor?.updated_at)}</div>
-        </div>
-      ),
-    },
-    {
-      title: '估算 EPS',
-      dataIndex: 'estimated_eps',
-      key: 'estimated_eps',
-      width: 120,
-      align: 'right',
-      render: (value?: number) => <span>{value && value > 0 ? value.toFixed(2) : '-'}</span>,
+      title: '采集情况',
+      key: 'activity',
+      width: 260,
+      render: (_, item) => {
+        const packageTime = item.last_package?.created_at || item.last_package?.acked_at;
+        const cursorTime = item.last_cursor?.updated_at;
+        const summary = [
+          `${formatNumber(item.last_package?.record_count)} 条`,
+          formatBytes(item.last_package?.size_bytes),
+          `EPS ${item.estimated_eps && item.estimated_eps > 0 ? item.estimated_eps.toFixed(2) : '-'}`,
+        ].join(' · ');
+        const detailLines = [
+          `最近包：${formatDateTime(packageTime)}`,
+          `包状态：${item.last_package?.status || '-'}`,
+          `offset：${formatNumber(item.last_cursor?.last_offset)}`,
+          `cursor：${item.last_cursor?.last_cursor || '-'}`,
+          `游标时间：${formatDateTime(cursorTime)}`,
+          `最近文件：${item.last_package?.primary_file || '-'}`,
+        ];
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+            <Tooltip
+              title={(
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {detailLines.map((line) => <div key={line}>{line}</div>)}
+                </div>
+              )}
+            >
+              <Typography.Text ellipsis style={{ maxWidth: '100%', display: 'block', fontSize: 12 }}>
+                {summary}
+              </Typography.Text>
+            </Tooltip>
+            <Typography.Text type="secondary" ellipsis style={{ maxWidth: '100%', display: 'block', fontSize: 12 }}>
+              {`最近 ${formatShortDateTime(packageTime || cursorTime || item.updated_at)}`}
+            </Typography.Text>
+          </div>
+        );
+      },
     },
     {
       title: '状态',
       key: 'runtime_status',
-      width: 120,
+      width: 170,
       render: (_, item) => {
         const meta = getRuntimeStatusMeta(item.runtime_status);
         return (
-          <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
-            {meta.label}
-          </Tag>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+            <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, width: 'fit-content', marginInlineEnd: 0 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
+              {meta.label}
+            </Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              配置 {item.configured_status || '-'}
+            </Typography.Text>
+            {item.error_message ? (
+              <Tooltip title={item.error_message}>
+                <Tag color="error" style={{ width: 'fit-content', marginInlineEnd: 0 }}>错误</Tag>
+              </Tooltip>
+            ) : null}
+          </div>
         );
       },
     },
     {
       title: '操作',
       key: 'actions',
-      width: 280,
+      width: 120,
       align: 'right',
-      render: (_, item) => (
-        <Space size={4}>
-          <Button size="small" type="link" onClick={() => { setSelectedItem(item); setDetailOpen(true); }}>详情</Button>
-          {canReadPullTask ? (
-            <Button size="small" type="link" onClick={() => setTaskHistoryItem(item)}>任务</Button>
-          ) : null}
-          {canReadPullPackage ? (
-            <Button size="small" type="link" onClick={() => setPackageHistoryItem(item)}>包</Button>
-          ) : null}
-          {canRunPullTask ? (
-            <Button
-              size="small"
-              type="link"
-              loading={runningSourceIds.includes(item.source_id)}
-              disabled={String(item.configured_status).toLowerCase() === 'disabled'}
-              onClick={() => handleRunNow(item)}
-            >
-              立即采集
-            </Button>
-          ) : null}
-        </Space>
-      ),
+      render: (_, item) => {
+        const menuItems: { key: string; label: string; disabled?: boolean }[] = [];
+        if (canReadPullTask) menuItems.push({ key: 'task', label: '任务历史' });
+        if (canReadPullPackage) menuItems.push({ key: 'package', label: '包历史' });
+        if (canRunPullTask) {
+          menuItems.push({
+            key: 'run',
+            label: runningSourceIds.includes(item.source_id) ? '采集中...' : '立即采集',
+            disabled: runningSourceIds.includes(item.source_id) || String(item.configured_status).toLowerCase() === 'disabled',
+          });
+        }
+
+        return (
+          <Space size={4}>
+            <Button size="small" type="link" onClick={() => { setSelectedItem(item); setDetailOpen(true); }}>详情</Button>
+            {menuItems.length > 0 ? (
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: menuItems,
+                  onClick: ({ key }) => {
+                    if (key === 'task') {
+                      setTaskHistoryItem(item);
+                      return;
+                    }
+                    if (key === 'package') {
+                      setPackageHistoryItem(item);
+                      return;
+                    }
+                    if (key === 'run') {
+                      void handleRunNow(item);
+                    }
+                  },
+                }}
+              >
+                <Button size="small" type="link">更多</Button>
+              </Dropdown>
+            ) : null}
+          </Space>
+        );
+      },
     },
   ];
 
@@ -563,6 +640,7 @@ const SourceStatus: React.FC = () => {
           <Empty description="当前筛选条件下没有匹配的数据源" />
         ) : (
           <Table<PullSourceRuntimeStatusItem>
+            size="small"
             rowKey={(record) => record.source_id}
             columns={columns}
             dataSource={filteredItems}
@@ -577,7 +655,7 @@ const SourceStatus: React.FC = () => {
               pageSizeOptions: [10, 20, 50, 100],
               onShowSizeChange: (_, size) => setPageSize(size),
             }}
-            scroll={{ x: 1500 }}
+            scroll={{ x: 1180 }}
           />
         )}
       </Card>
