@@ -636,7 +636,7 @@ const AccessWizard: React.FC = () => {
         <Steps current={currentStep} items={[
           { title: '选择来源' },
           { title: '配置 Agent' },
-          { title: '创建与部署' },
+          { title: '确认与脚本' },
         ]} />
       </Card>
 
