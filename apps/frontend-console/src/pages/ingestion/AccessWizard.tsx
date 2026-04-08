@@ -627,8 +627,8 @@ const AccessWizard: React.FC = () => {
           </Typography.Paragraph>
         </div>
         <Space>
-          <Button onClick={loadAgents}>刷新 Agent</Button>
-          <Button onClick={() => navigate('/ingestion/agents')}>查看 Agent</Button>
+          <Button onClick={loadAgents}>刷新 Agent 列表</Button>
+          <Button onClick={() => navigate('/ingestion/agents')}>前往 Agent 管理</Button>
         </Space>
       </div>
 
