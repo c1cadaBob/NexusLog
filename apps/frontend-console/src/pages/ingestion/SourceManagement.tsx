@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, App, Button, Card, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Dropdown, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -66,6 +66,58 @@ function formatDateTime(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString('zh-CN');
+}
+
+function formatCompactDateTime(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatShortDateTime(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function pickLatestDateTime(values: Array<string | undefined>) {
+  let latestValue: string | undefined;
+  let latestTimestamp = Number.NEGATIVE_INFINITY;
+
+  values.forEach((value) => {
+    if (!value) return;
+    const timestamp = new Date(value).getTime();
+    if (Number.isNaN(timestamp)) {
+      if (!latestValue) latestValue = value;
+      return;
+    }
+    if (timestamp > latestTimestamp) {
+      latestTimestamp = timestamp;
+      latestValue = value;
+    }
+  });
+
+  return latestValue;
+}
+
+function formatShortId(value?: string, head = 8, tail = 4) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return '-';
+  if (normalized.length <= head + tail + 1) return normalized;
+  return `${normalized.slice(0, head)}…${normalized.slice(-tail)}`;
 }
 
 function formatNumber(value?: number | null) {
@@ -150,7 +202,7 @@ function getPackageStatusMeta(status?: string) {
   }
 }
 
-function renderPathPreview(value?: string, maxItems = 2) {
+function renderPathPreview(value?: string) {
   const paths = String(value ?? '')
     .split(',')
     .map((item) => item.trim())
@@ -160,19 +212,28 @@ function renderPathPreview(value?: string, maxItems = 2) {
     return <span style={{ color: '#94a3b8', fontSize: 12 }}>-</span>;
   }
 
-  return (
+  const primaryPath = paths[0];
+  const tooltipContent = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {paths.slice(0, maxItems).map((path) => (
-        <Typography.Text
-          key={path}
-          code
-          style={{ margin: 0, fontSize: 12, whiteSpace: 'normal', wordBreak: 'break-all' }}
-        >
-          {path}
-        </Typography.Text>
+      {paths.map((path) => (
+        <span key={path} style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>{path}</span>
       ))}
-      {paths.length > maxItems ? (
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>还有 {paths.length - maxItems} 个路径...</span>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+      <Tooltip title={tooltipContent}>
+        <Typography.Text
+          code
+          ellipsis
+          style={{ margin: 0, fontSize: 12, maxWidth: '100%', display: 'inline-block' }}
+        >
+          {primaryPath}
+        </Typography.Text>
+      </Tooltip>
+      {paths.length > 1 ? (
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>共 {paths.length} 个路径</span>
       ) : null}
     </div>
   );
@@ -417,151 +478,191 @@ const SourceManagement: React.FC = () => {
     {
       title: '采集源',
       key: 'source',
-      width: 260,
+      width: 200,
       render: (_, source) => (
-        <div>
-          <div style={{ fontWeight: 600 }}>{source.name}</div>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>{source.protocol.toUpperCase()} · {source.source_id}</div>
+        <div style={{ minWidth: 0 }}>
+          <Tooltip title={source.name}>
+            <Typography.Text strong ellipsis style={{ maxWidth: '100%', display: 'block' }}>{source.name}</Typography.Text>
+          </Tooltip>
+          <Tooltip title={source.source_id}>
+            <Typography.Text type="secondary" ellipsis style={{ maxWidth: '100%', display: 'block', fontSize: 12 }}>
+              {`${source.protocol.toUpperCase()} · ${formatShortId(source.source_id)}`}
+            </Typography.Text>
+          </Tooltip>
         </div>
       ),
     },
     {
-      title: '绑定 Agent',
+      title: 'Agent',
       key: 'agent',
-      width: 260,
+      width: 180,
       render: (_, source) => {
         const agent = agentMap.get(source.agent_base_url ?? '');
         const runtime = runtimeStatusMap.get(source.source_id);
+        const primary = runtime?.agent_hostname || agent?.hostname || agent?.host || source.host || '-';
+        const secondary = runtime?.agent_id || agent?.agent_id || source.agent_base_url || '-';
         return (
-          <div>
-            <div>{runtime?.agent_hostname || agent?.hostname || agent?.host || source.host || '-'}</div>
-            <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>{runtime?.agent_id || source.agent_base_url || '-'}</div>
+          <div style={{ minWidth: 0 }}>
+            <Tooltip title={primary}>
+              <Typography.Text ellipsis style={{ maxWidth: '100%', display: 'block' }}>{primary}</Typography.Text>
+            </Tooltip>
+            <Tooltip title={secondary}>
+              <Typography.Text
+                type="secondary"
+                ellipsis
+                style={{ maxWidth: '100%', display: 'block', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}
+              >
+                {formatShortId(secondary, 6, 4)}
+              </Typography.Text>
+            </Tooltip>
           </div>
         );
       },
     },
     {
-      title: '采集路径',
+      title: '路径',
       dataIndex: 'path',
       key: 'path',
-      width: 320,
+      width: 220,
       render: (value: string) => renderPathPreview(value),
     },
     {
-      title: '拉取参数',
+      title: '参数',
       key: 'settings',
-      width: 160,
-      render: (_, source) => (
-        <div style={{ fontSize: 12 }}>
-          <div>间隔：{source.pull_interval_sec}s</div>
-          <div>超时：{source.pull_timeout_sec}s</div>
-        </div>
-      ),
-    },
-    {
-      title: '运行状态',
-      key: 'runtime_status',
-      width: 120,
+      width: 100,
       render: (_, source) => {
-        const runtime = runtimeStatusMap.get(source.source_id);
-        const meta = getRuntimeStatusMeta(runtime?.runtime_status);
+        const detail = `间隔 ${source.pull_interval_sec}s / 超时 ${source.pull_timeout_sec}s`;
         return (
-          <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
-            {meta.label}
-          </Tag>
+          <Tooltip title={detail}>
+            <Typography.Text style={{ fontSize: 12 }}>{`${source.pull_interval_sec}s / ${source.pull_timeout_sec}s`}</Typography.Text>
+          </Tooltip>
         );
       },
     },
     {
-      title: '配置状态',
-      key: 'configured_status',
-      width: 120,
+      title: '状态',
+      key: 'status',
+      width: 140,
       render: (_, source) => {
-        const meta = getConfiguredStatusMeta(source.status);
+        const runtimeMeta = getRuntimeStatusMeta(runtimeStatusMap.get(source.source_id)?.runtime_status);
+        const configMeta = getConfiguredStatusMeta(source.status);
         return (
-          <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
-            {meta.label}
-          </Tag>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: runtimeMeta.dot, display: 'inline-block', flex: '0 0 auto' }} />
+              <span style={{ color: '#94a3b8' }}>运行</span>
+              <span>{runtimeMeta.label}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: configMeta.dot, display: 'inline-block', flex: '0 0 auto' }} />
+              <span style={{ color: '#94a3b8' }}>配置</span>
+              <span>{configMeta.label}</span>
+            </div>
+          </div>
         );
       },
     },
     {
-      title: '最近拉取事件',
+      title: '最近事件',
       key: 'latest_event',
-      width: 280,
+      width: 220,
       render: (_, source) => {
         const runtime = runtimeStatusMap.get(source.source_id);
         if (!runtime) {
-          return <span style={{ fontSize: 12, color: '#94a3b8' }}>暂无运行态数据</span>;
+          return <span style={{ fontSize: 12, color: '#94a3b8' }}>暂无运行态</span>;
         }
+
         const taskMeta = getTaskStatusMeta(runtime.last_task?.status);
         const packageMeta = getPackageStatusMeta(runtime.last_package?.status);
         const taskTime = runtime.last_task?.finished_at || runtime.last_task?.started_at || runtime.last_task?.scheduled_at;
         const packageTime = runtime.last_package?.acked_at || runtime.last_package?.created_at;
+        const latestTime = pickLatestDateTime([taskTime, packageTime, runtime.updated_at]);
+        const summaryParts = [
+          runtime.last_package?.record_count !== undefined && runtime.last_package?.record_count !== null ? `${formatNumber(runtime.last_package.record_count)} 条` : null,
+          runtime.last_package?.size_bytes !== undefined && runtime.last_package?.size_bytes !== null ? formatBytes(runtime.last_package.size_bytes) : null,
+          latestTime ? formatShortDateTime(latestTime) : null,
+        ].filter(Boolean) as string[];
+        const detailLines = [
+          `任务：${taskMeta.label} · ${formatDateTime(taskTime)}`,
+          `资源包：${packageMeta.label} · ${formatDateTime(packageTime)}`,
+          `上报：${formatDateTime(runtime.updated_at)}`,
+        ];
+
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ color: '#94a3b8' }}>任务</span>
-              <Tag color={taskMeta.color} style={{ marginInlineEnd: 0 }}>{taskMeta.label}</Tag>
-              <span style={{ color: '#94a3b8' }}>{formatDateTime(taskTime)}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+              <Tag color={taskMeta.color} style={{ marginInlineEnd: 0 }}>任务 {taskMeta.label}</Tag>
+              <Tag color={packageMeta.color} style={{ marginInlineEnd: 0 }}>包 {packageMeta.label}</Tag>
+              {runtime.error_message ? (
+                <Tooltip title={runtime.error_message}>
+                  <Tag color="error" style={{ marginInlineEnd: 0 }}>错误</Tag>
+                </Tooltip>
+              ) : null}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ color: '#94a3b8' }}>资源包</span>
-              <Tag color={packageMeta.color} style={{ marginInlineEnd: 0 }}>{packageMeta.label}</Tag>
-              <span>{formatNumber(runtime.last_package?.record_count)} 条</span>
-              <span>{formatBytes(runtime.last_package?.size_bytes)}</span>
-              <span style={{ color: '#94a3b8' }}>{formatDateTime(packageTime)}</span>
-            </div>
-            {runtime.error_message ? (
-              <Typography.Text type="danger" ellipsis={{ tooltip: runtime.error_message }} style={{ maxWidth: 240 }}>
-                {runtime.error_message}
+            <Tooltip
+              title={(
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {detailLines.map((line) => <div key={line}>{line}</div>)}
+                </div>
+              )}
+            >
+              <Typography.Text type="secondary" ellipsis style={{ maxWidth: '100%', fontSize: 12 }}>
+                {summaryParts.join(' · ') || '-'}
               </Typography.Text>
-            ) : null}
+            </Tooltip>
           </div>
         );
-      },
-    },
-    {
-      title: '更新时间',
-      dataIndex: 'updated_at',
-      key: 'updated_at',
-      width: 180,
-      render: (value: string, source) => {
-        const runtime = runtimeStatusMap.get(source.source_id);
-        return <span style={{ fontSize: 12, color: '#94a3b8' }}>{formatDateTime(runtime?.updated_at || value)}</span>;
       },
     },
     {
       title: '操作',
       key: 'actions',
-      width: 280,
+      width: 120,
       align: 'right',
-      render: (_, source) => (
-        <Space size={4}>
-          <Button size="small" type="link" onClick={() => openEditModal(source)}>编辑</Button>
-          <Button size="small" type="link" onClick={() => navigate('/ingestion/status')}>状态</Button>
-          {canReadPullTask ? (
-            <Button size="small" type="link" onClick={() => setTaskHistorySource(source)}>任务</Button>
-          ) : null}
-          {canReadPullPackage ? (
-            <Button size="small" type="link" onClick={() => setPackageHistorySource(source)}>包</Button>
-          ) : null}
-          {canRunPullTask ? (
-            <Button
-              size="small"
-              type="link"
-              loading={runningSourceIds.includes(source.source_id)}
-              disabled={String(source.status).toLowerCase() === 'disabled'}
-              onClick={() => handleRunNow(source)}
+      render: (_, source) => {
+        const menuItems = [
+          { key: 'status', label: '查看状态' },
+          canReadPullTask ? { key: 'task', label: '任务记录' } : null,
+          canReadPullPackage ? { key: 'package', label: '资源包记录' } : null,
+          canRunPullTask ? { key: 'run', label: '立即采集', disabled: String(source.status).toLowerCase() === 'disabled' } : null,
+          { key: 'disable', label: '停用', danger: true },
+        ].filter(Boolean);
+
+        return (
+          <Space size={4}>
+            <Button size="small" type="link" onClick={() => openEditModal(source)}>编辑</Button>
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: menuItems,
+                onClick: ({ key }) => {
+                  if (key === 'status') {
+                    navigate('/ingestion/status');
+                    return;
+                  }
+                  if (key === 'task') {
+                    setTaskHistorySource(source);
+                    return;
+                  }
+                  if (key === 'package') {
+                    setPackageHistorySource(source);
+                    return;
+                  }
+                  if (key === 'run') {
+                    void handleRunNow(source);
+                    return;
+                  }
+                  if (key === 'disable') {
+                    void handleDisable(source);
+                  }
+                },
+              }}
             >
-              立即采集
-            </Button>
-          ) : null}
-          <Button size="small" type="link" danger onClick={() => handleDisable(source)}>禁用</Button>
-        </Space>
-      ),
+              <Button size="small" type="link">更多</Button>
+            </Dropdown>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -620,6 +721,7 @@ const SourceManagement: React.FC = () => {
           <Empty description="当前没有符合条件的采集源" />
         ) : (
           <Table<PullSource>
+            size="small"
             rowKey={(record) => record.source_id}
             columns={columns}
             dataSource={filteredSources}
@@ -629,7 +731,7 @@ const SourceManagement: React.FC = () => {
               pageSizeOptions: [10, 20, 50, 100],
               onShowSizeChange: (_, size) => setPageSize(size),
             }}
-            scroll={{ x: 1900 }}
+            scroll={{ x: 1240 }}
           />
         )}
       </Card>
