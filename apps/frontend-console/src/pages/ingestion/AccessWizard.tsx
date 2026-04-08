@@ -335,10 +335,10 @@ const AccessWizard: React.FC = () => {
         key_ref: 'active',
         status: 'active',
       });
-      messageApi.success(`采集源 ${created.name} 已创建`);
+      messageApi.success(`采集源配置 ${created.name} 已保存`);
       navigate('/ingestion/sources');
     } catch (err) {
-      messageApi.error(`创建采集源失败：${err instanceof Error ? err.message : String(err)}`);
+      messageApi.error(`保存采集源配置失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSubmitting(false);
     }
@@ -571,16 +571,16 @@ const AccessWizard: React.FC = () => {
 
         <Typography.Text type="secondary">
           推荐流程：{agentMode === 'new'
-            ? '先确认发布包或镜像地址真实可访问，再生成脚本；脚本执行成功后，再创建采集源。若 Agent URL 已提前确定，也可以先保存采集源配置。'
-            : '已有 Agent 可以直接创建采集源；只有在迁移或扩容主机时，才需要再生成一份新的部署脚本。'}
+            ? '先确认发布包或镜像地址真实可访问，再生成脚本；脚本执行成功后，再保存采集源配置。若 Agent URL 已提前确定，也可以先保存采集源配置。'
+            : '已有 Agent 可以直接保存采集源配置；只有在迁移或扩容主机时，才需要再生成一份新的部署脚本。'}
         </Typography.Text>
 
         <Card size="small" type="inner" title="部署脚本生成">
           <Space direction="vertical" style={{ width: '100%' }}>
             <Select id="access-wizard-deployment-target" value={deploymentTarget} options={DEPLOY_TARGET_OPTIONS.map((item) => ({ label: item.label, value: item.value }))} onChange={setDeploymentTarget} style={{ width: 240 }} />
             <Space>
-              <Button loading={scriptLoading} onClick={handleGenerateScript}>生成部署脚本</Button>
-              <Button type="primary" loading={submitting} onClick={handleCreate}>创建采集源</Button>
+              <Button loading={scriptLoading} onClick={handleGenerateScript}>生成脚本内容</Button>
+              <Button type="primary" loading={submitting} onClick={handleCreate}>保存采集源配置</Button>
             </Space>
             {scriptResponse ? (
               <Tabs
@@ -648,7 +648,7 @@ const AccessWizard: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <Button disabled={currentStep === 0} onClick={handlePrev}>上一步</Button>
         <Space>
-          <Button onClick={() => navigate('/ingestion/sources')}>取消</Button>
+          <Button onClick={() => navigate('/ingestion/sources')}>返回采集源管理</Button>
           {currentStep < 2 ? <Button type="primary" onClick={handleNext}>下一步</Button> : null}
         </Space>
       </div>
