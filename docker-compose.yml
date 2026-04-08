@@ -10,12 +10,12 @@ services:
   # 前端服务
   # ============================================================
   frontend-console:
-    build:
-      context: ./apps/frontend-console
-      dockerfile: Dockerfile
+    image: ${MIRROR_DOCKER_HUB}/nginx:1.25-alpine
     ports:
       - "3000:80"
     volumes:
+      - ./apps/frontend-console/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./apps/frontend-console/dist:/usr/share/nginx/html:ro
       - ./apps/frontend-console/public/config:/usr/share/nginx/html/config:ro
     depends_on:
       - api-service
