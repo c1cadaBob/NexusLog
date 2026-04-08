@@ -26,8 +26,8 @@ const SSOLoginForm: React.FC<SSOLoginFormProps> = ({ onBack, disabled }) => {
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-blue-500/20 mb-3">
           <span className="material-symbols-outlined text-blue-400 text-2xl">business</span>
         </div>
-        <h2 className="text-lg font-semibold">企业 SSO 登录</h2>
-        <p className="text-sm opacity-60 mt-1">输入您的企业域名以使用单点登录</p>
+        <h2 className="text-lg font-semibold">企业单点登录</h2>
+        <p className="text-sm opacity-60 mt-1">输入已配置的企业域名后继续</p>
       </div>
 
       <Form
@@ -51,7 +51,7 @@ const SSOLoginForm: React.FC<SSOLoginFormProps> = ({ onBack, disabled }) => {
           />
         </Form.Item>
 
-        <p className="text-xs opacity-40 mb-3">支持 SAML 2.0 和 OAuth 2.0/OIDC 协议</p>
+        <p className="text-xs opacity-40 mb-3">如租户已配置 SSO，将跳转到对应认证入口</p>
 
         <Form.Item className="!mb-2">
           <Button type="primary" htmlType="submit" block loading={isSubmitting}>

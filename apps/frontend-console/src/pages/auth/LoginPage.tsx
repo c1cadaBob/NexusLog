@@ -12,18 +12,18 @@ type ViewType = 'login' | 'forgot-password' | 'sso';
 
 // 产品特性
 const features = [
-  { icon: 'search', title: '日志检索', desc: '支持实时检索、历史记录与常用查询保存' },
-  { icon: 'notifications_active', title: '告警与事件', desc: '支持查看告警、规则、通知配置与事件流程' },
-  { icon: 'schema', title: '采集与解析', desc: '支持采集源、Agent、字段映射与解析规则管理' },
-  { icon: 'storage', title: '存储与审计', desc: '支持索引、备份、容量监控以及审计日志查看' },
+  { icon: 'search', title: '日志检索', desc: '可查询实时与历史日志，并保存常用查询条件' },
+  { icon: 'notifications_active', title: '告警与事件', desc: '可查看告警、规则、通知配置与事件处理记录' },
+  { icon: 'schema', title: '采集与解析', desc: '可管理采集源、Agent、字段映射与解析规则' },
+  { icon: 'storage', title: '存储与审计', desc: '可查看索引、备份、容量信息与审计日志' },
 ];
 
 // 统计数据
 const stats = [
-  { value: '检索', label: '实时与历史查询' },
-  { value: '告警', label: '规则、通知、静默' },
-  { value: '接入', label: '采集源与解析配置' },
-  { value: '审计', label: '操作留痕与配置管理' },
+  { value: '查询', label: '实时与历史日志' },
+  { value: '告警', label: '规则、通知、事件' },
+  { value: '接入', label: '采集源、Agent、解析' },
+  { value: '审计', label: '操作记录与配置' },
 ];
 
 // 语言选项
@@ -140,18 +140,18 @@ const LoginPage: React.FC = () => {
 
           {/* 主标题 */}
           <h1 className="text-4xl xl:text-5xl font-bold text-white leading-tight mb-6">
-            统一日志管理
+            日志管理
             <br />
             <span
               className="bg-clip-text text-transparent"
               style={{ backgroundImage: 'linear-gradient(to right, #135bec, #a78bfa)' }}
             >
-              与运维控制台
+              与运维工作台
             </span>
           </h1>
 
           <p className="text-lg mb-10 leading-relaxed" style={{ color: '#94a3b8' }}>
-            当前系统已提供概览、日志检索、告警与事件、采集接入、字段解析、存储巡检、追踪与审计等常用能力，帮助团队完成日常排障与运维管理。
+            当前控制台可查看概览、执行日志检索、管理告警与事件、维护采集源与 Agent，并进入字段解析、存储、追踪和审计等页面。
           </p>
 
           {/* 产品特性卡片 */}
@@ -227,9 +227,9 @@ const LoginPage: React.FC = () => {
                   </span>
                 </div>
                 <h1 className="text-xl font-bold text-white lg:hidden">NexusLog</h1>
-                <h2 className="hidden lg:block text-lg font-semibold text-white">欢迎回来</h2>
+                <h2 className="hidden lg:block text-lg font-semibold text-white">账号登录</h2>
                 <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
-                  <span className="lg:hidden">欢迎回来，</span>登录后进入日志与运维控制台
+                  <span className="lg:hidden">欢迎回来，</span>登录后进入当前已开通的日志与运维功能
                 </p>
               </div>
             )}
@@ -250,7 +250,7 @@ const LoginPage: React.FC = () => {
           {/* 底部：安全提示 + 语言切换 */}
           <div className="mt-3 flex items-center justify-between px-2">
             <p className="text-xs" style={{ color: '#64748b' }}>
-              请勿在公共设备上勾选"记住我"
+              公共设备请勿勾选"记住我"
             </p>
             <Dropdown
               menu={{
