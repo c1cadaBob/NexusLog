@@ -292,6 +292,15 @@ function buildRealtimeTimeRangeForOverviewRange(overviewRange: DashboardOverview
   };
 }
 
+function buildRealtimeTimeRangePresetQuery(timeRange: DashboardRealtimeTimeRange): string {
+  const from = timeRange.from?.trim() ?? '';
+  const to = timeRange.to?.trim() ?? '';
+  if (!from && !to) {
+    return '';
+  }
+  return `time:[${from}, ${to}]`;
+}
+
 function buildKpiData(overview: DashboardOverviewStats | null, overviewRange: DashboardOverviewRange): KpiData[] {
   const levelDistribution = overview?.level_distribution ?? {};
   const totalLogs = Number(overview?.total_logs) || 0;
@@ -1212,16 +1221,18 @@ const Dashboard: React.FC = () => {
           <Card
             title={<span className="text-sm font-bold">活跃主机 / 服务 Top 5</span>}
             extra={
-              <Tooltip title={dashboardEntryAccess.alertsList.allowed ? undefined : dashboardEntryAccess.alertsList.deniedTooltip}>
+              <Tooltip title={dashboardEntryAccess.realtimeSearch.allowed ? undefined : dashboardEntryAccess.realtimeSearch.deniedTooltip}>
                 <Button
                   type="link"
                   size="small"
-                  onClick={() => handleProtectedNavigate(
-                    '/alerts/list',
-                    dashboardEntryAccess.alertsList.allowed,
-                    dashboardEntryAccess.alertsList.deniedTooltip,
-                  )}
-                  style={dashboardEntryAccess.alertsList.allowed ? undefined : { opacity: 0.5, cursor: 'not-allowed' }}
+                  onClick={() => {
+                    const timeRange = buildRealtimeTimeRangeForOverviewRange(overviewRange);
+                    handleRealtimeSearchNavigate(
+                      buildRealtimeTimeRangePresetQuery(timeRange),
+                      timeRange,
+                    );
+                  }}
+                  style={dashboardEntryAccess.realtimeSearch.allowed ? undefined : { opacity: 0.5, cursor: 'not-allowed' }}
                 >
                   查看更多
                 </Button>
