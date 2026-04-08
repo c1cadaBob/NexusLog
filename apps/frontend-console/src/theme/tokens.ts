@@ -42,8 +42,8 @@ export const LIGHT_PALETTE = {
 
 // 字体
 export const FONTS = {
-  base: 'Inter, system-ui, -apple-system, sans-serif',
-  code: 'JetBrains Mono, Fira Code, monospace',
+  base: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  code: 'ui-monospace, "SFMono-Regular", "Cascadia Code", "Fira Code", monospace',
 } as const;
 
 // 间距（密度模式）

@@ -25,6 +25,28 @@ services:
     restart: unless-stopped
 
   # ============================================================
+  # 网关入口（推荐作为 FRP / 公网入口）
+  # ============================================================
+  gateway:
+    build:
+      context: ./gateway/openresty
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:18080:80"
+    depends_on:
+      - frontend-console
+      - api-service
+      - bff-service
+      - control-plane
+      - query-api
+      - audit-api
+      - export-api
+      - keycloak
+    networks:
+      - nexuslog-net
+    restart: unless-stopped
+
+  # ============================================================
   # 后端微服务
   # ============================================================
   control-plane:
