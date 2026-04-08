@@ -10,21 +10,21 @@ import {
 } from '../../api/ingest';
 
 const SOURCE_TYPE_OPTIONS = [
-  { label: '文本日志', value: 'custom', description: '任意应用日志目录或文件模式' },
-  { label: 'Nginx', value: 'nginx', description: '接入 access / error 日志' },
-  { label: 'Java 应用', value: 'java', description: '接入 JVM 或业务日志目录' },
-  { label: 'MySQL', value: 'mysql', description: '接入 error / slow query 日志' },
-  { label: 'Docker', value: 'docker', description: '接入容器 stdout/stderr 日志' },
-  { label: 'Kubernetes', value: 'kubernetes', description: '接入容器日志目录' },
-  { label: 'Syslog / 网络设备', value: 'syslog', description: '通过 collector-agent 监听 UDP/TCP Syslog' },
+  { label: '通用文件日志', value: 'custom', description: '预填通用文件 / 目录路径，适用于任意文本日志' },
+  { label: 'Nginx', value: 'nginx', description: '预填 access / error 常见路径，实际仍按文件路径拉取' },
+  { label: 'Java 应用', value: 'java', description: '预填 JVM 或业务日志目录，需按主机实际路径校对' },
+  { label: 'MySQL', value: 'mysql', description: '预填 error / slow query 常见路径，仍按文件路径拉取' },
+  { label: 'Docker', value: 'docker', description: '预填容器 JSON 日志路径，需确认宿主机挂载目录' },
+  { label: 'Kubernetes', value: 'kubernetes', description: '预填容器日志目录，需确认节点上的真实路径' },
+  { label: 'Syslog / 网络设备', value: 'syslog', description: '切换到 Syslog 监听模式，使用 UDP / TCP 监听地址' },
 ] as const;
 
 const DEPLOY_TARGET_OPTIONS = [
-  { label: 'Linux systemd', value: 'linux-systemd' },
-  { label: 'Linux Docker', value: 'linux-docker' },
-  { label: 'Windows 启动任务', value: 'windows-startup-task' },
-  { label: '网络设备 Syslog UDP', value: 'network-syslog-udp' },
-  { label: '网络设备 Syslog TCP', value: 'network-syslog-tcp' },
+  { label: 'Linux systemd', value: 'linux-systemd', description: '后端可生成 Bash 脚本，在 Linux 主机部署 collector-agent，并用于文件拉取或 Syslog 监听。' },
+  { label: 'Linux Docker', value: 'linux-docker', description: '后端可生成 docker-compose，前提是你已准备可访问的 collector-agent 镜像，并自行挂载日志目录。' },
+  { label: 'Windows 启动任务', value: 'windows-startup-task', description: '后端可生成 PowerShell 启动任务脚本，但要真正落地仍依赖 Windows 发布包。' },
+  { label: '网络设备 Syslog UDP', value: 'network-syslog-udp', description: '页面只生成通用 UDP Syslog 目标参数，不生成厂商专用命令。' },
+  { label: '网络设备 Syslog TCP', value: 'network-syslog-tcp', description: '页面只生成通用 TCP Syslog 目标参数，前提是 Linux collector-agent 已开启对应监听。' },
 ] as const;
 
 const RELEASE_PROVIDER_OPTIONS = [
@@ -143,6 +143,10 @@ const AccessWizard: React.FC = () => {
   const selectedAgent = useMemo(
     () => agents.find((item) => item.agent_id === selectedAgentId) ?? null,
     [agents, selectedAgentId],
+  );
+  const selectedDeploymentTarget = useMemo(
+    () => DEPLOY_TARGET_OPTIONS.find((item) => item.value === deploymentTarget) ?? null,
+    [deploymentTarget],
   );
 
   const loadAgents = useCallback(async () => {
@@ -343,6 +347,12 @@ const AccessWizard: React.FC = () => {
   const renderStepOne = () => (
     <Card title="1. 选择来源与命名">
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Alert
+          type="info"
+          showIcon
+          message="当前向导的真实能力"
+          description="当前系统实际支持两类接入：一类是通过 collector-agent 按路径拉取文件 / 目录日志，另一类是通过 collector-agent 监听 UDP / TCP Syslog。Nginx、Java、MySQL、Docker、Kubernetes 这些选项主要用于预填常见路径模板，不会额外安装专用采集插件。"
+        />
         <div>
           <div style={{ fontWeight: 500, marginBottom: 8 }}>数据源类型</div>
           <Radio.Group name="sourceType" value={sourceType} onChange={(event) => setSourceType(event.target.value)}>
@@ -412,9 +422,15 @@ const AccessWizard: React.FC = () => {
           </Card>
         )}
 
-        <Card size="small" type="inner" title="部署产物配置">
+        <Card size="small" type="inner" title="部署脚本参数">
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Card size="small" type="inner" title="发布源与版本">
+            <Alert
+              type="info"
+              showIcon
+              message="这些参数只在点击“生成部署脚本”时生效"
+              description="当前后端可生成 Linux systemd、Linux Docker、Windows 启动任务，以及网络设备 Syslog 目标参数。是否能直接执行，还取决于你填写的发布包地址、镜像地址，以及目标主机的访问条件。"
+            />
+            <Card size="small" type="inner" title="发布包地址与版本">
               <Form layout="vertical" name="access-wizard-release-config">
                 <Space align="start" wrap style={{ width: '100%' }}>
                   <Form.Item label="发布源">
@@ -454,7 +470,7 @@ const AccessWizard: React.FC = () => {
               </Form>
             </Card>
 
-            <Card size="small" type="inner" title="容器镜像（Linux Docker 目标可选）">
+            <Card size="small" type="inner" title="容器镜像（仅 Linux Docker 脚本会使用）">
               <Form layout="vertical" name="access-wizard-image-config">
                 <Form.Item label="镜像来源">
                   <Select id="access-wizard-image-provider" value={containerImageProvider} options={IMAGE_PROVIDER_OPTIONS.map((item) => ({ label: item.label, value: item.value }))} onChange={setContainerImageProvider} style={{ width: 180 }} />
@@ -519,7 +535,7 @@ const AccessWizard: React.FC = () => {
   );
 
   const renderStepThree = () => (
-    <Card title="3. 创建并生成部署脚本">
+    <Card title="3. 确认配置并按需生成脚本">
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Descriptions bordered size="small" column={2}>
           <Descriptions.Item label="数据源类型">{SOURCE_TYPE_OPTIONS.find((item) => item.value === sourceType)?.label ?? sourceType}</Descriptions.Item>
@@ -539,15 +555,24 @@ const AccessWizard: React.FC = () => {
           <Alert
             type="warning"
             showIcon
-            message="脚本仍包含占位仓库信息"
-            description="请补充 GitHub/Gitee 的 owner、repo 或自定义发布地址后再生成正式部署脚本。"
+            message="脚本仍包含占位仓库信息，暂时不能直接执行"
+            description="请补充 GitHub/Gitee 的 owner、repo 或自定义发布地址；如果是 Linux Docker 目标，还要确认镜像地址不是占位值。"
+          />
+        ) : null}
+
+        {selectedDeploymentTarget ? (
+          <Alert
+            type={deploymentTarget === 'windows-startup-task' ? 'warning' : 'info'}
+            showIcon
+            message={`当前脚本目标：${selectedDeploymentTarget.label}`}
+            description={selectedDeploymentTarget.description}
           />
         ) : null}
 
         <Typography.Text type="secondary">
           推荐流程：{agentMode === 'new'
-            ? '先生成并执行部署脚本，再创建采集源；如果你已经确定目标 Agent URL，也可以先创建设定。'
-            : '已有 Agent 可直接创建采集源；如需迁移到新主机，也可以生成一份新的部署脚本。'}
+            ? '先确认发布包或镜像地址真实可访问，再生成脚本；脚本执行成功后，再创建采集源。若 Agent URL 已提前确定，也可以先保存采集源配置。'
+            : '已有 Agent 可以直接创建采集源；只有在迁移或扩容主机时，才需要再生成一份新的部署脚本。'}
         </Typography.Text>
 
         <Card size="small" type="inner" title="部署脚本生成">
@@ -598,7 +623,7 @@ const AccessWizard: React.FC = () => {
         <div>
           <Typography.Title level={2} style={{ margin: 0 }}>接入向导</Typography.Title>
           <Typography.Paragraph style={{ margin: '4px 0 0', color: '#94a3b8' }}>
-            支持绑定真实 Agent、生成 Linux / Windows / Syslog 接入脚本，并直接创建 pull source 配置。
+            基于真实 Agent 列表和部署脚本接口，辅助创建 pull source。向导中的类型主要用于预填常见路径模板，最终仍需按主机实际路径、发布包和镜像情况确认。
           </Typography.Paragraph>
         </div>
         <Space>
