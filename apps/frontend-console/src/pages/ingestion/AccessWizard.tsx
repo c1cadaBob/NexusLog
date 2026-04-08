@@ -387,8 +387,8 @@ const AccessWizard: React.FC = () => {
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Radio.Group name="agentMode" value={agentMode} onChange={(event) => setAgentMode(event.target.value)}>
           <Space>
-            <Radio value="existing">绑定现有 Agent</Radio>
-            <Radio value="new">为新主机生成部署脚本</Radio>
+            <Radio value="existing">使用现有 Agent</Radio>
+            <Radio value="new">准备新主机脚本</Radio>
           </Space>
         </Radio.Group>
 
@@ -397,7 +397,7 @@ const AccessWizard: React.FC = () => {
             {agentsLoading ? (
               <Typography.Text type="secondary">正在加载 Agent 列表...</Typography.Text>
             ) : !agents.length ? (
-              <Typography.Text type="secondary">当前没有可用 Agent，可切换到“为新主机生成部署脚本”，先部署 agent 再回来绑定。</Typography.Text>
+              <Typography.Text type="secondary">当前没有可用 Agent，可切换到“准备新主机脚本”，先部署 agent 再回来绑定。</Typography.Text>
             ) : (
               <Form layout="vertical" name="access-wizard-existing-agent">
                 <Form.Item label="Agent">
@@ -540,7 +540,7 @@ const AccessWizard: React.FC = () => {
         <Descriptions bordered size="small" column={2}>
           <Descriptions.Item label="数据源类型">{SOURCE_TYPE_OPTIONS.find((item) => item.value === sourceType)?.label ?? sourceType}</Descriptions.Item>
           <Descriptions.Item label="数据源名称">{sourceName || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Agent 方式">{agentMode === 'existing' ? '绑定现有 Agent' : '生成新主机部署脚本'}</Descriptions.Item>
+          <Descriptions.Item label="Agent 方式">{agentMode === 'existing' ? '使用现有 Agent' : '准备新主机脚本'}</Descriptions.Item>
           <Descriptions.Item label="Agent URL">{agentBaseUrl || '-'}</Descriptions.Item>
           <Descriptions.Item label="版本 / Tag">{normalizedVersion}</Descriptions.Item>
           <Descriptions.Item label="发布源">{RELEASE_PROVIDER_OPTIONS.find((item) => item.value === releaseProvider)?.label ?? releaseProvider}</Descriptions.Item>
