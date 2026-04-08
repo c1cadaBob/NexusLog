@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, App, Button, Card, Descriptions, Empty, Input, Modal, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Descriptions, Empty, Input, Modal, Select, Space, Spin, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import { fetchIngestAgents, type IngestAgentItem } from '../../api/ingest';
@@ -38,6 +38,56 @@ function formatDateTime(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString('zh-CN');
+}
+
+function formatShortDateTime(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatShortId(value?: string, head = 8, tail = 4) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return '-';
+  if (normalized.length <= head + tail + 1) return normalized;
+  return `${normalized.slice(0, head)}…${normalized.slice(-tail)}`;
+}
+
+function renderPathPreview(paths?: string[]) {
+  const normalizedPaths = (paths ?? [])
+    .map((path) => String(path ?? '').trim())
+    .filter(Boolean);
+
+  if (!normalizedPaths.length) {
+    return <span style={{ color: '#94a3b8', fontSize: 12 }}>未发现目录</span>;
+  }
+
+  const tooltipContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {normalizedPaths.map((path) => (
+        <span key={path} style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{path}</span>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+      <Tooltip title={tooltipContent}>
+        <Typography.Text code ellipsis style={{ margin: 0, fontSize: 12, maxWidth: '100%', display: 'inline-block' }}>
+          {normalizedPaths[0]}
+        </Typography.Text>
+      </Tooltip>
+      {normalizedPaths.length > 1 ? (
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>共 {normalizedPaths.length} 个目录</span>
+      ) : null}
+    </div>
+  );
 }
 
 const AgentManagement: React.FC = () => {
@@ -104,80 +154,101 @@ const AgentManagement: React.FC = () => {
 
   const columns: ColumnsType<IngestAgentItem> = [
     {
-      title: 'Agent / 主机',
+      title: 'Agent',
       key: 'agent',
-      width: 280,
-      render: (_, agent) => (
-        <div>
-          <div style={{ fontWeight: 600 }}>{agent.hostname || agent.host || agent.agent_id}</div>
-          <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>{agent.agent_id}</div>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>{agent.ip || agent.host || '-'}</div>
-        </div>
-      ),
-    },
-    {
-      title: '连接地址',
-      dataIndex: 'agent_base_url',
-      key: 'agent_base_url',
-      width: 220,
-      render: (value?: string) => (
-        <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{value || '-'}</span>
-      ),
-    },
-    {
-      title: '采集目录',
-      key: 'paths',
-      width: 320,
+      width: 250,
       render: (_, agent) => {
-        const paths = agent.source_paths ?? [];
-        if (!paths.length) return <span style={{ color: '#94a3b8' }}>未发现目录</span>;
+        const displayName = agent.hostname || agent.host || agent.agent_id;
+        const displayEndpoint = [agent.ip || agent.host, agent.agent_base_url].filter(Boolean).join(' · ');
+
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {paths.slice(0, 3).map((path) => (
-              <span key={path} style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{path}</span>
-            ))}
-            {paths.length > 3 ? <span style={{ fontSize: 12, color: '#94a3b8' }}>还有 {paths.length - 3} 个目录...</span> : null}
+          <div style={{ minWidth: 0 }}>
+            <Tooltip title={displayName}>
+              <Typography.Text strong ellipsis style={{ maxWidth: '100%', display: 'block' }}>{displayName}</Typography.Text>
+            </Tooltip>
+            <Tooltip title={agent.agent_id}>
+              <Typography.Text
+                type="secondary"
+                ellipsis
+                style={{ maxWidth: '100%', display: 'block', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}
+              >
+                {formatShortId(agent.agent_id)}
+              </Typography.Text>
+            </Tooltip>
+            <Tooltip title={displayEndpoint || '-'}>
+              <Typography.Text type="secondary" ellipsis style={{ maxWidth: '100%', display: 'block', fontSize: 12 }}>
+                {displayEndpoint || '-'}
+              </Typography.Text>
+            </Tooltip>
           </div>
         );
       },
     },
     {
-      title: '资源情况',
-      key: 'metrics',
-      width: 180,
-      render: (_, agent) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-          <span>CPU：{formatPercent(agent.metrics?.cpu_usage_pct)}</span>
-          <span>内存：{formatPercent(agent.metrics?.memory_usage_pct)}</span>
-          <span>磁盘：{formatPercent(agent.metrics?.disk_usage_pct)}</span>
-        </div>
-      ),
+      title: '目录',
+      key: 'paths',
+      width: 260,
+      render: (_, agent) => renderPathPreview(agent.source_paths),
     },
     {
-      title: '状态',
-      key: 'status',
-      width: 120,
+      title: '资源 / 采集源',
+      key: 'metrics',
+      width: 220,
       render: (_, agent) => {
-        const meta = getStatusMeta(agent.status, agent.live_connected);
+        const summary = `CPU ${formatPercent(agent.metrics?.cpu_usage_pct)} / 内存 ${formatPercent(agent.metrics?.memory_usage_pct)} / 磁盘 ${formatPercent(agent.metrics?.disk_usage_pct)}`;
+        const detailLines = [
+          `CPU：${formatPercent(agent.metrics?.cpu_usage_pct)}`,
+          `内存：${formatPercent(agent.metrics?.memory_usage_pct)}`,
+          `磁盘：${formatPercent(agent.metrics?.disk_usage_pct)}`,
+          `采集时间：${formatDateTime(agent.metrics?.collected_at)}`,
+          `版本：${agent.version || '-'}`,
+        ];
+
         return (
-          <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
-            {meta.label}
-          </Tag>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+            <Tooltip
+              title={(
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {detailLines.map((line) => <div key={line}>{line}</div>)}
+                </div>
+              )}
+            >
+              <Typography.Text ellipsis style={{ maxWidth: '100%', display: 'block', fontSize: 12 }}>
+                {summary}
+              </Typography.Text>
+            </Tooltip>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              活跃 {agent.active_source_count} / 总 {agent.source_count}
+            </Typography.Text>
+          </div>
         );
       },
     },
     {
-      title: '最近探测',
-      dataIndex: 'last_seen_at',
-      key: 'last_seen_at',
-      width: 180,
-      render: (value?: string) => <span style={{ fontSize: 12, color: '#94a3b8' }}>{formatDateTime(value)}</span>,
+      title: '状态 / 探测',
+      key: 'status',
+      width: 170,
+      render: (_, agent) => {
+        const meta = getStatusMeta(agent.status, agent.live_connected);
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+            <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, width: 'fit-content', marginInlineEnd: 0 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
+              {meta.label}
+            </Tag>
+            <Tooltip title={formatDateTime(agent.last_seen_at)}>
+              <Typography.Text type="secondary" ellipsis style={{ maxWidth: '100%', display: 'block', fontSize: 12 }}>
+                最近 {formatShortDateTime(agent.last_seen_at)}
+              </Typography.Text>
+            </Tooltip>
+          </div>
+        );
+      },
     },
     {
       title: '操作',
       key: 'actions',
-      width: 160,
+      width: 120,
       align: 'right',
       render: (_, agent) => (
         <Space size={4}>
@@ -230,6 +301,7 @@ const AgentManagement: React.FC = () => {
           <Empty description="当前没有可展示的 Agent" />
         ) : (
           <Table<IngestAgentItem>
+            size="small"
             rowKey={(record) => `${record.agent_id}-${record.agent_base_url ?? record.host ?? ''}`}
             columns={columns}
             dataSource={filteredAgents}
@@ -239,7 +311,7 @@ const AgentManagement: React.FC = () => {
               pageSizeOptions: [10, 20, 50, 100],
               onShowSizeChange: (_, size) => setPageSize(size),
             }}
-            scroll={{ x: 1400 }}
+            scroll={{ x: 1080 }}
           />
         )}
       </Card>
