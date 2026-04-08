@@ -410,7 +410,7 @@ const AccessWizard: React.FC = () => {
             )}
           </Card>
         ) : (
-          <Card size="small" type="inner" title="新主机部署参数">
+          <Card size="small" type="inner" title="新主机接入参数">
             <Form layout="vertical" name="access-wizard-new-agent-basic">
               <Form.Item label="Agent 基础 URL" extra="创建采集源后，控制面会通过这个地址探活与拉取日志。">
                 <Input name="agentBaseUrl" value={agentBaseUrl} onChange={(event) => setAgentBaseUrl(event.target.value)} placeholder="例如：http://10.0.0.15:9091" />
@@ -422,7 +422,7 @@ const AccessWizard: React.FC = () => {
           </Card>
         )}
 
-        <Card size="small" type="inner" title="部署脚本参数">
+        <Card size="small" type="inner" title="脚本参数与来源">
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Alert
               type="info"
@@ -430,7 +430,7 @@ const AccessWizard: React.FC = () => {
               message="这些参数只在点击“生成部署脚本”时生效"
               description="当前后端可生成 Linux systemd、Linux Docker、Windows 启动任务，以及网络设备 Syslog 目标参数。是否能直接执行，还取决于你填写的发布包地址、镜像地址，以及目标主机的访问条件。"
             />
-            <Card size="small" type="inner" title="发布包地址与版本">
+            <Card size="small" type="inner" title="发布包来源与版本">
               <Form layout="vertical" name="access-wizard-release-config">
                 <Space align="start" wrap style={{ width: '100%' }}>
                   <Form.Item label="发布源">
@@ -575,7 +575,7 @@ const AccessWizard: React.FC = () => {
             : '已有 Agent 可以直接保存采集源配置；只有在迁移或扩容主机时，才需要再生成一份新的部署脚本。'}
         </Typography.Text>
 
-        <Card size="small" type="inner" title="部署脚本生成">
+        <Card size="small" type="inner" title="脚本内容与命令">
           <Space direction="vertical" style={{ width: '100%' }}>
             <Select id="access-wizard-deployment-target" value={deploymentTarget} options={DEPLOY_TARGET_OPTIONS.map((item) => ({ label: item.label, value: item.value }))} onChange={setDeploymentTarget} style={{ width: 240 }} />
             <Space>
