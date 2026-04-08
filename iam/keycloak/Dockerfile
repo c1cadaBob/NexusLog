@@ -17,7 +17,9 @@ COPY themes/nexuslog/ /opt/keycloak/themes/nexuslog/
 RUN /opt/keycloak/bin/kc.sh build \
     --db=postgres \
     --health-enabled=true \
-    --metrics-enabled=true
+    --metrics-enabled=true \
+    --cache=local \
+    --transaction-xa-enabled=false
 
 # --- 运行阶段 ---
 FROM quay.io/keycloak/keycloak:24.0
@@ -34,7 +36,6 @@ COPY mappers/ /opt/keycloak/data/import/mappers/
 COPY themes/nexuslog/ /opt/keycloak/themes/nexuslog/
 
 # 环境变量（运行时通过 docker-compose 或 K8s 覆盖）
-ENV KC_DB=postgres
 ENV KC_DB_URL_HOST=postgresql
 ENV KC_DB_URL_DATABASE=keycloak
 ENV KC_DB_USERNAME=keycloak
@@ -42,8 +43,6 @@ ENV KC_DB_PASSWORD=changeme
 ENV KC_HOSTNAME_STRICT=false
 ENV KC_PROXY_HEADERS=xforwarded
 ENV KC_HTTP_ENABLED=true
-ENV KC_HEALTH_ENABLED=true
-ENV KC_METRICS_ENABLED=true
 
 EXPOSE 8080 8443
 
