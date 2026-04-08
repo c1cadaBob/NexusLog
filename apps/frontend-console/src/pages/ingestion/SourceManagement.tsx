@@ -1,17 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Button, Card, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import {
   createPullSource,
   deletePullSource,
   fetchIngestAgents,
+  fetchPullSourceStatus,
   fetchPullSources,
   runPullTask,
   updatePullSource,
   type CreatePullSourcePayload,
   type IngestAgentItem,
   type PullSource,
+  type PullSourceStatusResponse,
   type UpdatePullSourcePayload,
 } from '../../api/ingest';
 import { hasAnyCapability } from '../../auth/routeAuthorization';
@@ -21,8 +23,18 @@ import { useAuthStore } from '../../stores/authStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { COLORS } from '../../theme/tokens';
 
-const STATUS_OPTIONS = [
+const STATUS_FILTER_OPTIONS = [
   { label: '全部状态', value: 'all' },
+  { label: '健康', value: 'healthy' },
+  { label: '运行中', value: 'running' },
+  { label: '启用中', value: 'active' },
+  { label: '已暂停', value: 'paused' },
+  { label: '已禁用', value: 'disabled' },
+  { label: '离线', value: 'offline' },
+  { label: '错误', value: 'error' },
+];
+
+const CONFIG_STATUS_OPTIONS = [
   { label: '启用中', value: 'active' },
   { label: '已暂停', value: 'paused' },
   { label: '已禁用', value: 'disabled' },
@@ -56,11 +68,86 @@ function formatDateTime(value?: string) {
   return date.toLocaleString('zh-CN');
 }
 
-function getStatusMeta(status: string) {
+function formatNumber(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-';
+  return value.toLocaleString('zh-CN');
+}
+
+function formatBytes(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+function getConfiguredStatusMeta(status: string) {
   const normalized = String(status ?? '').toLowerCase();
   if (normalized === 'active') return { label: '启用中', color: 'success', dot: COLORS.success };
   if (normalized === 'paused') return { label: '已暂停', color: 'warning', dot: COLORS.warning };
   return { label: '已禁用', color: 'default', dot: '#94a3b8' };
+}
+
+function getRuntimeStatusMeta(status?: string) {
+  const normalized = String(status ?? '').toLowerCase();
+  if (!normalized) {
+    return { label: '未上报', color: 'default', dot: '#94a3b8' };
+  }
+  switch (normalized) {
+    case 'healthy':
+      return { label: '健康', color: 'success', dot: COLORS.success };
+    case 'running':
+      return { label: '运行中', color: 'processing', dot: COLORS.info };
+    case 'paused':
+      return { label: '暂停', color: 'warning', dot: COLORS.warning };
+    case 'disabled':
+      return { label: '禁用', color: 'default', dot: '#94a3b8' };
+    case 'offline':
+      return { label: '离线', color: 'error', dot: COLORS.danger };
+    default:
+      return { label: '错误', color: 'error', dot: COLORS.danger };
+  }
+}
+
+function getTaskStatusMeta(status?: string) {
+  const normalized = String(status ?? '').toLowerCase();
+  switch (normalized) {
+    case 'success':
+    case 'succeeded':
+    case 'done':
+    case 'completed':
+      return { label: '成功', color: 'success' as const };
+    case 'running':
+    case 'processing':
+      return { label: '运行中', color: 'processing' as const };
+    case 'queued':
+    case 'scheduled':
+    case 'pending':
+      return { label: '待执行', color: 'default' as const };
+    case 'failed':
+    case 'error':
+      return { label: '失败', color: 'error' as const };
+    default:
+      return { label: status || '未知', color: 'default' as const };
+  }
+}
+
+function getPackageStatusMeta(status?: string) {
+  const normalized = String(status ?? '').toLowerCase();
+  switch (normalized) {
+    case 'acked':
+    case 'ack':
+      return { label: '已确认', color: 'success' as const };
+    case 'nacked':
+    case 'nack':
+      return { label: '回执失败', color: 'error' as const };
+    case 'created':
+    case 'sent':
+    case 'running':
+      return { label: '处理中', color: 'processing' as const };
+    default:
+      return { label: status || '未知', color: 'default' as const };
+  }
 }
 
 function renderPathPreview(value?: string, maxItems = 2) {
@@ -97,6 +184,8 @@ const SourceManagement: React.FC = () => {
   const [form] = Form.useForm();
   const [sources, setSources] = useState<PullSource[]>([]);
   const [agents, setAgents] = useState<IngestAgentItem[]>([]);
+  const [statusResponse, setStatusResponse] = useState<PullSourceStatusResponse | null>(null);
+  const [runtimeStatusError, setRuntimeStatusError] = useState('');
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -123,12 +212,41 @@ const SourceManagement: React.FC = () => {
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setRuntimeStatusError('');
     try {
-      const [sourceData, agentData] = await Promise.all([fetchPullSources(), fetchIngestAgents()]);
-      setSources(sourceData);
-      setAgents(agentData);
-    } catch (err) {
-      messageApi.error(`采集源加载失败：${err instanceof Error ? err.message : String(err)}`);
+      const [sourceResult, agentResult, statusResult] = await Promise.allSettled([
+        fetchPullSources(),
+        fetchIngestAgents(),
+        fetchPullSourceStatus('1h'),
+      ]);
+
+      const errors: string[] = [];
+
+      if (sourceResult.status === 'fulfilled') {
+        setSources(sourceResult.value);
+      } else {
+        errors.push(`采集源配置：${sourceResult.reason instanceof Error ? sourceResult.reason.message : String(sourceResult.reason)}`);
+        setSources([]);
+      }
+
+      if (agentResult.status === 'fulfilled') {
+        setAgents(agentResult.value);
+      } else {
+        errors.push(`Agent：${agentResult.reason instanceof Error ? agentResult.reason.message : String(agentResult.reason)}`);
+        setAgents([]);
+      }
+
+      if (statusResult.status === 'fulfilled') {
+        setStatusResponse(statusResult.value);
+      } else {
+        const reason = statusResult.reason instanceof Error ? statusResult.reason.message : String(statusResult.reason);
+        setStatusResponse(null);
+        setRuntimeStatusError(reason);
+      }
+
+      if (errors.length > 0) {
+        messageApi.error(`采集与接入加载失败：${errors.join('；')}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -138,22 +256,43 @@ const SourceManagement: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  const runtimeStatusMap = useMemo(() => new Map((statusResponse?.items ?? []).map((item) => [item.source_id, item])), [statusResponse]);
+
   const filteredSources = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     return sources.filter((source) => {
-      if (statusFilter !== 'all' && source.status !== statusFilter) return false;
+      const runtime = runtimeStatusMap.get(source.source_id);
+      if (statusFilter !== 'all') {
+        if (source.status !== statusFilter && String(runtime?.runtime_status ?? '').toLowerCase() !== statusFilter) return false;
+      }
       if (!normalizedQuery) return true;
-      const haystacks = [source.name, source.source_id, source.host, source.protocol, source.path, source.agent_base_url].filter(Boolean).join(' ').toLowerCase();
+      const haystacks = [
+        source.name,
+        source.source_id,
+        source.host,
+        source.protocol,
+        source.path,
+        source.agent_base_url,
+        runtime?.agent_hostname,
+        runtime?.agent_id,
+        runtime?.error_message,
+        runtime?.last_task?.status,
+        runtime?.last_package?.status,
+      ].filter(Boolean).join(' ').toLowerCase();
       return haystacks.includes(normalizedQuery);
     });
-  }, [sources, searchQuery, statusFilter]);
+  }, [runtimeStatusMap, searchQuery, sources, statusFilter]);
 
   const stats = useMemo(() => ({
     total: sources.length,
     active: sources.filter((item) => item.status === 'active').length,
     paused: sources.filter((item) => item.status === 'paused').length,
     disabled: sources.filter((item) => item.status === 'disabled').length,
-  }), [sources]);
+    healthy: statusResponse?.summary.healthy_sources ?? 0,
+    onlineAgents: statusResponse?.summary.online_agents ?? 0,
+    recentPackageCount: statusResponse?.summary.recent_package_count ?? 0,
+    recentRecordCount: statusResponse?.summary.recent_record_count ?? 0,
+  }), [sources, statusResponse]);
 
   const agentMap = useMemo(() => new Map(agents.map((agent) => [agent.agent_base_url ?? '', agent])), [agents]);
   const agentOptions = useMemo(() => agents
@@ -292,10 +431,11 @@ const SourceManagement: React.FC = () => {
       width: 260,
       render: (_, source) => {
         const agent = agentMap.get(source.agent_base_url ?? '');
+        const runtime = runtimeStatusMap.get(source.source_id);
         return (
           <div>
-            <div>{agent?.hostname || agent?.host || source.host || '-'}</div>
-            <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>{source.agent_base_url || '-'}</div>
+            <div>{runtime?.agent_hostname || agent?.hostname || agent?.host || source.host || '-'}</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>{runtime?.agent_id || source.agent_base_url || '-'}</div>
           </div>
         );
       },
@@ -319,11 +459,12 @@ const SourceManagement: React.FC = () => {
       ),
     },
     {
-      title: '状态',
-      key: 'status',
+      title: '运行状态',
+      key: 'runtime_status',
       width: 120,
       render: (_, source) => {
-        const meta = getStatusMeta(source.status);
+        const runtime = runtimeStatusMap.get(source.source_id);
+        const meta = getRuntimeStatusMeta(runtime?.runtime_status);
         return (
           <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
@@ -333,11 +474,64 @@ const SourceManagement: React.FC = () => {
       },
     },
     {
+      title: '配置状态',
+      key: 'configured_status',
+      width: 120,
+      render: (_, source) => {
+        const meta = getConfiguredStatusMeta(source.status);
+        return (
+          <Tag color={meta.color} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, display: 'inline-block' }} />
+            {meta.label}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: '最近拉取事件',
+      key: 'latest_event',
+      width: 280,
+      render: (_, source) => {
+        const runtime = runtimeStatusMap.get(source.source_id);
+        if (!runtime) {
+          return <span style={{ fontSize: 12, color: '#94a3b8' }}>暂无运行态数据</span>;
+        }
+        const taskMeta = getTaskStatusMeta(runtime.last_task?.status);
+        const packageMeta = getPackageStatusMeta(runtime.last_package?.status);
+        const taskTime = runtime.last_task?.finished_at || runtime.last_task?.started_at || runtime.last_task?.scheduled_at;
+        const packageTime = runtime.last_package?.acked_at || runtime.last_package?.created_at;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ color: '#94a3b8' }}>任务</span>
+              <Tag color={taskMeta.color} style={{ marginInlineEnd: 0 }}>{taskMeta.label}</Tag>
+              <span style={{ color: '#94a3b8' }}>{formatDateTime(taskTime)}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ color: '#94a3b8' }}>资源包</span>
+              <Tag color={packageMeta.color} style={{ marginInlineEnd: 0 }}>{packageMeta.label}</Tag>
+              <span>{formatNumber(runtime.last_package?.record_count)} 条</span>
+              <span>{formatBytes(runtime.last_package?.size_bytes)}</span>
+              <span style={{ color: '#94a3b8' }}>{formatDateTime(packageTime)}</span>
+            </div>
+            {runtime.error_message ? (
+              <Typography.Text type="danger" ellipsis={{ tooltip: runtime.error_message }} style={{ maxWidth: 240 }}>
+                {runtime.error_message}
+              </Typography.Text>
+            ) : null}
+          </div>
+        );
+      },
+    },
+    {
       title: '更新时间',
       dataIndex: 'updated_at',
       key: 'updated_at',
       width: 180,
-      render: (value: string) => <span style={{ fontSize: 12, color: '#94a3b8' }}>{formatDateTime(value)}</span>,
+      render: (value: string, source) => {
+        const runtime = runtimeStatusMap.get(source.source_id);
+        return <span style={{ fontSize: 12, color: '#94a3b8' }}>{formatDateTime(runtime?.updated_at || value)}</span>;
+      },
     },
     {
       title: '操作',
@@ -377,7 +571,7 @@ const SourceManagement: React.FC = () => {
         <div>
           <Typography.Title level={2} style={{ margin: 0 }}>采集源管理</Typography.Title>
           <Typography.Paragraph style={{ margin: '4px 0 0', color: '#94a3b8' }}>
-            使用真实 pull source 配置，支持直接绑定在线 Agent 与目录模式。
+            同时展示真实 pull source 配置、运行态状态与最近资源拉取事件，便于在一个页面完成排查与操作。
           </Typography.Paragraph>
         </div>
         <Space>
@@ -390,9 +584,22 @@ const SourceManagement: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: 16 }}>
         <Card><Statistic title="采集源总数" value={stats.total} /></Card>
         <Card><Statistic title="启用中" value={stats.active} valueStyle={{ color: COLORS.success }} /></Card>
+        <Card><Statistic title="健康运行" value={stats.healthy} valueStyle={{ color: COLORS.info }} /></Card>
+        <Card><Statistic title="在线 Agent" value={stats.onlineAgents} valueStyle={{ color: COLORS.success }} /></Card>
+        <Card><Statistic title="最近资源包" value={stats.recentPackageCount} /></Card>
+        <Card><Statistic title="最近日志条数" value={stats.recentRecordCount} /></Card>
         <Card><Statistic title="已暂停" value={stats.paused} valueStyle={{ color: COLORS.warning }} /></Card>
         <Card><Statistic title="已禁用" value={stats.disabled} valueStyle={{ color: '#94a3b8' }} /></Card>
       </div>
+
+      {runtimeStatusError ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="运行态状态暂时不可用"
+          description={`已回退展示配置数据；运行态接口错误：${runtimeStatusError}`}
+        />
+      ) : null}
 
       <Card>
         <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
@@ -405,7 +612,7 @@ const SourceManagement: React.FC = () => {
             onChange={(event) => setSearchQuery(event.target.value)}
             prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>}
           />
-          <Select id="source-status-filter" value={statusFilter} options={STATUS_OPTIONS} style={{ width: 160 }} onChange={setStatusFilter} />
+          <Select id="source-status-filter" value={statusFilter} options={STATUS_FILTER_OPTIONS} style={{ width: 160 }} onChange={setStatusFilter} />
         </Space>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin size="large" /></div>
@@ -422,7 +629,7 @@ const SourceManagement: React.FC = () => {
               pageSizeOptions: [10, 20, 50, 100],
               onShowSizeChange: (_, size) => setPageSize(size),
             }}
-            scroll={{ x: 1500 }}
+            scroll={{ x: 1900 }}
           />
         )}
       </Card>
@@ -473,7 +680,7 @@ const SourceManagement: React.FC = () => {
               <InputNumber style={{ width: 160 }} min={5} max={3600} />
             </Form.Item>
             <Form.Item label="状态" name="status">
-              <Select style={{ width: 160 }} options={STATUS_OPTIONS.filter((item) => item.value !== 'all')} />
+              <Select style={{ width: 160 }} options={CONFIG_STATUS_OPTIONS} />
             </Form.Item>
           </Space>
 
