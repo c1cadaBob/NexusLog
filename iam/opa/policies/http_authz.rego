@@ -5,6 +5,7 @@
 package nexuslog.http_authz
 
 import rego.v1
+import data.nexuslog.authz
 
 # 默认拒绝
 default allow := false
@@ -53,7 +54,6 @@ http_action := "search" if {
 
 # 调用 RBAC 策略进行授权检查
 api_permission_granted if {
-    import data.nexuslog.authz
     authz.allow with input as {
         "user": input.user,
         "resource": api_resource,

@@ -224,6 +224,26 @@ services:
   # ============================================================
   # IAM 安全体系
   # ============================================================
+  keycloak-db-bootstrap:
+    image: ${MIRROR_DOCKER_HUB}/postgres:16-alpine
+    entrypoint: ["/bin/sh", "/bootstrap/ensure-keycloak-db.sh"]
+    environment:
+      - PGHOST=postgres
+      - PGPORT=5432
+      - PGUSER=nexuslog
+      - PGPASSWORD=nexuslog_dev
+      - KEYCLOAK_DB_USER=keycloak
+      - KEYCLOAK_DB_PASSWORD=keycloak_dev
+      - KEYCLOAK_DB_NAME=keycloak
+    volumes:
+      - ./iam/keycloak/ensure-keycloak-db.sh:/bootstrap/ensure-keycloak-db.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - nexuslog-net
+    restart: "no"
+
   keycloak:
     build:
       context: ./iam/keycloak
@@ -248,6 +268,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak-db-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200'"]
       interval: 15s
@@ -275,19 +297,24 @@ services:
 
   vault:
     image: ${MIRROR_DOCKER_HUB}/hashicorp/vault:1.15
+    command:
+      [
+        "server",
+        "-dev",
+        "-dev-root-token-id=nexuslog-dev-token",
+        "-dev-listen-address=0.0.0.0:8200"
+      ]
     ports:
       - "8200:8200"
     environment:
-      - VAULT_DEV_ROOT_TOKEN_ID=nexuslog-dev-token
-      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+      - VAULT_ADDR=http://127.0.0.1:8200
     cap_add:
       - IPC_LOCK
     volumes:
       - vault-data:/vault/data
       - ./iam/vault/policies:/vault/policies:ro
-      - ./iam/vault/config/vault-dev.hcl:/vault/config/vault-dev.hcl:ro
     healthcheck:
-      test: ["CMD", "vault", "status"]
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
       interval: 15s
       timeout: 5s
       retries: 3
