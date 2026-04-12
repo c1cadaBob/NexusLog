@@ -26,6 +26,7 @@ type ChannelHandler struct {
 	repo           *ChannelRepository
 	sender         *SMTPSender
 	dingTalkSender *DingTalkSender
+	webhookSender  *WebhookSender
 }
 
 // NewChannelHandler creates a channel handler.
@@ -37,6 +38,7 @@ func NewChannelHandler(repo *ChannelRepository, sender *SMTPSender) *ChannelHand
 		repo:           repo,
 		sender:         sender,
 		dingTalkSender: NewDingTalkSender(),
+		webhookSender:  NewWebhookSender(),
 	}
 }
 
@@ -411,6 +413,21 @@ func (h *ChannelHandler) TestChannel(c *gin.Context) {
 			return
 		}
 		h.writeSuccess(c, http.StatusOK, gin.H{"sent": true, "type": "dingtalk"}, gin.H{})
+	case "webhook":
+		cfg, err := ParseWebhookConfig(ch.Config)
+		if err != nil {
+			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "invalid webhook channel config", nil)
+			return
+		}
+		if err := validateWebhookTarget(cfg); err != nil {
+			h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, sanitizeNotificationValidationError(err, "invalid webhook target"), nil)
+			return
+		}
+		if err := h.webhookSender.SendTest(cfg, ch.Name); err != nil {
+			h.writeError(c, http.StatusInternalServerError, ErrorCodeInternal, "failed to send webhook test", nil)
+			return
+		}
+		h.writeSuccess(c, http.StatusOK, gin.H{"sent": true, "type": "webhook"}, gin.H{})
 	case "sms":
 		h.writeError(c, http.StatusNotImplemented, ErrorCodeInternal, "test not implemented for sms", nil)
 	default:

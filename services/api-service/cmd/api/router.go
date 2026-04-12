@@ -22,6 +22,10 @@ func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
 	userService := service.NewUserService(userRepo, authRepo)
 	userHandler := handler.NewUserHandler(userService)
 
+	loginPolicyRepo := repository.NewLoginPolicyRepository(db)
+	loginPolicyService := service.NewLoginPolicyService(loginPolicyRepo)
+	loginPolicyHandler := handler.NewLoginPolicyHandler(loginPolicyService)
+
 	router.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "healthy",
@@ -78,6 +82,11 @@ func registerRoutes(router *gin.Engine, db *sql.DB, jwtSecret string) {
 	roleV1 := protected.Group("/roles")
 	roleV1.Use(handler.RequireScope("tenant"))
 	roleV1.GET("", handler.RequireCapability("iam.role.read"), userHandler.ListRoles)
+
+	securityV1 := protected.Group("/security")
+	securityV1.Use(handler.RequireScope("tenant"))
+	securityV1.GET("/login-policy", handler.RequireCapability("auth.login_policy.read"), loginPolicyHandler.Get)
+	securityV1.PUT("/login-policy", handler.RequireCapability("auth.login_policy.update"), loginPolicyHandler.Update)
 }
 
 func newHTTPServer(port string, router http.Handler) *http.Server {

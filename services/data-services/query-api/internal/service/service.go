@@ -161,13 +161,15 @@ type UpsertSavedQueryRequest struct {
 
 // SavedQueryItem 定义收藏查询项。
 type SavedQueryItem struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Query     string   `json:"query"`
-	Tags      []string `json:"tags"`
-	RunCount  int64    `json:"run_count"`
-	CreatedAt string   `json:"created_at"`
-	UpdatedAt string   `json:"updated_at"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Query       string         `json:"query"`
+	Filters     map[string]any `json:"filters"`
+	Tags        []string       `json:"tags"`
+	RunCount    int64          `json:"run_count"`
+	CreatedAt   string         `json:"created_at"`
+	UpdatedAt   string         `json:"updated_at"`
 }
 
 // ListSavedQueriesResult 定义收藏查询列表返回。
@@ -407,13 +409,15 @@ func (s *QueryService) ListSavedQueries(
 	items := make([]SavedQueryItem, 0, len(output.Items))
 	for _, item := range output.Items {
 		items = append(items, SavedQueryItem{
-			ID:        item.ID,
-			Name:      item.Name,
-			Query:     item.QueryText,
-			Tags:      item.Tags,
-			RunCount:  item.RunCount,
-			CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339),
-			UpdatedAt: item.UpdatedAt.UTC().Format(time.RFC3339),
+			ID:          item.ID,
+			Name:        item.Name,
+			Description: item.Description,
+			Query:       item.QueryText,
+			Filters:     item.Filters,
+			Tags:        item.Tags,
+			RunCount:    item.RunCount,
+			CreatedAt:   item.CreatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt:   item.UpdatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return ListSavedQueriesResult{
@@ -461,13 +465,15 @@ func (s *QueryService) CreateSavedQuery(
 		return SavedQueryItem{}, err
 	}
 	return SavedQueryItem{
-		ID:        created.ID,
-		Name:      created.Name,
-		Query:     created.QueryText,
-		Tags:      created.Tags,
-		RunCount:  created.RunCount,
-		CreatedAt: created.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt: created.UpdatedAt.UTC().Format(time.RFC3339),
+		ID:          created.ID,
+		Name:        created.Name,
+		Description: created.Description,
+		Query:       created.QueryText,
+		Filters:     created.Filters,
+		Tags:        created.Tags,
+		RunCount:    created.RunCount,
+		CreatedAt:   created.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:   created.UpdatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -518,13 +524,15 @@ func (s *QueryService) UpdateSavedQuery(
 		return SavedQueryItem{}, err
 	}
 	return SavedQueryItem{
-		ID:        updated.ID,
-		Name:      updated.Name,
-		Query:     updated.QueryText,
-		Tags:      updated.Tags,
-		RunCount:  updated.RunCount,
-		CreatedAt: updated.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt: updated.UpdatedAt.UTC().Format(time.RFC3339),
+		ID:          updated.ID,
+		Name:        updated.Name,
+		Description: updated.Description,
+		Query:       updated.QueryText,
+		Filters:     updated.Filters,
+		Tags:        updated.Tags,
+		RunCount:    updated.RunCount,
+		CreatedAt:   updated.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:   updated.UpdatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 

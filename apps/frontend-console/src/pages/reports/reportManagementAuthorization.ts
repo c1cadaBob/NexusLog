@@ -10,10 +10,10 @@ export interface ReportManagementActionAccess {
   isViewOnly: boolean;
 }
 
-const REPORT_CREATE_CAPABILITIES = ['report.create'];
-const REPORT_UPDATE_CAPABILITIES = ['report.update'];
-const REPORT_DELETE_CAPABILITIES = ['report.delete'];
-const REPORT_GENERATE_CAPABILITIES = ['report.generate'];
+const REPORT_CREATE_CAPABILITIES = ['report.create', 'query.saved.read'];
+const REPORT_UPDATE_CAPABILITIES = ['report.update', 'query.saved.read'];
+const REPORT_DELETE_CAPABILITIES = ['report.delete', 'query.saved.read'];
+const REPORT_GENERATE_CAPABILITIES = ['report.generate', 'export.job.create'];
 
 export function resolveReportManagementActionAccess(
   authorization: Pick<AuthorizationSnapshot, 'capabilities'>,

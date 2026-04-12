@@ -57,7 +57,9 @@ interface QueryHistoryApiItem {
 interface SavedQueryApiItem {
   id?: string;
   name?: string;
+  description?: string;
   query?: string;
+  filters?: Record<string, unknown>;
   tags?: string[];
   created_at?: string;
   updated_at?: string;
@@ -507,9 +509,13 @@ function normalizeSavedQuery(item: SavedQueryApiItem, index: number): SavedQuery
   return {
     id: String(item.id ?? `saved-query-${index + 1}`),
     name: String(item.name ?? '未命名查询'),
+    description: typeof item.description === 'string' ? item.description : '',
     query: String(item.query ?? ''),
+    filters: item.filters && typeof item.filters === 'object' ? item.filters : {},
     tags,
     createdAt: String(item.created_at ?? new Date().toISOString()),
+    updatedAt: typeof item.updated_at === 'string' ? item.updated_at : undefined,
+    runCount: Number(item.run_count ?? 0),
   };
 }
 
@@ -574,11 +580,15 @@ function readLocalSavedQueries(): SavedQuery[] {
     .map((item) => ({
       id: String(item.id),
       name: String(item.name),
+      description: String(item.description ?? ''),
       query: String(item.query ?? ''),
+      filters: item.filters && typeof item.filters === 'object' ? item.filters : {},
       tags: Array.isArray(item.tags)
         ? item.tags.map((tag) => String(tag)).filter(Boolean)
         : [],
       createdAt: String(item.createdAt ?? new Date().toISOString()),
+      updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
+      runCount: Number(item.runCount ?? 0),
     }));
 }
 
@@ -2121,9 +2131,13 @@ export async function createSavedQuery(payload: SavedQueryUpsertPayload): Promis
   const localItem: SavedQuery = {
     id: createLocalID('saved-query'),
     name: payload.name.trim() || '未命名查询',
+    description: payload.description?.trim() ?? '',
     query: payload.query.trim(),
+    filters: payload.filters ?? {},
     tags: payload.tags,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    runCount: 0,
   };
 
   if (shouldUseQueryCollectionFallback()) {
@@ -2144,9 +2158,13 @@ export async function createSavedQuery(payload: SavedQueryUpsertPayload): Promis
     const item = envelope.data?.item ?? {
       id: envelope.data?.saved_query_id,
       name: payload.name,
+      description: payload.description ?? '',
       query: payload.query,
+      filters: payload.filters ?? {},
       tags: payload.tags,
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      run_count: 0,
     };
     const normalized = normalizeSavedQuery(item, 0);
     saveLocalSavedQuery(normalized);
@@ -2163,9 +2181,13 @@ export async function updateSavedQuery(savedQueryID: string, payload: SavedQuery
   const localItem: SavedQuery = {
     id: savedQueryID,
     name: payload.name.trim() || '未命名查询',
+    description: payload.description?.trim() ?? '',
     query: payload.query.trim(),
+    filters: payload.filters ?? {},
     tags: payload.tags,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    runCount: 0,
   };
 
   if (shouldUseQueryCollectionFallback()) {
@@ -2186,9 +2208,13 @@ export async function updateSavedQuery(savedQueryID: string, payload: SavedQuery
     const item = envelope.data?.item ?? {
       id: savedQueryID,
       name: payload.name,
+      description: payload.description ?? '',
       query: payload.query,
+      filters: payload.filters ?? {},
       tags: payload.tags,
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      run_count: 0,
     };
     const normalized = normalizeSavedQuery(item, 0);
     saveLocalSavedQuery(normalized);

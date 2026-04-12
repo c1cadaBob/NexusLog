@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   App,
@@ -15,7 +15,10 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
+import { useAuthStore } from '../../stores/authStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
+import { fetchLoginPolicy, updateLoginPolicy } from '../../api/loginPolicy';
+import { resolveLoginPolicyActionAccess } from './loginPolicyAuthorization';
 
 interface IpWhitelistItem {
   ip: string;
@@ -39,9 +42,6 @@ interface PolicySettings {
   ipWhitelistEnabled: boolean;
   ipWhitelist: IpWhitelistItem[];
 }
-
-const LOGIN_POLICY_STORAGE_KEY = 'nexuslog-login-policy-settings';
-const LOGIN_POLICY_SAVED_AT_KEY = 'nexuslog-login-policy-saved-at';
 
 const defaultSettings: PolicySettings = {
   totpEnabled: true,
@@ -98,22 +98,6 @@ function normalizeSettings(raw: unknown): PolicySettings {
   merged.ipWhitelist = normalizeIpWhitelist(candidate.ipWhitelist);
   merged.historyCheck = ['0', '3', '5'].includes(String(merged.historyCheck)) ? String(merged.historyCheck) : defaultSettings.historyCheck;
   return merged;
-}
-
-function readStoredSettings(): PolicySettings {
-  if (typeof window === 'undefined') return cloneSettings(defaultSettings);
-  try {
-    const stored = window.localStorage.getItem(LOGIN_POLICY_STORAGE_KEY);
-    if (!stored) return cloneSettings(defaultSettings);
-    return normalizeSettings(JSON.parse(stored));
-  } catch {
-    return cloneSettings(defaultSettings);
-  }
-}
-
-function readStoredSavedAt(): string | null {
-  if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(LOGIN_POLICY_SAVED_AT_KEY);
 }
 
 function serializeSettings(settings: PolicySettings): string {
@@ -189,17 +173,22 @@ function validateSettings(settings: PolicySettings): string | null {
 const LoginPolicy: React.FC = () => {
   const { message: messageApi } = App.useApp();
   const isDark = useThemeStore((state) => state.isDark);
+  const capabilities = useAuthStore((state) => state.capabilities);
   const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
 
-  const initialSettings = useMemo(() => readStoredSettings(), []);
-  const initialSavedAt = useMemo(() => readStoredSavedAt(), []);
+  const actionAccess = useMemo(
+    () => resolveLoginPolicyActionAccess({ capabilities }),
+    [capabilities],
+  );
+  const initialSettings = useMemo(() => cloneSettings(defaultSettings), []);
 
   const [settings, setSettings] = useState<PolicySettings>(initialSettings);
   const [savedSnapshot, setSavedSnapshot] = useState(() => serializeSettings(initialSettings));
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(initialSavedAt);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [newIp, setNewIp] = useState('');
   const [newIpNote, setNewIpNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const complexityEnabledCount = useMemo(
     () => [settings.requireUppercase, settings.requireLowercase, settings.requireNumbers, settings.requireSpecialChars].filter(Boolean).length,
@@ -207,7 +196,47 @@ const LoginPolicy: React.FC = () => {
   );
   const isDirty = useMemo(() => serializeSettings(settings) !== savedSnapshot, [settings, savedSnapshot]);
 
+  useEffect(() => {
+    if (!actionAccess.canReadLoginPolicy) {
+      setIsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const loadPolicy = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetchLoginPolicy();
+        if (cancelled) {
+          return;
+        }
+        const normalized = normalizeSettings(response.settings);
+        const serialized = serializeSettings(normalized);
+        setSettings(normalized);
+        setSavedSnapshot(serialized);
+        setLastSavedAt(response.updated_at ?? null);
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        const msg = err instanceof Error ? err.message : '加载登录策略失败';
+        messageApi.error(msg);
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+    void loadPolicy();
+    return () => {
+      cancelled = true;
+    };
+  }, [actionAccess.canReadLoginPolicy, messageApi]);
+
   const handleSave = useCallback(async () => {
+    if (!actionAccess.canUpdateLoginPolicy) {
+      messageApi.warning('当前会话缺少登录策略保存权限');
+      return;
+    }
     const validationMessage = validateSettings(settings);
     if (validationMessage) {
       messageApi.error(validationMessage);
@@ -216,19 +245,20 @@ const LoginPolicy: React.FC = () => {
 
     setIsSaving(true);
     try {
-      const serialized = serializeSettings(settings);
-      const savedAt = new Date().toISOString();
-      window.localStorage.setItem(LOGIN_POLICY_STORAGE_KEY, serialized);
-      window.localStorage.setItem(LOGIN_POLICY_SAVED_AT_KEY, savedAt);
+      const response = await updateLoginPolicy(settings);
+      const normalized = normalizeSettings(response.settings);
+      const serialized = serializeSettings(normalized);
+      setSettings(normalized);
       setSavedSnapshot(serialized);
-      setLastSavedAt(savedAt);
-      messageApi.success('登录策略已保存到当前浏览器');
-    } catch {
-      messageApi.error('保存登录策略失败');
+      setLastSavedAt(response.updated_at ?? new Date().toISOString());
+      messageApi.success('登录策略已保存');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '保存登录策略失败';
+      messageApi.error(msg);
     } finally {
       setIsSaving(false);
     }
-  }, [messageApi, settings]);
+  }, [actionAccess.canUpdateLoginPolicy, messageApi, settings]);
 
   const handleReset = useCallback(() => {
     setSettings(cloneSettings(defaultSettings));
@@ -393,7 +423,7 @@ const LoginPolicy: React.FC = () => {
             >
               <Button>重置</Button>
             </Popconfirm>
-            <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span>} onClick={() => void handleSave()} loading={isSaving} disabled={!isDirty}>
+            <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span>} onClick={() => void handleSave()} loading={isSaving} disabled={!isDirty || !actionAccess.canUpdateLoginPolicy}>
               保存设置
             </Button>
           </div>
@@ -402,7 +432,7 @@ const LoginPolicy: React.FC = () => {
 
       <div style={{ padding: '16px 24px 0', flexShrink: 0 }}>
         <div style={{ fontSize: 13, color: palette.textSecondary }}>
-          登录策略当前保存在浏览器本地，不同来源地址会分别维护各自的策略副本。
+          登录策略已切换为服务端持久化保存，当前页面展示的是租户级真实配置。{isLoading ? ' 正在同步最新设置...' : ''}
         </div>
       </div>
 

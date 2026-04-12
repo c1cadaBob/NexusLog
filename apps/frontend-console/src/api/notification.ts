@@ -231,7 +231,7 @@ export async function fetchNotificationChannels(params?: FetchNotificationChanne
 /** Create channel payload - config depends on type */
 export interface CreateNotificationChannelPayload {
   name: string;
-  type: 'email' | 'dingtalk' | 'sms';
+  type: 'email' | 'dingtalk' | 'sms' | 'webhook';
   config: Record<string, unknown>;
   enabled?: boolean;
 }

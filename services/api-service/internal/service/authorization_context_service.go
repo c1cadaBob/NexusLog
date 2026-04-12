@@ -17,6 +17,8 @@ var defaultLegacyPermissionCapabilityAliases = map[string][]string{
 		"iam.user.read",
 	},
 	"users:write": {
+		"auth.login_policy.read",
+		"auth.login_policy.update",
 		"iam.user.create",
 		"iam.user.delete",
 		"iam.user.grant_role",

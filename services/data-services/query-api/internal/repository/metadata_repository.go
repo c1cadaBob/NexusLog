@@ -103,13 +103,15 @@ type SavedQueryUpdateInput struct {
 
 // SavedQueryRecord 对应收藏查询记录。
 type SavedQueryRecord struct {
-	ID        string
-	Name      string
-	QueryText string
-	Tags      []string
-	RunCount  int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          string
+	Name        string
+	Description string
+	QueryText   string
+	Filters     map[string]any
+	Tags        []string
+	RunCount    int64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // ListSavedQueriesOutput 定义收藏查询列表输出。
@@ -357,7 +359,9 @@ WHERE sq.tenant_id = $1::uuid
 SELECT
 	sq.id::text,
 	sq.name,
+	COALESCE(sq.description, ''),
 	sq.query_text,
+	COALESCE(sq.filters, '{}'::jsonb),
 	COALESCE(sq.run_count, 0),
 	sq.created_at,
 	sq.updated_at,
@@ -397,10 +401,13 @@ LIMIT $6
 	for rows.Next() {
 		var item SavedQueryRecord
 		var tags []string
+		var filtersRaw []byte
 		if scanErr := rows.Scan(
 			&item.ID,
 			&item.Name,
+			&item.Description,
 			&item.QueryText,
+			&filtersRaw,
 			&item.RunCount,
 			&item.CreatedAt,
 			&item.UpdatedAt,
@@ -410,6 +417,7 @@ LIMIT $6
 		}
 		item.CreatedAt = item.CreatedAt.UTC()
 		item.UpdatedAt = item.UpdatedAt.UTC()
+		item.Filters = unmarshalJSONMap(filtersRaw)
 		item.Tags = normalizeTags(tags)
 		items = append(items, item)
 	}
@@ -477,13 +485,16 @@ INSERT INTO saved_queries (
 RETURNING
 	id::text,
 	name,
+	COALESCE(description, ''),
 	query_text,
+	COALESCE(filters, '{}'::jsonb),
 	COALESCE(run_count, 0),
 	created_at,
 	updated_at
 `
 
 	var created SavedQueryRecord
+	var createdFiltersRaw []byte
 	err = tx.QueryRowContext(
 		ctx,
 		query,
@@ -497,7 +508,9 @@ RETURNING
 	).Scan(
 		&created.ID,
 		&created.Name,
+		&created.Description,
 		&created.QueryText,
+		&createdFiltersRaw,
 		&created.RunCount,
 		&created.CreatedAt,
 		&created.UpdatedAt,
@@ -517,6 +530,7 @@ RETURNING
 
 	created.CreatedAt = created.CreatedAt.UTC()
 	created.UpdatedAt = created.UpdatedAt.UTC()
+	created.Filters = unmarshalJSONMap(createdFiltersRaw)
 	created.Tags = normalizeTags(in.Tags)
 	return created, nil
 }
@@ -556,12 +570,15 @@ WHERE id = $1::uuid
 RETURNING
 	id::text,
 	name,
+	COALESCE(description, ''),
 	query_text,
+	COALESCE(filters, '{}'::jsonb),
 	COALESCE(run_count, 0),
 	created_at,
 	updated_at
 `
 	var updated SavedQueryRecord
+	var updatedFiltersRaw []byte
 	err = tx.QueryRowContext(
 		ctx,
 		query,
@@ -576,7 +593,9 @@ RETURNING
 	).Scan(
 		&updated.ID,
 		&updated.Name,
+		&updated.Description,
 		&updated.QueryText,
+		&updatedFiltersRaw,
 		&updated.RunCount,
 		&updated.CreatedAt,
 		&updated.UpdatedAt,
@@ -602,6 +621,7 @@ RETURNING
 
 	updated.CreatedAt = updated.CreatedAt.UTC()
 	updated.UpdatedAt = updated.UpdatedAt.UTC()
+	updated.Filters = unmarshalJSONMap(updatedFiltersRaw)
 	if in.Tags != nil {
 		updated.Tags = normalizeTags(*in.Tags)
 		return updated, nil
@@ -774,6 +794,17 @@ func normalizeTags(rawTags []string) []string {
 	}
 	sort.Strings(items)
 	return items
+}
+
+func unmarshalJSONMap(input []byte) map[string]any {
+	if len(input) == 0 {
+		return map[string]any{}
+	}
+	var output map[string]any
+	if err := json.Unmarshal(input, &output); err != nil || output == nil {
+		return map[string]any{}
+	}
+	return output
 }
 
 func marshalJSONMap(input map[string]any) ([]byte, error) {

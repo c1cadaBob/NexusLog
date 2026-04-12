@@ -68,9 +68,13 @@ export interface LogEntry {
 export interface SavedQuery {
   id: string;
   name: string;
+  description?: string;
   query: string;
+  filters?: Record<string, unknown>;
   tags: string[];
   createdAt: string;
+  updatedAt?: string;
+  runCount?: number;
 }
 
 export interface QueryHistory {

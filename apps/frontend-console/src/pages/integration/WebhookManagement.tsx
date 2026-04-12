@@ -1,66 +1,84 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Input, Select, Table, Tag, Button, Card, Space, Modal, Form, message } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Empty, Form, Input, Modal, Select, Space, Switch, Table, Tag, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
+import { useAuthStore } from '../../stores/authStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
-import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
-import { useUnnamedFormFieldAccessibility } from '../../components/common/useUnnamedFormFieldAccessibility';
+import {
+  createNotificationChannel,
+  deleteNotificationChannel,
+  fetchNotificationChannels,
+  testNotificationChannel,
+  updateNotificationChannel,
+} from '../../api/notification';
+import type { NotificationChannel } from '../../types/alert';
+import { resolveWebhookManagementActionAccess } from './webhookManagementAuthorization';
 
-// ============================================================================
-// 类型与模拟数据
-// ============================================================================
-
-interface Webhook {
+interface WebhookRecord {
   id: string;
   name: string;
-  url: string;
-  trigger: string;
-  status: 'Active' | 'Failed' | 'Disabled';
-  health: 'Healthy' | 'Error' | 'Inactive';
+  webhookURL: string;
+  events: string[];
   secret: string;
-  createdAt: string;
-  lastTriggered?: string;
+  enabled: boolean;
+  updatedAt: number;
 }
 
-const initialWebhooks: Webhook[] = [
-  { id: 'wh_8f92k', name: '关键告警推送', url: 'https://api.opsgenie.com/v2/alerts', trigger: '告警触发', status: 'Active', health: 'Healthy', secret: 'whsec_8f92k...', createdAt: '2024-01-15', lastTriggered: '2024-02-10 14:30' },
-  { id: 'wh_k92ls', name: '每日报表 Slack 通知', url: 'https://hooks.slack.com/services/T000.../B000...', trigger: '报表生成', status: 'Active', health: 'Healthy', secret: 'whsec_k92ls...', createdAt: '2024-01-20' },
-  { id: 'wh_p93ms', name: 'Jira 工单同步', url: 'https://jira.company.com/rest/api/2/issue', trigger: '告警触发', status: 'Failed', health: 'Error', secret: 'whsec_p93ms...', createdAt: '2024-02-01', lastTriggered: '2024-02-09 09:15' },
-  { id: 'wh_19fk2', name: 'S3 归档服务', url: 'https://archive-service.internal/hooks/logs', trigger: '系统错误', status: 'Disabled', health: 'Inactive', secret: 'whsec_19fk2...', createdAt: '2024-02-05' },
+const EVENT_OPTIONS = [
+  { label: '告警触发', value: 'alert.firing' },
+  { label: '告警恢复', value: 'alert.resolved' },
+  { label: '审计导出完成', value: 'audit.export.completed' },
+  { label: '报表导出完成', value: 'report.export.completed' },
+  { label: '资源拉取异常', value: 'ingest.pull.failed' },
 ];
 
-const triggerOptions = [
-  { label: '告警触发', value: '告警触发' },
-  { label: '报表生成', value: '报表生成' },
-  { label: '系统错误', value: '系统错误' },
-  { label: '日志摄入', value: '日志摄入' },
-  { label: '用户登录', value: '用户登录' },
-];
+function normalizeWebhookRecord(channel: NotificationChannel): WebhookRecord {
+  const config = channel.config ?? {};
+  const events = Array.isArray(config.events)
+    ? config.events.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+  return {
+    id: channel.id,
+    name: channel.name,
+    webhookURL: typeof config.webhook_url === 'string'
+      ? config.webhook_url
+      : typeof config.url === 'string'
+        ? config.url
+        : '',
+    events,
+    secret: typeof config.secret === 'string' ? config.secret : '',
+    enabled: channel.enabled,
+    updatedAt: channel.updatedAt,
+  };
+}
 
-// ============================================================================
-// 组件
-// ============================================================================
+function formatDateTime(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '—';
+  }
+  return new Date(value).toLocaleString('zh-CN');
+}
 
 const WebhookManagement: React.FC = () => {
   const isDark = useThemeStore((s) => s.isDark);
-  const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
+  const capabilities = useAuthStore((state) => state.capabilities);
   const [form] = Form.useForm();
-
-  const [webhooks, setWebhooks] = useState<Webhook[]>(initialWebhooks);
+  const [records, setRecords] = useState<WebhookRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [testingID, setTestingID] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [testModalOpen, setTestModalOpen] = useState(false);
-  const [selectedWebhook, setSelectedWebhook] = useState<Webhook | null>(null);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const createWebhookModalRef = useUnnamedFormFieldAccessibility('webhook-create-modal');
-  const editWebhookModalRef = useUnnamedFormFieldAccessibility('webhook-edit-modal');
-  const [isTesting, setIsTesting] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<WebhookRecord | null>(null);
+  const [editingRecord, setEditingRecord] = useState<WebhookRecord | null>(null);
 
-  // 分页
-  const storedPageSize = usePreferencesStore((s) => s.pageSizes['webhookManagement'] ?? 10);
+  const actionAccess = useMemo(
+    () => resolveWebhookManagementActionAccess({ capabilities }),
+    [capabilities],
+  );
+
+  const storedPageSize = usePreferencesStore((s) => s.pageSizes.webhookManagement ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
   const [pageSize, setPageSizeLocal] = useState(storedPageSize);
   const setPageSize = useCallback((size: number) => {
@@ -68,345 +86,283 @@ const WebhookManagement: React.FC = () => {
     setStoredPageSize('webhookManagement', size);
   }, [setStoredPageSize]);
 
-  // 过滤
-  const filteredWebhooks = useMemo(() => {
-    return webhooks.filter(wh => {
-      const matchesSearch = wh.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           wh.url.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesStatus = statusFilter === 'all' || wh.status.toLowerCase() === statusFilter.toLowerCase();
-      return matchesSearch && matchesStatus;
-    });
-  }, [webhooks, searchQuery, statusFilter]);
-
-  // 创建
-  const handleCreate = useCallback(() => {
-    form.validateFields().then((values) => {
-      const newWebhook: Webhook = {
-        id: `wh_${Math.random().toString(36).substr(2, 5)}`,
-        name: values.name, url: values.url, trigger: values.trigger,
-        status: 'Active', health: 'Healthy',
-        secret: `whsec_${Math.random().toString(36).substr(2, 10)}`,
-        createdAt: new Date().toISOString().split('T')[0],
-      };
-      setWebhooks(prev => [...prev, newWebhook]);
-      setCreateModalOpen(false);
-      message.success(`Webhook "${values.name}" 已创建`);
-    });
-  }, [form]);
-
-  // 编辑
-  const handleEdit = useCallback(() => {
-    if (!selectedWebhook) return;
-    form.validateFields().then((values) => {
-      setWebhooks(prev => prev.map(wh =>
-        wh.id === selectedWebhook.id ? { ...wh, name: values.name, url: values.url, trigger: values.trigger } : wh
-      ));
-      setEditModalOpen(false);
-      message.success(`Webhook "${values.name}" 已更新`);
-    });
-  }, [form, selectedWebhook]);
-
-  // 删除
-  const handleDelete = useCallback(() => {
-    if (!selectedWebhook) return;
-    setWebhooks(prev => prev.filter(wh => wh.id !== selectedWebhook.id));
-    setDeleteModalOpen(false);
-    message.success(`Webhook "${selectedWebhook.name}" 已删除`);
-    setSelectedWebhook(null);
-  }, [selectedWebhook]);
-
-  // 测试
-  const handleTest = useCallback(async () => {
-    setIsTesting(true);
-    setTestResult(null);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    const success = Math.random() > 0.3;
-    setTestResult({
-      success,
-      message: success
-        ? '测试成功！Webhook 端点响应正常 (HTTP 200)'
-        : '测试失败：连接超时，请检查目标 URL 是否可访问',
-    });
-    setIsTesting(false);
-  }, []);
-
-  const openCreate = useCallback(() => {
-    setSelectedWebhook(null);
-    setCreateModalOpen(true);
-  }, []);
-
-  // 打开编辑
-  const openEdit = useCallback((wh: Webhook) => {
-    setSelectedWebhook(wh);
-    setEditModalOpen(true);
+  const loadRecords = useCallback(async () => {
+    setLoading(true);
+    try {
+      const items = await fetchNotificationChannels({ force: true });
+      setRecords(items.filter((item) => item.type === 'webhook').map(normalizeWebhookRecord));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '加载 Webhook 列表失败';
+      message.error(msg);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (!createModalOpen) {
-      return;
-    }
-    form.resetFields();
-    form.setFieldsValue({ trigger: '告警触发' });
-  }, [createModalOpen, form]);
+    void loadRecords();
+  }, [loadRecords]);
 
-  useEffect(() => {
-    if (!editModalOpen || !selectedWebhook) {
+  const filteredRecords = useMemo(() => records.filter((item) => {
+    const keyword = searchQuery.trim().toLowerCase();
+    const matchesKeyword = !keyword
+      || item.name.toLowerCase().includes(keyword)
+      || item.webhookURL.toLowerCase().includes(keyword)
+      || item.events.some((event) => event.toLowerCase().includes(keyword));
+    const matchesStatus = statusFilter === 'all' || (statusFilter === 'enabled' ? item.enabled : !item.enabled);
+    return matchesKeyword && matchesStatus;
+  }), [records, searchQuery, statusFilter]);
+
+  const openCreateModal = useCallback(() => {
+    if (!actionAccess.canCreateWebhook) {
+      message.warning('当前会话缺少 Webhook 创建权限');
       return;
     }
+    setEditingRecord(null);
     form.setFieldsValue({
-      name: selectedWebhook.name,
-      url: selectedWebhook.url,
-      trigger: selectedWebhook.trigger,
+      name: '',
+      webhook_url: '',
+      events: ['alert.firing'],
+      secret: '',
+      enabled: true,
     });
-  }, [editModalOpen, form, selectedWebhook]);
+    setModalOpen(true);
+  }, [actionAccess.canCreateWebhook, form]);
 
-  // 表格列
-  const columns: ColumnsType<Webhook> = [
+  const openEditModal = useCallback((record: WebhookRecord) => {
+    if (!actionAccess.canUpdateWebhook) {
+      message.warning('当前会话缺少 Webhook 编辑权限');
+      return;
+    }
+    setEditingRecord(record);
+    form.setFieldsValue({
+      name: record.name,
+      webhook_url: record.webhookURL,
+      events: record.events,
+      secret: record.secret,
+      enabled: record.enabled,
+    });
+    setModalOpen(true);
+  }, [actionAccess.canUpdateWebhook, form]);
+
+  const handleSubmit = useCallback(async () => {
+    try {
+      const values = await form.validateFields();
+      setSubmitting(true);
+      const payload = {
+        name: String(values.name).trim(),
+        config: {
+          webhook_url: String(values.webhook_url).trim(),
+          events: Array.isArray(values.events) ? values.events : [],
+          secret: String(values.secret ?? '').trim(),
+        },
+        enabled: Boolean(values.enabled),
+      };
+      if (editingRecord) {
+        await updateNotificationChannel(editingRecord.id, payload);
+        message.success('Webhook 已更新');
+      } else {
+        await createNotificationChannel({ ...payload, type: 'webhook' });
+        message.success('Webhook 已创建');
+      }
+      setModalOpen(false);
+      setEditingRecord(null);
+      await loadRecords();
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('validateFields')) {
+        return;
+      }
+      const msg = err instanceof Error ? err.message : '保存 Webhook 失败';
+      message.error(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [editingRecord, form, loadRecords]);
+
+  const handleDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    if (!actionAccess.canDeleteWebhook) {
+      message.warning('当前会话缺少 Webhook 删除权限');
+      return;
+    }
+    try {
+      await deleteNotificationChannel(deleteTarget.id);
+      message.success('Webhook 已删除');
+      setDeleteTarget(null);
+      await loadRecords();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '删除 Webhook 失败';
+      message.error(msg);
+    }
+  }, [actionAccess.canDeleteWebhook, deleteTarget, loadRecords]);
+
+  const handleTest = useCallback(async (record: WebhookRecord) => {
+    if (!actionAccess.canTestWebhook) {
+      message.warning('当前会话缺少 Webhook 测试权限');
+      return;
+    }
+    setTestingID(record.id);
+    try {
+      await testNotificationChannel(record.id);
+      message.success('测试请求已发送');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '测试 Webhook 失败';
+      message.error(msg);
+    } finally {
+      setTestingID(null);
+    }
+  }, [actionAccess.canTestWebhook]);
+
+  const columns = useMemo<ColumnsType<WebhookRecord>>(() => [
     {
-      title: 'Webhook 名称',
-      key: 'name', width: '20%',
-      render: (_, wh) => (
-        <div>
-          <div style={{ fontWeight: 500 }}>{wh.name}</div>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>ID: {wh.id}</div>
-        </div>
-      ),
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 220,
+      render: (value: string) => <span style={{ fontWeight: 600 }}>{value}</span>,
     },
     {
-      title: '目标 URL',
-      dataIndex: 'url', key: 'url', width: '25%',
-      render: (url: string) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <code style={{ fontSize: 12, color: isDark ? '#cbd5e1' : '#475569', fontFamily: 'JetBrains Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>
-            {url}
-          </code>
-          <Button type="text" size="small"
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 14 }}>content_copy</span>}
-            onClick={() => { navigator.clipboard.writeText(url); message.success('已复制'); }}
-          />
-        </div>
-      ),
+      title: '目标地址',
+      dataIndex: 'webhookURL',
+      key: 'webhookURL',
+      render: (value: string) => <code style={{ fontSize: 12 }}>{value || '—'}</code>,
     },
     {
-      title: '触发事件',
-      dataIndex: 'trigger', key: 'trigger', width: '12%',
-      render: (trigger: string) => <Tag color="blue">{trigger}</Tag>,
-    },
-    {
-      title: '密钥 (Secret)',
-      key: 'secret', width: '15%',
-      render: (_, wh) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontFamily: 'monospace', color: '#94a3b8', letterSpacing: 2 }}>••••••••••••</span>
-          <Button type="text" size="small"
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 16 }}>content_copy</span>}
-            onClick={() => { navigator.clipboard.writeText(wh.secret); message.success('已复制'); }}
-          />
-        </div>
+      title: '事件',
+      dataIndex: 'events',
+      key: 'events',
+      width: 260,
+      render: (events: string[]) => (
+        <Space size={[4, 4]} wrap>
+          {events.length > 0 ? events.map((event) => <Tag key={event}>{event}</Tag>) : <span>未配置</span>}
+        </Space>
       ),
     },
     {
       title: '状态',
-      key: 'status', width: '10%',
-      render: (_, wh) => {
-        const color = wh.health === 'Healthy' ? 'success' : wh.health === 'Error' ? 'error' : 'default';
-        return (
-          <Tag color={color} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            {wh.health === 'Healthy' && <span style={{ width: 6, height: 6, borderRadius: '50%', background: COLORS.success, display: 'inline-block' }} />}
-            {wh.health === 'Error' && <span className="material-symbols-outlined" style={{ fontSize: 14 }}>error</span>}
-            {wh.status}
-          </Tag>
-        );
-      },
+      dataIndex: 'enabled',
+      key: 'enabled',
+      width: 100,
+      render: (enabled: boolean) => <Tag color={enabled ? 'success' : 'default'}>{enabled ? '启用' : '停用'}</Tag>,
     },
     {
-      title: '操作', key: 'actions', width: '18%', align: 'right',
-      render: (_, wh) => (
-        <Space size={4}>
-          <Button type="text" size="small" title="测试推送"
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>send</span>}
-            onClick={() => { setSelectedWebhook(wh); setTestResult(null); setTestModalOpen(true); }}
-          />
-          <Button type="text" size="small" title="编辑"
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>}
-            onClick={() => openEdit(wh)}
-          />
-          <Button type="text" size="small" danger title="删除"
-            icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>}
-            onClick={() => { setSelectedWebhook(wh); setDeleteModalOpen(true); }}
-          />
+      title: '更新时间',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      width: 180,
+      render: (value: number) => formatDateTime(value),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 220,
+      render: (_, record) => (
+        <Space>
+          <Tooltip title={actionAccess.canUpdateWebhook ? '编辑 Webhook' : '当前会话缺少 notification.channel.update 能力'}>
+            <span>
+              <Button size="small" disabled={!actionAccess.canUpdateWebhook} onClick={() => openEditModal(record)}>编辑</Button>
+            </span>
+          </Tooltip>
+          <Tooltip title={actionAccess.canTestWebhook ? '发送测试请求' : '当前会话缺少 notification.channel.test 能力'}>
+            <span>
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                loading={testingID === record.id}
+                disabled={!actionAccess.canTestWebhook}
+                onClick={() => { void handleTest(record); }}
+              >
+                测试
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title={actionAccess.canDeleteWebhook ? '删除 Webhook' : '当前会话缺少 notification.channel.delete 能力'}>
+            <span>
+              <Button danger size="small" disabled={!actionAccess.canDeleteWebhook} onClick={() => setDeleteTarget(record)}>删除</Button>
+            </span>
+          </Tooltip>
         </Space>
       ),
     },
-  ];
-
-  // 表单
-  const renderForm = (containerRef?: React.RefObject<HTMLDivElement | null>) => (
-    <div ref={containerRef}>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-      <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入 Webhook 名称' }]}>
-        <Input placeholder="例如：告警通知推送" autoComplete="off" />
-      </Form.Item>
-      <Form.Item name="url" label="目标 URL" rules={[{ required: true, message: '请输入目标 URL' }, { type: 'url', message: '请输入有效的 URL' }]}>
-        <Input placeholder="https://example.com/webhook" autoComplete="url" />
-      </Form.Item>
-      <Form.Item name="trigger" label="触发事件" rules={[{ required: true }]}>
-        <Select options={triggerOptions} />
-      </Form.Item>
-      </Form>
-    </div>
-  );
+  ], [actionAccess.canDeleteWebhook, actionAccess.canTestWebhook, actionAccess.canUpdateWebhook, handleTest, openEditModal, testingID]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
-      {/* 头部 */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', minHeight: 64, borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`, background: isDark ? '#111722' : '#fff' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Webhook 管理 Webhook Management</h2>
-          <p style={{ margin: '8px 0 0', fontSize: 13, color: '#94a3b8' }}>
-            集成与开放平台 / <span style={{ color: COLORS.primary }}>Webhook</span>
-          </p>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Webhook 管理</h2>
+          <div style={{ fontSize: 13, color: isDark ? '#94a3b8' : '#64748b' }}>真实对接通知渠道，支持创建、更新、删除和测试请求</div>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Button onClick={() => { window.location.hash = '#/help/faq'; }} icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>help</span>}>
-            帮助
-          </Button>
-          <Button icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>menu_book</span>}>
-            开发文档
-          </Button>
-          <Button type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>add</span>}
-            onClick={openCreate}>
-            新建 Webhook
-          </Button>
-        </div>
+        <Space>
+          <Button onClick={() => { window.location.hash = '#/help/faq'; }}>帮助</Button>
+          <Button onClick={() => { void loadRecords(); }}>刷新</Button>
+          <Tooltip title={actionAccess.canCreateWebhook ? undefined : '当前会话缺少 notification.channel.create 能力'}>
+            <span>
+              <Button type="primary" disabled={!actionAccess.canCreateWebhook} onClick={openCreateModal}>新建 Webhook</Button>
+            </span>
+          </Tooltip>
+        </Space>
       </div>
 
-      {/* 过滤器 */}
-      <Card size="small" styles={{ body: { padding: 16 } }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <Input
-            id="webhook-management-search"
-            name="webhook-management-search"
-            prefix={<span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>}
-            placeholder="搜索 Webhook 名称或目标 URL..."
-            value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ maxWidth: 400 }} allowClear
-            autoComplete="off"
-          />
-          <Space>
-            <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 160 }}
-              options={[
-                { label: '所有状态', value: 'all' },
-                { label: '活跃 (Active)', value: 'active' },
-                { label: '失败 (Failed)', value: 'failed' },
-                { label: '停用 (Disabled)', value: 'disabled' },
-              ]}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, padding: '0 24px' }}>
+        <Input.Search value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索名称、地址或事件" allowClear />
+        <Select value={statusFilter} onChange={(value) => setStatusFilter(value)} options={[{ label: '全部状态', value: 'all' }, { label: '启用', value: 'enabled' }, { label: '停用', value: 'disabled' }]} />
+      </div>
+
+      <div style={{ flex: 1, padding: '0 24px 24px', overflow: 'hidden' }}>
+        <div style={{ height: '100%', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`, borderRadius: 16, background: isDark ? '#0f172a' : '#fff', overflow: 'hidden' }}>
+          {loading ? (
+            <div style={{ padding: 48, textAlign: 'center', color: isDark ? '#94a3b8' : '#64748b' }}>正在加载 Webhook 列表...</div>
+          ) : filteredRecords.length === 0 ? (
+            <div style={{ paddingTop: 64 }}><Empty description="暂无 Webhook 配置" /></div>
+          ) : (
+            <Table<WebhookRecord>
+              rowKey="id"
+              columns={columns}
+              dataSource={filteredRecords}
+              pagination={{
+                pageSize,
+                showSizeChanger: true,
+                pageSizeOptions: ['10', '20', '50'],
+                onShowSizeChange: (_, size) => setPageSize(size),
+              }}
+              scroll={{ x: 1100 }}
             />
-            <Button type="text" icon={<span className="material-symbols-outlined" style={{ fontSize: 20 }}>refresh</span>} />
-          </Space>
+          )}
         </div>
-      </Card>
-
-      {/* 表格 */}
-      <Card style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-        styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' } }}>
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          <Table<Webhook>
-            rowKey="id" columns={columns} dataSource={filteredWebhooks} size="middle"
-            pagination={{ pageSize, showSizeChanger: true, showTotal: (total) => `共 ${total} 条记录`,
-              onShowSizeChange: (_, size) => setPageSize(size) }}
-            scroll={{ x: 900 }}
-          />
-        </div>
-      </Card>
-
-      {/* 提示信息 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <Card size="small" styles={{ body: { padding: 20 } }}
-          style={{ borderColor: isDark ? '#1e3a5f' : '#bfdbfe', background: isDark ? '#0c1929' : '#eff6ff' }}>
-          <div style={{ display: 'flex', gap: 16 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${COLORS.info}1a` }}>
-              <span className="material-symbols-outlined" style={{ color: COLORS.info }}>security</span>
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, color: isDark ? '#93c5fd' : '#1e3a5f' }}>安全提示</div>
-              <p style={{ margin: 0, fontSize: 13, color: isDark ? '#60a5fa' : '#2563eb', lineHeight: 1.6 }}>
-                为保证 Webhook 安全，请务必验证 HTTP 请求头中的{' '}
-                <code style={{ padding: '1px 6px', borderRadius: 4, background: isDark ? '#1e3a5f' : '#dbeafe', fontFamily: 'monospace', fontSize: 12 }}>X-LogMaster-Signature</code>。
-              </p>
-            </div>
-          </div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: 20 } }}>
-          <div style={{ display: 'flex', gap: 16 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isDark ? '#1e293b' : '#f1f5f9' }}>
-              <span className="material-symbols-outlined" style={{ color: '#94a3b8' }}>troubleshoot</span>
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>遇到问题？</div>
-              <p style={{ margin: 0, fontSize: 13, color: '#94a3b8', lineHeight: 1.6 }}>
-                如果您的 Webhook 状态显示为 "Failed"，您可以点击测试按钮来诊断具体的错误。
-              </p>
-            </div>
-          </div>
-        </Card>
       </div>
 
-      {/* 创建模态框 */}
-      <Modal open={createModalOpen} title="新建 Webhook" onCancel={() => setCreateModalOpen(false)}
-        onOk={handleCreate} okText="创建" cancelText="取消" width={520} destroyOnHidden>
-        {renderForm(createWebhookModalRef)}
+      <Modal
+        open={modalOpen}
+        title={editingRecord ? '编辑 Webhook' : '新建 Webhook'}
+        onCancel={() => setModalOpen(false)}
+        onOk={() => { void handleSubmit(); }}
+        okText={editingRecord ? '保存' : '创建'}
+        confirmLoading={submitting}
+        destroyOnHidden
+      >
+        <Form form={form} layout="vertical" initialValues={{ enabled: true, events: ['alert.firing'] }}>
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="例如：告警推送到工作流平台" />
+          </Form.Item>
+          <Form.Item name="webhook_url" label="Webhook URL" rules={[{ required: true, message: '请输入 Webhook URL' }]}>
+            <Input placeholder="https://example.com/hooks/nexuslog" />
+          </Form.Item>
+          <Form.Item name="events" label="订阅事件">
+            <Select mode="multiple" options={EVENT_OPTIONS} placeholder="选择需要推送的事件" />
+          </Form.Item>
+          <Form.Item name="secret" label="签名密钥">
+            <Input.Password placeholder="留空则不附带签名头" />
+          </Form.Item>
+          <Form.Item name="enabled" label="启用状态" valuePropName="checked">
+            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          </Form.Item>
+        </Form>
       </Modal>
 
-      {/* 编辑模态框 */}
-      <Modal open={editModalOpen} title="编辑 Webhook" onCancel={() => setEditModalOpen(false)}
-        onOk={handleEdit} okText="保存" cancelText="取消" width={520} destroyOnHidden>
-        {renderForm(editWebhookModalRef)}
-      </Modal>
-
-      {/* 删除确认 */}
-      <Modal open={deleteModalOpen} title="删除 Webhook" onCancel={() => setDeleteModalOpen(false)}
-        onOk={handleDelete} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
-        <div style={{ textAlign: 'center', padding: '16px 0' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 48, color: COLORS.danger, display: 'block', marginBottom: 16 }}>warning</span>
-          <p>确定要删除 Webhook "<span style={{ fontWeight: 600 }}>{selectedWebhook?.name}</span>" 吗？</p>
-          <p style={{ fontSize: 13, color: '#94a3b8' }}>此操作无法撤销。</p>
-        </div>
-      </Modal>
-
-      {/* 测试模态框 */}
-      <Modal open={testModalOpen} title="测试 Webhook" onCancel={() => setTestModalOpen(false)} footer={null} width={520}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
-          <Card size="small" styles={{ body: { padding: 16 } }} style={{ background: isDark ? '#0f172a' : '#f8fafc' }}>
-            <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 4 }}>目标 URL</div>
-            <div style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', wordBreak: 'break-all' }}>{selectedWebhook?.url}</div>
-          </Card>
-
-          {testResult && (
-            <Card size="small" styles={{ body: { padding: 16 } }}
-              style={{ borderColor: testResult.success ? `${COLORS.success}40` : `${COLORS.danger}40`, background: testResult.success ? `${COLORS.success}08` : `${COLORS.danger}08` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 20, color: testResult.success ? COLORS.success : COLORS.danger }}>
-                  {testResult.success ? 'check_circle' : 'error'}
-                </span>
-                <span style={{ fontWeight: 600, color: testResult.success ? COLORS.success : COLORS.danger }}>
-                  {testResult.success ? '测试成功' : '测试失败'}
-                </span>
-              </div>
-              <p style={{ margin: 0, fontSize: 13, color: testResult.success ? COLORS.success : COLORS.danger, opacity: 0.8 }}>
-                {testResult.message}
-              </p>
-            </Card>
-          )}
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-            <Button onClick={() => setTestModalOpen(false)}>关闭</Button>
-            <Button type="primary" loading={isTesting} onClick={handleTest}
-              icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>send</span>}>
-              {isTesting ? '测试中...' : '发送测试请求'}
-            </Button>
-          </div>
-        </div>
+      <Modal open={Boolean(deleteTarget)} title="删除 Webhook" onCancel={() => setDeleteTarget(null)} onOk={() => { void handleDelete(); }} okText="删除" okButtonProps={{ danger: true }}>
+        <div>确认删除 Webhook “{deleteTarget?.name}” 吗？删除后将立即失效。</div>
       </Modal>
     </div>
   );

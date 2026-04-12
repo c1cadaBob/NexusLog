@@ -92,6 +92,14 @@ func expectAuthenticatedIdentity(mock sqlmock.Sqlmock, tenantID, userID, jti, us
 			sqlmock.NewRows([]string{"username", "name", "permissions"}).
 				AddRow(username, "auditor", rawPermissions),
 		)
+	mock.ExpectQuery(`FROM legacy_permission_mapping`).
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_permission", "capability_bundle", "scope_bundle", "enabled"}))
+	mock.ExpectQuery(`FROM authz_version`).
+		WithArgs(tenantID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"authz_epoch"}).AddRow(int64(1)))
+	mock.ExpectQuery(`FROM subject_reserved_policy`).
+		WithArgs(tenantID, username).
+		WillReturnRows(sqlmock.NewRows([]string{"reserved", "interactive_login_allowed", "system_subject", "break_glass_allowed", "managed_by"}))
 }
 
 func mustIssueToken(t *testing.T, tenantID, userID, jti string) string {

@@ -730,3 +730,39 @@ export async function fetchAuditLogs(params: FetchAuditLogsParams = {}): Promise
     to: normalizedTo,
   });
 }
+
+export async function downloadAuditLogs(
+  params: FetchAuditLogsParams = {},
+  format: 'csv' | 'json' = 'csv',
+): Promise<Blob> {
+  const accessToken = resolveAccessToken();
+  const basePath = getAuditApiBasePath();
+  const url = new URL(`${basePath}/logs/export`, window.location.origin);
+  const query: Record<string, string | number | undefined> = {
+    user_id: params.user_query?.trim(),
+    action: params.action?.trim(),
+    resource_type: params.resource_type?.trim(),
+    from: params.from?.trim(),
+    to: params.to?.trim(),
+    sort_by: params.sort_by?.trim() ?? 'created_at',
+    sort_order: params.sort_order?.trim() ?? 'desc',
+    format,
+  };
+  Object.entries(query).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+
+  const response = await fetch(url.pathname + url.search, {
+    method: 'GET',
+    headers: buildAuthHeaders(accessToken),
+  });
+  if (!response.ok) {
+    const envelope = (await response.json().catch(() => null)) as ApiEnvelope<Record<string, unknown>> | null;
+    const err = new Error(envelope?.message ?? `audit export failed: HTTP ${response.status}`);
+    (err as Error & { status?: number; code?: string }).status = response.status;
+    (err as Error & { status?: number; code?: string }).code = envelope?.code ?? 'AUDIT_EXPORT_FAILED';
+    throw err;
+  }
+  return response.blob();
+}

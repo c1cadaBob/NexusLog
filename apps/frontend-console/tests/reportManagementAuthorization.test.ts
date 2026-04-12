@@ -15,9 +15,22 @@ describe('reportManagementAuthorization', () => {
     expect(access.isViewOnly).toBe(true);
   });
 
+  it('allows template CRUD when query.saved.read exists', () => {
+    const access = resolveReportManagementActionAccess({
+      capabilities: ['query.saved.read'],
+    });
+
+    expect(access.canCreateReport).toBe(true);
+    expect(access.canUpdateReport).toBe(true);
+    expect(access.canDeleteReport).toBe(true);
+    expect(access.canGenerateReport).toBe(false);
+    expect(access.hasAnyWriteAccess).toBe(true);
+    expect(access.isViewOnly).toBe(false);
+  });
+
   it('grants matching report actions independently', () => {
     const access = resolveReportManagementActionAccess({
-      capabilities: ['report.create', 'report.generate'],
+      capabilities: ['report.create', 'export.job.create'],
     });
 
     expect(access.canCreateReport).toBe(true);

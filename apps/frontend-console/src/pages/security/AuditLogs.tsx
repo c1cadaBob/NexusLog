@@ -5,7 +5,7 @@ import dayjs from 'dayjs';
 import { useAuthStore } from '../../stores/authStore';
 import { useThemeStore } from '../../stores/themeStore';
 import { DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
-import { fetchAuditLogs, type AuditLogItem, type FetchAuditLogsParams } from '../../api/audit';
+import { downloadAuditLogs, fetchAuditLogs, type AuditLogItem, type FetchAuditLogsParams } from '../../api/audit';
 import { buildAuditDetailSummary } from './auditDetailSummary';
 import { protectedGovernanceUsernames, protectedGovernanceTagLabel } from './securityGovernance';
 import {
@@ -165,6 +165,7 @@ const AuditLogs: React.FC = () => {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
 
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<AuditLogItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -321,13 +322,45 @@ const AuditLogs: React.FC = () => {
     void loadData(1, pageSize, { userFilter: username }, { mode: 'replace' });
   }, [actionAccess.canReadReservedSubjects, loadData, pageSize]);
 
-  const handleExportAuditLogs = useCallback(() => {
+  const handleExportAuditLogs = useCallback(async () => {
     if (!actionAccess.canExportAuditLogs) {
       message.warning('当前会话缺少审计导出权限');
       return;
     }
-    message.info('审计导出接口接入中，后续将按 audit.log.export 能力创建正式导出任务');
-  }, [actionAccess.canExportAuditLogs]);
+
+    const appliedQuery = appliedQueryRef.current ?? {
+      userFilter: userFilter.trim(),
+      actionFilter,
+      resourceTypeFilter,
+      from: dateRange[0]?.toISOString(),
+      to: dateRange[1]?.toISOString() ?? new Date().toISOString(),
+    };
+
+    setExporting(true);
+    try {
+      const blob = await downloadAuditLogs({
+        user_query: appliedQuery.userFilter || undefined,
+        action: appliedQuery.actionFilter,
+        resource_type: appliedQuery.resourceTypeFilter,
+        from: appliedQuery.from,
+        to: appliedQuery.to,
+        sort_by: 'created_at',
+        sort_order: 'desc',
+      }, 'csv');
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `nexuslog-audit-${dayjs().format('YYYYMMDD-HHmmss')}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      message.success('审计日志导出成功');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '审计日志导出失败';
+      message.error(msg);
+    } finally {
+      setExporting(false);
+    }
+  }, [actionAccess.canExportAuditLogs, actionFilter, dateRange, resourceTypeFilter, userFilter]);
 
   const columns: ColumnsType<AuditLogItem> = [
     {
@@ -403,11 +436,12 @@ const AuditLogs: React.FC = () => {
           >
             帮助
           </Button>
-          <Tooltip title={actionAccess.canExportAuditLogs ? '当前会话已具备审计导出能力；正式导出接口接入后将直接落到导出任务' : '当前会话缺少审计导出权限；正式导出将按 audit.log.export 单独开放'}>
+          <Tooltip title={actionAccess.canExportAuditLogs ? '按当前筛选条件导出审计日志文件' : '当前会话缺少 audit.log.export 能力'}>
             <span>
               <Button
                 disabled={!actionAccess.canExportAuditLogs}
-                onClick={handleExportAuditLogs}
+                loading={exporting}
+                onClick={() => { void handleExportAuditLogs(); }}
                 icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>}
               >
                 导出日志

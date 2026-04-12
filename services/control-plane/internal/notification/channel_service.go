@@ -12,13 +12,13 @@ var allowedChannelTypes = map[string]struct{}{
 	"email":    {},
 	"dingtalk": {},
 	"sms":      {},
+	"webhook":  {},
 }
 
-// ValidateChannelType checks that type is one of email/dingtalk/sms.
 func ValidateChannelType(chType string) error {
 	chType = strings.ToLower(strings.TrimSpace(chType))
 	if _, ok := allowedChannelTypes[chType]; !ok {
-		return fmt.Errorf("type must be one of email, dingtalk, sms")
+		return fmt.Errorf("type must be one of email, dingtalk, sms, webhook")
 	}
 	return nil
 }
@@ -42,6 +42,8 @@ func ValidateConfig(chType string, config json.RawMessage) error {
 		return validateDingTalkConfig(m)
 	case "sms":
 		return validateSMSConfig(m)
+	case "webhook":
+		return validateWebhookConfig(m)
 	default:
 		return fmt.Errorf("unsupported channel type: %s", chType)
 	}
@@ -125,10 +127,20 @@ func mustMarshalConfigMap(m map[string]interface{}) json.RawMessage {
 }
 
 func validateSMSConfig(m map[string]interface{}) error {
-	// SMS typically needs provider-specific config (e.g. access_key, secret, sign_name, template_code)
 	provider, _ := m["provider"].(string)
 	if strings.TrimSpace(provider) == "" {
 		return fmt.Errorf("sms config requires provider")
+	}
+	return nil
+}
+
+func validateWebhookConfig(m map[string]interface{}) error {
+	cfg, err := ParseWebhookConfig(mustMarshalConfigMap(m))
+	if err != nil {
+		return fmt.Errorf("invalid webhook config")
+	}
+	if err := validateWebhookTarget(cfg); err != nil {
+		return err
 	}
 	return nil
 }

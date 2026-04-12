@@ -23,11 +23,11 @@ func TestListSavedQueries_ReturnsAvailableTags(t *testing.T) {
 		WithArgs("tenant-1", "user-1", "", "").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(1)))
 
-	mock.ExpectQuery(`SELECT\s+sq\.id::text,\s+sq\.name,\s+sq\.query_text,\s+COALESCE\(sq\.run_count, 0\),\s+sq\.created_at,\s+sq\.updated_at,\s+COALESCE\(array_agg`).
+	mock.ExpectQuery(`SELECT\s+sq\.id::text,\s+sq\.name,\s+COALESCE\(sq\.description, ''\),\s+sq\.query_text,\s+COALESCE\(sq\.filters, '\{\}'::jsonb\),\s+COALESCE\(sq\.run_count, 0\),\s+sq\.created_at,\s+sq\.updated_at,\s+COALESCE\(array_agg`).
 		WithArgs("tenant-1", "user-1", "", "", 0, 20).
 		WillReturnRows(
-			sqlmock.NewRows([]string{"id", "name", "query_text", "run_count", "created_at", "updated_at", "tags"}).
-				AddRow("saved-1", "Error Query", "level:error", int64(3), createdAt, updatedAt, "{ops,billing}"),
+			sqlmock.NewRows([]string{"id", "name", "description", "query_text", "filters", "run_count", "created_at", "updated_at", "tags"}).
+				AddRow("saved-1", "Error Query", "", "level:error", []byte(`{}`), int64(3), createdAt, updatedAt, "{ops,billing}"),
 		)
 
 	mock.ExpectQuery(`SELECT DISTINCT sqt\.tag\s+FROM saved_query_tags sqt\s+INNER JOIN saved_queries sq ON sq\.id = sqt\.saved_query_id\s+WHERE sq\.tenant_id = \$1::uuid\s+AND sq\.user_id = \$2::uuid`).

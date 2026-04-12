@@ -64,6 +64,8 @@ func sanitizeConfigByType(chType string, raw json.RawMessage) json.RawMessage {
 		maskConfigValue(config, "webhook_url")
 		maskConfigValue(config, "access_token")
 		maskConfigValue(config, "secret")
+	case "webhook":
+		maskConfigValue(config, "secret")
 	}
 	masked, err := json.Marshal(config)
 	if err != nil {
@@ -84,6 +86,8 @@ func mergeMaskedConfig(chType string, existing, incoming json.RawMessage) (json.
 	case "dingtalk":
 		preserveMaskedValue(candidate, existingMap, "webhook_url")
 		preserveMaskedValue(candidate, existingMap, "access_token")
+		preserveMaskedValue(candidate, existingMap, "secret")
+	case "webhook":
 		preserveMaskedValue(candidate, existingMap, "secret")
 	}
 	merged, err := json.Marshal(candidate)

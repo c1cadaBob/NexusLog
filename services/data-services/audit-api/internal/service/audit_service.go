@@ -11,6 +11,8 @@ import (
 	sharedauth "github.com/nexuslog/data-services/shared/auth"
 )
 
+const maxAuditExportRows = 10000
+
 // AuditLogItem 审计日志项（API 响应）
 type AuditLogItem struct {
 	ID           string         `json:"id"`
@@ -36,6 +38,25 @@ type ListAuditLogsRequest struct {
 	PageSize     int
 	SortBy       string
 	SortOrder    string
+}
+
+// ExportAuditLogsRequest 审计日志导出请求参数。
+type ExportAuditLogsRequest struct {
+	UserID       string
+	Action       string
+	ResourceType string
+	From         string
+	To           string
+	SortBy       string
+	SortOrder    string
+	Format       string
+}
+
+// ExportAuditLogsResult 审计日志导出结果。
+type ExportAuditLogsResult struct {
+	Format   string
+	FileName string
+	Items    []AuditLogItem
 }
 
 // ListAuditLogsResult 审计日志列表结果
@@ -84,52 +105,14 @@ func (s *AuditService) ListAuditLogs(ctx context.Context, actor RequestActor, re
 		pageSize = 200
 	}
 
-	fromTime, _ := parseOptionalTime(req.From)
-	toTime, _ := parseOptionalTime(req.To)
-
-	var userID, action, resourceType *string
-	if v := strings.TrimSpace(req.UserID); v != "" {
-		userID = &v
-	}
-	if v := strings.TrimSpace(req.Action); v != "" {
-		action = &v
-	}
-	if v := strings.TrimSpace(req.ResourceType); v != "" {
-		resourceType = &v
-	}
-
-	output, err := s.repo.ListAuditLogs(ctx, repository.ListAuditLogsInput{
-		TenantID:            actor.TenantID,
-		TenantReadScope:     actor.TenantReadScope,
-		AuthorizedTenantIDs: actor.AuthorizedTenantIDs,
-		UserID:              userID,
-		Action:              action,
-		ResourceType:        resourceType,
-		FromTime:            fromTime,
-		ToTime:              toTime,
-		Page:                page,
-		PageSize:            pageSize,
-		SortBy:              strings.TrimSpace(req.SortBy),
-		SortOrder:           strings.TrimSpace(req.SortOrder),
-	})
+	output, err := s.repo.ListAuditLogs(ctx, buildListInput(actor, req.UserID, req.Action, req.ResourceType, req.From, req.To, page, pageSize, req.SortBy, req.SortOrder))
 	if err != nil {
 		return ListAuditLogsResult{}, err
 	}
 
 	items := make([]AuditLogItem, 0, len(output.Items))
 	for _, log := range output.Items {
-		items = append(items, AuditLogItem{
-			ID:           log.ID,
-			TenantID:     log.TenantID,
-			UserID:       log.UserID,
-			Action:       log.Action,
-			ResourceType: log.ResourceType,
-			ResourceID:   log.ResourceID,
-			Detail:       log.Detail,
-			IPAddress:    log.IPAddress,
-			UserAgent:    log.UserAgent,
-			CreatedAt:    log.CreatedAt.UTC().Format(time.RFC3339),
-		})
+		items = append(items, mapAuditLogItem(log))
 	}
 	return ListAuditLogsResult{
 		Items:    items,
@@ -137,6 +120,97 @@ func (s *AuditService) ListAuditLogs(ctx context.Context, actor RequestActor, re
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
+}
+
+// ExportAuditLogs 查询并返回导出数据。
+func (s *AuditService) ExportAuditLogs(ctx context.Context, actor RequestActor, req ExportAuditLogsRequest) (ExportAuditLogsResult, error) {
+	if s == nil || s.repo == nil || !s.repo.IsConfigured() {
+		return ExportAuditLogsResult{}, fmt.Errorf("audit service is not configured")
+	}
+	actor = normalizeActor(actor)
+	if _, err := sharedauth.ResolveAuthorizedTenantSet(actor.TenantID, actor.TenantReadScope, actor.AuthorizedTenantIDs); err != nil {
+		return ExportAuditLogsResult{}, err
+	}
+	format := strings.ToLower(strings.TrimSpace(req.Format))
+	if format == "" {
+		format = "csv"
+	}
+	if format != "csv" && format != "json" {
+		return ExportAuditLogsResult{}, fmt.Errorf("invalid export format")
+	}
+
+	logs, err := s.repo.ListAuditLogsForExport(ctx, buildListInput(actor, req.UserID, req.Action, req.ResourceType, req.From, req.To, 1, maxAuditExportRows, req.SortBy, req.SortOrder), maxAuditExportRows)
+	if err != nil {
+		return ExportAuditLogsResult{}, err
+	}
+
+	items := make([]AuditLogItem, 0, len(logs))
+	for _, log := range logs {
+		items = append(items, mapAuditLogItem(log))
+	}
+	stamp := time.Now().UTC().Format("20060102-150405")
+	return ExportAuditLogsResult{
+		Format:   format,
+		FileName: fmt.Sprintf("nexuslog-audit-%s.%s", stamp, format),
+		Items:    items,
+	}, nil
+}
+
+func buildListInput(
+	actor RequestActor,
+	userID string,
+	action string,
+	resourceType string,
+	from string,
+	to string,
+	page int,
+	pageSize int,
+	sortBy string,
+	sortOrder string,
+) repository.ListAuditLogsInput {
+	fromTime, _ := parseOptionalTime(from)
+	toTime, _ := parseOptionalTime(to)
+
+	var userIDPtr, actionPtr, resourceTypePtr *string
+	if v := strings.TrimSpace(userID); v != "" {
+		userIDPtr = &v
+	}
+	if v := strings.TrimSpace(action); v != "" {
+		actionPtr = &v
+	}
+	if v := strings.TrimSpace(resourceType); v != "" {
+		resourceTypePtr = &v
+	}
+
+	return repository.ListAuditLogsInput{
+		TenantID:            actor.TenantID,
+		TenantReadScope:     actor.TenantReadScope,
+		AuthorizedTenantIDs: actor.AuthorizedTenantIDs,
+		UserID:              userIDPtr,
+		Action:              actionPtr,
+		ResourceType:        resourceTypePtr,
+		FromTime:            fromTime,
+		ToTime:              toTime,
+		Page:                page,
+		PageSize:            pageSize,
+		SortBy:              strings.TrimSpace(sortBy),
+		SortOrder:           strings.TrimSpace(sortOrder),
+	}
+}
+
+func mapAuditLogItem(log repository.AuditLog) AuditLogItem {
+	return AuditLogItem{
+		ID:           log.ID,
+		TenantID:     log.TenantID,
+		UserID:       log.UserID,
+		Action:       log.Action,
+		ResourceType: log.ResourceType,
+		ResourceID:   log.ResourceID,
+		Detail:       log.Detail,
+		IPAddress:    log.IPAddress,
+		UserAgent:    log.UserAgent,
+		CreatedAt:    log.CreatedAt.UTC().Format(time.RFC3339),
+	}
 }
 
 func normalizeActor(actor RequestActor) RequestActor {

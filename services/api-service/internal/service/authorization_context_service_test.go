@@ -116,7 +116,7 @@ func TestBuildAuthorizationContextUsersReadStaysWithinIAMBoundary(t *testing.T) 
 	assertNotContains(ctx.Capabilities, "integration.plugin.read")
 }
 
-func TestBuildAuthorizationContextUsersWriteStaysWithinIAMBoundary(t *testing.T) {
+func TestBuildAuthorizationContextUsersWriteIncludesLoginPolicyCapabilities(t *testing.T) {
 	ctx := buildAuthorizationContext("alice", []model.RoleData{{Name: "editor"}}, []string{"users:write"})
 
 	assertContains := func(values []string, target string) {
@@ -147,8 +147,8 @@ func TestBuildAuthorizationContextUsersWriteStaysWithinIAMBoundary(t *testing.T)
 	assertNotContains(ctx.Capabilities, "iam.user.invite")
 	assertNotContains(ctx.Capabilities, "iam.user.import")
 	assertNotContains(ctx.Capabilities, "iam.user.reset_password")
-	assertNotContains(ctx.Capabilities, "auth.login_policy.read")
-	assertNotContains(ctx.Capabilities, "auth.login_policy.update")
+	assertContains(ctx.Capabilities, "auth.login_policy.read")
+	assertContains(ctx.Capabilities, "auth.login_policy.update")
 	assertNotContains(ctx.Capabilities, "settings.parameter.update")
 	assertNotContains(ctx.Capabilities, "settings.global.update")
 	assertNotContains(ctx.Capabilities, "settings.version.rollback")

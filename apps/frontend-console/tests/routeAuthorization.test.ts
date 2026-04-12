@@ -85,6 +85,13 @@ describe('route authorization registry', () => {
         capabilities: ['report.read'],
       }),
     ).toBe(true);
+
+    expect(
+      canAccessRoute('/reports/management', {
+        permissions: [],
+        capabilities: ['query.saved.read'],
+      }),
+    ).toBe(true);
   });
 
   it('does not let dashboards:read borrow access to scheduled tasks', () => {
@@ -237,6 +244,20 @@ describe('route authorization registry', () => {
       canAccessRoute('/integration/webhook', {
         permissions: [],
         capabilities: ['integration.webhook.read_metadata'],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/integration/webhook', {
+        permissions: [],
+        capabilities: ['notification.channel.read_metadata'],
+      }),
+    ).toBe(true);
+
+    expect(
+      canAccessRoute('/integration/webhook', {
+        permissions: ['alerts:read'],
+        capabilities: [],
       }),
     ).toBe(true);
   });

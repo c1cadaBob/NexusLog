@@ -51,6 +51,7 @@ func registerRoutes(r *gin.Engine, db *sql.DB, jwtSecret string, auditHandler *h
 	v1 := r.Group("/api/v1/audit")
 	{
 		v1.GET("/logs", sharedauth.RequireCapability("audit.log.read"), auditHandler.ListAuditLogs)
+		v1.GET("/logs/export", sharedauth.RequireCapability("audit.log.export"), auditHandler.ExportAuditLogs)
 	}
 }
 

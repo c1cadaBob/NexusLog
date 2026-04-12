@@ -113,13 +113,61 @@ ORDER BY %s %s
 OFFSET $%d LIMIT $%d
 `, whereClause, sortBy, sortOrder, len(whereArgs)+1, len(whereArgs)+2)
 
-	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
+	items, err := r.queryAuditLogs(ctx, listQuery, pageSize, listArgs...)
 	if err != nil {
-		return ListAuditLogsOutput{}, fmt.Errorf("list audit logs: %w", err)
+		return ListAuditLogsOutput{}, err
+	}
+	return ListAuditLogsOutput{Items: items, Total: total}, nil
+}
+
+// ListAuditLogsForExport 返回导出用的审计日志集合。
+func (r *AuditRepository) ListAuditLogsForExport(ctx context.Context, in ListAuditLogsInput, limit int) ([]AuditLog, error) {
+	if !r.IsConfigured() {
+		return nil, fmt.Errorf("audit repository is not configured")
+	}
+	if limit <= 0 {
+		limit = 10000
+	}
+	if limit > 50000 {
+		limit = 50000
+	}
+
+	whereClause, whereArgs, err := buildAuditLogWhereClause(in)
+	if err != nil {
+		return nil, err
+	}
+	sortBy := normalizeSortBy(in.SortBy)
+	sortOrder := normalizeSortOrder(in.SortOrder)
+	queryArgs := append(append([]any{}, whereArgs...), limit)
+	query := fmt.Sprintf(`
+SELECT
+	id::text,
+	tenant_id::text,
+	user_id::text,
+	action,
+	resource_type,
+	resource_id,
+	details,
+	ip_address::text,
+	user_agent,
+	created_at
+FROM audit_logs
+WHERE %s
+ORDER BY %s %s
+LIMIT $%d
+`, whereClause, sortBy, sortOrder, len(whereArgs)+1)
+
+	return r.queryAuditLogs(ctx, query, limit, queryArgs...)
+}
+
+func (r *AuditRepository) queryAuditLogs(ctx context.Context, query string, capacity int, args ...any) ([]AuditLog, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list audit logs: %w", err)
 	}
 	defer rows.Close()
 
-	items := make([]AuditLog, 0, pageSize)
+	items := make([]AuditLog, 0, capacity)
 	for rows.Next() {
 		var log AuditLog
 		var detailsRaw []byte
@@ -136,7 +184,7 @@ OFFSET $%d LIMIT $%d
 			&log.UserAgent,
 			&log.CreatedAt,
 		); err != nil {
-			return ListAuditLogsOutput{}, fmt.Errorf("scan audit log: %w", err)
+			return nil, fmt.Errorf("scan audit log: %w", err)
 		}
 		if tenantID.Valid {
 			log.TenantID = tenantID.String
@@ -160,9 +208,9 @@ OFFSET $%d LIMIT $%d
 		items = append(items, log)
 	}
 	if err := rows.Err(); err != nil {
-		return ListAuditLogsOutput{}, fmt.Errorf("iterate audit logs: %w", err)
+		return nil, fmt.Errorf("iterate audit logs: %w", err)
 	}
-	return ListAuditLogsOutput{Items: items, Total: total}, nil
+	return items, nil
 }
 
 func normalizePage(page int) int {
