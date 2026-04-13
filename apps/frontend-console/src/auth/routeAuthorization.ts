@@ -59,7 +59,6 @@ export const ROUTE_AUTHORIZATION_RULES: RouteAuthorizationRule[] = [
   { path: '/integration/api', requiredCapabilities: ['integration.api_doc.read'], legacyPermissions: ['dashboards:read'] },
   { path: '/integration/webhook', requiredCapabilities: ['integration.webhook.read_metadata', 'notification.channel.read_metadata'], legacyPermissions: ['alerts:read'] },
   { path: '/integration/sdk', requiredCapabilities: ['integration.sdk.read'], legacyPermissions: ['dashboards:read'] },
-  { path: '/integration/plugins', requiredCapabilities: ['integration.plugin.read'] },
   { path: '/cost/overview', requiredCapabilities: ['cost.read'], legacyPermissions: ['dashboards:read'] },
   { path: '/cost/budgets', requiredCapabilities: ['cost.budget.read'], legacyPermissions: ['dashboards:read'] },
   { path: '/cost/optimization', requiredCapabilities: ['cost.optimization.read'], legacyPermissions: ['dashboards:read'] },

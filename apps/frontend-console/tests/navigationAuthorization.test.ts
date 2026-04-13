@@ -17,7 +17,6 @@ const USER_WRITE_ROUTE_REMOVALS = [
   '/storage/backup',
   '/storage/capacity',
   '/integration/webhook',
-  '/integration/plugins',
 ] as const;
 
 function collectVisiblePaths(sections: typeof MENU_SECTIONS): string[] {

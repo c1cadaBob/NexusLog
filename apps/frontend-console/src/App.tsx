@@ -83,7 +83,6 @@ const LoginPolicy = lazy(() => import('./pages/security/LoginPolicy'));
 const ApiDocs = lazy(() => import('./pages/integration/ApiDocs'));
 const WebhookManagement = lazy(() => import('./pages/integration/WebhookManagement'));
 const SdkDownload = lazy(() => import('./pages/integration/SdkDownload'));
-const PluginMarket = lazy(() => import('./pages/integration/PluginMarket'));
 
 // 成本管理
 const CostOverview = lazy(() => import('./pages/cost/CostOverview'));
@@ -207,7 +206,6 @@ const App: React.FC = () => {
                 <Route path="/integration/api" element={<ApiDocs />} />
                 <Route path="/integration/webhook" element={<WebhookManagement />} />
                 <Route path="/integration/sdk" element={<SdkDownload />} />
-                <Route path="/integration/plugins" element={<PluginMarket />} />
 
                 {/* 成本管理 */}
                 <Route path="/cost/overview" element={<CostOverview />} />
