@@ -153,15 +153,6 @@ export const MENU_SECTIONS: MenuSection[] = [
     title: '系统配置',
     items: [
       {
-        icon: 'savings',
-        label: '成本管理',
-        children: [
-          { icon: 'pie_chart', label: '成本概览', path: '/cost/overview' },
-          { icon: 'price_check', label: '预算告警', path: '/cost/budgets' },
-          { icon: 'lightbulb', label: '优化建议', path: '/cost/optimization' },
-        ],
-      },
-      {
         icon: 'settings',
         label: '系统设置',
         children: [

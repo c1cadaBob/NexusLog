@@ -273,6 +273,12 @@ describe('route authorization registry', () => {
     expect(findRouteAuthorizationRule('/integration/sdk')).toBeUndefined();
   });
 
+  it('removes cost management routes from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/cost/overview')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/cost/budgets')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/cost/optimization')).toBeUndefined();
+  });
+
   it('returns first accessible fallback for denied route', () => {
     const decision = evaluateRouteAccess('/security/users', {
       permissions: ['logs:read'],

@@ -83,10 +83,6 @@ const LoginPolicy = lazy(() => import('./pages/security/LoginPolicy'));
 const WebhookManagement = lazy(() => import('./pages/integration/WebhookManagement'));
 
 // 成本管理
-const CostOverview = lazy(() => import('./pages/cost/CostOverview'));
-const BudgetAlerts = lazy(() => import('./pages/cost/BudgetAlerts'));
-const OptimizationSuggestions = lazy(() => import('./pages/cost/OptimizationSuggestions'));
-
 // 系统设置
 const SystemParameters = lazy(() => import('./pages/settings/SystemParameters'));
 const GlobalConfig = lazy(() => import('./pages/settings/GlobalConfig'));
@@ -202,11 +198,6 @@ const App: React.FC = () => {
 
                 {/* 集成与开放平台 */}
                 <Route path="/integration/webhook" element={<WebhookManagement />} />
-
-                {/* 成本管理 */}
-                <Route path="/cost/overview" element={<CostOverview />} />
-                <Route path="/cost/budgets" element={<BudgetAlerts />} />
-                <Route path="/cost/optimization" element={<OptimizationSuggestions />} />
 
                 {/* 系统设置 */}
                 <Route path="/settings/parameters" element={<SystemParameters />} />

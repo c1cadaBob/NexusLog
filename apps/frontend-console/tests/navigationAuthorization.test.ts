@@ -50,6 +50,9 @@ describe('navigation authorization', () => {
     expect(visiblePaths).not.toContain('/settings/parameters');
     expect(visiblePaths).not.toContain('/integration/api');
     expect(visiblePaths).not.toContain('/integration/sdk');
+    expect(visiblePaths).not.toContain('/cost/overview');
+    expect(visiblePaths).not.toContain('/cost/budgets');
+    expect(visiblePaths).not.toContain('/cost/optimization');
   });
 
   it('keeps only accessible report center children for granular report access', () => {
