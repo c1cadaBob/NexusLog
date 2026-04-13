@@ -165,9 +165,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: 'help_outline',
         label: '帮助中心',
         children: [
-          { icon: 'terminal', label: '查询语法', path: '/help/syntax' },
           { icon: 'quiz', label: 'FAQ', path: '/help/faq' },
-          { icon: 'confirmation_number', label: '工单入口', path: '/help/tickets' },
         ],
       },
     ],

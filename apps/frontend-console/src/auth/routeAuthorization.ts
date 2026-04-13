@@ -60,9 +60,7 @@ export const ROUTE_AUTHORIZATION_RULES: RouteAuthorizationRule[] = [
   { path: '/settings/parameters', requiredCapabilities: ['settings.parameter.read'] },
   { path: '/settings/global', requiredCapabilities: ['settings.global.read'] },
   { path: '/settings/versions', requiredCapabilities: ['settings.version.read'] },
-  { path: '/help/syntax', requiredCapabilities: ['help.read'], legacyPermissions: ['dashboards:read', 'logs:read'] },
   { path: '/help/faq', requiredCapabilities: ['help.read'], legacyPermissions: ['dashboards:read', 'logs:read'] },
-  { path: '/help/tickets', requiredCapabilities: ['help.read'], legacyPermissions: ['dashboards:read', 'logs:read'] },
 ];
 
 function hasWildcard(values: string[]): boolean {

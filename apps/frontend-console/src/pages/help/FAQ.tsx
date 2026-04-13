@@ -142,19 +142,12 @@ const FAQ: React.FC = () => {
               <kbd className={`hidden rounded border ${borderColor} ${kbdBg} px-2 py-0.5 text-xs font-medium ${textSecondary} md:inline-block`}>⌘K</kbd>
             </div>
           </div>
-          <button
-            onClick={() => { window.location.hash = '#/help/tickets'; }}
-            className={`flex items-center gap-2 rounded-lg h-11 px-4 bg-[#135bec] hover:bg-[#1048c0] text-white text-sm font-semibold shadow-lg shadow-[#135bec]/20 transition-all active:scale-95`}
-          >
-            <span className="material-symbols-outlined text-lg">confirmation_number</span>
-            <span>工单入口</span>
-          </button>
         </div>
       </header>
       <div className="flex-1 overflow-y-auto scroll-smooth">
         <div className="mx-auto w-full max-w-5xl px-6 py-8 lg:px-12">
           <div className={`mb-8 rounded-2xl border ${borderColor} ${cardBg} p-6`}>
-            <p className={`${textSecondary}`}>这里汇集了关于日志接入、告警配置和权限管理的常见问题。如果您仍然找不到答案，可以直接提交技术工单。</p>
+            <p className={`${textSecondary}`}>这里汇集了关于日志接入、告警配置和权限管理的常见问题。如果您仍然找不到答案，请联系系统管理员协助处理。</p>
             {(searchTerm || selectedTag) && (
               <div className={`mt-4 text-sm ${textSecondary}`}>
                 找到 {filteredFaqData.reduce((acc, cat) => acc + cat.questions.length, 0)} 个相关问题

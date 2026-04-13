@@ -279,6 +279,11 @@ describe('route authorization registry', () => {
     expect(findRouteAuthorizationRule('/cost/optimization')).toBeUndefined();
   });
 
+  it('removes mock help routes from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/help/syntax')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/help/tickets')).toBeUndefined();
+  });
+
   it('returns first accessible fallback for denied route', () => {
     const decision = evaluateRouteAccess('/security/users', {
       permissions: ['logs:read'],

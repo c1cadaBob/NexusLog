@@ -89,9 +89,7 @@ const GlobalConfig = lazy(() => import('./pages/settings/GlobalConfig'));
 const ConfigVersions = lazy(() => import('./pages/settings/ConfigVersions'));
 
 // 帮助中心
-const QuerySyntax = lazy(() => import('./pages/help/QuerySyntax'));
 const FAQ = lazy(() => import('./pages/help/FAQ'));
-const TicketPortal = lazy(() => import('./pages/help/TicketPortal'));
 
 
 const App: React.FC = () => {
@@ -205,9 +203,7 @@ const App: React.FC = () => {
                 <Route path="/settings/versions" element={<ConfigVersions />} />
 
                 {/* 帮助中心 */}
-                <Route path="/help/syntax" element={<QuerySyntax />} />
                 <Route path="/help/faq" element={<FAQ />} />
-                <Route path="/help/tickets" element={<TicketPortal />} />
 
                 {/* 404 回退到 Dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />
