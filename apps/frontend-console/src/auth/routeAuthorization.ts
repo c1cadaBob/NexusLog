@@ -47,7 +47,6 @@ export const ROUTE_AUTHORIZATION_RULES: RouteAuthorizationRule[] = [
   { path: '/storage/capacity', requiredCapabilities: ['storage.capacity.read'], legacyPermissions: ['metrics:read'] },
   { path: '/performance/monitoring', requiredCapabilities: ['metric.read'], legacyPermissions: ['metrics:read'] },
   { path: '/performance/health', requiredCapabilities: ['ops.health.read'], legacyPermissions: ['metrics:read'] },
-  { path: '/performance/dr', requiredCapabilities: ['dr.read'], legacyPermissions: ['metrics:read'] },
   { path: '/tracing/search', requiredCapabilities: ['trace.read'], legacyPermissions: ['logs:read'] },
   { path: '/tracing/analysis', requiredCapabilities: ['trace.analysis.read'], legacyPermissions: ['logs:read'] },
   { path: '/tracing/topology', requiredCapabilities: ['trace.topology.read'], legacyPermissions: ['logs:read'] },

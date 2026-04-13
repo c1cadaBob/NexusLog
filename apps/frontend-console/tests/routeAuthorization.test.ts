@@ -18,7 +18,6 @@ const USER_WRITE_ROUTE_REMOVALS = [
   '/storage/ilm',
   '/storage/backup',
   '/storage/capacity',
-  '/performance/dr',
   '/integration/webhook',
   '/integration/plugins',
 ] as const;
@@ -257,12 +256,10 @@ describe('route authorization registry', () => {
       }),
     ).toBe(true);
 
-    expect(
-      canAccessRoute('/performance/dr', {
-        permissions: ['metrics:read'],
-        capabilities: [],
-      }),
-    ).toBe(true);
+  });
+
+  it('removes disaster recovery from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/performance/dr')).toBeUndefined();
   });
 
   it('returns first accessible fallback for denied route', () => {

@@ -63,7 +63,6 @@ const CapacityMonitoring = lazy(() => import('./pages/storage/CapacityMonitoring
 // 性能与高可用
 const PerformanceMonitoring = lazy(() => import('./pages/performance/PerformanceMonitoring'));
 const HealthCheck = lazy(() => import('./pages/performance/HealthCheck'));
-const DisasterRecovery = lazy(() => import('./pages/performance/DisasterRecovery'));
 
 // 分布式追踪
 const TraceSearch = lazy(() => import('./pages/tracing/TraceSearch'));
@@ -188,7 +187,6 @@ const App: React.FC = () => {
                 {/* 性能与高可用 */}
                 <Route path="/performance/monitoring" element={<PerformanceMonitoring />} />
                 <Route path="/performance/health" element={<HealthCheck />} />
-                <Route path="/performance/dr" element={<DisasterRecovery />} />
 
                 {/* 分布式追踪 */}
                 <Route path="/tracing/search" element={<TraceSearch />} />

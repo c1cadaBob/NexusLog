@@ -101,7 +101,6 @@ export const MENU_SECTIONS: MenuSection[] = [
         children: [
           { icon: 'trending_up', label: '性能监控', path: '/performance/monitoring' },
           { icon: 'health_and_safety', label: '健康检查', path: '/performance/health' },
-          { icon: 'sync_alt', label: '灾备状态', path: '/performance/dr' },
         ],
       },
     ],
