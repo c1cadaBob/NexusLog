@@ -361,6 +361,13 @@ export async function restoreSnapshot(name: string, data: RestoreSnapshotData): 
   });
 }
 
+export async function cancelSnapshot(name: string, repo: string): Promise<void> {
+  await requestBackupApi('/snapshots/' + encodeURIComponent(name) + '/cancel', {
+    method: 'POST',
+    query: { repository: repo },
+  });
+}
+
 /** Delete snapshot (repository query param required by backend) */
 export async function deleteSnapshot(name: string, repo: string): Promise<void> {
   await requestBackupApi('/snapshots/' + encodeURIComponent(name), {

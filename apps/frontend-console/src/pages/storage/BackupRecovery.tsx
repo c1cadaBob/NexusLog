@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { Button, Card, Table, Tag, Space, Modal, Form, Select, Input, message, Empty } from 'antd';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Button, Card, Table, Tag, Space, Modal, Form, Select, Input, message, Empty, Statistic, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useThemeStore } from '../../stores/themeStore';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
@@ -8,12 +8,15 @@ import {
   fetchBackupSnapshots,
   createBackupSnapshot,
   restoreSnapshot,
+  cancelSnapshot,
   deleteSnapshot,
   type BackupRepository,
   type BackupSnapshot,
 } from '../../api/export';
 import InlineLoadingState from '../../components/common/InlineLoadingState';
 import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
+
+const BACKUP_SELECTED_REPO_KEY = 'nexuslog-backup-selected-repo';
 
 const SNAPSHOT_STATE_MAP: Record<string, { color: string; label: string }> = {
   SUCCESS: { color: 'success', label: '成功' },
@@ -36,6 +39,7 @@ const BackupRecovery: React.FC = () => {
   const [showRestoreModal, setShowRestoreModal] = useState<BackupSnapshot | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [form] = Form.useForm();
@@ -48,8 +52,12 @@ const BackupRecovery: React.FC = () => {
       const repos = await fetchBackupRepositories();
       setRepositories(repos);
       setLastUpdatedAt(new Date());
-      if (repos.length > 0 && !selectedRepo) {
-        setSelectedRepo(repos[0].name);
+
+      const persistedRepo = window.localStorage.getItem(BACKUP_SELECTED_REPO_KEY)?.trim();
+      const repoExists = repos.some((repo) => repo.name === selectedRepo);
+      if (repos.length > 0 && (!selectedRepo || !repoExists)) {
+        const fallbackRepo = repos.find((repo) => repo.name === persistedRepo)?.name ?? repos[0].name;
+        setSelectedRepo(fallbackRepo);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载仓库失败';
@@ -87,6 +95,14 @@ const BackupRecovery: React.FC = () => {
   useEffect(() => {
     loadSnapshots();
   }, [loadSnapshots]);
+
+  useEffect(() => {
+    if (selectedRepo) {
+      window.localStorage.setItem(BACKUP_SELECTED_REPO_KEY, selectedRepo);
+      return;
+    }
+    window.localStorage.removeItem(BACKUP_SELECTED_REPO_KEY);
+  }, [selectedRepo]);
 
   const handleCreateSnapshot = async () => {
     try {
@@ -133,6 +149,22 @@ const BackupRecovery: React.FC = () => {
     }
   };
 
+  const handleCancel = async (snapshot: BackupSnapshot) => {
+    if (snapshot.state !== 'IN_PROGRESS') {
+      return;
+    }
+    setCancelLoading(snapshot.snapshot);
+    try {
+      await cancelSnapshot(snapshot.snapshot, selectedRepo);
+      message.success('取消快照请求已提交');
+      loadSnapshots();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '取消失败');
+    } finally {
+      setCancelLoading(null);
+    }
+  };
+
   const handleDelete = async (snapshot: BackupSnapshot) => {
     if (snapshot.state === 'IN_PROGRESS') {
       message.warning('进行中的快照无法删除');
@@ -150,9 +182,55 @@ const BackupRecovery: React.FC = () => {
     }
   };
 
-  const formatIndices = (indices: string | string[]): string => {
-    return Array.isArray(indices) ? indices.join(', ') : (indices || '-');
-  };
+  const getIndicesList = useCallback((indices: string | string[]): string[] => {
+    if (Array.isArray(indices)) {
+      return indices.map((item) => item.trim()).filter(Boolean);
+    }
+    return String(indices || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }, []);
+
+  const formatIndices = useCallback((indices: string | string[]): string => {
+    const items = getIndicesList(indices);
+    return items.length > 0 ? items.join(', ') : '-';
+  }, [getIndicesList]);
+
+  const formatSnapshotTime = useCallback((value?: string): string => {
+    if (!value) {
+      return '-';
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
+  }, []);
+
+  const selectedRepository = useMemo(
+    () => repositories.find((repo) => repo.name === selectedRepo) ?? null,
+    [repositories, selectedRepo],
+  );
+
+  const snapshotSummary = useMemo(() => {
+    const uniqueIndices = new Set<string>();
+    let successCount = 0;
+    let inProgressCount = 0;
+
+    snapshots.forEach((snapshot) => {
+      getIndicesList(snapshot.indices).forEach((indexName) => uniqueIndices.add(indexName));
+      if (snapshot.state === 'SUCCESS') {
+        successCount += 1;
+      } else if (snapshot.state === 'IN_PROGRESS') {
+        inProgressCount += 1;
+      }
+    });
+
+    return {
+      total: snapshots.length,
+      successCount,
+      inProgressCount,
+      coveredIndices: uniqueIndices.size,
+    };
+  }, [getIndicesList, snapshots]);
 
   const snapshotColumns: ColumnsType<BackupSnapshot> = [
     {
@@ -177,26 +255,56 @@ const BackupRecovery: React.FC = () => {
       title: '索引',
       dataIndex: 'indices',
       key: 'indices',
-      render: (indices: string | string[]) => <Tag>{formatIndices(indices)}</Tag>,
+      width: 360,
+      render: (indices: string | string[]) => {
+        const items = getIndicesList(indices);
+        if (items.length === 0) {
+          return <span style={{ fontSize: 13, color: p.textTertiary }}>-</span>;
+        }
+        const preview = items.slice(0, 2).join(', ');
+        const previewText = items.length > 2 ? `${preview} 等 ${items.length} 个索引` : preview;
+        return (
+          <Tooltip
+            placement="topLeft"
+            title={<div style={{ maxWidth: 520, whiteSpace: 'normal', lineHeight: 1.6 }}>{items.join(', ')}</div>}
+          >
+            <div style={{ maxWidth: 340 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: p.text }}>{items.length} 个索引</div>
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 12,
+                  color: p.textSecondary,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {previewText}
+              </div>
+            </div>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '开始时间',
       dataIndex: 'start_time',
       key: 'start_time',
       width: 180,
-      render: (v: string) => <span style={{ fontSize: 13, color: p.textSecondary }}>{v || '-'}</span>,
+      render: (v: string) => <span style={{ fontSize: 13, color: p.textSecondary }}>{formatSnapshotTime(v)}</span>,
     },
     {
       title: '结束时间',
       dataIndex: 'end_time',
       key: 'end_time',
       width: 180,
-      render: (v: string) => <span style={{ fontSize: 13, color: p.textSecondary }}>{v || '-'}</span>,
+      render: (v: string) => <span style={{ fontSize: 13, color: p.textSecondary }}>{formatSnapshotTime(v)}</span>,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 160,
+      width: 200,
       align: 'right',
       render: (_: unknown, record: BackupSnapshot) => (
         <Space size={4}>
@@ -210,15 +318,24 @@ const BackupRecovery: React.FC = () => {
           >
             恢复
           </Button>
-          <Button
-            size="small"
-            danger
-            loading={deleteLoading === record.snapshot}
-            disabled={record.state === 'IN_PROGRESS'}
-            onClick={() => handleDelete(record)}
-          >
-            删除
-          </Button>
+          {record.state === 'IN_PROGRESS' ? (
+            <Button
+              size="small"
+              loading={cancelLoading === record.snapshot}
+              onClick={() => handleCancel(record)}
+            >
+              取消
+            </Button>
+          ) : (
+            <Button
+              size="small"
+              danger
+              loading={deleteLoading === record.snapshot}
+              onClick={() => handleDelete(record)}
+            >
+              删除
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -259,6 +376,30 @@ const BackupRecovery: React.FC = () => {
         )}
       />
 
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 16,
+        }}
+      >
+        <Card size="small" styles={{ body: { padding: 20 } }}>
+          <Statistic title="快照总数" value={snapshotSummary.total} />
+        </Card>
+        <Card size="small" styles={{ body: { padding: 20 } }}>
+          <Statistic title="成功快照" value={snapshotSummary.successCount} />
+        </Card>
+        <Card size="small" styles={{ body: { padding: 20 } }}>
+          <Statistic title="进行中" value={snapshotSummary.inProgressCount} />
+        </Card>
+        <Card size="small" styles={{ body: { padding: 20 } }}>
+          <Statistic title="覆盖索引数" value={snapshotSummary.coveredIndices} />
+          <div style={{ marginTop: 8, fontSize: 12, color: p.textSecondary }}>
+            仓库类型：{selectedRepository?.type ?? '-'}
+          </div>
+        </Card>
+      </div>
+
       <Card
         style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' } }}
@@ -283,6 +424,7 @@ const BackupRecovery: React.FC = () => {
               dataSource={snapshots}
               size="middle"
               pagination={{ pageSize: 20 }}
+              scroll={{ x: 1080 }}
               loading={false}
             />
           )}

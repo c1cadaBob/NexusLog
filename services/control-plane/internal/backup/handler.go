@@ -173,6 +173,14 @@ func (h *Handler) ListSnapshots(c *gin.Context) {
 			})
 			return
 		}
+		if strings.Contains(strings.ToLower(err.Error()), "disabled to prevent data corruption") {
+			setBackupSnapshotAuditEvent(c, "backup_snapshots.list", "", buildBackupSnapshotListAuditDetails(repo, 0, http.StatusConflict, "failed", "BACKUP_REPOSITORY_UNAVAILABLE"))
+			c.JSON(http.StatusConflict, gin.H{
+				"code":    "BACKUP_REPOSITORY_UNAVAILABLE",
+				"message": "当前仓库已被 Elasticsearch 禁用，请切换仓库或重新注册仓库后再试",
+			})
+			return
+		}
 		setBackupSnapshotAuditEvent(c, "backup_snapshots.list", "", buildBackupSnapshotListAuditDetails(repo, 0, http.StatusInternalServerError, "failed", "INTERNAL_ERROR"))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "INTERNAL_ERROR",
