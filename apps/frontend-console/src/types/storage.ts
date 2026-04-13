@@ -12,6 +12,20 @@ export interface IndexInfo {
   shards: string;
   docs: string;
   size: string;
+  primaryShards: number;
+  replicaShards: number;
+  docsCount: number;
+  storeSizeBytes: number;
+}
+
+export interface IndexSummary {
+  total: number;
+  green: number;
+  yellow: number;
+  red: number;
+  docsCount: number;
+  storeSizeBytes: number;
+  refreshedAt?: number;
 }
 
 export const INDEX_HEALTH_CONFIG: Record<IndexHealth, { color: string; label: string }> = {

@@ -33,6 +33,7 @@ import (
 	"github.com/nexuslog/control-plane/internal/middleware"
 	"github.com/nexuslog/control-plane/internal/notification"
 	"github.com/nexuslog/control-plane/internal/resource"
+	"github.com/nexuslog/control-plane/internal/storage"
 )
 
 var serviceUpMetric = promauto.NewGaugeVec(
@@ -123,6 +124,9 @@ func main() {
 	// ES Snapshot Backup/Restore (W4-B3)
 	backupSvc := backup.NewService()
 	backup.RegisterAuthorizedRoutes(userRoutes, pgDB, backup.NewHandler(backupSvc))
+
+	// Storage index read API
+	storage.RegisterAuthorizedRoutes(userRoutes, pgDB, storage.NewIndexHandler(storage.NewIndexServiceFromEnv()))
 
 	var (
 		channelRepo    *notification.ChannelRepository
