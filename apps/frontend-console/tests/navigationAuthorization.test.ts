@@ -16,7 +16,6 @@ const USER_WRITE_ROUTE_REMOVALS = [
   '/storage/ilm',
   '/storage/backup',
   '/storage/capacity',
-  '/performance/scaling',
   '/performance/dr',
   '/integration/webhook',
   '/integration/plugins',

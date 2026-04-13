@@ -18,7 +18,6 @@ const USER_WRITE_ROUTE_REMOVALS = [
   '/storage/ilm',
   '/storage/backup',
   '/storage/capacity',
-  '/performance/scaling',
   '/performance/dr',
   '/integration/webhook',
   '/integration/plugins',
@@ -94,20 +93,8 @@ describe('route authorization registry', () => {
     ).toBe(true);
   });
 
-  it('does not let dashboards:read borrow access to scheduled tasks', () => {
-    expect(
-      canAccessRoute('/reports/scheduled', {
-        permissions: ['dashboards:read'],
-        capabilities: [],
-      }),
-    ).toBe(false);
-
-    expect(
-      canAccessRoute('/reports/scheduled', {
-        permissions: [],
-        capabilities: ['report.schedule.read'],
-      }),
-    ).toBe(true);
+  it('removes scheduled tasks from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/reports/scheduled')).toBeUndefined();
   });
 
   it('does not let dashboards:read borrow access to download records', () => {
@@ -234,13 +221,6 @@ describe('route authorization registry', () => {
     ).toBe(true);
 
     expect(
-      canAccessRoute('/performance/scaling', {
-        permissions: [],
-        capabilities: ['ops.scaling.read'],
-      }),
-    ).toBe(true);
-
-    expect(
       canAccessRoute('/integration/webhook', {
         permissions: [],
         capabilities: ['integration.webhook.read_metadata'],
@@ -272,13 +252,6 @@ describe('route authorization registry', () => {
 
     expect(
       canAccessRoute('/storage/capacity', {
-        permissions: ['metrics:read'],
-        capabilities: [],
-      }),
-    ).toBe(true);
-
-    expect(
-      canAccessRoute('/performance/scaling', {
         permissions: ['metrics:read'],
         capabilities: [],
       }),
