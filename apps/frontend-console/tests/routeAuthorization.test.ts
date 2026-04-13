@@ -265,6 +265,10 @@ describe('route authorization registry', () => {
     expect(findRouteAuthorizationRule('/integration/plugins')).toBeUndefined();
   });
 
+  it('removes api docs from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/integration/api')).toBeUndefined();
+  });
+
   it('removes sdk download from the route authorization registry', () => {
     expect(findRouteAuthorizationRule('/integration/sdk')).toBeUndefined();
   });

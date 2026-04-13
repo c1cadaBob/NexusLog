@@ -56,7 +56,6 @@ export const ROUTE_AUTHORIZATION_RULES: RouteAuthorizationRule[] = [
   { path: '/security/roles', requiredCapabilities: ['iam.role.read'], legacyPermissions: ['users:read'] },
   { path: '/security/audit', requiredCapabilities: ['audit.log.read'], legacyPermissions: ['audit:read'] },
   { path: '/security/login-policy', requiredCapabilities: ['auth.login_policy.read'] },
-  { path: '/integration/api', requiredCapabilities: ['integration.api_doc.read'], legacyPermissions: ['dashboards:read'] },
   { path: '/integration/webhook', requiredCapabilities: ['integration.webhook.read_metadata', 'notification.channel.read_metadata'], legacyPermissions: ['alerts:read'] },
   { path: '/cost/overview', requiredCapabilities: ['cost.read'], legacyPermissions: ['dashboards:read'] },
   { path: '/cost/budgets', requiredCapabilities: ['cost.budget.read'], legacyPermissions: ['dashboards:read'] },
