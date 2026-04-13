@@ -102,37 +102,45 @@ func NewIndexServiceFromEnv() *IndexService {
 	}
 }
 
-func (s *IndexService) ListIndices(ctx context.Context) (IndexListResult, error) {
+func (s *IndexService) doRequest(ctx context.Context, path string) ([]byte, error) {
 	if s == nil || s.client == nil {
-		return IndexListResult{}, fmt.Errorf("storage index service is not configured")
+		return nil, fmt.Errorf("storage service is not configured")
 	}
 	if s.endpointErr != nil {
-		return IndexListResult{}, fmt.Errorf("elasticsearch endpoint is invalid: %w", s.endpointErr)
+		return nil, fmt.Errorf("elasticsearch endpoint is invalid: %w", s.endpointErr)
 	}
 	if strings.TrimSpace(s.endpoint) == "" {
-		return IndexListResult{}, fmt.Errorf("elasticsearch endpoint is not configured")
+		return nil, fmt.Errorf("elasticsearch endpoint is not configured")
 	}
 
-	requestURL := s.endpoint + "/_cat/indices?format=json&bytes=b&expand_wildcards=all&h=health,status,index,pri,rep,docs.count,store.size"
+	requestURL := s.endpoint + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, http.NoBody)
 	if err != nil {
-		return IndexListResult{}, err
+		return nil, err
 	}
 	if s.username != "" {
 		req.SetBasicAuth(s.username, s.password)
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return IndexListResult{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	raw, err := httpguard.ReadLimitedBody(resp.Body, 0)
 	if err != nil {
-		return IndexListResult{}, err
+		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return IndexListResult{}, fmt.Errorf("elasticsearch cat indices failed: status=%d body=%s", resp.StatusCode, string(raw))
+		return nil, fmt.Errorf("elasticsearch request failed: status=%d body=%s", resp.StatusCode, string(raw))
+	}
+	return raw, nil
+}
+
+func (s *IndexService) ListIndices(ctx context.Context) (IndexListResult, error) {
+	raw, err := s.doRequest(ctx, "/_cat/indices?format=json&bytes=b&expand_wildcards=all&h=health,status,index,pri,rep,docs.count,store.size")
+	if err != nil {
+		return IndexListResult{}, err
 	}
 
 	var payload []catIndexItem

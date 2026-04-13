@@ -29,6 +29,7 @@ func NewIndexHandler(svc *IndexService) *IndexHandler {
 func RegisterAuthorizedRoutes(router gin.IRouter, db *sql.DB, handler *IndexHandler) {
 	g := router.Group("/api/v1/storage")
 	g.GET("/indices", cpMiddleware.RequireCapabilityOrAdminRole(db, "storage.index.read"), handler.ListIndices)
+	g.GET("/lifecycle-policies", cpMiddleware.RequireCapabilityOrAdminRole(db, "data.retention.read"), handler.ListLifecyclePolicies)
 }
 
 func (h *IndexHandler) ListIndices(c *gin.Context) {
@@ -39,19 +40,38 @@ func (h *IndexHandler) ListIndices(c *gin.Context) {
 	}
 	result, err := h.svc.ListIndices(c.Request.Context())
 	if err != nil {
-		status := http.StatusInternalServerError
-		code := ErrorCodeInternal
-		message := "failed to list storage indices"
-		if strings.Contains(strings.ToLower(err.Error()), "not configured") || strings.Contains(strings.ToLower(err.Error()), "invalid") {
-			status = http.StatusServiceUnavailable
-			code = ErrorCodeUnavailable
-			message = "storage index service unavailable"
-		}
-		h.writeError(c, status, code, message)
+		h.writeStorageError(c, err, "failed to list storage indices", "storage index service unavailable")
 		return
 	}
 
 	h.writeSuccess(c, http.StatusOK, result)
+}
+
+func (h *IndexHandler) ListLifecyclePolicies(c *gin.Context) {
+	tenantID := strings.TrimSpace(cpMiddleware.AuthenticatedTenantID(c))
+	if tenantID == "" {
+		h.writeError(c, http.StatusBadRequest, ErrorCodeInvalidParams, "X-Tenant-ID header is required")
+		return
+	}
+	result, err := h.svc.ListLifecyclePolicies(c.Request.Context())
+	if err != nil {
+		h.writeStorageError(c, err, "failed to list storage lifecycle policies", "storage lifecycle service unavailable")
+		return
+	}
+
+	h.writeSuccess(c, http.StatusOK, result)
+}
+
+func (h *IndexHandler) writeStorageError(c *gin.Context, err error, defaultMessage, unavailableMessage string) {
+	status := http.StatusInternalServerError
+	code := ErrorCodeInternal
+	message := defaultMessage
+	if strings.Contains(strings.ToLower(err.Error()), "not configured") || strings.Contains(strings.ToLower(err.Error()), "invalid") {
+		status = http.StatusServiceUnavailable
+		code = ErrorCodeUnavailable
+		message = unavailableMessage
+	}
+	h.writeError(c, status, code, message)
 }
 
 func (h *IndexHandler) writeSuccess(c *gin.Context, status int, data any) {

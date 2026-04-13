@@ -5,7 +5,19 @@
 
 import { getRuntimeConfig } from '../config/runtime-config';
 import { getAuthStorageItem } from '../utils/authStorage';
-import type { IndexHealth, IndexInfo, IndexStatus, IndexSummary } from '../types/storage';
+import type {
+  ExecutionStatus,
+  IndexHealth,
+  IndexInfo,
+  IndexStatus,
+  IndexSummary,
+  LifecyclePhase,
+  LifecyclePhaseCount,
+  LifecyclePolicyItem,
+  LifecyclePolicySummary,
+  PhaseTransition,
+  PolicyStatus,
+} from '../types/storage';
 
 const TENANT_ID_KEY = 'nexuslog-tenant-id';
 
@@ -45,6 +57,50 @@ interface BackendIndexSummary {
 interface BackendIndexListResult {
   items: BackendIndexItem[];
   summary: BackendIndexSummary;
+  refreshed_at?: string;
+}
+
+interface BackendPhaseTransition {
+  from: string;
+  to: string;
+  condition: string;
+}
+
+interface BackendLifecyclePhaseCount {
+  phase: string;
+  count: number;
+}
+
+interface BackendLifecyclePolicyItem {
+  name: string;
+  status: string;
+  managed_index_count: number;
+  data_stream_count: number;
+  template_count: number;
+  updated_at?: string;
+  description?: string;
+  phase_sequence?: string[];
+  phases?: BackendPhaseTransition[];
+  execution_status: string;
+  execution_message?: string;
+  error_count: number;
+  managed: boolean;
+  deprecated: boolean;
+  current_phase_counts?: BackendLifecyclePhaseCount[];
+}
+
+interface BackendLifecyclePolicySummary {
+  total: number;
+  active: number;
+  error: number;
+  unused: number;
+  managed_indices: number;
+  operation_mode: string;
+}
+
+interface BackendLifecyclePolicyListResult {
+  items: BackendLifecyclePolicyItem[];
+  summary: BackendLifecyclePolicySummary;
   refreshed_at?: string;
 }
 
@@ -137,6 +193,41 @@ function normalizeIndexStatus(raw: string): IndexStatus {
   }
 }
 
+function normalizePolicyStatus(raw: string): PolicyStatus {
+  switch ((raw || '').trim().toLowerCase()) {
+    case 'error':
+      return 'Error';
+    case 'unused':
+      return 'Unused';
+    default:
+      return 'Active';
+  }
+}
+
+function normalizeExecutionStatus(raw: string): ExecutionStatus {
+  switch ((raw || '').trim().toLowerCase()) {
+    case 'failed':
+      return 'Failed';
+    case 'idle':
+      return 'Idle';
+    default:
+      return 'Success';
+  }
+}
+
+function normalizeLifecyclePhase(raw: string): LifecyclePhase {
+  switch ((raw || '').trim().toLowerCase()) {
+    case 'warm':
+      return 'Warm';
+    case 'cold':
+      return 'Cold';
+    case 'delete':
+      return 'Delete';
+    default:
+      return 'Hot';
+  }
+}
+
 function formatCount(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '0';
   if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(value >= 10_000_000_000 ? 0 : 1)} B`;
@@ -178,6 +269,41 @@ function mapBackendIndexToFrontend(item: BackendIndexItem): IndexInfo {
   };
 }
 
+function mapBackendPhaseTransition(item: BackendPhaseTransition): PhaseTransition {
+  return {
+    from: normalizeLifecyclePhase(item.from),
+    to: normalizeLifecyclePhase(item.to),
+    condition: String(item.condition ?? '').trim() || '按策略条件',
+  };
+}
+
+function mapBackendPhaseCount(item: BackendLifecyclePhaseCount): LifecyclePhaseCount {
+  return {
+    phase: normalizeLifecyclePhase(item.phase),
+    count: Number(item.count ?? 0),
+  };
+}
+
+function mapBackendLifecyclePolicyToFrontend(item: BackendLifecyclePolicyItem): LifecyclePolicyItem {
+  return {
+    name: String(item.name ?? '').trim(),
+    status: normalizePolicyStatus(item.status),
+    managedIndexCount: Number(item.managed_index_count ?? 0),
+    dataStreamCount: Number(item.data_stream_count ?? 0),
+    templateCount: Number(item.template_count ?? 0),
+    updatedAt: item.updated_at ? Date.parse(item.updated_at) : undefined,
+    description: String(item.description ?? '').trim() || undefined,
+    phaseSequence: (item.phase_sequence ?? []).map(normalizeLifecyclePhase),
+    phases: (item.phases ?? []).map(mapBackendPhaseTransition),
+    executionStatus: normalizeExecutionStatus(item.execution_status),
+    executionMessage: String(item.execution_message ?? '').trim() || undefined,
+    errorCount: Number(item.error_count ?? 0),
+    managed: Boolean(item.managed),
+    deprecated: Boolean(item.deprecated),
+    currentPhaseCounts: (item.current_phase_counts ?? []).map(mapBackendPhaseCount),
+  };
+}
+
 export async function fetchStorageIndices(): Promise<{ items: IndexInfo[]; summary: IndexSummary }> {
   const envelope = await requestStorageApi<BackendIndexListResult>('/indices', {
     method: 'GET',
@@ -191,6 +317,24 @@ export async function fetchStorageIndices(): Promise<{ items: IndexInfo[]; summa
     red: Number(data?.summary?.red ?? items.filter((item) => item.health === 'Red').length),
     docsCount: Number(data?.summary?.docs_count ?? items.reduce((sum, item) => sum + item.docsCount, 0)),
     storeSizeBytes: Number(data?.summary?.store_size_bytes ?? items.reduce((sum, item) => sum + item.storeSizeBytes, 0)),
+    refreshedAt: data?.refreshed_at ? Date.parse(data.refreshed_at) : Date.now(),
+  };
+  return { items, summary };
+}
+
+export async function fetchLifecyclePolicies(): Promise<{ items: LifecyclePolicyItem[]; summary: LifecyclePolicySummary }> {
+  const envelope = await requestStorageApi<BackendLifecyclePolicyListResult>('/lifecycle-policies', {
+    method: 'GET',
+  });
+  const data = envelope.data;
+  const items = (data?.items ?? []).map(mapBackendLifecyclePolicyToFrontend);
+  const summary: LifecyclePolicySummary = {
+    total: Number(data?.summary?.total ?? items.length),
+    active: Number(data?.summary?.active ?? items.filter((item) => item.status === 'Active').length),
+    error: Number(data?.summary?.error ?? items.filter((item) => item.status === 'Error').length),
+    unused: Number(data?.summary?.unused ?? items.filter((item) => item.status === 'Unused').length),
+    managedIndices: Number(data?.summary?.managed_indices ?? items.reduce((sum, item) => sum + item.managedIndexCount, 0)),
+    operationMode: String(data?.summary?.operation_mode ?? 'UNKNOWN').trim() || 'UNKNOWN',
     refreshedAt: data?.refreshed_at ? Date.parse(data.refreshed_at) : Date.now(),
   };
   return { items, summary };

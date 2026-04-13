@@ -39,8 +39,9 @@ export const INDEX_HEALTH_CONFIG: Record<IndexHealth, { color: string; label: st
 // 生命周期策略类型
 // ============================================================================
 
-export type PolicyStatus = 'Active' | 'Error' | 'Disabled';
+export type PolicyStatus = 'Active' | 'Error' | 'Unused';
 export type LifecyclePhase = 'Hot' | 'Warm' | 'Cold' | 'Delete';
+export type ExecutionStatus = 'Success' | 'Failed' | 'Idle';
 
 export interface PhaseTransition {
   from: LifecyclePhase;
@@ -48,14 +49,37 @@ export interface PhaseTransition {
   condition: string;
 }
 
+export interface LifecyclePhaseCount {
+  phase: LifecyclePhase;
+  count: number;
+}
+
 export interface LifecyclePolicyItem {
   name: string;
   status: PolicyStatus;
-  indexCount: number;
-  updatedAgo: string;
+  managedIndexCount: number;
+  dataStreamCount: number;
+  templateCount: number;
+  updatedAt?: number;
+  description?: string;
+  phaseSequence: LifecyclePhase[];
   phases: PhaseTransition[];
-  lastRunStatus: 'Success' | 'Failed';
-  lastRunMessage?: string;
+  executionStatus: ExecutionStatus;
+  executionMessage?: string;
+  errorCount: number;
+  managed: boolean;
+  deprecated: boolean;
+  currentPhaseCounts: LifecyclePhaseCount[];
+}
+
+export interface LifecyclePolicySummary {
+  total: number;
+  active: number;
+  error: number;
+  unused: number;
+  managedIndices: number;
+  operationMode: string;
+  refreshedAt?: number;
 }
 
 // ============================================================================
