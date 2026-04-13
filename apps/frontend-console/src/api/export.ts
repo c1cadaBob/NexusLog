@@ -95,8 +95,18 @@ export interface CreateExportJobParams {
   format: 'csv' | 'json';
 }
 
-/** Raw backend response (PascalCase) */
+/** Raw backend response (兼容 snake_case / camelCase / PascalCase) */
 interface RawExportJobItem {
+  id?: string;
+  format?: string;
+  status?: string;
+  total_records?: number;
+  file_path?: string;
+  file_size_bytes?: number;
+  error_message?: string;
+  created_at?: string;
+  completed_at?: string;
+  expires_at?: string;
   ID?: string;
   Format?: string;
   Status?: string;
@@ -107,6 +117,13 @@ interface RawExportJobItem {
   CreatedAt?: string;
   CompletedAt?: string;
   ExpiresAt?: string;
+  totalRecords?: number;
+  filePath?: string;
+  fileSizeBytes?: number;
+  errorMessage?: string;
+  createdAt?: string;
+  completedAt?: string;
+  expiresAt?: string;
 }
 
 /** Normalized export job for frontend use */
@@ -125,16 +142,16 @@ export interface ExportJobItem {
 
 function normalizeExportJob(raw: RawExportJobItem): ExportJobItem {
   return {
-    id: raw.ID ?? '',
-    format: raw.Format ?? 'csv',
-    status: raw.Status ?? 'pending',
-    total_records: raw.TotalRecords,
-    file_path: raw.FilePath,
-    file_size_bytes: raw.FileSizeBytes,
-    error_message: raw.ErrorMessage,
-    created_at: raw.CreatedAt ?? '',
-    completed_at: raw.CompletedAt,
-    expires_at: raw.ExpiresAt,
+    id: raw.id ?? raw.ID ?? '',
+    format: raw.format ?? raw.Format ?? 'csv',
+    status: raw.status ?? raw.Status ?? 'pending',
+    total_records: raw.total_records ?? raw.TotalRecords ?? raw.totalRecords,
+    file_path: raw.file_path ?? raw.FilePath ?? raw.filePath,
+    file_size_bytes: raw.file_size_bytes ?? raw.FileSizeBytes ?? raw.fileSizeBytes,
+    error_message: raw.error_message ?? raw.ErrorMessage ?? raw.errorMessage,
+    created_at: raw.created_at ?? raw.CreatedAt ?? raw.createdAt ?? '',
+    completed_at: raw.completed_at ?? raw.CompletedAt ?? raw.completedAt,
+    expires_at: raw.expires_at ?? raw.ExpiresAt ?? raw.expiresAt,
   };
 }
 
@@ -171,14 +188,14 @@ export async function fetchExportJobs(
 /** Fetch single export job */
 export async function fetchExportJob(id: string): Promise<ExportJobItem>;
 export async function fetchExportJob(id: string): Promise<{ job: ExportJobItem } | ExportJobItem> {
-  const envelope = await requestExportApi<{ job: ExportJobItem }>('/jobs/' + encodeURIComponent(id), {
+  const envelope = await requestExportApi<{ job?: RawExportJobItem } | RawExportJobItem>('/jobs/' + encodeURIComponent(id), {
     method: 'GET',
   });
-  const job = envelope.data?.job;
-  if (!job) {
+  const rawJob = 'job' in (envelope.data ?? {}) ? (envelope.data as { job?: RawExportJobItem }).job : (envelope.data as RawExportJobItem | undefined);
+  if (!rawJob) {
     throw new Error('导出任务不存在');
   }
-  return job;
+  return normalizeExportJob(rawJob);
 }
 
 /** Download export file (returns blob) */
