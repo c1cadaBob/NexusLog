@@ -124,7 +124,6 @@ export const MENU_SECTIONS: MenuSection[] = [
         label: '报表中心',
         children: [
           { icon: 'description', label: '报表管理', path: '/reports/management' },
-          { icon: 'schedule', label: '定时任务', path: '/reports/scheduled' },
           { icon: 'download', label: '下载记录', path: '/reports/downloads' },
         ],
       },

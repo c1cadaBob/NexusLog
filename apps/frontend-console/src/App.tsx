@@ -73,7 +73,6 @@ const ServiceTopology = lazy(() => import('./pages/tracing/ServiceTopology'));
 
 // 报表中心
 const ReportManagement = lazy(() => import('./pages/reports/ReportManagement'));
-const ScheduledTasks = lazy(() => import('./pages/reports/ScheduledTasks'));
 const DownloadRecords = lazy(() => import('./pages/reports/DownloadRecords'));
 
 // 安全与审计
@@ -200,7 +199,6 @@ const App: React.FC = () => {
 
                 {/* 报表中心 */}
                 <Route path="/reports/management" element={<ReportManagement />} />
-                <Route path="/reports/scheduled" element={<ScheduledTasks />} />
                 <Route path="/reports/downloads" element={<DownloadRecords />} />
 
                 {/* 安全与审计 */}
