@@ -109,15 +109,6 @@ export const MENU_SECTIONS: MenuSection[] = [
     title: '可观测性扩展',
     items: [
       {
-        icon: 'hub',
-        label: '分布式追踪',
-        children: [
-          { icon: 'travel_explore', label: 'Trace 搜索', path: '/tracing/search' },
-          { icon: 'account_tree', label: '调用链分析', path: '/tracing/analysis' },
-          { icon: 'device_hub', label: '服务拓扑', path: '/tracing/topology' },
-        ],
-      },
-      {
         icon: 'bar_chart',
         label: '报表中心',
         children: [

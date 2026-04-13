@@ -64,11 +64,6 @@ const CapacityMonitoring = lazy(() => import('./pages/storage/CapacityMonitoring
 const PerformanceMonitoring = lazy(() => import('./pages/performance/PerformanceMonitoring'));
 const HealthCheck = lazy(() => import('./pages/performance/HealthCheck'));
 
-// 分布式追踪
-const TraceSearch = lazy(() => import('./pages/tracing/TraceSearch'));
-const TraceAnalysis = lazy(() => import('./pages/tracing/TraceAnalysis'));
-const ServiceTopology = lazy(() => import('./pages/tracing/ServiceTopology'));
-
 // 报表中心
 const ReportManagement = lazy(() => import('./pages/reports/ReportManagement'));
 const DownloadRecords = lazy(() => import('./pages/reports/DownloadRecords'));
@@ -178,11 +173,6 @@ const App: React.FC = () => {
                 {/* 性能与高可用 */}
                 <Route path="/performance/monitoring" element={<PerformanceMonitoring />} />
                 <Route path="/performance/health" element={<HealthCheck />} />
-
-                {/* 分布式追踪 */}
-                <Route path="/tracing/search" element={<TraceSearch />} />
-                <Route path="/tracing/analysis" element={<TraceAnalysis />} />
-                <Route path="/tracing/topology" element={<ServiceTopology />} />
 
                 {/* 报表中心 */}
                 <Route path="/reports/management" element={<ReportManagement />} />

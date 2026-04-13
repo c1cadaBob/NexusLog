@@ -284,6 +284,12 @@ describe('route authorization registry', () => {
     expect(findRouteAuthorizationRule('/help/tickets')).toBeUndefined();
   });
 
+  it('removes distributed tracing routes from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/tracing/search')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/tracing/analysis')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/tracing/topology')).toBeUndefined();
+  });
+
   it('returns first accessible fallback for denied route', () => {
     const decision = evaluateRouteAccess('/security/users', {
       permissions: ['logs:read'],
