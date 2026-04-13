@@ -82,7 +82,6 @@ const LoginPolicy = lazy(() => import('./pages/security/LoginPolicy'));
 // 集成与开放平台
 const ApiDocs = lazy(() => import('./pages/integration/ApiDocs'));
 const WebhookManagement = lazy(() => import('./pages/integration/WebhookManagement'));
-const SdkDownload = lazy(() => import('./pages/integration/SdkDownload'));
 
 // 成本管理
 const CostOverview = lazy(() => import('./pages/cost/CostOverview'));
@@ -205,7 +204,6 @@ const App: React.FC = () => {
                 {/* 集成与开放平台 */}
                 <Route path="/integration/api" element={<ApiDocs />} />
                 <Route path="/integration/webhook" element={<WebhookManagement />} />
-                <Route path="/integration/sdk" element={<SdkDownload />} />
 
                 {/* 成本管理 */}
                 <Route path="/cost/overview" element={<CostOverview />} />

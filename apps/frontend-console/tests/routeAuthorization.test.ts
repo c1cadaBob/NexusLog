@@ -265,6 +265,10 @@ describe('route authorization registry', () => {
     expect(findRouteAuthorizationRule('/integration/plugins')).toBeUndefined();
   });
 
+  it('removes sdk download from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/integration/sdk')).toBeUndefined();
+  });
+
   it('returns first accessible fallback for denied route', () => {
     const decision = evaluateRouteAccess('/security/users', {
       permissions: ['logs:read'],

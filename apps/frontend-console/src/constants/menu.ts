@@ -146,7 +146,6 @@ export const MENU_SECTIONS: MenuSection[] = [
         children: [
           { icon: 'api', label: 'API 文档', path: '/integration/api' },
           { icon: 'webhook', label: 'Webhook', path: '/integration/webhook' },
-          { icon: 'developer_mode', label: 'SDK 下载', path: '/integration/sdk' },
         ],
       },
     ],

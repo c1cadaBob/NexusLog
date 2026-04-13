@@ -48,6 +48,7 @@ describe('navigation authorization', () => {
     expect(visiblePaths).not.toContain('/reports/management');
     expect(visiblePaths).not.toContain('/security/users');
     expect(visiblePaths).not.toContain('/settings/parameters');
+    expect(visiblePaths).not.toContain('/integration/sdk');
   });
 
   it('keeps only accessible report center children for granular report access', () => {
