@@ -1674,7 +1674,7 @@ const RealtimeSearch: React.FC = () => {
         pageSize: pageSizeRef.current,
         silent: true,
         resetCursor: true,
-        emptyWindowFallbackMode: "autoAll",
+        emptyWindowFallbackMode: "none",
       });
     }, STARTUP_QUERY_DELAY_MS);
     return clearStartupQueryTimer;
