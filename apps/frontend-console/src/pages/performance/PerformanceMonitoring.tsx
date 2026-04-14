@@ -1,29 +1,70 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { Select, Empty, message } from 'antd';
+import { App, Select, Empty } from 'antd';
 import type { EChartsCoreOption } from 'echarts/core';
 import { useThemeStore } from '../../stores/themeStore';
 import { fetchServerMetrics } from '@/api/metrics';
 import type { ServerMetricsData, TimeSeriesPoint } from '@/api/metrics';
-import { fetchPullSources, type PullSource } from '@/api/ingest';
+import { fetchIngestAgents, type IngestAgentItem } from '@/api/ingest';
 import ChartWrapper from '@/components/charts/ChartWrapper';
 import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '@/theme/tokens';
 import InlineLoadingState from '@/components/common/InlineLoadingState';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d';
 
-function groupSourcesByAgent(sources: PullSource[]): { id: string; label: string }[] {
-  const byKey = new Map<string, PullSource[]>();
-  for (const s of sources) {
-    const key = (s.agent_base_url || '').trim() || `${s.host}:${s.port}`;
-    const list = byKey.get(key) ?? [];
-    list.push(s);
-    byKey.set(key, list);
+function resolveAgentDisplayName(agent: IngestAgentItem): string {
+  const hostname = agent.hostname?.trim();
+  if (hostname) return hostname;
+
+  const host = agent.host?.trim();
+  if (host) return host;
+
+  const ip = agent.ip?.trim();
+  if (ip) return ip;
+
+  const baseUrl = agent.agent_base_url?.trim();
+  if (baseUrl) {
+    return baseUrl.replace(/^https?:\/\//, '');
   }
-  return Array.from(byKey.entries()).map(([key, list]) => {
-    const first = list[0]!;
-    const label = first.host ? `${first.host}:${first.port}` : key || key;
-    return { id: key, label };
+
+  return agent.agent_id;
+}
+
+function groupAgentsByID(items: IngestAgentItem[]): { id: string; label: string }[] {
+  const grouped = new Map<string, { primaryLabel: string; online: boolean }>();
+
+  items.forEach((item) => {
+    const agentId = item.agent_id?.trim();
+    if (!agentId) return;
+
+    const displayName = resolveAgentDisplayName(item);
+    const current = grouped.get(agentId);
+    if (!current) {
+      grouped.set(agentId, {
+        primaryLabel: displayName,
+        online: item.status === 'online' || item.live_connected,
+      });
+      return;
+    }
+
+    if (!current.online && (item.status === 'online' || item.live_connected)) {
+      current.online = true;
+      current.primaryLabel = displayName;
+    }
   });
+
+  return Array.from(grouped.entries())
+    .sort((left, right) => {
+      const leftOnline = left[1].online ? 1 : 0;
+      const rightOnline = right[1].online ? 1 : 0;
+      if (leftOnline !== rightOnline) {
+        return rightOnline - leftOnline;
+      }
+      return left[1].primaryLabel.localeCompare(right[1].primaryLabel, 'zh-CN');
+    })
+    .map(([agentId, value]) => ({
+      id: agentId,
+      label: value.primaryLabel === agentId ? agentId : `${value.primaryLabel} · ${agentId}`,
+    }));
 }
 
 function buildLineSeries(
@@ -89,6 +130,7 @@ function buildLineSeries(
 }
 
 const PerformanceMonitoring: React.FC = () => {
+  const { message: messageApi } = App.useApp();
   const { isDark } = useThemeStore();
 
   const headerBg = isDark ? 'bg-[#111722]' : 'bg-white';
@@ -107,18 +149,18 @@ const PerformanceMonitoring: React.FC = () => {
   const loadAgents = useCallback(async () => {
     setAgentsLoading(true);
     try {
-      const sources = await fetchPullSources();
-      const list = groupSourcesByAgent(sources);
+      const agents = await fetchIngestAgents();
+      const list = groupAgentsByID(agents);
       setAgents(list);
       setSelectedAgentId((prev) =>
         prev && list.some((a) => a.id === prev) ? prev : list[0]?.id ?? null,
       );
     } catch (err) {
-      message.error('加载 Agent 列表失败：' + (err instanceof Error ? err.message : String(err)));
+      messageApi.error('加载 Agent 列表失败：' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setAgentsLoading(false);
     }
-  }, []);
+  }, [messageApi]);
 
   const loadMetrics = useCallback(async () => {
     if (!selectedAgentId) {
@@ -130,23 +172,23 @@ const PerformanceMonitoring: React.FC = () => {
       const res = await fetchServerMetrics(selectedAgentId, range);
       setMetrics(res.data ?? null);
     } catch (err) {
-      message.error('加载指标失败：' + (err instanceof Error ? err.message : String(err)));
+      messageApi.error('加载指标失败：' + (err instanceof Error ? err.message : String(err)));
       setMetrics(null);
     } finally {
       setLoading(false);
     }
-  }, [selectedAgentId, range]);
+  }, [messageApi, range, selectedAgentId]);
 
   useEffect(() => {
-    loadAgents();
-  }, []);
+    void loadAgents();
+  }, [loadAgents]);
 
   useEffect(() => {
-    loadMetrics();
+    void loadMetrics();
   }, [loadMetrics]);
 
   const handleRefresh = useCallback(() => {
-    loadMetrics();
+    void loadMetrics();
   }, [loadMetrics]);
 
   const cpuOption = useMemo(
