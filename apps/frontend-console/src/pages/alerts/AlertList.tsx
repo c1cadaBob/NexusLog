@@ -20,6 +20,7 @@ import {
 import { persistPendingRealtimeStartupQuery } from '../search/realtimeStartupQuery';
 import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
+import { isLocalAlertArtifact } from '../../utils/localAlertArtifacts';
 
 const formatTimeAgo = (timestamp: number): string => {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -123,6 +124,15 @@ const AlertList: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalAlerts, setTotalAlerts] = useState(0);
   const [stats, setStats] = useState<AlertEventListSummary>(emptyAlertSummary);
+
+  const visibleAlerts = useMemo(
+    () => alerts.filter((alert) => !isLocalAlertArtifact(alert.name, alert.detail, alert.source, alert.ruleId)),
+    [alerts],
+  );
+
+  const hiddenAlertCount = useMemo(() => alerts.length - visibleAlerts.length, [alerts.length, visibleAlerts.length]);
+  const hasOnlyLocalAlerts = hiddenAlertCount > 0 && visibleAlerts.length === 0;
+  const shouldHideSummary = hiddenAlertCount > 0;
   const setPageSize = useCallback(
     (size: number) => {
       setPageSizeLocal(size);
@@ -200,6 +210,10 @@ const AlertList: React.FC = () => {
     loadRequestRef.current = { key: requestKey, promise: request, seq: currentSeq };
     return request;
   }, [currentPage, messageApi, pageSize, search, severityFilter, statusFilter]);
+
+  useEffect(() => {
+    setSelectedRowKeys((previous) => previous.filter((key) => visibleAlerts.some((item) => item.id === String(key))));
+  }, [visibleAlerts]);
 
   const startPollTimer = useCallback(() => {
     clearPollTimer();
@@ -582,48 +596,64 @@ const AlertList: React.FC = () => {
         )}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-        <Card size="small" styles={{ body: { padding: '20px' } }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Statistic title="待处理告警" value={stats.pending} valueStyle={{ fontSize: 28, fontWeight: 700 }} />
-            <div style={{ padding: 8, borderRadius: 8, background: `${COLORS.primary}1a` }}>
-              <span className="material-symbols-outlined" style={{ color: COLORS.primary }}>pending_actions</span>
+      {shouldHideSummary ? (
+        <Card size="small" styles={{ body: { padding: '20px 24px' } }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>已隐藏本地引导/联调告警</div>
+              <div style={{ marginTop: 6, color: '#94a3b8' }}>
+                当前页已隐藏 {hiddenAlertCount} 条本地引导/联调告警，聚合统计暂不展示。
+              </div>
             </div>
+            <Tag bordered={false} color="default" style={{ margin: 0 }}>
+              {hiddenAlertCount} 条已隐藏
+            </Tag>
           </div>
         </Card>
-        <Card size="small" styles={{ body: { padding: '20px' } }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Statistic
-              title="严重告警"
-              value={stats.critical}
-              valueStyle={{ fontSize: 28, fontWeight: 700, color: COLORS.danger }}
-            />
-            <div style={{ padding: 8, borderRadius: 8, background: `${COLORS.danger}1a` }}>
-              <span className="material-symbols-outlined" style={{ color: COLORS.danger }}>gpp_maybe</span>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+          <Card size="small" styles={{ body: { padding: '20px' } }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <Statistic title="待处理告警" value={stats.pending} valueStyle={{ fontSize: 28, fontWeight: 700 }} />
+              <div style={{ padding: 8, borderRadius: 8, background: `${COLORS.primary}1a` }}>
+                <span className="material-symbols-outlined" style={{ color: COLORS.primary }}>pending_actions</span>
+              </div>
             </div>
-          </div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: '20px' } }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Statistic
-              title="警告告警"
-              value={stats.warning}
-              valueStyle={{ fontSize: 28, fontWeight: 700, color: COLORS.warning }}
-            />
-            <div style={{ padding: 8, borderRadius: 8, background: `${COLORS.warning}1a` }}>
-              <span className="material-symbols-outlined" style={{ color: COLORS.warning }}>warning</span>
+          </Card>
+          <Card size="small" styles={{ body: { padding: '20px' } }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <Statistic
+                title="严重告警"
+                value={stats.critical}
+                valueStyle={{ fontSize: 28, fontWeight: 700, color: COLORS.danger }}
+              />
+              <div style={{ padding: 8, borderRadius: 8, background: `${COLORS.danger}1a` }}>
+                <span className="material-symbols-outlined" style={{ color: COLORS.danger }}>gpp_maybe</span>
+              </div>
             </div>
-          </div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: '20px' } }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Statistic title="静默中" value={stats.silenced} valueStyle={{ fontSize: 28, fontWeight: 700 }} />
-            <div style={{ padding: 8, borderRadius: 8, background: isDark ? '#334155' : '#f1f5f9' }}>
-              <span className="material-symbols-outlined" style={{ color: '#94a3b8' }}>notifications_paused</span>
+          </Card>
+          <Card size="small" styles={{ body: { padding: '20px' } }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <Statistic
+                title="警告告警"
+                value={stats.warning}
+                valueStyle={{ fontSize: 28, fontWeight: 700, color: COLORS.warning }}
+              />
+              <div style={{ padding: 8, borderRadius: 8, background: `${COLORS.warning}1a` }}>
+                <span className="material-symbols-outlined" style={{ color: COLORS.warning }}>warning</span>
+              </div>
             </div>
-          </div>
-        </Card>
-      </div>
+          </Card>
+          <Card size="small" styles={{ body: { padding: '20px' } }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <Statistic title="静默中" value={stats.silenced} valueStyle={{ fontSize: 28, fontWeight: 700 }} />
+              <div style={{ padding: 8, borderRadius: 8, background: isDark ? '#334155' : '#f1f5f9' }}>
+                <span className="material-symbols-outlined" style={{ color: '#94a3b8' }}>notifications_paused</span>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <Card
         style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
@@ -686,6 +716,11 @@ const AlertList: React.FC = () => {
               { value: 'silenced', label: '静默' },
             ]}
           />
+          {hiddenAlertCount > 0 && (
+            <Tag bordered={false} color="default" style={{ marginInlineEnd: 0 }}>
+              当前页已隐藏 {hiddenAlertCount} 条本地引导/联调告警
+            </Tag>
+          )}
           {selectedRowKeys.length > 0 && (
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 13, color: '#94a3b8' }}>已选择 {selectedRowKeys.length} 项</span>
@@ -726,13 +761,13 @@ const AlertList: React.FC = () => {
         </div>
 
         <div style={{ flex: 1, overflow: 'auto' }}>
-          {!loading && totalAlerts === 0 ? (
-            <Empty style={{ margin: 48 }} description="暂无告警" />
+          {!loading && visibleAlerts.length === 0 ? (
+            <Empty style={{ margin: 48 }} description={hiddenAlertCount > 0 ? '当前页仅包含本地引导/联调告警，已隐藏' : '暂无告警'} />
           ) : (
             <Table<AlertEventSummary>
               rowKey="id"
               columns={columns}
-              dataSource={alerts}
+              dataSource={visibleAlerts}
               size="middle"
               rowSelection={{
                 selectedRowKeys,
@@ -748,12 +783,19 @@ const AlertList: React.FC = () => {
               }}
               pagination={{
                 current: currentPage,
-                total: totalAlerts,
+                total: hasOnlyLocalAlerts ? 0 : totalAlerts,
                 pageSize,
                 showSizeChanger: true,
-                showQuickJumper: totalAlerts > pageSize,
+                showQuickJumper: !shouldHideSummary && totalAlerts > pageSize,
                 pageSizeOptions: ['10', '20', '50', '100', '200'],
-                showTotal: (total, range) => `显示 ${range[0]} 到 ${range[1]} 条，共 ${total} 条`,
+                showTotal: (total, range) => {
+                  if (hiddenAlertCount > 0) {
+                    return visibleAlerts.length > 0
+                      ? `当前页显示 ${visibleAlerts.length} 条业务告警，已隐藏 ${hiddenAlertCount} 条本地引导/联调告警`
+                      : '当前页仅包含本地引导/联调告警，已隐藏';
+                  }
+                  return `显示 ${range[0]} 到 ${range[1]} 条，共 ${total} 条`;
+                },
                 onChange: (page, size) => {
                   const nextPageSize = size ?? pageSize;
                   if (nextPageSize !== pageSize) {

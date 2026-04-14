@@ -24,6 +24,7 @@ import {
   type PendingAlertRuleDraft,
 } from '../../utils/alertRulePrefill';
 import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
+import { isLocalAlertArtifact } from '../../utils/localAlertArtifacts';
 
 const severityTagColor: Record<AlertSeverity, string> = {
   critical: 'error',
@@ -46,20 +47,6 @@ const formatTimeAgo = (timestamp: number): string => {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}小时前`;
   return `${Math.floor(hours / 24)}天前`;
-};
-
-const LOCAL_ALERT_RULE_MARKERS = [
-  'local-host-token-alert',
-  'local-fullchain-',
-  'local-e2e-',
-  'nexuslog_local_',
-  'nexuslog_alert_e2e_',
-  'bootstrap token',
-];
-
-const isLocalBootstrapAlertRule = (rule: AlertRule): boolean => {
-  const fingerprint = [rule.name, rule.description, rule.query].join('\n').toLowerCase();
-  return LOCAL_ALERT_RULE_MARKERS.some((marker) => fingerprint.includes(marker));
 };
 
 const AlertRules: React.FC = () => {
@@ -132,7 +119,7 @@ const AlertRules: React.FC = () => {
     };
   }, []);
 
-  const visibleRules = useMemo(() => rules.filter((rule) => !isLocalBootstrapAlertRule(rule)), [rules]);
+  const visibleRules = useMemo(() => rules.filter((rule) => !isLocalAlertArtifact(rule.name, rule.description, rule.query)), [rules]);
 
   const hiddenRuleCount = useMemo(() => rules.length - visibleRules.length, [rules.length, visibleRules.length]);
 
