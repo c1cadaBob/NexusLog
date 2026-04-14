@@ -72,10 +72,6 @@ const LoginPolicy = lazy(() => import('./pages/security/LoginPolicy'));
 const WebhookManagement = lazy(() => import('./pages/integration/WebhookManagement'));
 
 // 成本管理
-// 系统设置
-const GlobalConfig = lazy(() => import('./pages/settings/GlobalConfig'));
-const ConfigVersions = lazy(() => import('./pages/settings/ConfigVersions'));
-
 // 帮助中心
 const FAQ = lazy(() => import('./pages/help/FAQ'));
 
@@ -173,10 +169,6 @@ const App: React.FC = () => {
 
                 {/* 集成与开放平台 */}
                 <Route path="/integration/webhook" element={<WebhookManagement />} />
-
-                {/* 系统设置 */}
-                <Route path="/settings/global" element={<GlobalConfig />} />
-                <Route path="/settings/versions" element={<ConfigVersions />} />
 
                 {/* 帮助中心 */}
                 <Route path="/help/faq" element={<FAQ />} />

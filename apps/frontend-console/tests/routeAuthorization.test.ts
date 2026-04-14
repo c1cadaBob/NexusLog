@@ -107,48 +107,20 @@ describe('route authorization registry', () => {
     ).toBe(true);
   });
 
-  it('does not let users:write borrow access to login policy and settings routes', () => {
+  it('does not let users:write borrow access to login policy route', () => {
     expect(
       canAccessRoute('/security/login-policy', {
-        permissions: ['users:write'],
-        capabilities: [],
-      }),
-    ).toBe(false);
-
-    expect(
-      canAccessRoute('/settings/global', {
-        permissions: ['users:write'],
-        capabilities: [],
-      }),
-    ).toBe(false);
-
-    expect(
-      canAccessRoute('/settings/versions', {
         permissions: ['users:write'],
         capabilities: [],
       }),
     ).toBe(false);
   });
 
-  it('keeps login policy and settings routes available through explicit capabilities', () => {
+  it('keeps login policy route available through explicit capabilities', () => {
     expect(
       canAccessRoute('/security/login-policy', {
         permissions: [],
         capabilities: ['auth.login_policy.read'],
-      }),
-    ).toBe(true);
-
-    expect(
-      canAccessRoute('/settings/global', {
-        permissions: [],
-        capabilities: ['settings.global.read'],
-      }),
-    ).toBe(true);
-
-    expect(
-      canAccessRoute('/settings/versions', {
-        permissions: [],
-        capabilities: ['settings.version.read'],
       }),
     ).toBe(true);
   });
@@ -266,8 +238,10 @@ describe('route authorization registry', () => {
     expect(findRouteAuthorizationRule('/parsing/dictionary')).toBeUndefined();
   });
 
-  it('removes mock system parameter route from the route authorization registry', () => {
+  it('removes mock settings routes from the route authorization registry', () => {
     expect(findRouteAuthorizationRule('/settings/parameters')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/settings/global')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/settings/versions')).toBeUndefined();
   });
 
   it('removes distributed tracing routes from the route authorization registry', () => {

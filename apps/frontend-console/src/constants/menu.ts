@@ -134,14 +134,6 @@ export const MENU_SECTIONS: MenuSection[] = [
     title: '系统配置',
     items: [
       {
-        icon: 'settings',
-        label: '系统设置',
-        children: [
-          { icon: 'toggle_on', label: '全局配置', path: '/settings/global' },
-          { icon: 'history', label: '配置版本', path: '/settings/versions' },
-        ],
-      },
-      {
         icon: 'help_outline',
         label: '帮助中心',
         children: [
