@@ -288,7 +288,7 @@ const NotificationConfig: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
       <AnalysisPageHeader
         title="通知配置"
-        subtitle="管理告警通知渠道、Webhook 集成及联系人组排班"
+        subtitle="管理邮件、钉钉与短信通知渠道，并提供连通性测试"
         lastUpdatedAt={lastUpdatedAt}
         actions={(
           <Space>
@@ -297,9 +297,6 @@ const NotificationConfig: React.FC = () => {
             </Button>
             <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>} onClick={() => void loadChannels(true)}>
               刷新数据
-            </Button>
-            <Button size="small" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>history</span>}>
-              发送日志
             </Button>
             <Button size="small" type="primary" icon={<span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>} onClick={openCreate}>
               新建渠道
