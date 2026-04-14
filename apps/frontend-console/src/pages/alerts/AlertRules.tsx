@@ -48,6 +48,20 @@ const formatTimeAgo = (timestamp: number): string => {
   return `${Math.floor(hours / 24)}天前`;
 };
 
+const LOCAL_ALERT_RULE_MARKERS = [
+  'local-host-token-alert',
+  'local-fullchain-',
+  'local-e2e-',
+  'nexuslog_local_',
+  'nexuslog_alert_e2e_',
+  'bootstrap token',
+];
+
+const isLocalBootstrapAlertRule = (rule: AlertRule): boolean => {
+  const fingerprint = [rule.name, rule.description, rule.query].join('\n').toLowerCase();
+  return LOCAL_ALERT_RULE_MARKERS.some((marker) => fingerprint.includes(marker));
+};
+
 const AlertRules: React.FC = () => {
   const { message } = App.useApp();
   const location = useLocation();
@@ -118,8 +132,12 @@ const AlertRules: React.FC = () => {
     };
   }, []);
 
+  const visibleRules = useMemo(() => rules.filter((rule) => !isLocalBootstrapAlertRule(rule)), [rules]);
+
+  const hiddenRuleCount = useMemo(() => rules.length - visibleRules.length, [rules.length, visibleRules.length]);
+
   const filteredRules = useMemo(() => {
-    return rules.filter((rule) => {
+    return visibleRules.filter((rule) => {
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!rule.name.toLowerCase().includes(q) && !rule.query.toLowerCase().includes(q)) return false;
@@ -127,16 +145,16 @@ const AlertRules: React.FC = () => {
       if (statusFilter !== 'all' && rule.status !== statusFilter) return false;
       return true;
     });
-  }, [rules, searchQuery, statusFilter]);
+  }, [visibleRules, searchQuery, statusFilter]);
 
   const stats = useMemo(
     () => ({
-      total: rules.length,
-      enabled: rules.filter((r) => r.status === 'enabled').length,
-      disabled: rules.filter((r) => r.status === 'disabled').length,
-      error: rules.filter((r) => r.status === 'error').length,
+      total: visibleRules.length,
+      enabled: visibleRules.filter((r) => r.status === 'enabled').length,
+      disabled: visibleRules.filter((r) => r.status === 'disabled').length,
+      error: visibleRules.filter((r) => r.status === 'error').length,
     }),
-    [rules],
+    [visibleRules],
   );
 
   const openCreate = useCallback((draft?: PendingAlertRuleDraft | null) => {
@@ -622,7 +640,7 @@ const AlertRules: React.FC = () => {
             borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, flexWrap: 'wrap' }}>
             <Input
               id="alert-rules-search"
               name="alertRulesSearch"
@@ -648,12 +666,20 @@ const AlertRules: React.FC = () => {
                 { value: 'error', label: '异常' },
               ]}
             />
+            {hiddenRuleCount > 0 && (
+              <Tag bordered={false} color="default" style={{ marginInlineEnd: 0 }}>
+                已隐藏 {hiddenRuleCount} 条本地引导/联调规则
+              </Tag>
+            )}
           </div>
         </div>
 
         <div style={{ flex: 1, overflow: 'auto' }}>
           {filteredRules.length === 0 ? (
-            <Empty style={{ margin: 48 }} description="暂无告警规则" />
+            <Empty
+              style={{ margin: 48 }}
+              description={hiddenRuleCount > 0 && !searchQuery && statusFilter === 'all' ? '当前暂无业务告警规则，已隐藏本地引导/联调规则' : '暂无告警规则'}
+            />
           ) : (
             <Table<AlertRule>
               rowKey="id"
