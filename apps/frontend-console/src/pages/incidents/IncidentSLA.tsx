@@ -12,23 +12,8 @@ import {
 } from './incidentAuthorization';
 import { usePaginationQuickJumperAccessibility } from '../../components/common/usePaginationQuickJumperAccessibility';
 import { COLORS } from '../../theme/tokens';
-import type { Incident, IncidentSeverity, IncidentStatus, SLAConfig } from '../../types/incident';
+import type { Incident, IncidentSeverity, IncidentStatus } from '../../types/incident';
 import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
-
-const SLA_CONFIGS: SLAConfig[] = [
-  { severity: 'P0', maxAckMinutes: 5, maxResolveMinutes: 60, escalationRules: [
-    { afterMinutes: 5, fromLevel: 1, toLevel: 2, notifyChannels: ['钉钉', '电话'] },
-    { afterMinutes: 15, fromLevel: 2, toLevel: 3, notifyChannels: ['钉钉', '电话', '短信'] },
-  ] },
-  { severity: 'P1', maxAckMinutes: 15, maxResolveMinutes: 240, escalationRules: [
-    { afterMinutes: 15, fromLevel: 1, toLevel: 2, notifyChannels: ['钉钉'] },
-    { afterMinutes: 60, fromLevel: 2, toLevel: 3, notifyChannels: ['钉钉', '电话'] },
-  ] },
-  { severity: 'P2', maxAckMinutes: 30, maxResolveMinutes: 480, escalationRules: [
-    { afterMinutes: 30, fromLevel: 1, toLevel: 2, notifyChannels: ['钉钉'] },
-  ] },
-  { severity: 'P3', maxAckMinutes: 120, maxResolveMinutes: 1440, escalationRules: [] },
-];
 
 const SEVERITY_COLOR: Record<IncidentSeverity, string> = {
   P0: COLORS.danger,
@@ -39,13 +24,12 @@ const SEVERITY_COLOR: Record<IncidentSeverity, string> = {
 
 interface SlaRow {
   incident: Incident;
-  ackMinutes: number;
-  resolveMinutes: number;
+  ackMinutes: number | null;
+  resolveMinutes: number | null;
   mtta: number | null;
   mttr: number | null;
-  ackBreached: boolean;
-  resolveBreached: boolean;
-  currentEscalation: number;
+  ackBreached: boolean | null;
+  resolveBreached: boolean | null;
 }
 
 function formatDurationMs(value: number | null): string {
@@ -63,33 +47,24 @@ function formatDurationMinutes(value?: number): string {
   return `${hours}h ${Math.round(value % 60)}m`;
 }
 
-function getSlaConfig(severity: IncidentSeverity): SLAConfig {
-  return SLA_CONFIGS.find((config) => config.severity === severity) ?? SLA_CONFIGS[SLA_CONFIGS.length - 1];
-}
-
 function buildSlaRow(incident: Incident, now: number): SlaRow {
-  const config = getSlaConfig(incident.severity);
-  const ackMinutes = incident.slaResponseMinutes ?? config.maxAckMinutes;
-  const resolveMinutes = incident.slaResolveMinutes ?? config.maxResolveMinutes;
+  const ackMinutes = typeof incident.slaResponseMinutes === 'number' ? incident.slaResponseMinutes : null;
+  const resolveMinutes = typeof incident.slaResolveMinutes === 'number' ? incident.slaResolveMinutes : null;
   const startAt = incident.alertedAt ?? incident.detectedAt;
   const mtta = incident.ackedAt ? Math.max(incident.ackedAt - startAt, 0) : null;
   const mttr = incident.resolvedAt ? Math.max(incident.resolvedAt - startAt, 0) : null;
 
-  const ackBreached = mtta !== null
-    ? mtta > ackMinutes * 60000
-    : ['alerted'].includes(incident.status) && now - startAt > ackMinutes * 60000;
+  const ackBreached = ackMinutes === null
+    ? null
+    : mtta !== null
+      ? mtta > ackMinutes * 60000
+      : ['alerted'].includes(incident.status) && now - startAt > ackMinutes * 60000;
 
-  const resolveBreached = mttr !== null
-    ? mttr > resolveMinutes * 60000
-    : ['alerted', 'acknowledged', 'analyzing'].includes(incident.status) && now - startAt > resolveMinutes * 60000;
-
-  const elapsedMinutes = Math.max(Math.floor((now - startAt) / 60000), 0);
-  const currentEscalation = config.escalationRules.reduce((level, rule) => {
-    if (elapsedMinutes >= rule.afterMinutes) {
-      return Math.max(level, rule.toLevel);
-    }
-    return level;
-  }, 1);
+  const resolveBreached = resolveMinutes === null
+    ? null
+    : mttr !== null
+      ? mttr > resolveMinutes * 60000
+      : ['alerted', 'acknowledged', 'analyzing'].includes(incident.status) && now - startAt > resolveMinutes * 60000;
 
   return {
     incident,
@@ -99,7 +74,6 @@ function buildSlaRow(incident: Incident, now: number): SlaRow {
     mttr,
     ackBreached,
     resolveBreached,
-    currentEscalation,
   };
 }
 
@@ -166,7 +140,18 @@ const IncidentSLA: React.FC = () => {
     return incidents.map((incident) => buildSlaRow(incident, now));
   }, [incidents]);
 
-  const columns: ColumnsType<SlaRow> = useMemo(() => [
+  const hasEventLevelAckSla = useMemo(
+    () => rows.some((row) => row.ackMinutes !== null),
+    [rows],
+  );
+
+  const hasEventLevelResolveSla = useMemo(
+    () => rows.some((row) => row.resolveMinutes !== null),
+    [rows],
+  );
+
+  const columns: ColumnsType<SlaRow> = useMemo(() => {
+    const nextColumns: ColumnsType<SlaRow> = [
     {
       title: '事件 ID',
       key: 'incidentId',
@@ -209,47 +194,68 @@ const IncidentSLA: React.FC = () => {
       width: 120,
       render: (_: unknown, record: SlaRow) => <span className="font-mono text-xs">{formatDurationMs(record.mttr)}</span>,
     },
-    {
-      title: '响应 SLA',
-      key: 'ackSla',
-      width: 180,
-      render: (_: unknown, record: SlaRow) => {
-        const percent = record.mtta === null ? 0 : Math.min(100, Math.round((record.mtta / (record.ackMinutes * 60000)) * 100));
-        return (
-          <div className="flex flex-col gap-1">
-            <Tag color={record.ackBreached ? 'error' : 'success'} style={{ width: 'fit-content' }}>
-              {record.ackBreached ? '已超时' : '达标'}
-            </Tag>
-            <Progress percent={percent} size="small" showInfo={false} status={record.ackBreached ? 'exception' : 'active'} />
-            <span className="text-[11px] opacity-60">SLA {record.ackMinutes} 分钟</span>
-          </div>
-        );
-      },
-    },
-    {
-      title: '解决 SLA',
-      key: 'resolveSla',
-      width: 180,
-      render: (_: unknown, record: SlaRow) => {
-        const percent = record.mttr === null ? 0 : Math.min(100, Math.round((record.mttr / (record.resolveMinutes * 60000)) * 100));
-        return (
-          <div className="flex flex-col gap-1">
-            <Tag color={record.resolveBreached ? 'error' : 'success'} style={{ width: 'fit-content' }}>
-              {record.resolveBreached ? '已超时' : '达标'}
-            </Tag>
-            <Progress percent={percent} size="small" showInfo={false} status={record.resolveBreached ? 'exception' : 'active'} />
-            <span className="text-[11px] opacity-60">SLA {record.resolveMinutes} 分钟</span>
-          </div>
-        );
-      },
-    },
-    {
-      title: '升级层级',
-      key: 'escalation',
-      width: 100,
-      render: (_: unknown, record: SlaRow) => <Tag color={record.currentEscalation >= 3 ? 'error' : record.currentEscalation >= 2 ? 'warning' : 'processing'}>L{record.currentEscalation}</Tag>,
-    },
-  ], [actionAccess.canReadIncident, navigate]);
+    ];
+
+    if (hasEventLevelAckSla) {
+      nextColumns.push({
+        title: '响应 SLA',
+        key: 'ackSla',
+        width: 180,
+        render: (_: unknown, record: SlaRow) => {
+          if (record.ackMinutes === null) {
+            return (
+              <div className="flex flex-col gap-1">
+                <Tag color="default" style={{ width: 'fit-content' }}>未配置</Tag>
+                <span className="text-[11px] opacity-60">后端未返回响应 SLA</span>
+              </div>
+            );
+          }
+
+          const percent = record.mtta === null ? 0 : Math.min(100, Math.round((record.mtta / (record.ackMinutes * 60000)) * 100));
+          return (
+            <div className="flex flex-col gap-1">
+              <Tag color={record.ackBreached ? 'error' : 'success'} style={{ width: 'fit-content' }}>
+                {record.ackBreached ? '已超时' : '达标'}
+              </Tag>
+              <Progress percent={percent} size="small" showInfo={false} status={record.ackBreached ? 'exception' : 'active'} />
+              <span className="text-[11px] opacity-60">SLA {record.ackMinutes} 分钟</span>
+            </div>
+          );
+        },
+      });
+    }
+
+    if (hasEventLevelResolveSla) {
+      nextColumns.push({
+        title: '解决 SLA',
+        key: 'resolveSla',
+        width: 180,
+        render: (_: unknown, record: SlaRow) => {
+          if (record.resolveMinutes === null) {
+            return (
+              <div className="flex flex-col gap-1">
+                <Tag color="default" style={{ width: 'fit-content' }}>未配置</Tag>
+                <span className="text-[11px] opacity-60">后端未返回解决 SLA</span>
+              </div>
+            );
+          }
+
+          const percent = record.mttr === null ? 0 : Math.min(100, Math.round((record.mttr / (record.resolveMinutes * 60000)) * 100));
+          return (
+            <div className="flex flex-col gap-1">
+              <Tag color={record.resolveBreached ? 'error' : 'success'} style={{ width: 'fit-content' }}>
+                {record.resolveBreached ? '已超时' : '达标'}
+              </Tag>
+              <Progress percent={percent} size="small" showInfo={false} status={record.resolveBreached ? 'exception' : 'active'} />
+              <span className="text-[11px] opacity-60">SLA {record.resolveMinutes} 分钟</span>
+            </div>
+          );
+        },
+      });
+    }
+
+    return nextColumns;
+  }, [actionAccess.canReadIncident, hasEventLevelAckSla, hasEventLevelResolveSla, navigate]);
 
   const cards = useMemo(() => ([
     { label: '总事件数', value: summary.totalIncidents, icon: 'assignment', color: COLORS.primary },
@@ -262,7 +268,7 @@ const IncidentSLA: React.FC = () => {
     <div className="flex flex-col gap-4">
       <AnalysisPageHeader
         title="SLA 监控"
-        subtitle="展示真实事件的响应、解决时效与升级层级"
+        subtitle="仅展示后端真实返回的事件时效与 SLA 汇总"
         lastUpdatedAt={lastUpdatedAt}
         actions={(
           <>
@@ -291,18 +297,8 @@ const IncidentSLA: React.FC = () => {
       </div>
 
       <Card size="small" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }}>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          {SLA_CONFIGS.map((config) => (
-            <div key={config.severity} className="rounded border px-3 py-3" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }}>
-              <div className="flex items-center justify-between mb-2">
-                <Tag color={SEVERITY_COLOR[config.severity]} style={{ margin: 0 }}>{config.severity}</Tag>
-                <span className="text-xs opacity-50">默认策略</span>
-              </div>
-              <div className="text-xs opacity-70">响应 SLA：{config.maxAckMinutes} 分钟</div>
-              <div className="text-xs opacity-70 mt-1">解决 SLA：{config.maxResolveMinutes} 分钟</div>
-              <div className="text-xs opacity-50 mt-2">升级规则：{config.escalationRules.length > 0 ? `${config.escalationRules.length} 条` : '无'}</div>
-            </div>
-          ))}
+        <div className="text-xs leading-6 opacity-70">
+          当前页面仅保留后端已返回的 SLA 汇总与事件时效数据。若事件详情接口未返回响应 / 解决阈值，则不展示本地默认策略与升级层级，避免与系统真实能力不一致。
         </div>
       </Card>
 
@@ -381,7 +377,7 @@ const IncidentSLA: React.FC = () => {
               },
               position: ['bottomLeft'],
             }}
-            scroll={{ x: 1400 }}
+            scroll={{ x: 1280 }}
             locale={{ emptyText: loading ? '加载中...' : '暂无 SLA 数据' }}
           />
         </div>
