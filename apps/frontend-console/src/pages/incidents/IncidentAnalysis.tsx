@@ -14,7 +14,6 @@ import {
   resolveIncidentActionAccess,
 } from './incidentAuthorization';
 import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
-import { classifyRootCause, ROOT_CAUSE_CONFIG } from '../../utils/incidentRootCause';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; label: string }> = {
   P0: { color: COLORS.danger, label: 'P0 紧急' },
@@ -151,15 +150,6 @@ const IncidentAnalysis: React.FC = () => {
       render: (value: IncidentStatus) => <Tag color={STATUS_CONFIG[value].color}>{STATUS_CONFIG[value].label}</Tag>,
     },
     {
-      title: '根因分类',
-      key: 'category',
-      width: 100,
-      render: (_: unknown, record: Incident) => {
-        const category = classifyRootCause(record.rootCause);
-        return <Tag color={ROOT_CAUSE_CONFIG[category].color}>{ROOT_CAUSE_CONFIG[category].label}</Tag>;
-      },
-    },
-    {
       title: '根因概述',
       dataIndex: 'rootCause',
       key: 'rootCause',
@@ -200,7 +190,7 @@ const IncidentAnalysis: React.FC = () => {
     <div className="flex flex-col gap-4">
       <AnalysisPageHeader
         title="根因分析"
-        subtitle="基于真实事件数据展示根因、处置和归档分析结果"
+        subtitle="仅展示后端真实返回的根因、处置和归档分析结果"
         lastUpdatedAt={lastUpdatedAt}
         actions={(
           <>
@@ -227,6 +217,12 @@ const IncidentAnalysis: React.FC = () => {
           </Card>
         ))}
       </div>
+
+      <Card size="small" style={{ borderColor: isDark ? '#334155' : '#e2e8f0' }}>
+        <div className="text-xs leading-6 opacity-70">
+          当前页面仅保留事件接口已返回的根因描述、处置方案与归档结果；不再展示前端按关键词临时推导的根因分类，避免与后端真实分析能力混淆。
+        </div>
+      </Card>
 
       <div className="flex items-center gap-3 flex-wrap">
         <Input.Search
