@@ -306,7 +306,14 @@ const WebhookManagement: React.FC = () => {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, padding: '0 24px' }}>
-        <Input.Search value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索名称、地址或事件" allowClear />
+        <Input.Search
+          id="webhook-search"
+          name="webhook_search"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="搜索名称、地址或事件"
+          allowClear
+        />
         <Select value={statusFilter} onChange={(value) => setStatusFilter(value)} options={[{ label: '全部状态', value: 'all' }, { label: '启用', value: 'enabled' }, { label: '停用', value: 'disabled' }]} />
       </div>
 
