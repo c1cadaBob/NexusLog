@@ -211,6 +211,7 @@ const DeadLetterDrawer: React.FC<DeadLetterDrawerProps> = ({
       open={open}
       title={packageLabel ? `${packageLabel} · 死信记录` : sourceName ? `${sourceName} · 死信记录` : '死信记录'}
       width={980}
+      destroyOnHidden
       onClose={onClose}
       extra={(
         <Space>

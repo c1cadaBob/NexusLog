@@ -256,6 +256,7 @@ const PullTaskDetailDrawer: React.FC<PullTaskDetailDrawerProps> = ({ open, taskI
       open={open}
       title={item?.task_id ? `${sourceName ? `${sourceName} · ` : ''}任务详情` : '任务详情'}
       width={980}
+      destroyOnHidden
       onClose={onClose}
       extra={<Button onClick={() => void loadData()}>刷新</Button>}
     >

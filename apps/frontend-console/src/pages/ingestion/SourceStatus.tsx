@@ -3,7 +3,16 @@ import { Alert, App, Button, Card, Descriptions, Dropdown, Empty, Input, Modal, 
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import ChartWrapper from '../../components/charts/ChartWrapper';
-import { fetchPullSourceStatus, runPullTask, type PullSourceRuntimeStatusItem, type PullSourceStatusResponse } from '../../api/ingest';
+import {
+  fetchPullPackages,
+  fetchPullSourceStatus,
+  fetchPullTasks,
+  runPullTask,
+  type PullPackageItem,
+  type PullSourceRuntimeStatusItem,
+  type PullSourceStatusResponse,
+  type PullTaskItem,
+} from '../../api/ingest';
 import { hasAnyCapability } from '../../auth/routeAuthorization';
 import PullPackageHistoryDrawer from './PullPackageHistoryDrawer';
 import PullTaskHistoryDrawer from './PullTaskHistoryDrawer';
@@ -187,6 +196,30 @@ function renderPathPreview(value?: string) {
   );
 }
 
+type PendingHistoryAction = {
+  kind: 'task' | 'package';
+  item: PullSourceRuntimeStatusItem;
+};
+
+interface TaskHistoryState {
+  item: PullSourceRuntimeStatusItem;
+  tasks: PullTaskItem[];
+  total: number;
+  error?: string;
+}
+
+interface PackageHistoryState {
+  item: PullSourceRuntimeStatusItem;
+  packages: PullPackageItem[];
+  total: number;
+  error?: string;
+}
+
+interface HistoryLoadingAction {
+  kind: 'task' | 'package';
+  sourceId: string;
+}
+
 const SourceStatus: React.FC = () => {
   const navigate = useNavigate();
   const { message: messageApi } = App.useApp();
@@ -203,8 +236,11 @@ const SourceStatus: React.FC = () => {
   const [selectedItem, setSelectedItem] = useState<PullSourceRuntimeStatusItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
-  const [taskHistoryItem, setTaskHistoryItem] = useState<PullSourceRuntimeStatusItem | null>(null);
-  const [packageHistoryItem, setPackageHistoryItem] = useState<PullSourceRuntimeStatusItem | null>(null);
+  const [taskHistoryState, setTaskHistoryState] = useState<TaskHistoryState | null>(null);
+  const [packageHistoryState, setPackageHistoryState] = useState<PackageHistoryState | null>(null);
+  const [pendingHistoryAction, setPendingHistoryAction] = useState<PendingHistoryAction | null>(null);
+  const [historyLoadingAction, setHistoryLoadingAction] = useState<HistoryLoadingAction | null>(null);
+  const hasOverlayOpen = detailOpen || Boolean(taskHistoryState) || Boolean(packageHistoryState) || Boolean(pendingHistoryAction) || Boolean(historyLoadingAction);
 
   const capabilities = useAuthStore((s) => s.capabilities);
   const canRunPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.run']), [capabilities]);
@@ -254,12 +290,12 @@ const SourceStatus: React.FC = () => {
   }, [loadStatus]);
 
   useEffect(() => {
-    if (!isAutoRefresh) return undefined;
+    if (!isAutoRefresh || hasOverlayOpen) return undefined;
     const timer = window.setInterval(() => {
       void loadStatus('refresh');
     }, SOURCE_STATUS_AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [isAutoRefresh, loadStatus]);
+  }, [hasOverlayOpen, isAutoRefresh, loadStatus]);
 
   useEffect(() => {
     if (!refreshDelta) return undefined;
@@ -351,6 +387,100 @@ const SourceStatus: React.FC = () => {
       ],
     };
   }, [filteredItems]);
+
+  const openTaskHistory = useCallback(async (item: PullSourceRuntimeStatusItem) => {
+    const toastKey = `task-history-${item.source_id}`;
+    setHistoryLoadingAction({ kind: 'task', sourceId: item.source_id });
+    messageApi.open({ key: toastKey, type: 'loading', content: `正在加载 ${item.name} 的任务历史...`, duration: 0 });
+    try {
+      const result = await fetchPullTasks({
+        source_id: item.source_id,
+        page: 1,
+        page_size: 20,
+      });
+      setTaskHistoryState({
+        item,
+        tasks: result.items,
+        total: result.total,
+        error: '',
+      });
+      messageApi.destroy(toastKey);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setTaskHistoryState({
+        item,
+        tasks: [],
+        total: 0,
+        error: message,
+      });
+      messageApi.destroy(toastKey);
+    } finally {
+      setHistoryLoadingAction((current) => (
+        current?.kind === 'task' && current.sourceId === item.source_id ? null : current
+      ));
+    }
+  }, [messageApi]);
+
+  const openPackageHistory = useCallback(async (item: PullSourceRuntimeStatusItem) => {
+    const toastKey = `package-history-${item.source_id}`;
+    const agentId = item.last_package?.agent_id || item.last_cursor?.agent_id || item.agent_id;
+    const sourceRef = item.last_package?.source_ref || item.path;
+
+    setHistoryLoadingAction({ kind: 'package', sourceId: item.source_id });
+    messageApi.open({ key: toastKey, type: 'loading', content: `正在加载 ${item.name} 的包历史...`, duration: 0 });
+    try {
+      const result = await fetchPullPackages({
+        agent_id: agentId,
+        source_ref: sourceRef,
+        page: 1,
+        page_size: 20,
+      });
+      setPackageHistoryState({
+        item,
+        packages: result.items,
+        total: result.total,
+        error: '',
+      });
+      messageApi.destroy(toastKey);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setPackageHistoryState({
+        item,
+        packages: [],
+        total: 0,
+        error: message,
+      });
+      messageApi.destroy(toastKey);
+    } finally {
+      setHistoryLoadingAction((current) => (
+        current?.kind === 'package' && current.sourceId === item.source_id ? null : current
+      ));
+    }
+  }, [messageApi]);
+
+  const queueTaskHistoryFromDetail = useCallback((item: PullSourceRuntimeStatusItem) => {
+    setPendingHistoryAction({ kind: 'task', item });
+    setDetailOpen(false);
+    setSelectedItem(null);
+  }, []);
+
+  const queuePackageHistoryFromDetail = useCallback((item: PullSourceRuntimeStatusItem) => {
+    setPendingHistoryAction({ kind: 'package', item });
+    setDetailOpen(false);
+    setSelectedItem(null);
+  }, []);
+
+  const handleDetailAfterOpenChange = useCallback((open: boolean) => {
+    if (open || !pendingHistoryAction) {
+      return;
+    }
+    if (pendingHistoryAction.kind === 'task') {
+      void openTaskHistory(pendingHistoryAction.item);
+    } else {
+      void openPackageHistory(pendingHistoryAction.item);
+    }
+    setPendingHistoryAction(null);
+  }, [openPackageHistory, openTaskHistory, pendingHistoryAction]);
 
   const handleRunNow = useCallback(async (item: PullSourceRuntimeStatusItem) => {
     setRunningSourceIds((current) => (current.includes(item.source_id) ? current : [...current, item.source_id]));
@@ -487,9 +617,11 @@ const SourceStatus: React.FC = () => {
       width: 120,
       align: 'right',
       render: (_, item) => {
+        const isTaskHistoryLoading = historyLoadingAction?.kind === 'task' && historyLoadingAction.sourceId === item.source_id;
+        const isPackageHistoryLoading = historyLoadingAction?.kind === 'package' && historyLoadingAction.sourceId === item.source_id;
         const menuItems: { key: string; label: string; disabled?: boolean }[] = [];
-        if (canReadPullTask) menuItems.push({ key: 'task', label: '任务历史' });
-        if (canReadPullPackage) menuItems.push({ key: 'package', label: '包历史' });
+        if (canReadPullTask) menuItems.push({ key: 'task', label: isTaskHistoryLoading ? '任务历史加载中...' : '任务历史', disabled: isTaskHistoryLoading });
+        if (canReadPullPackage) menuItems.push({ key: 'package', label: isPackageHistoryLoading ? '包历史加载中...' : '包历史', disabled: isPackageHistoryLoading });
         if (canRunPullTask) {
           menuItems.push({
             key: 'run',
@@ -508,11 +640,11 @@ const SourceStatus: React.FC = () => {
                   items: menuItems,
                   onClick: ({ key }) => {
                     if (key === 'task') {
-                      setTaskHistoryItem(item);
+                      void openTaskHistory(item);
                       return;
                     }
                     if (key === 'package') {
-                      setPackageHistoryItem(item);
+                      void openPackageHistory(item);
                       return;
                     }
                     if (key === 'run') {
@@ -667,15 +799,27 @@ const SourceStatus: React.FC = () => {
         footer={(
           <Space>
             {canReadPullTask && selectedItem ? (
-              <Button onClick={() => setTaskHistoryItem(selectedItem)}>查看任务历史</Button>
+              <Button
+                loading={historyLoadingAction?.kind === 'task' && historyLoadingAction.sourceId === selectedItem.source_id}
+                onClick={() => queueTaskHistoryFromDetail(selectedItem)}
+              >
+                查看任务历史
+              </Button>
             ) : null}
             {canReadPullPackage && selectedItem ? (
-              <Button onClick={() => setPackageHistoryItem(selectedItem)}>查看包历史</Button>
+              <Button
+                loading={historyLoadingAction?.kind === 'package' && historyLoadingAction.sourceId === selectedItem.source_id}
+                onClick={() => queuePackageHistoryFromDetail(selectedItem)}
+              >
+                查看包历史
+              </Button>
             ) : null}
             <Button onClick={() => setDetailOpen(false)}>关闭</Button>
           </Space>
         )}
         width={920}
+        destroyOnHidden
+        afterOpenChange={handleDetailAfterOpenChange}
       >
         {!selectedItem ? null : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -712,17 +856,20 @@ const SourceStatus: React.FC = () => {
       </Modal>
 
       <PullTaskHistoryDrawer
-        open={Boolean(taskHistoryItem)}
-        sourceId={taskHistoryItem?.source_id}
-        sourceName={taskHistoryItem?.name}
-        onClose={() => setTaskHistoryItem(null)}
+        open={Boolean(taskHistoryState)}
+        sourceName={taskHistoryState?.item.name}
+        tasks={taskHistoryState?.tasks ?? []}
+        total={taskHistoryState?.total ?? 0}
+        error={taskHistoryState?.error}
+        onClose={() => setTaskHistoryState(null)}
       />
       <PullPackageHistoryDrawer
-        open={Boolean(packageHistoryItem)}
-        sourceName={packageHistoryItem?.name}
-        agentId={packageHistoryItem?.last_package?.agent_id || packageHistoryItem?.last_cursor?.agent_id || packageHistoryItem?.agent_id}
-        sourceRef={packageHistoryItem?.last_package?.source_ref || packageHistoryItem?.path}
-        onClose={() => setPackageHistoryItem(null)}
+        open={Boolean(packageHistoryState)}
+        sourceName={packageHistoryState?.item.name}
+        packages={packageHistoryState?.packages ?? []}
+        total={packageHistoryState?.total ?? 0}
+        error={packageHistoryState?.error}
+        onClose={() => setPackageHistoryState(null)}
       />
     </div>
   );

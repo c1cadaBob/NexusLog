@@ -6,14 +6,18 @@ import {
   createPullSource,
   deletePullSource,
   fetchIngestAgents,
+  fetchPullPackages,
   fetchPullSourceStatus,
   fetchPullSources,
+  fetchPullTasks,
   runPullTask,
   updatePullSource,
   type CreatePullSourcePayload,
   type IngestAgentItem,
+  type PullPackageItem,
   type PullSource,
   type PullSourceStatusResponse,
+  type PullTaskItem,
   type UpdatePullSourcePayload,
 } from '../../api/ingest';
 import { hasAnyCapability } from '../../auth/routeAuthorization';
@@ -239,6 +243,25 @@ function renderPathPreview(value?: string) {
   );
 }
 
+interface TaskHistoryViewState {
+  source: PullSource;
+  tasks: PullTaskItem[];
+  total: number;
+  error?: string;
+}
+
+interface PackageHistoryViewState {
+  source: PullSource;
+  packages: PullPackageItem[];
+  total: number;
+  error?: string;
+}
+
+interface HistoryLoadingState {
+  kind: 'task' | 'package';
+  sourceId: string;
+}
+
 const SourceManagement: React.FC = () => {
   const navigate = useNavigate();
   const { message: messageApi } = App.useApp();
@@ -255,8 +278,9 @@ const SourceManagement: React.FC = () => {
   const [selectedSource, setSelectedSource] = useState<PullSource | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
-  const [taskHistorySource, setTaskHistorySource] = useState<PullSource | null>(null);
-  const [packageHistorySource, setPackageHistorySource] = useState<PullSource | null>(null);
+  const [taskHistoryState, setTaskHistoryState] = useState<TaskHistoryViewState | null>(null);
+  const [packageHistoryState, setPackageHistoryState] = useState<PackageHistoryViewState | null>(null);
+  const [historyLoadingState, setHistoryLoadingState] = useState<HistoryLoadingState | null>(null);
 
   const capabilities = useAuthStore((s) => s.capabilities);
   const canRunPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.run']), [capabilities]);
@@ -474,6 +498,60 @@ const SourceManagement: React.FC = () => {
     }
   }, [loadData, messageApi]);
 
+  const openTaskHistory = useCallback(async (source: PullSource) => {
+    const toastKey = `source-management-task-${source.source_id}`;
+    setHistoryLoadingState({ kind: 'task', sourceId: source.source_id });
+    messageApi.open({ key: toastKey, type: 'loading', content: `正在加载 ${source.name} 的任务记录...`, duration: 0 });
+    try {
+      const result = await fetchPullTasks({
+        source_id: source.source_id,
+        page: 1,
+        page_size: 20,
+      });
+      setTaskHistoryState({ source, tasks: result.items, total: result.total, error: '' });
+      messageApi.destroy(toastKey);
+    } catch (err) {
+      setTaskHistoryState({
+        source,
+        tasks: [],
+        total: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      messageApi.destroy(toastKey);
+    } finally {
+      setHistoryLoadingState((current) => (
+        current?.kind === 'task' && current.sourceId === source.source_id ? null : current
+      ));
+    }
+  }, [messageApi]);
+
+  const openPackageHistory = useCallback(async (source: PullSource) => {
+    const toastKey = `source-management-package-${source.source_id}`;
+    setHistoryLoadingState({ kind: 'package', sourceId: source.source_id });
+    messageApi.open({ key: toastKey, type: 'loading', content: `正在加载 ${source.name} 的资源包记录...`, duration: 0 });
+    try {
+      const result = await fetchPullPackages({
+        source_ref: source.path,
+        page: 1,
+        page_size: 20,
+      });
+      setPackageHistoryState({ source, packages: result.items, total: result.total, error: '' });
+      messageApi.destroy(toastKey);
+    } catch (err) {
+      setPackageHistoryState({
+        source,
+        packages: [],
+        total: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      messageApi.destroy(toastKey);
+    } finally {
+      setHistoryLoadingState((current) => (
+        current?.kind === 'package' && current.sourceId === source.source_id ? null : current
+      ));
+    }
+  }, [messageApi]);
+
   const columns: ColumnsType<PullSource> = [
     {
       title: '采集源',
@@ -620,10 +698,12 @@ const SourceManagement: React.FC = () => {
       width: 120,
       align: 'right',
       render: (_, source) => {
+        const isTaskHistoryLoading = historyLoadingState?.kind === 'task' && historyLoadingState.sourceId === source.source_id;
+        const isPackageHistoryLoading = historyLoadingState?.kind === 'package' && historyLoadingState.sourceId === source.source_id;
         const menuItems = [
           { key: 'status', label: '查看状态' },
-          canReadPullTask ? { key: 'task', label: '任务记录' } : null,
-          canReadPullPackage ? { key: 'package', label: '资源包记录' } : null,
+          canReadPullTask ? { key: 'task', label: isTaskHistoryLoading ? '任务记录加载中...' : '任务记录', disabled: isTaskHistoryLoading } : null,
+          canReadPullPackage ? { key: 'package', label: isPackageHistoryLoading ? '资源包记录加载中...' : '资源包记录', disabled: isPackageHistoryLoading } : null,
           canRunPullTask ? { key: 'run', label: '立即采集', disabled: String(source.status).toLowerCase() === 'disabled' } : null,
           { key: 'disable', label: '停用', danger: true },
         ].filter(Boolean);
@@ -641,11 +721,11 @@ const SourceManagement: React.FC = () => {
                     return;
                   }
                   if (key === 'task') {
-                    setTaskHistorySource(source);
+                    void openTaskHistory(source);
                     return;
                   }
                   if (key === 'package') {
-                    setPackageHistorySource(source);
+                    void openPackageHistory(source);
                     return;
                   }
                   if (key === 'run') {
@@ -793,16 +873,20 @@ const SourceManagement: React.FC = () => {
       </Modal>
 
       <PullTaskHistoryDrawer
-        open={Boolean(taskHistorySource)}
-        sourceId={taskHistorySource?.source_id}
-        sourceName={taskHistorySource?.name}
-        onClose={() => setTaskHistorySource(null)}
+        open={Boolean(taskHistoryState)}
+        sourceName={taskHistoryState?.source.name}
+        tasks={taskHistoryState?.tasks ?? []}
+        total={taskHistoryState?.total ?? 0}
+        error={taskHistoryState?.error}
+        onClose={() => setTaskHistoryState(null)}
       />
       <PullPackageHistoryDrawer
-        open={Boolean(packageHistorySource)}
-        sourceName={packageHistorySource?.name}
-        sourceRef={packageHistorySource?.path}
-        onClose={() => setPackageHistorySource(null)}
+        open={Boolean(packageHistoryState)}
+        sourceName={packageHistoryState?.source.name}
+        packages={packageHistoryState?.packages ?? []}
+        total={packageHistoryState?.total ?? 0}
+        error={packageHistoryState?.error}
+        onClose={() => setPackageHistoryState(null)}
       />
     </div>
   );

@@ -155,6 +155,7 @@ const PullPackageDetailDrawer: React.FC<PullPackageDetailDrawerProps> = ({ open,
         open={open}
         title={item?.package_no ? `${sourceName ? `${sourceName} · ` : ''}${item.package_no} · 包详情` : '包详情'}
         width={1040}
+        destroyOnHidden
         onClose={onClose}
         extra={(
           <Space wrap>

@@ -277,6 +277,7 @@ const ReceiptDrawer: React.FC<ReceiptDrawerProps> = ({
         open={open}
         title={packageLabel ? `${packageLabel} · 回执记录` : sourceName ? `${sourceName} · 回执记录` : '回执记录'}
         width={1020}
+        destroyOnHidden
         onClose={onClose}
         extra={(
           <Space>

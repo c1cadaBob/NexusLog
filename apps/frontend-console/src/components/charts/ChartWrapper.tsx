@@ -72,6 +72,8 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<echarts.ECharts | null>(null);
+  const resizeFrameRef = useRef<number | null>(null);
+  const lastSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
   const isDark = useThemeStore((s) => s.isDark);
 
   const themeOption = useMemo(() => getEChartsTheme(isDark), [isDark]);
@@ -80,7 +82,7 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
     [themeOption, option],
   );
 
-  // 初始化实例并绑定 ResizeObserver；卸载时统一释放，避免 React StrictMode 下残留实例。
+  // 初始化实例并绑定 ResizeObserver；仅在容器尺寸真实变化时于下一帧触发 resize，避免抽屉/布局动画下出现频繁同步重排。
   useEffect(() => {
     const dom = chartRef.current;
     if (!dom) return;
@@ -89,19 +91,49 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({
     const instance = existing ?? echarts.init(dom);
     instanceRef.current = instance;
 
-    const observer = new ResizeObserver(() => {
-      instance.resize();
+    const scheduleResize = (width: number, height: number) => {
+      const nextWidth = Math.round(width);
+      const nextHeight = Math.round(height);
+      if (nextWidth <= 0 || nextHeight <= 0) return;
+      if (lastSizeRef.current.width === nextWidth && lastSizeRef.current.height === nextHeight) return;
+
+      lastSizeRef.current = { width: nextWidth, height: nextHeight };
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+      }
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        const current = instanceRef.current ?? echarts.getInstanceByDom(dom);
+        if (!current) return;
+        current.resize({ width: nextWidth, height: nextHeight });
+      });
+    };
+
+    scheduleResize(dom.clientWidth, dom.clientHeight);
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      const box = Array.isArray(entry?.contentBoxSize) ? entry.contentBoxSize[0] : entry?.contentBoxSize;
+      scheduleResize(
+        box?.inlineSize ?? entry?.contentRect.width ?? dom.clientWidth,
+        box?.blockSize ?? entry?.contentRect.height ?? dom.clientHeight,
+      );
     });
     observer.observe(dom);
 
     return () => {
       observer.disconnect();
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
 
       const current = instanceRef.current ?? echarts.getInstanceByDom(dom);
       if (current) {
         current.dispose();
       }
       instanceRef.current = null;
+      lastSizeRef.current = { width: 0, height: 0 };
     };
   }, []);
 
