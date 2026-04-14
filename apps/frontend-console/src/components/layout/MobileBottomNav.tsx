@@ -10,7 +10,6 @@ export const NAV_ITEMS = [
   { icon: 'dashboard', label: '概览', path: '/' },
   { icon: 'search', label: '搜索', path: '/search/realtime' },
   { icon: 'notifications_active', label: '告警', path: '/alerts/list' },
-  { icon: 'settings', label: '设置', path: '/settings/parameters' },
 ];
 
 export function resolveMobileBottomNavItems(

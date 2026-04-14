@@ -116,13 +116,6 @@ describe('route authorization registry', () => {
     ).toBe(false);
 
     expect(
-      canAccessRoute('/settings/parameters', {
-        permissions: ['users:write'],
-        capabilities: [],
-      }),
-    ).toBe(false);
-
-    expect(
       canAccessRoute('/settings/global', {
         permissions: ['users:write'],
         capabilities: [],
@@ -142,13 +135,6 @@ describe('route authorization registry', () => {
       canAccessRoute('/security/login-policy', {
         permissions: [],
         capabilities: ['auth.login_policy.read'],
-      }),
-    ).toBe(true);
-
-    expect(
-      canAccessRoute('/settings/parameters', {
-        permissions: [],
-        capabilities: ['settings.parameter.read'],
       }),
     ).toBe(true);
 
@@ -278,6 +264,10 @@ describe('route authorization registry', () => {
     expect(findRouteAuthorizationRule('/parsing/rules')).toBeUndefined();
     expect(findRouteAuthorizationRule('/parsing/masking')).toBeUndefined();
     expect(findRouteAuthorizationRule('/parsing/dictionary')).toBeUndefined();
+  });
+
+  it('removes mock system parameter route from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/settings/parameters')).toBeUndefined();
   });
 
   it('removes distributed tracing routes from the route authorization registry', () => {

@@ -137,7 +137,6 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: 'settings',
         label: '系统设置',
         children: [
-          { icon: 'tune', label: '系统参数', path: '/settings/parameters' },
           { icon: 'toggle_on', label: '全局配置', path: '/settings/global' },
           { icon: 'history', label: '配置版本', path: '/settings/versions' },
         ],

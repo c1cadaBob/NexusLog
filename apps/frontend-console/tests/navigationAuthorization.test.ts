@@ -134,7 +134,6 @@ describe('navigation authorization', () => {
       '/',
       '/search/realtime',
       '/alerts/list',
-      '/settings/parameters',
     ]);
   });
 

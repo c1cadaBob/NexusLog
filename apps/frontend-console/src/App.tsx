@@ -73,7 +73,6 @@ const WebhookManagement = lazy(() => import('./pages/integration/WebhookManageme
 
 // 成本管理
 // 系统设置
-const SystemParameters = lazy(() => import('./pages/settings/SystemParameters'));
 const GlobalConfig = lazy(() => import('./pages/settings/GlobalConfig'));
 const ConfigVersions = lazy(() => import('./pages/settings/ConfigVersions'));
 
@@ -176,7 +175,6 @@ const App: React.FC = () => {
                 <Route path="/integration/webhook" element={<WebhookManagement />} />
 
                 {/* 系统设置 */}
-                <Route path="/settings/parameters" element={<SystemParameters />} />
                 <Route path="/settings/global" element={<GlobalConfig />} />
                 <Route path="/settings/versions" element={<ConfigVersions />} />
 
