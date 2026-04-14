@@ -10,10 +10,6 @@ const USER_WRITE_ROUTE_REMOVALS = [
   '/ingestion/agents',
   '/ingestion/wizard',
   '/ingestion/status',
-  '/parsing/mapping',
-  '/parsing/rules',
-  '/parsing/masking',
-  '/parsing/dictionary',
   '/storage/indices',
   '/storage/ilm',
   '/storage/backup',
@@ -205,13 +201,6 @@ describe('route authorization registry', () => {
     ).toBe(true);
 
     expect(
-      canAccessRoute('/parsing/mapping', {
-        permissions: [],
-        capabilities: ['field.mapping.read'],
-      }),
-    ).toBe(true);
-
-    expect(
       canAccessRoute('/storage/indices', {
         permissions: [],
         capabilities: ['storage.index.read'],
@@ -282,6 +271,13 @@ describe('route authorization registry', () => {
   it('removes mock help routes from the route authorization registry', () => {
     expect(findRouteAuthorizationRule('/help/syntax')).toBeUndefined();
     expect(findRouteAuthorizationRule('/help/tickets')).toBeUndefined();
+  });
+
+  it('removes parsing routes from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/parsing/mapping')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/parsing/rules')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/parsing/masking')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/parsing/dictionary')).toBeUndefined();
   });
 
   it('removes distributed tracing routes from the route authorization registry', () => {

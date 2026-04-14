@@ -8,10 +8,6 @@ const USER_WRITE_ROUTE_REMOVALS = [
   '/ingestion/agents',
   '/ingestion/wizard',
   '/ingestion/status',
-  '/parsing/mapping',
-  '/parsing/rules',
-  '/parsing/masking',
-  '/parsing/dictionary',
   '/storage/indices',
   '/storage/ilm',
   '/storage/backup',
@@ -55,6 +51,10 @@ describe('navigation authorization', () => {
     expect(visiblePaths).not.toContain('/cost/optimization');
     expect(visiblePaths).not.toContain('/help/syntax');
     expect(visiblePaths).not.toContain('/help/tickets');
+    expect(visiblePaths).not.toContain('/parsing/mapping');
+    expect(visiblePaths).not.toContain('/parsing/rules');
+    expect(visiblePaths).not.toContain('/parsing/masking');
+    expect(visiblePaths).not.toContain('/parsing/dictionary');
     expect(visiblePaths).not.toContain('/tracing/search');
     expect(visiblePaths).not.toContain('/tracing/analysis');
     expect(visiblePaths).not.toContain('/tracing/topology');

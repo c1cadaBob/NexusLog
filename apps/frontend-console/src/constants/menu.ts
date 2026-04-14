@@ -70,16 +70,6 @@ export const MENU_SECTIONS: MenuSection[] = [
           { icon: 'monitor_heart', label: '数据源状态', path: '/ingestion/status' },
         ],
       },
-      {
-        icon: 'schema',
-        label: '解析与字段',
-        children: [
-          { icon: 'swap_horiz', label: '字段映射', path: '/parsing/mapping' },
-          { icon: 'code', label: '解析规则', path: '/parsing/rules' },
-          { icon: 'visibility_off', label: '脱敏规则', path: '/parsing/masking' },
-          { icon: 'menu_book', label: '字段字典', path: '/parsing/dictionary' },
-        ],
-      },
     ],
   },
   {

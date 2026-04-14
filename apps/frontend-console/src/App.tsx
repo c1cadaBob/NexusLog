@@ -48,12 +48,6 @@ const AgentManagement = lazy(() => import('./pages/ingestion/AgentManagement'));
 const AccessWizard = lazy(() => import('./pages/ingestion/AccessWizard'));
 const SourceStatus = lazy(() => import('./pages/ingestion/SourceStatus'));
 
-// 解析与字段
-const FieldMapping = lazy(() => import('./pages/parsing/FieldMapping'));
-const ParsingRules = lazy(() => import('./pages/parsing/ParsingRules'));
-const MaskingRules = lazy(() => import('./pages/parsing/MaskingRules'));
-const FieldDictionary = lazy(() => import('./pages/parsing/FieldDictionary'));
-
 // 索引与存储
 const IndexManagement = lazy(() => import('./pages/storage/IndexManagement'));
 const LifecyclePolicy = lazy(() => import('./pages/storage/LifecyclePolicy'));
@@ -157,12 +151,6 @@ const App: React.FC = () => {
                 <Route path="/ingestion/agents" element={<AgentManagement />} />
                 <Route path="/ingestion/wizard" element={<AccessWizard />} />
                 <Route path="/ingestion/status" element={<SourceStatus />} />
-
-                {/* 解析与字段 */}
-                <Route path="/parsing/mapping" element={<FieldMapping />} />
-                <Route path="/parsing/rules" element={<ParsingRules />} />
-                <Route path="/parsing/masking" element={<MaskingRules />} />
-                <Route path="/parsing/dictionary" element={<FieldDictionary />} />
 
                 {/* 索引与存储 */}
                 <Route path="/storage/indices" element={<IndexManagement />} />
