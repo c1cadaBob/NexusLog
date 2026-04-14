@@ -23,8 +23,6 @@ const SearchHistory = lazy(() => import('./pages/search/SearchHistory'));
 const SavedQueries = lazy(() => import('./pages/search/SavedQueries'));
 
 // 日志分析
-const AggregateAnalysis = lazy(() => import('./pages/analysis/AggregateAnalysis'));
-const AnomalyDetection = lazy(() => import('./pages/analysis/AnomalyDetection'));
 const LogClustering = lazy(() => import('./pages/analysis/LogClustering'));
 
 // 告警中心
@@ -122,8 +120,8 @@ const App: React.FC = () => {
                 <Route path="/search/saved" element={<SavedQueries />} />
 
                 {/* 日志分析 */}
-                <Route path="/analysis/aggregate" element={<AggregateAnalysis />} />
-                <Route path="/analysis/anomaly" element={<AnomalyDetection />} />
+                <Route path="/analysis/aggregate" element={<Navigate to="/analysis/clustering" replace />} />
+                <Route path="/analysis/anomaly" element={<Navigate to="/analysis/clustering" replace />} />
                 <Route path="/analysis/clustering" element={<LogClustering />} />
 
                 {/* 告警中心 */}

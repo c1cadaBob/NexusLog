@@ -19,8 +19,6 @@ export const ROUTE_AUTHORIZATION_RULES: RouteAuthorizationRule[] = [
     fallbackPath: '/search/saved',
   },
   { path: '/search/saved', requiredCapabilities: ['query.saved.read'], legacyPermissions: ['logs:read'] },
-  { path: '/analysis/aggregate', requiredCapabilities: ['log.query.aggregate'], legacyPermissions: ['logs:read'] },
-  { path: '/analysis/anomaly', requiredCapabilities: ['analysis.anomaly.read'], legacyPermissions: ['logs:read'] },
   { path: '/analysis/clustering', requiredCapabilities: ['analysis.cluster.read'], legacyPermissions: ['logs:read'] },
   { path: '/alerts/list', requiredCapabilities: ['alert.event.read'], legacyPermissions: ['alerts:read'] },
   { path: '/alerts/rules', requiredCapabilities: ['alert.rule.read'], legacyPermissions: ['alerts:read'] },
