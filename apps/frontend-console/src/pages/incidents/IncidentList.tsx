@@ -426,7 +426,10 @@ const IncidentList: React.FC = () => {
       render: (value: string, record: Incident) => (
         <div>
           <div className="text-sm font-medium">{value}</div>
-          <div className="text-xs opacity-50 mt-0.5">{record.source} · 影响 {record.affectedServices.length} 个服务</div>
+          <div className="text-xs opacity-50 mt-0.5">
+            {record.source !== '-' ? `来源 ${record.source}` : '来源待补充'}
+            {record.affectedServices.length > 0 ? ` · 影响 ${record.affectedServices.length} 个服务` : ' · 影响范围待补充'}
+          </div>
         </div>
       ),
     },

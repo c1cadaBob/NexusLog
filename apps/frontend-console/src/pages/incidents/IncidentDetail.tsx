@@ -24,7 +24,6 @@ import {
   resolveIncidentActionAccess,
 } from './incidentAuthorization';
 import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
-import { classifyRootCause, ROOT_CAUSE_CONFIG } from '../../utils/incidentRootCause';
 
 // ============================================================================
 // 共享配置映射
@@ -102,7 +101,7 @@ const OverviewTab: React.FC<{ incident: Incident }> = ({ incident }) => (
         <span style={{ color: SEVERITY_CONFIG[incident.severity].color }} className="font-medium">{SEVERITY_CONFIG[incident.severity].label}</span>
       </Descriptions.Item>
       <Descriptions.Item label="负责人">{incident.assignee || '未分配'}</Descriptions.Item>
-      <Descriptions.Item label="来源服务"><Tag style={{ margin: 0 }}>{incident.source}</Tag></Descriptions.Item>
+      <Descriptions.Item label="来源"><Tag style={{ margin: 0 }}>{incident.source}</Tag></Descriptions.Item>
       <Descriptions.Item label="指纹"><span className="font-mono text-xs opacity-60">{incident.fingerprint}</span></Descriptions.Item>
       <Descriptions.Item label="影响服务" span={2}>
         <Space size={4} wrap>{incident.affectedServices.length > 0 ? incident.affectedServices.map((s) => <Tag key={s} style={{ margin: 0 }}>{s}</Tag>) : '-'}</Space>
@@ -173,7 +172,7 @@ const TimelineTab: React.FC<{ incidentId: string; events: TimelineEvent[]; loadi
 };
 
 // ============================================================================
-// Tab 3: 根因分析面板（API 暂无，保留空状态）
+// Tab 3: 根因分析面板（仅展示事件接口已返回内容）
 // ============================================================================
 
 const AnalysisTab: React.FC<{ incident: Incident; onEdit: () => void; canEdit: boolean }> = ({ incident, onEdit, canEdit }) => {
@@ -190,11 +189,6 @@ const AnalysisTab: React.FC<{ incident: Incident; onEdit: () => void; canEdit: b
   return (
     <div className="flex flex-col gap-4">
       <Descriptions column={1} size="small" bordered>
-        <Descriptions.Item label="根因分类">
-          <Tag color={ROOT_CAUSE_CONFIG[classifyRootCause(incident.rootCause)].color}>
-            {ROOT_CAUSE_CONFIG[classifyRootCause(incident.rootCause)].label}
-          </Tag>
-        </Descriptions.Item>
         <Descriptions.Item label="根因分析">
           <span className="text-xs whitespace-pre-wrap">{incident.rootCause || '-'}</span>
         </Descriptions.Item>
@@ -205,6 +199,11 @@ const AnalysisTab: React.FC<{ incident: Incident; onEdit: () => void; canEdit: b
           {incident.updatedAt ? new Date(incident.updatedAt).toLocaleString('zh-CN') : '-'}
         </Descriptions.Item>
       </Descriptions>
+      <Card size="small">
+        <div className="text-sm opacity-70">
+          当前页面仅展示事件接口已返回的根因描述与处置方案；不再显示前端按关键词临时推导的根因分类。
+        </div>
+      </Card>
       <div>
         <Button type="primary" disabled={!canEdit} icon={<span className="material-symbols-outlined text-sm">edit</span>} onClick={onEdit}>
           编辑分析
