@@ -334,12 +334,16 @@ const ReportManagement: React.FC = () => {
       <div className="flex flex-col gap-4 p-6">
         <div className={`grid grid-cols-1 gap-3 rounded-xl border p-4 md:grid-cols-[2fr_1fr_1fr] ${borderColor} ${cardBg}`}>
           <input
+            id="report-template-search"
+            name="report_template_search"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="搜索名称、描述、查询语句或模板 ID"
             className={`w-full rounded-lg border px-4 py-2.5 text-sm outline-none ${borderColor} ${inputBg} ${textColor}`}
           />
           <select
+            id="report-template-type-filter"
+            name="report_template_type_filter"
             value={typeFilter}
             onChange={(event) => setTypeFilter(event.target.value as 'all' | ReportTemplate['type'])}
             className={`rounded-lg border px-4 py-2.5 text-sm outline-none ${borderColor} ${inputBg} ${textColor}`}
@@ -351,6 +355,8 @@ const ReportManagement: React.FC = () => {
             <option value="custom">自定义</option>
           </select>
           <select
+            id="report-template-status-filter"
+            name="report_template_status_filter"
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as 'all' | ReportTemplate['status'])}
             className={`rounded-lg border px-4 py-2.5 text-sm outline-none ${borderColor} ${inputBg} ${textColor}`}
