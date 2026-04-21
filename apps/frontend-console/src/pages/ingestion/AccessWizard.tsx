@@ -88,7 +88,7 @@ function buildContainerImage(
   if (provider === 'custom') {
     return customImage.trim();
   }
-  const safeOwner = owner.trim() || '<owner>';
+  const safeOwner = owner.trim().toLowerCase() || '<owner>';
   return `ghcr.io/${safeOwner}/nexuslog-collector-agent:${version}`;
 }
 
