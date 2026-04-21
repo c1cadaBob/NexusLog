@@ -106,11 +106,11 @@ const DEFAULT_CONFIG: RuntimeConfig = {
     releaseProvider: 'github',
     owner: 'c1cadabob',
     repo: 'NexusLog',
-    version: 'v0.1.0',
-    releaseBaseUrl: 'https://github.com/c1cadabob/NexusLog/releases/download/v0.1.0',
-    installScriptUrl: 'https://github.com/c1cadabob/NexusLog/releases/download/v0.1.0/collector-agent-installer.sh',
+    version: 'v0.1.1',
+    releaseBaseUrl: 'https://github.com/c1cadabob/NexusLog/releases/download/v0.1.1',
+    installScriptUrl: 'https://github.com/c1cadabob/NexusLog/releases/download/v0.1.1/collector-agent-installer.sh',
     containerImageProvider: 'ghcr',
-    containerImage: 'ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.0',
+    containerImage: 'ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.1',
   },
 };
 

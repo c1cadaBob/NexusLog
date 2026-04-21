@@ -717,7 +717,7 @@ func buildMetaInfo(sourceConfigs []collector.SourceConfig, sourceHostname, sourc
 	}
 	return pullapi.MetaInfo{
 		AgentID:      getEnv("AGENT_ID", "collector-agent-local"),
-		Version:      getEnv("AGENT_VERSION", "0.1.0"),
+		Version:      getEnv("AGENT_VERSION", "0.1.1"),
 		Hostname:     sourceHostname,
 		IP:           sourceIP,
 		Status:       "online",

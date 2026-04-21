@@ -37,6 +37,8 @@ bash scripts/package-agent.sh
 
 前端接入向导可通过运行时配置中的 `collectorAgent.releaseBaseUrl` 与 `collectorAgent.installScriptUrl` 直接生成一键安装命令。
 
+正式发布前，可按 `agents/collector-agent/docs/release-checklist.md` 执行完整检查与发版流程。
+
 ## 3. 模式 A：预编译二进制 + systemd
 
 ### 3.1 一键安装（推荐）
@@ -45,10 +47,10 @@ bash scripts/package-agent.sh
 
 ```bash
 if [ "$(id -u)" -eq 0 ]; then
-  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-installer.sh' | env \
-    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-linux-amd64.tar.gz' \
+  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-installer.sh' | env \
+    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-linux-amd64.tar.gz' \
     AGENT_ID='collector-agent-node-01' \
-    AGENT_VERSION='v0.1.0' \
+    AGENT_VERSION='v0.1.1' \
     CONTROL_PLANE_BASE_URL='http://<control-plane-host>:8080' \
     AGENT_API_KEY_ACTIVE_ID='active' \
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
@@ -58,10 +60,10 @@ if [ "$(id -u)" -eq 0 ]; then
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
     bash
 else
-  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-installer.sh' | sudo env \
-    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-linux-amd64.tar.gz' \
+  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-installer.sh' | sudo env \
+    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-linux-amd64.tar.gz' \
     AGENT_ID='collector-agent-node-01' \
-    AGENT_VERSION='v0.1.0' \
+    AGENT_VERSION='v0.1.1' \
     CONTROL_PLANE_BASE_URL='http://<control-plane-host>:8080' \
     AGENT_API_KEY_ACTIVE_ID='active' \
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
