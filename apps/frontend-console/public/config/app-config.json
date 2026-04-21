@@ -18,12 +18,12 @@
   },
   "collectorAgent": {
     "releaseProvider": "github",
-    "owner": "your-org",
+    "owner": "c1cadaBob",
     "repo": "NexusLog",
     "version": "v0.1.0",
-    "releaseBaseUrl": "https://github.com/your-org/NexusLog/releases/download/v0.1.0",
-    "installScriptUrl": "https://github.com/your-org/NexusLog/releases/download/v0.1.0/collector-agent-installer.sh",
+    "releaseBaseUrl": "https://github.com/c1cadaBob/NexusLog/releases/download/v0.1.0",
+    "installScriptUrl": "https://github.com/c1cadaBob/NexusLog/releases/download/v0.1.0/collector-agent-installer.sh",
     "containerImageProvider": "ghcr",
-    "containerImage": "ghcr.io/your-org/nexuslog-collector-agent:v0.1.0"
+    "containerImage": "ghcr.io/c1cadaBob/nexuslog-collector-agent:v0.1.0"
   }
 }
