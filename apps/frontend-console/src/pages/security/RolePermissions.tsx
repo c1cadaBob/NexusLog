@@ -7,6 +7,7 @@ import { COLORS, DARK_PALETTE, LIGHT_PALETTE } from '../../theme/tokens';
 import { fetchRoles, type RoleData } from '../../api/user';
 import { isProtectedRole, protectedGovernanceTagLabel } from './securityGovernance';
 import { resolveRolePermissionsActionAccess } from './rolePermissionsAuthorization';
+import { localizeRoleDescription } from './roleDescriptionLocalization';
 import AnalysisPageHeader from '../../components/common/AnalysisPageHeader';
 
 interface LoadErrorState {
@@ -71,14 +72,18 @@ const RolePermissions: React.FC = () => {
     loadRoles();
   }, [loadRoles]);
 
-  const filteredRoles = useMemo(
-    () => roles.filter(
-      (role) =>
-        role.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (role.description || '').toLowerCase().includes(searchTerm.toLowerCase()),
-    ),
-    [roles, searchTerm],
-  );
+  const filteredRoles = useMemo(() => {
+    const normalizedSearchTerm = searchTerm.toLowerCase();
+    return roles.filter((role) => {
+      const rawDescription = role.description.toLowerCase();
+      const localizedDescription = localizeRoleDescription(role).toLowerCase();
+      return (
+        role.name.toLowerCase().includes(normalizedSearchTerm) ||
+        rawDescription.includes(normalizedSearchTerm) ||
+        localizedDescription.includes(normalizedSearchTerm)
+      );
+    });
+  }, [roles, searchTerm]);
 
   const totalPermissionCount = useMemo(
     () => roles.reduce((sum, role) => sum + (role.permissions?.length ?? 0), 0),
@@ -162,7 +167,9 @@ const RolePermissions: React.FC = () => {
       dataIndex: 'description',
       key: 'description',
       width: '28%',
-      render: (text: string) => <span style={{ color: palette.textSecondary, fontSize: 13 }}>{text || '-'}</span>,
+      render: (_text: string, record) => (
+        <span style={{ color: palette.textSecondary, fontSize: 13 }}>{localizeRoleDescription(record) || '-'}</span>
+      ),
     },
     {
       title: '权限范围',
@@ -379,7 +386,7 @@ const RolePermissions: React.FC = () => {
                 <span style={{ color: palette.textSecondary }}>角色 ID</span>
                 <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{selectedRole.id}</span>
                 <span style={{ color: palette.textSecondary }}>角色描述</span>
-                <span>{selectedRole.description || '-'}</span>
+                <span>{localizeRoleDescription(selectedRole) || '-'}</span>
                 <span style={{ color: palette.textSecondary }}>治理属性</span>
                 <span>{isProtectedRole(selectedRole) ? protectedGovernanceTagLabel : '普通角色'}</span>
                 <span style={{ color: palette.textSecondary }}>权限数量</span>
