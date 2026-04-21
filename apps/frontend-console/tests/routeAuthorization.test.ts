@@ -91,6 +91,12 @@ describe('route authorization registry', () => {
     expect(findRouteAuthorizationRule('/reports/scheduled')).toBeUndefined();
   });
 
+  it('removes log analysis routes from the route authorization registry', () => {
+    expect(findRouteAuthorizationRule('/analysis/aggregate')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/analysis/anomaly')).toBeUndefined();
+    expect(findRouteAuthorizationRule('/analysis/clustering')).toBeUndefined();
+  });
+
   it('does not let dashboards:read borrow access to download records', () => {
     expect(
       canAccessRoute('/reports/downloads', {

@@ -22,9 +22,6 @@ const RealtimeSearch = lazy(() => import('./pages/search/RealtimeSearch'));
 const SearchHistory = lazy(() => import('./pages/search/SearchHistory'));
 const SavedQueries = lazy(() => import('./pages/search/SavedQueries'));
 
-// 日志分析
-const LogClustering = lazy(() => import('./pages/analysis/LogClustering'));
-
 // 告警中心
 const AlertList = lazy(() => import('./pages/alerts/AlertList'));
 const AlertRules = lazy(() => import('./pages/alerts/AlertRules'));
@@ -119,11 +116,6 @@ const App: React.FC = () => {
                 <Route path="/search/bookmark" element={<Navigate to="/search/saved" replace />} />
                 <Route path="/search/saved" element={<SavedQueries />} />
 
-                {/* 日志分析 */}
-                <Route path="/analysis/aggregate" element={<Navigate to="/analysis/clustering" replace />} />
-                <Route path="/analysis/anomaly" element={<Navigate to="/analysis/clustering" replace />} />
-                <Route path="/analysis/clustering" element={<LogClustering />} />
-
                 {/* 告警中心 */}
                 <Route path="/alerts/list" element={<AlertList />} />
                 <Route path="/alerts/rules" element={<AlertRules />} />
@@ -183,4 +175,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-

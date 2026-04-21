@@ -26,13 +26,6 @@ export const MENU_SECTIONS: MenuSection[] = [
         ],
       },
       {
-        icon: 'analytics',
-        label: '日志分析',
-        children: [
-          { icon: 'hub', label: '聚类分析', path: '/analysis/clustering' },
-        ],
-      },
-      {
         icon: 'notifications_active',
         label: '告警中心',
         children: [

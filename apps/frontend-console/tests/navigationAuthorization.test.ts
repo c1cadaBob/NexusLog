@@ -41,6 +41,7 @@ describe('navigation authorization', () => {
 
     expect(visiblePaths).toContain('/');
     expect(visiblePaths).not.toContain('/alerts/list');
+    expect(visiblePaths).not.toContain('/analysis/clustering');
     expect(visiblePaths).not.toContain('/reports/management');
     expect(visiblePaths).not.toContain('/security/users');
     expect(visiblePaths).not.toContain('/settings/parameters');
@@ -147,5 +148,21 @@ describe('navigation authorization', () => {
     );
 
     expect(navItems).toEqual([]);
+  });
+
+  it('removes log analysis navigation even for capable sessions', () => {
+    const sections = filterSectionsByAuthorization(
+      MENU_SECTIONS,
+      {
+        permissions: ['*'],
+        capabilities: ['*'],
+      },
+      true,
+    );
+
+    const visiblePaths = collectVisiblePaths(sections);
+
+    expect(visiblePaths).not.toContain('/analysis/clustering');
+    expect(sections.some((section) => section.items.some((item) => item.label === '日志分析'))).toBe(false);
   });
 });
