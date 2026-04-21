@@ -53,6 +53,10 @@ git push origin v0.1.1
 - `collector-agent-release`：上传 Release 安装包与脚本资产
 - `Docker Build & Security Scan`：构建并推送 `collector-agent` 的 GHCR 镜像标签
 
+## 3.1 Release 说明文案
+
+可直接将 `agents/collector-agent/docs/release-notes-v0.1.1.md` 的内容粘贴到 GitHub Release 页面。
+
 ## 4. GitHub Release 结果检查
 
 打开 GitHub 仓库的 Actions 与 Releases 页面，确认：
