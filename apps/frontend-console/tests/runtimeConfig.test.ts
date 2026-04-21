@@ -87,6 +87,45 @@ describe('runtime config loader', () => {
     );
   });
 
+  it('merges collector agent release config from local override', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue({
+            apiBaseUrl: '/api/v1',
+            appName: 'NexusLog',
+            collectorAgent: {
+              releaseProvider: 'github',
+              owner: 'acme',
+              repo: 'NexusLog',
+              version: 'v1.0.0',
+              installScriptUrl: 'https://example.com/install.sh',
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue({
+            collectorAgent: {
+              version: 'v1.0.1',
+            },
+          }),
+        }),
+    );
+
+    const config = await loadRuntimeConfig();
+
+    expect(config.collectorAgent.owner).toBe('acme');
+    expect(config.collectorAgent.repo).toBe('NexusLog');
+    expect(config.collectorAgent.version).toBe('v1.0.1');
+    expect(config.collectorAgent.installScriptUrl).toBe('https://example.com/install.sh');
+  });
+
   it('does not backfill localStorage when runtime config has no tenant id', async () => {
     vi.stubGlobal(
       'fetch',

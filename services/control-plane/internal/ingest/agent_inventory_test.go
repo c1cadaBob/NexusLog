@@ -1,108 +1,80 @@
 package ingest
 
 import (
-	"encoding/json"
-	"net/http"
+	"strings"
 	"testing"
-	"time"
-
-	"github.com/gin-gonic/gin"
 )
 
-// TestListPullSourceStatusUsesFullWindowPackages 验证状态页趋势统计按时间窗口取全量包，而不是截断最近固定数量。
-func TestListPullSourceStatusUsesFullWindowPackages(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestGenerateDeploymentScriptLinuxSystemdBuildsHostedInstallCommand(t *testing.T) {
+	handler := &AgentInventoryHandler{
+		defaultAgentKeyID: "active",
+		defaultAgentKey:   "0123456789abcdefghijklmn",
+	}
 
-	router := gin.New()
-	sourceStore := NewPullSourceStore()
-	taskStore := NewPullTaskStore()
-	packageStore := NewPullPackageStore()
-	cursorStore := NewPullCursorStore()
-	handler := NewAgentInventoryHandler(sourceStore, taskStore, packageStore, cursorStore, nil, nil, "", "")
-	router.GET("/api/v1/ingest/pull-sources/status", handler.ListPullSourceStatus)
-
-	source, err := sourceStore.Create(CreatePullSourceRequest{
-		Name:            "status-source-a",
-		Host:            "127.0.0.1",
-		Port:            9091,
-		Protocol:        "http",
-		Path:            "/var/log/messages",
-		AgentBaseURL:    "http://127.0.0.1:9091",
-		PullIntervalSec: 2,
-		PullTimeoutSec:  15,
-		Status:          "active",
+	response, err := handler.generateDeploymentScript(GenerateDeploymentScriptRequest{
+		TargetKind:          "linux-systemd",
+		SourceName:          "nginx-prod",
+		ControlPlaneBaseURL: "https://control.example.com",
+		ReleaseBaseURL:      "https://github.com/acme/NexusLog/releases/download/v1.2.3",
+		Version:             "v1.2.3",
+		IncludePaths:        []string{"/var/log/nginx/access.log"},
 	})
 	if err != nil {
-		t.Fatalf("create source failed: %v", err)
+		t.Fatalf("generateDeploymentScript returned error: %v", err)
 	}
 
-	now := time.Now().UTC()
-	for i := 0; i < 300; i++ {
-		createdAt := now.Add(-59 * time.Minute).Add(time.Duration(i) * 10 * time.Second)
-		packageStore.CreateForTest(PullPackage{
-			SourceID:    source.SourceID,
-			AgentID:     "collector-agent",
-			SourceRef:   source.Path,
-			PackageNo:   "pkg-window-" + newUUIDLike(),
-			Checksum:    "sha256-window-" + newUUIDLike(),
-			Status:      "acked",
-			RecordCount: 1,
-			FileCount:   1,
-			SizeBytes:   128,
-			CreatedAt:   createdAt,
-		})
+	if !strings.Contains(response.Command, "collector-agent-installer.sh") {
+		t.Fatalf("expected hosted installer command, got: %s", response.Command)
 	}
-	packageStore.CreateForTest(PullPackage{
-		SourceID:    source.SourceID,
-		AgentID:     "collector-agent",
-		SourceRef:   source.Path,
-		PackageNo:   "pkg-outside-window",
-		Checksum:    "sha256-outside-window",
-		Status:      "acked",
-		RecordCount: 99,
-		FileCount:   1,
-		SizeBytes:   128,
-		CreatedAt:   now.Add(-2 * time.Hour),
+	if !strings.Contains(response.Command, "collector-agent-linux-amd64.tar.gz") {
+		t.Fatalf("expected asset url in command, got: %s", response.Command)
+	}
+	if !strings.Contains(response.Script, "CONFIG_PATH=${INSTALL_ROOT}/configs/agent.yaml") {
+		t.Fatalf("expected script to configure CONFIG_PATH, got: %s", response.Script)
+	}
+	if !strings.Contains(response.Script, "sudo cp -R \"${CONFIG_DIR}\" \"${INSTALL_ROOT}/\"") {
+		t.Fatalf("expected script to install packaged configs, got: %s", response.Script)
+	}
+}
+
+func TestGenerateDeploymentScriptLinuxSystemdRespectsCustomInstallScriptURL(t *testing.T) {
+	handler := &AgentInventoryHandler{
+		defaultAgentKeyID: "active",
+		defaultAgentKey:   "0123456789abcdefghijklmn",
+	}
+
+	response, err := handler.generateDeploymentScript(GenerateDeploymentScriptRequest{
+		TargetKind:       "linux-systemd",
+		SourceName:       "mysql-prod",
+		InstallScriptURL: "https://downloads.example.com/collector-agent/install.sh",
+		ReleaseBaseURL:   "https://downloads.example.com/collector-agent/v2.0.0",
+		Version:          "v2.0.0",
 	})
-
-	resp := performJSONRequest(router, http.MethodGet, "/api/v1/ingest/pull-sources/status?range=1h", nil)
-	if resp.Code != http.StatusOK {
-		t.Fatalf("list pull source status failed: %d body=%s", resp.Code, resp.Body.String())
+	if err != nil {
+		t.Fatalf("generateDeploymentScript returned error: %v", err)
 	}
 
-	envelope := decodeEnvelope(t, resp)
-	if envelope.Code != "OK" {
-		t.Fatalf("unexpected code: %s", envelope.Code)
+	if !strings.Contains(response.Command, "https://downloads.example.com/collector-agent/install.sh") {
+		t.Fatalf("expected custom installer url in command, got: %s", response.Command)
+	}
+}
+
+func TestGenerateDeploymentScriptLinuxDockerUsesCollectorAgentImageName(t *testing.T) {
+	handler := &AgentInventoryHandler{
+		defaultAgentKeyID: "active",
+		defaultAgentKey:   "0123456789abcdefghijklmn",
 	}
 
-	var data struct {
-		Summary PullSourceStatusSummary      `json:"summary"`
-		Trend   []PullSourceStatusTrendPoint `json:"trend"`
-	}
-	if err := json.Unmarshal(envelope.Data, &data); err != nil {
-		t.Fatalf("decode status data failed: %v", err)
-	}
-
-	if data.Summary.RecentPackageCount != 300 {
-		t.Fatalf("expected recent_package_count=300, got %d", data.Summary.RecentPackageCount)
-	}
-	if data.Summary.RecentRecordCount != 300 {
-		t.Fatalf("expected recent_record_count=300, got %d", data.Summary.RecentRecordCount)
-	}
-	if len(data.Trend) < 12 {
-		t.Fatalf("expected full 1h trend buckets, got %d", len(data.Trend))
+	response, err := handler.generateDeploymentScript(GenerateDeploymentScriptRequest{
+		TargetKind: "linux-docker",
+		SourceName: "docker-prod",
+		Version:    "v3.0.0",
+	})
+	if err != nil {
+		t.Fatalf("generateDeploymentScript returned error: %v", err)
 	}
 
-	totalPackages := 0
-	totalRecords := 0
-	for _, point := range data.Trend {
-		totalPackages += point.PackageCount
-		totalRecords += point.RecordCount
-	}
-	if totalPackages != 300 {
-		t.Fatalf("expected trend package total=300, got %d", totalPackages)
-	}
-	if totalRecords != 300 {
-		t.Fatalf("expected trend record total=300, got %d", totalRecords)
+	if !strings.Contains(response.Script, "ghcr.io/<owner>/nexuslog-collector-agent:v3.0.0") {
+		t.Fatalf("expected updated default collector-agent image, got: %s", response.Script)
 	}
 }

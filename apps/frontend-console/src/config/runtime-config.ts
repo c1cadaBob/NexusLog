@@ -37,6 +37,26 @@ export interface SessionConfig {
   refreshIntervalMinutes: number;
 }
 
+/** Collector Agent 发布配置 */
+export interface CollectorAgentReleaseConfig {
+  /** 发布源类型 */
+  releaseProvider?: 'github' | 'gitee' | 'custom';
+  /** GitHub/Gitee owner 或组织 */
+  owner?: string;
+  /** 发布仓库名 */
+  repo?: string;
+  /** 默认发布版本 */
+  version?: string;
+  /** 发布包下载基址 */
+  releaseBaseUrl?: string;
+  /** 一键安装脚本地址 */
+  installScriptUrl?: string;
+  /** 容器镜像来源 */
+  containerImageProvider?: 'ghcr' | 'custom';
+  /** 默认容器镜像地址 */
+  containerImage?: string;
+}
+
 /** 运行时配置结构 */
 export interface RuntimeConfig {
   /** API 基础路径 */
@@ -57,6 +77,8 @@ export interface RuntimeConfig {
   theme: ThemeConfig;
   /** 会话配置 */
   session: SessionConfig;
+  /** Collector Agent 发布配置 */
+  collectorAgent: CollectorAgentReleaseConfig;
 }
 
 type RuntimeConfigPatch = Partial<RuntimeConfig>;
@@ -80,6 +102,16 @@ const DEFAULT_CONFIG: RuntimeConfig = {
     idleTimeoutMinutes: 30,
     refreshIntervalMinutes: 5,
   },
+  collectorAgent: {
+    releaseProvider: 'github',
+    owner: '',
+    repo: 'NexusLog',
+    version: '',
+    releaseBaseUrl: '',
+    installScriptUrl: '',
+    containerImageProvider: 'ghcr',
+    containerImage: '',
+  },
 };
 
 /** 配置单例缓存 */
@@ -93,6 +125,7 @@ function mergeRuntimeConfig(...configs: RuntimeConfigPatch[]): RuntimeConfig {
       features: { ...merged.features, ...(current.features ?? {}) },
       theme: { ...merged.theme, ...(current.theme ?? {}) },
       session: { ...merged.session, ...(current.session ?? {}) },
+      collectorAgent: { ...merged.collectorAgent, ...(current.collectorAgent ?? {}) },
     }),
     { ...DEFAULT_CONFIG },
   );

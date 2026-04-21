@@ -308,6 +308,7 @@ export interface GenerateDeploymentScriptPayload {
   agent_base_url?: string;
   control_plane_base_url?: string;
   release_base_url?: string;
+  install_script_url?: string;
   container_image?: string;
   version?: string;
   include_paths?: string[];

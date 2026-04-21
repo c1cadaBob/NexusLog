@@ -1,0 +1,36 @@
+name: collector-agent-release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: agents/collector-agent/go.mod
+
+      - name: 生成 collector-agent Release 资产
+        run: bash agents/collector-agent/scripts/package-release-assets.sh
+
+      - name: 上传 GitHub Release 资产
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            agents/collector-agent/dist/collector-agent-linux-amd64.tar.gz
+            agents/collector-agent/dist/collector-agent-linux-arm64.tar.gz
+            agents/collector-agent/dist/collector-agent-installer.sh
+            agents/collector-agent/dist/collector-agent-checksums.txt
+          generate_release_notes: true

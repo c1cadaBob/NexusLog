@@ -15,5 +15,15 @@
   "session": {
     "idleTimeoutMinutes": 30,
     "refreshIntervalMinutes": 5
+  },
+  "collectorAgent": {
+    "releaseProvider": "github",
+    "owner": "your-org",
+    "repo": "NexusLog",
+    "version": "v0.1.0",
+    "releaseBaseUrl": "https://github.com/your-org/NexusLog/releases/download/v0.1.0",
+    "installScriptUrl": "https://github.com/your-org/NexusLog/releases/download/v0.1.0/collector-agent-installer.sh",
+    "containerImageProvider": "ghcr",
+    "containerImage": "ghcr.io/your-org/nexuslog-collector-agent:v0.1.0"
   }
 }

@@ -145,6 +145,7 @@ type GenerateDeploymentScriptRequest struct {
 	AgentBaseURL        string   `json:"agent_base_url,omitempty"`
 	ControlPlaneBaseURL string   `json:"control_plane_base_url,omitempty"`
 	ReleaseBaseURL      string   `json:"release_base_url,omitempty"`
+	InstallScriptURL    string   `json:"install_script_url,omitempty"`
 	ContainerImage      string   `json:"container_image,omitempty"`
 	Version             string   `json:"version,omitempty"`
 	IncludePaths        []string `json:"include_paths,omitempty"`
@@ -754,11 +755,15 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 	agentBaseURL := firstNonEmptyValue(strings.TrimSpace(req.AgentBaseURL), "http://127.0.0.1:9091")
 	containerImage := strings.TrimSpace(req.ContainerImage)
 	if containerImage == "" {
-		containerImage = "ghcr.io/<owner>/<repo>/collector-agent:" + version
+		containerImage = "ghcr.io/<owner>/nexuslog-collector-agent:" + version
 	}
 	releaseBaseURL := strings.TrimSpace(req.ReleaseBaseURL)
 	if releaseBaseURL == "" {
 		releaseBaseURL = "https://github.com/<owner>/<repo>/releases/download/" + version
+	}
+	installScriptURL := strings.TrimSpace(req.InstallScriptURL)
+	if installScriptURL == "" {
+		installScriptURL = strings.TrimRight(releaseBaseURL, "/") + "/collector-agent-installer.sh"
 	}
 
 	credential := AgentAuthCredential{KeyID: firstNonEmptyValue(strings.TrimSpace(req.KeyRef), h.defaultAgentKeyID, "active"), Key: strings.TrimSpace(h.defaultAgentKey)}
@@ -790,16 +795,17 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 	case "linux-systemd":
 		assetURL := strings.TrimRight(releaseBaseURL, "/") + "/collector-agent-linux-amd64.tar.gz"
 		script := buildLinuxSystemdScript(sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+		command := buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
 		return GenerateDeploymentScriptResponse{
 			TargetKind:   targetKind,
 			ScriptKind:   "bash",
 			FileName:     "deploy-collector-agent.sh",
-			Command:      "bash deploy-collector-agent.sh",
+			Command:      command,
 			Script:       script,
 			AgentBaseURL: agentBaseURL,
 			Notes: []string{
 				"适用于大多数 Linux 主机，使用 systemd 托管 collector-agent。",
-				"请先将 Linux 发布包上传到 GitHub/Gitee Release，并将页面中的发布地址配置为真实下载基址。",
+				"GitHub/Gitee Release 需要同时提供 Linux 发布包与 collector-agent-installer.sh 安装脚本资产。",
 				"脚本默认启用 pull-only + metrics report，便于控制台实时显示 Agent 与目录状态。",
 			},
 		}, nil
@@ -866,20 +872,57 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 	}
 }
 
+type shellEnvAssignment struct {
+	Key   string
+	Value string
+}
+
+func buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) []shellEnvAssignment {
+	return []shellEnvAssignment{
+		{Key: "ASSET_URL", Value: assetURL},
+		{Key: "AGENT_ID", Value: sourceName + "-agent"},
+		{Key: "AGENT_VERSION", Value: version},
+		{Key: "CONTROL_PLANE_BASE_URL", Value: controlPlaneBaseURL},
+		{Key: "AGENT_API_KEY_ACTIVE_ID", Value: firstNonEmptyValue(credential.KeyID, "active")},
+		{Key: "AGENT_API_KEY_ACTIVE", Value: credential.Key},
+		{Key: "COLLECTOR_INCLUDE_PATHS", Value: strings.Join(includePaths, ",")},
+		{Key: "COLLECTOR_EXCLUDE_PATHS", Value: strings.Join(excludePaths, ",")},
+		{Key: "COLLECTOR_PATH_LABEL_RULES", Value: firstNonEmptyValue(strings.TrimSpace(pathRuleJSON), "[]")},
+		{Key: "COLLECTOR_SYSLOG_LISTENERS_JSON", Value: firstNonEmptyValue(strings.TrimSpace(syslogListenersJSON), "[]")},
+	}
+}
+
+func appendShellAssignments(lines []string, assignments []shellEnvAssignment) []string {
+	for _, assignment := range assignments {
+		lines = append(lines, assignment.Key+"="+shellQuote(assignment.Value))
+	}
+	return lines
+}
+
+func buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
+	assignments := buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+	lines := []string{
+		"TMP_DIR=$(mktemp -d)",
+		"trap 'rm -rf \"${TMP_DIR}\"' EXIT",
+		"curl -fsSL " + shellQuote(installScriptURL) + " -o \"${TMP_DIR}/collector-agent-installer.sh\"",
+		"chmod +x \"${TMP_DIR}/collector-agent-installer.sh\"",
+		"sudo env \\",
+	}
+	for _, assignment := range assignments {
+		lines = append(lines, "  "+assignment.Key+"="+shellQuote(assignment.Value)+" \\")
+	}
+	lines = append(lines, "  bash \"${TMP_DIR}/collector-agent-installer.sh\"")
+	return strings.Join(lines, "\n")
+}
+
 func buildLinuxSystemdScript(sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
 	lines := []string{
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
 		"",
-		"ASSET_URL=" + shellQuote(assetURL),
-		"AGENT_ID=" + shellQuote(sourceName+"-agent"),
-		"CONTROL_PLANE_BASE_URL=" + shellQuote(controlPlaneBaseURL),
-		"AGENT_API_KEY_ACTIVE_ID=" + shellQuote(firstNonEmptyValue(credential.KeyID, "active")),
-		"AGENT_API_KEY_ACTIVE=" + shellQuote(credential.Key),
-		"COLLECTOR_INCLUDE_PATHS=" + shellQuote(strings.Join(includePaths, ",")),
-		"COLLECTOR_EXCLUDE_PATHS=" + shellQuote(strings.Join(excludePaths, ",")),
-		"COLLECTOR_PATH_LABEL_RULES=" + shellQuote(pathRuleJSON),
-		"COLLECTOR_SYSLOG_LISTENERS_JSON=" + shellQuote(syslogListenersJSON),
+	}
+	lines = appendShellAssignments(lines, buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON))
+	lines = append(lines,
 		"INSTALL_ROOT=/opt/nexuslog/collector-agent",
 		"STATE_ROOT=/var/lib/collector-agent",
 		"ENV_FILE=/etc/nexuslog/collector-agent.env",
@@ -890,13 +933,50 @@ func buildLinuxSystemdScript(sourceName, version, agentBaseURL, controlPlaneBase
 		"sudo mkdir -p \"${INSTALL_ROOT}\" /etc/nexuslog \"${STATE_ROOT}/checkpoints\" \"${STATE_ROOT}/cache\"",
 		"curl -fsSL \"${ASSET_URL}\" -o \"${TMP_DIR}/collector-agent.tgz\"",
 		"tar -xzf \"${TMP_DIR}/collector-agent.tgz\" -C \"${TMP_DIR}\"",
-		"BIN_PATH=$(find \"${TMP_DIR}\" -type f -name collector-agent | head -n 1)",
+		"PACKAGE_ROOT=$(find \"${TMP_DIR}\" -maxdepth 1 -mindepth 1 -type d -name 'collector-agent-*' | head -n 1)",
+		"if [[ -z \"${PACKAGE_ROOT}\" ]]; then PACKAGE_ROOT=\"${TMP_DIR}\"; fi",
+		"BIN_PATH=$(find \"${PACKAGE_ROOT}\" -type f -name collector-agent | head -n 1)",
+		"CONFIG_DIR=${PACKAGE_ROOT}/configs",
+		"SERVICE_TEMPLATE=${PACKAGE_ROOT}/deploy/systemd/collector-agent.service",
 		"test -n \"${BIN_PATH}\"",
+		"test -d \"${CONFIG_DIR}\"",
 		"sudo install -m 0755 \"${BIN_PATH}\" /usr/local/bin/collector-agent",
+		"sudo rm -rf \"${INSTALL_ROOT}/configs\"",
+		"sudo cp -R \"${CONFIG_DIR}\" \"${INSTALL_ROOT}/\"",
+		"if [[ -f \"${SERVICE_TEMPLATE}\" ]]; then",
+		"  sudo install -m 0644 \"${SERVICE_TEMPLATE}\" \"${SERVICE_FILE}\"",
+		"else",
+		"  cat <<'EOF' | sudo tee \"${SERVICE_FILE}\" >/dev/null",
+		"[Unit]",
+		"Description=NexusLog Collector Agent",
+		"After=network-online.target",
+		"Wants=network-online.target",
+		"",
+		"[Service]",
+		"Type=simple",
+		"User=collector",
+		"Group=collector",
+		"WorkingDirectory=/opt/nexuslog/collector-agent",
+		"EnvironmentFile=-/etc/nexuslog/collector-agent.env",
+		"ExecStart=/usr/local/bin/collector-agent",
+		"Restart=always",
+		"RestartSec=5",
+		"LimitNOFILE=65535",
+		"NoNewPrivileges=true",
+		"PrivateTmp=true",
+		"ProtectSystem=full",
+		"ProtectHome=true",
+		"ReadWritePaths=/var/lib/collector-agent /var/log",
+		"",
+		"[Install]",
+		"WantedBy=multi-user.target",
+		"EOF",
+		"fi",
 		"cat <<EOF | sudo tee \"${ENV_FILE}\" >/dev/null",
 		"HTTP_PORT=9091",
 		"AGENT_ID=${AGENT_ID}",
-		"AGENT_VERSION=" + shellQuote(version),
+		"AGENT_VERSION=${AGENT_VERSION}",
+		"CONFIG_PATH=${INSTALL_ROOT}/configs/agent.yaml",
 		"AGENT_API_KEY_ACTIVE_ID=${AGENT_API_KEY_ACTIVE_ID}",
 		"AGENT_API_KEY_ACTIVE=${AGENT_API_KEY_ACTIVE}",
 		"CHECKPOINT_DIR=${STATE_ROOT}/checkpoints",
@@ -913,29 +993,12 @@ func buildLinuxSystemdScript(sourceName, version, agentBaseURL, controlPlaneBase
 		"AGENT_METRICS_REPORT_INTERVAL=30s",
 		"AGENT_METRICS_REPORT_TIMEOUT=10s",
 		"EOF",
-		"cat <<'EOF' | sudo tee \"${SERVICE_FILE}\" >/dev/null",
-		"[Unit]",
-		"Description=NexusLog Collector Agent",
-		"After=network-online.target",
-		"Wants=network-online.target",
-		"",
-		"[Service]",
-		"Type=simple",
-		"User=root",
-		"EnvironmentFile=/etc/nexuslog/collector-agent.env",
-		"ExecStart=/usr/local/bin/collector-agent",
-		"Restart=always",
-		"RestartSec=5",
-		"LimitNOFILE=65535",
-		"",
-		"[Install]",
-		"WantedBy=multi-user.target",
-		"EOF",
+		"sudo chown -R collector:collector \"${INSTALL_ROOT}\" \"${STATE_ROOT}\"",
 		"sudo systemctl daemon-reload",
 		"sudo systemctl enable --now collector-agent",
 		"sudo systemctl status collector-agent --no-pager || true",
 		"curl -fsSL http://127.0.0.1:9091/healthz || true",
-	}
+	)
 	if strings.TrimSpace(syslogListenersJSON) == "" {
 		lines = append(lines, "echo 'collector-agent deployed; current agent base URL: "+strings.TrimSpace(agentBaseURL)+"'")
 	} else {

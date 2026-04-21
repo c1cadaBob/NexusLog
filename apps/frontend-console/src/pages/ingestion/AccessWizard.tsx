@@ -8,6 +8,7 @@ import {
   type GenerateDeploymentScriptResponse,
   type IngestAgentItem,
 } from '../../api/ingest';
+import { getRuntimeConfig } from '../../config/runtime-config';
 
 const SOURCE_TYPE_OPTIONS = [
   { label: '通用文件日志', value: 'custom', description: '预填通用文件 / 目录路径，适用于任意文本日志' },
@@ -80,7 +81,7 @@ function buildReleaseBaseUrl(
 function buildContainerImage(
   provider: 'ghcr' | 'custom',
   owner: string,
-  repo: string,
+  _repo: string,
   version: string,
   customImage: string,
 ) {
@@ -88,13 +89,23 @@ function buildContainerImage(
     return customImage.trim();
   }
   const safeOwner = owner.trim() || '<owner>';
-  const safeRepo = repo.trim() || '<repo>';
-  return `ghcr.io/${safeOwner}/${safeRepo}/collector-agent:${version}`;
+  return `ghcr.io/${safeOwner}/nexuslog-collector-agent:${version}`;
+}
+
+function buildInstallScriptUrl(resolvedReleaseBaseUrl: string, customInstallScriptUrl: string) {
+  if (customInstallScriptUrl.trim()) {
+    return customInstallScriptUrl.trim();
+  }
+  if (!resolvedReleaseBaseUrl.trim()) {
+    return '';
+  }
+  return `${resolvedReleaseBaseUrl.replace(/\/$/, '')}/collector-agent-installer.sh`;
 }
 
 const AccessWizard: React.FC = () => {
   const navigate = useNavigate();
   const { message: messageApi } = App.useApp();
+  const collectorAgentConfig = getRuntimeConfig().collectorAgent;
   const [currentStep, setCurrentStep] = useState(0);
   const [sourceType, setSourceType] = useState<string>('custom');
   const [sourceName, setSourceName] = useState('');
@@ -108,13 +119,14 @@ const AccessWizard: React.FC = () => {
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [agentBaseUrl, setAgentBaseUrl] = useState('http://127.0.0.1:9091');
   const [controlPlaneBaseUrl, setControlPlaneBaseUrl] = useState(window.location.origin);
-  const [releaseProvider, setReleaseProvider] = useState<'github' | 'gitee' | 'custom'>('github');
-  const [releaseOwner, setReleaseOwner] = useState('');
-  const [releaseRepo, setReleaseRepo] = useState('NexusLog');
-  const [releaseVersion, setReleaseVersion] = useState('');
-  const [releaseBaseUrl, setReleaseBaseUrl] = useState('');
-  const [containerImageProvider, setContainerImageProvider] = useState<'ghcr' | 'custom'>('ghcr');
-  const [containerImage, setContainerImage] = useState('');
+  const [releaseProvider, setReleaseProvider] = useState<'github' | 'gitee' | 'custom'>(collectorAgentConfig.releaseProvider ?? 'github');
+  const [releaseOwner, setReleaseOwner] = useState(collectorAgentConfig.owner ?? '');
+  const [releaseRepo, setReleaseRepo] = useState(collectorAgentConfig.repo ?? 'NexusLog');
+  const [releaseVersion, setReleaseVersion] = useState(collectorAgentConfig.version ?? '');
+  const [releaseBaseUrl, setReleaseBaseUrl] = useState(collectorAgentConfig.releaseBaseUrl ?? '');
+  const [installScriptUrl, setInstallScriptUrl] = useState(collectorAgentConfig.installScriptUrl ?? '');
+  const [containerImageProvider, setContainerImageProvider] = useState<'ghcr' | 'custom'>(collectorAgentConfig.containerImageProvider ?? 'ghcr');
+  const [containerImage, setContainerImage] = useState(collectorAgentConfig.containerImage ?? '');
   const [deploymentTarget, setDeploymentTarget] = useState<typeof DEPLOY_TARGET_OPTIONS[number]['value']>('linux-systemd');
   const [scriptResponse, setScriptResponse] = useState<GenerateDeploymentScriptResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -130,6 +142,10 @@ const AccessWizard: React.FC = () => {
   const resolvedContainerImage = useMemo(
     () => buildContainerImage(containerImageProvider, releaseOwner, releaseRepo, normalizedVersion, containerImage),
     [containerImage, containerImageProvider, normalizedVersion, releaseOwner, releaseRepo],
+  );
+  const resolvedInstallScriptUrl = useMemo(
+    () => buildInstallScriptUrl(resolvedReleaseBaseUrl, installScriptUrl),
+    [installScriptUrl, resolvedReleaseBaseUrl],
   );
   const releaseConfigUsesPlaceholder = useMemo(
     () => resolvedReleaseBaseUrl.includes('<owner>') || resolvedReleaseBaseUrl.includes('<repo>'),
@@ -207,6 +223,7 @@ const AccessWizard: React.FC = () => {
     pullIntervalSec,
     pullTimeoutSec,
     releaseBaseUrl,
+    installScriptUrl,
     releaseOwner,
     releaseProvider,
     releaseRepo,
@@ -281,6 +298,7 @@ const AccessWizard: React.FC = () => {
         agent_base_url: agentBaseUrl.trim(),
         control_plane_base_url: controlPlaneBaseUrl.trim(),
         release_base_url: resolvedReleaseBaseUrl || undefined,
+        install_script_url: resolvedInstallScriptUrl || undefined,
         container_image: resolvedContainerImage || undefined,
         version: normalizedVersion,
         include_paths: includePaths,
@@ -454,6 +472,17 @@ const AccessWizard: React.FC = () => {
                     </Form.Item>
                   </Space>
                 )}
+                <Form.Item
+                  label="安装脚本地址（可选）"
+                  extra="留空时默认使用“发布包基址 + /collector-agent-installer.sh”，也可直接从运行时配置下发。"
+                >
+                  <Input
+                    name="installScriptUrl"
+                    value={installScriptUrl}
+                    onChange={(event) => setInstallScriptUrl(event.target.value)}
+                    placeholder="例如：https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-installer.sh"
+                  />
+                </Form.Item>
                 {releaseConfigUsesPlaceholder ? (
                   <Alert
                     type="warning"
@@ -467,6 +496,10 @@ const AccessWizard: React.FC = () => {
                     <Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedReleaseBaseUrl || '-'}</Typography.Text>
                   </div>
                 )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <Typography.Text type="secondary">安装脚本预览</Typography.Text>
+                  <Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedInstallScriptUrl || '-'}</Typography.Text>
+                </div>
               </Form>
             </Card>
 
@@ -477,7 +510,7 @@ const AccessWizard: React.FC = () => {
                 </Form.Item>
                 {containerImageProvider === 'custom' ? (
                   <Form.Item label="容器镜像">
-                    <Input name="containerImage" value={containerImage} onChange={(event) => setContainerImage(event.target.value)} placeholder="例如 ghcr.io/<owner>/<repo>/collector-agent:v0.1.0" />
+                    <Input name="containerImage" value={containerImage} onChange={(event) => setContainerImage(event.target.value)} placeholder="例如 ghcr.io/<owner>/nexuslog-collector-agent:v0.1.0" />
                   </Form.Item>
                 ) : (
                   imageConfigUsesPlaceholder ? (
@@ -545,6 +578,7 @@ const AccessWizard: React.FC = () => {
           <Descriptions.Item label="版本 / Tag">{normalizedVersion}</Descriptions.Item>
           <Descriptions.Item label="发布源">{RELEASE_PROVIDER_OPTIONS.find((item) => item.value === releaseProvider)?.label ?? releaseProvider}</Descriptions.Item>
           <Descriptions.Item label="发布地址" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedReleaseBaseUrl || '-'}</Typography.Text></Descriptions.Item>
+          <Descriptions.Item label="安装脚本" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedInstallScriptUrl || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="容器镜像" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedContainerImage || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="采集路径" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{sourcePath || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="拉取间隔">{pullIntervalSec}s</Descriptions.Item>

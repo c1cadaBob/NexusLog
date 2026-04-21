@@ -22,6 +22,7 @@ CGO_ENABLED=0 GOOS="${TARGET_OS}" GOARCH="${TARGET_ARCH}" go build -ldflags="-s 
 cp -R configs "${OUT_DIR}/configs"
 cp deploy/systemd/collector-agent.service "${OUT_DIR}/deploy/systemd/"
 cp deploy/systemd/collector-agent.env.example "${OUT_DIR}/deploy/systemd/"
+install -m 0755 scripts/install-release.sh "${OUT_DIR}/deploy/systemd/collector-agent-installer.sh"
 cp deploy/docker/docker-compose.agent.yml "${OUT_DIR}/deploy/docker/"
 
 tar -C "${DIST_DIR}" -czf "${ARCHIVE_PATH}" "${PKG_NAME}"
