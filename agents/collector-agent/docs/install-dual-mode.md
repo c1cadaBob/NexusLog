@@ -44,22 +44,33 @@ bash scripts/package-agent.sh
 在目标 Linux 主机执行：
 
 ```bash
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "${TMP_DIR}"' EXIT
-curl -fsSL "https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-installer.sh" -o "${TMP_DIR}/collector-agent-installer.sh"
-chmod +x "${TMP_DIR}/collector-agent-installer.sh"
-sudo env \
-  ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-linux-amd64.tar.gz' \
-  AGENT_ID='collector-agent-node-01' \
-  AGENT_VERSION='v0.1.0' \
-  CONTROL_PLANE_BASE_URL='http://<control-plane-host>:8080' \
-  AGENT_API_KEY_ACTIVE_ID='active' \
-  AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
-  COLLECTOR_INCLUDE_PATHS='/var/log/*.log,/data/app/*.log' \
-  COLLECTOR_EXCLUDE_PATHS='/var/log/wtmp' \
-  COLLECTOR_PATH_LABEL_RULES='[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]' \
-  COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
-  bash "${TMP_DIR}/collector-agent-installer.sh"
+if [ "$(id -u)" -eq 0 ]; then
+  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-installer.sh' | env \
+    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-linux-amd64.tar.gz' \
+    AGENT_ID='collector-agent-node-01' \
+    AGENT_VERSION='v0.1.0' \
+    CONTROL_PLANE_BASE_URL='http://<control-plane-host>:8080' \
+    AGENT_API_KEY_ACTIVE_ID='active' \
+    AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
+    COLLECTOR_INCLUDE_PATHS='/var/log/*.log,/data/app/*.log' \
+    COLLECTOR_EXCLUDE_PATHS='/var/log/wtmp' \
+    COLLECTOR_PATH_LABEL_RULES='[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]' \
+    COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
+    bash
+else
+  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-installer.sh' | sudo env \
+    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.0/collector-agent-linux-amd64.tar.gz' \
+    AGENT_ID='collector-agent-node-01' \
+    AGENT_VERSION='v0.1.0' \
+    CONTROL_PLANE_BASE_URL='http://<control-plane-host>:8080' \
+    AGENT_API_KEY_ACTIVE_ID='active' \
+    AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
+    COLLECTOR_INCLUDE_PATHS='/var/log/*.log,/data/app/*.log' \
+    COLLECTOR_EXCLUDE_PATHS='/var/log/wtmp' \
+    COLLECTOR_PATH_LABEL_RULES='[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]' \
+    COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
+    bash
+fi
 ```
 
 安装脚本会自动完成以下动作：
@@ -69,6 +80,8 @@ sudo env \
 - 写入 `/opt/nexuslog/collector-agent/configs`
 - 写入 `/etc/nexuslog/collector-agent.env`
 - 安装并启动 `collector-agent.service`
+- 为 systemd 服务附加只读日志能力，避免再手动加组/改 ACL
+- 自动探测 `CONTROL_PLANE_BASE_URL` 可达性，不可达时关闭指标回传避免持续报错
 
 ### 3.2 远端目录与用户
 

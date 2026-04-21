@@ -16,10 +16,40 @@ run_as_root() {
   fi
 }
 
+resolve_metrics_report_enabled() {
+  local configured
+  configured="$(printf '%s' "${AGENT_METRICS_REPORT_ENABLED}" | tr '[:upper:]' '[:lower:]')"
+
+  case "${configured}" in
+    true|false)
+      printf '%s' "${configured}"
+      ;;
+    auto|"")
+      if [[ -z "${CONTROL_PLANE_BASE_URL}" ]]; then
+        echo '[install] metrics reporting disabled: CONTROL_PLANE_BASE_URL is empty' >&2
+        printf 'false'
+        return 0
+      fi
+      if curl --silent --output /dev/null --connect-timeout 3 --max-time 5 --insecure "${CONTROL_PLANE_BASE_URL}"; then
+        echo '[install] metrics reporting enabled: control plane reachable' >&2
+        printf 'true'
+      else
+        echo '[install] metrics reporting disabled: control plane not reachable from target host' >&2
+        printf 'false'
+      fi
+      ;;
+    *)
+      echo "[install] invalid AGENT_METRICS_REPORT_ENABLED: ${AGENT_METRICS_REPORT_ENABLED} (expected true|false|auto)" >&2
+      exit 1
+      ;;
+  esac
+}
+
 ASSET_URL="${ASSET_URL:-}"
 AGENT_ID="${AGENT_ID:-collector-agent-node-01}"
 AGENT_VERSION="${AGENT_VERSION:-latest}"
 CONTROL_PLANE_BASE_URL="${CONTROL_PLANE_BASE_URL:-http://127.0.0.1:8080}"
+AGENT_METRICS_REPORT_ENABLED="${AGENT_METRICS_REPORT_ENABLED:-auto}"
 AGENT_API_KEY_ACTIVE_ID="${AGENT_API_KEY_ACTIVE_ID:-active}"
 AGENT_API_KEY_ACTIVE="${AGENT_API_KEY_ACTIVE:-}"
 COLLECTOR_INCLUDE_PATHS="${COLLECTOR_INCLUDE_PATHS:-/var/log/*.log}"
@@ -51,6 +81,8 @@ done
 if [[ "${EUID}" -ne 0 ]]; then
   require_command sudo
 fi
+
+METRICS_REPORT_ENABLED="$(resolve_metrics_report_enabled)"
 
 echo "[install] download asset: ${ASSET_URL}"
 curl -fsSL "${ASSET_URL}" -o "${TMP_DIR}/collector-agent.tgz"
@@ -94,6 +126,8 @@ Wants=network-online.target
 Type=simple
 User=collector
 Group=collector
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
 WorkingDirectory=/opt/nexuslog/collector-agent
 EnvironmentFile=-/etc/nexuslog/collector-agent.env
 ExecStart=/usr/local/bin/collector-agent
@@ -128,7 +162,7 @@ DELIVERY_MODE=pull
 ENABLE_KAFKA_PIPELINE=false
 LEGACY_LOG_PIPELINE_ENABLED=false
 CONTROL_PLANE_BASE_URL=${CONTROL_PLANE_BASE_URL}
-AGENT_METRICS_REPORT_ENABLED=true
+AGENT_METRICS_REPORT_ENABLED=${METRICS_REPORT_ENABLED}
 AGENT_METRICS_REPORT_INTERVAL=30s
 AGENT_METRICS_REPORT_TIMEOUT=10s
 EOF

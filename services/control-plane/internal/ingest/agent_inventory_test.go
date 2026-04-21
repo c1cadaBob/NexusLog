@@ -29,11 +29,17 @@ func TestGenerateDeploymentScriptLinuxSystemdBuildsHostedInstallCommand(t *testi
 	if !strings.Contains(response.Command, "collector-agent-linux-amd64.tar.gz") {
 		t.Fatalf("expected asset url in command, got: %s", response.Command)
 	}
-	if !strings.Contains(response.Script, "CONFIG_PATH=${INSTALL_ROOT}/configs/agent.yaml") {
-		t.Fatalf("expected script to configure CONFIG_PATH, got: %s", response.Script)
+	if !strings.Contains(response.Command, "| sudo env \\") {
+		t.Fatalf("expected command to support direct pipe install with sudo, got: %s", response.Command)
 	}
-	if !strings.Contains(response.Script, "sudo cp -R \"${CONFIG_DIR}\" \"${INSTALL_ROOT}/\"") {
-		t.Fatalf("expected script to install packaged configs, got: %s", response.Script)
+	if !strings.Contains(response.Command, "if [ \"$(id -u)\" -eq 0 ]; then") {
+		t.Fatalf("expected root-aware command wrapper, got: %s", response.Command)
+	}
+	if !strings.Contains(response.Script, "#!/usr/bin/env bash") {
+		t.Fatalf("expected bash script header, got: %s", response.Script)
+	}
+	if !strings.Contains(response.Script, "collector-agent deployed; current agent base URL") {
+		t.Fatalf("expected deployment summary in script, got: %s", response.Script)
 	}
 }
 

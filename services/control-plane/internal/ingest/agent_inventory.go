@@ -794,7 +794,7 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 	switch targetKind {
 	case "linux-systemd":
 		assetURL := strings.TrimRight(releaseBaseURL, "/") + "/collector-agent-linux-amd64.tar.gz"
-		script := buildLinuxSystemdScript(sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+		script := buildLinuxSystemdScript(installScriptURL, sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
 		command := buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
 		return GenerateDeploymentScriptResponse{
 			TargetKind:   targetKind,
@@ -899,106 +899,55 @@ func appendShellAssignments(lines []string, assignments []shellEnvAssignment) []
 	return lines
 }
 
-func buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
-	assignments := buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+func buildLinuxSystemdInstallInvocation(installScriptURL string, assignments []shellEnvAssignment, useSudo bool) []string {
+	prefix := ""
+	if useSudo {
+		prefix = "sudo "
+	}
 	lines := []string{
-		"TMP_DIR=$(mktemp -d)",
-		"trap 'rm -rf \"${TMP_DIR}\"' EXIT",
-		"curl -fsSL " + shellQuote(installScriptURL) + " -o \"${TMP_DIR}/collector-agent-installer.sh\"",
-		"chmod +x \"${TMP_DIR}/collector-agent-installer.sh\"",
-		"sudo env \\",
+		"curl -fsSL " + shellQuote(installScriptURL) + " | " + prefix + "env \\",
 	}
 	for _, assignment := range assignments {
 		lines = append(lines, "  "+assignment.Key+"="+shellQuote(assignment.Value)+" \\")
 	}
-	lines = append(lines, "  bash \"${TMP_DIR}/collector-agent-installer.sh\"")
+	lines = append(lines, "  bash")
+	return lines
+}
+
+func indentShellLines(lines []string, indent string) []string {
+	indented := make([]string, 0, len(lines))
+	for _, line := range lines {
+		indented = append(indented, indent+line)
+	}
+	return indented
+}
+
+func buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
+	assignments := buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+	lines := []string{
+		"if [ \"$(id -u)\" -eq 0 ]; then",
+	}
+	lines = append(lines, indentShellLines(buildLinuxSystemdInstallInvocation(installScriptURL, assignments, false), "  ")...)
+	lines = append(lines,
+		"else",
+		"  if ! command -v sudo >/dev/null 2>&1; then",
+		"    echo 'sudo is required when not running as root' >&2",
+		"    exit 1",
+		"  fi",
+	)
+	lines = append(lines, indentShellLines(buildLinuxSystemdInstallInvocation(installScriptURL, assignments, true), "  ")...)
+	lines = append(lines, "fi")
 	return strings.Join(lines, "\n")
 }
 
-func buildLinuxSystemdScript(sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
+func buildLinuxSystemdScript(installScriptURL, sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
 	lines := []string{
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
 		"",
+		buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON),
+		"",
 	}
-	lines = appendShellAssignments(lines, buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON))
-	lines = append(lines,
-		"INSTALL_ROOT=/opt/nexuslog/collector-agent",
-		"STATE_ROOT=/var/lib/collector-agent",
-		"ENV_FILE=/etc/nexuslog/collector-agent.env",
-		"SERVICE_FILE=/etc/systemd/system/collector-agent.service",
-		"TMP_DIR=$(mktemp -d)",
-		"trap 'rm -rf \"${TMP_DIR}\"' EXIT",
-		"sudo useradd --system --no-create-home --shell /usr/sbin/nologin collector >/dev/null 2>&1 || true",
-		"sudo mkdir -p \"${INSTALL_ROOT}\" /etc/nexuslog \"${STATE_ROOT}/checkpoints\" \"${STATE_ROOT}/cache\"",
-		"curl -fsSL \"${ASSET_URL}\" -o \"${TMP_DIR}/collector-agent.tgz\"",
-		"tar -xzf \"${TMP_DIR}/collector-agent.tgz\" -C \"${TMP_DIR}\"",
-		"PACKAGE_ROOT=$(find \"${TMP_DIR}\" -maxdepth 1 -mindepth 1 -type d -name 'collector-agent-*' | head -n 1)",
-		"if [[ -z \"${PACKAGE_ROOT}\" ]]; then PACKAGE_ROOT=\"${TMP_DIR}\"; fi",
-		"BIN_PATH=$(find \"${PACKAGE_ROOT}\" -type f -name collector-agent | head -n 1)",
-		"CONFIG_DIR=${PACKAGE_ROOT}/configs",
-		"SERVICE_TEMPLATE=${PACKAGE_ROOT}/deploy/systemd/collector-agent.service",
-		"test -n \"${BIN_PATH}\"",
-		"test -d \"${CONFIG_DIR}\"",
-		"sudo install -m 0755 \"${BIN_PATH}\" /usr/local/bin/collector-agent",
-		"sudo rm -rf \"${INSTALL_ROOT}/configs\"",
-		"sudo cp -R \"${CONFIG_DIR}\" \"${INSTALL_ROOT}/\"",
-		"if [[ -f \"${SERVICE_TEMPLATE}\" ]]; then",
-		"  sudo install -m 0644 \"${SERVICE_TEMPLATE}\" \"${SERVICE_FILE}\"",
-		"else",
-		"  cat <<'EOF' | sudo tee \"${SERVICE_FILE}\" >/dev/null",
-		"[Unit]",
-		"Description=NexusLog Collector Agent",
-		"After=network-online.target",
-		"Wants=network-online.target",
-		"",
-		"[Service]",
-		"Type=simple",
-		"User=collector",
-		"Group=collector",
-		"WorkingDirectory=/opt/nexuslog/collector-agent",
-		"EnvironmentFile=-/etc/nexuslog/collector-agent.env",
-		"ExecStart=/usr/local/bin/collector-agent",
-		"Restart=always",
-		"RestartSec=5",
-		"LimitNOFILE=65535",
-		"NoNewPrivileges=true",
-		"PrivateTmp=true",
-		"ProtectSystem=full",
-		"ProtectHome=true",
-		"ReadWritePaths=/var/lib/collector-agent /var/log",
-		"",
-		"[Install]",
-		"WantedBy=multi-user.target",
-		"EOF",
-		"fi",
-		"cat <<EOF | sudo tee \"${ENV_FILE}\" >/dev/null",
-		"HTTP_PORT=9091",
-		"AGENT_ID=${AGENT_ID}",
-		"AGENT_VERSION=${AGENT_VERSION}",
-		"CONFIG_PATH=${INSTALL_ROOT}/configs/agent.yaml",
-		"AGENT_API_KEY_ACTIVE_ID=${AGENT_API_KEY_ACTIVE_ID}",
-		"AGENT_API_KEY_ACTIVE=${AGENT_API_KEY_ACTIVE}",
-		"CHECKPOINT_DIR=${STATE_ROOT}/checkpoints",
-		"CACHE_DIR=${STATE_ROOT}/cache",
-		"COLLECTOR_INCLUDE_PATHS=${COLLECTOR_INCLUDE_PATHS}",
-		"COLLECTOR_EXCLUDE_PATHS=${COLLECTOR_EXCLUDE_PATHS}",
-		"COLLECTOR_PATH_LABEL_RULES=${COLLECTOR_PATH_LABEL_RULES}",
-		"COLLECTOR_SYSLOG_LISTENERS_JSON=${COLLECTOR_SYSLOG_LISTENERS_JSON}",
-		"DELIVERY_MODE=pull",
-		"ENABLE_KAFKA_PIPELINE=false",
-		"LEGACY_LOG_PIPELINE_ENABLED=false",
-		"CONTROL_PLANE_BASE_URL=${CONTROL_PLANE_BASE_URL}",
-		"AGENT_METRICS_REPORT_ENABLED=true",
-		"AGENT_METRICS_REPORT_INTERVAL=30s",
-		"AGENT_METRICS_REPORT_TIMEOUT=10s",
-		"EOF",
-		"sudo chown -R collector:collector \"${INSTALL_ROOT}\" \"${STATE_ROOT}\"",
-		"sudo systemctl daemon-reload",
-		"sudo systemctl enable --now collector-agent",
-		"sudo systemctl status collector-agent --no-pager || true",
-		"curl -fsSL http://127.0.0.1:9091/healthz || true",
-	)
 	if strings.TrimSpace(syslogListenersJSON) == "" {
 		lines = append(lines, "echo 'collector-agent deployed; current agent base URL: "+strings.TrimSpace(agentBaseURL)+"'")
 	} else {
