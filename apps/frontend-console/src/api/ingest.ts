@@ -311,6 +311,12 @@ export interface GenerateDeploymentScriptPayload {
   install_script_url?: string;
   container_image?: string;
   version?: string;
+  delivery_mode?: 'pull' | 'upload';
+  kafka_brokers?: string;
+  kafka_topic?: string;
+  kafka_schema_registry_url?: string;
+  kafka_schema_subject?: string;
+  kafka_required_acks?: 'all' | 'leader' | 'none';
   include_paths?: string[];
   exclude_paths?: string[];
   syslog_bind?: string;

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -138,21 +139,27 @@ type PullSourceStatusTrendPoint struct {
 }
 
 type GenerateDeploymentScriptRequest struct {
-	TargetKind          string   `json:"target_kind"`
-	SourceName          string   `json:"source_name"`
-	SourceType          string   `json:"source_type,omitempty"`
-	AgentID             string   `json:"agent_id,omitempty"`
-	AgentBaseURL        string   `json:"agent_base_url,omitempty"`
-	ControlPlaneBaseURL string   `json:"control_plane_base_url,omitempty"`
-	ReleaseBaseURL      string   `json:"release_base_url,omitempty"`
-	InstallScriptURL    string   `json:"install_script_url,omitempty"`
-	ContainerImage      string   `json:"container_image,omitempty"`
-	Version             string   `json:"version,omitempty"`
-	IncludePaths        []string `json:"include_paths,omitempty"`
-	ExcludePaths        []string `json:"exclude_paths,omitempty"`
-	SyslogBind          string   `json:"syslog_bind,omitempty"`
-	SyslogProtocol      string   `json:"syslog_protocol,omitempty"`
-	KeyRef              string   `json:"key_ref,omitempty"`
+	TargetKind             string   `json:"target_kind"`
+	SourceName             string   `json:"source_name"`
+	SourceType             string   `json:"source_type,omitempty"`
+	AgentID                string   `json:"agent_id,omitempty"`
+	AgentBaseURL           string   `json:"agent_base_url,omitempty"`
+	ControlPlaneBaseURL    string   `json:"control_plane_base_url,omitempty"`
+	ReleaseBaseURL         string   `json:"release_base_url,omitempty"`
+	InstallScriptURL       string   `json:"install_script_url,omitempty"`
+	ContainerImage         string   `json:"container_image,omitempty"`
+	Version                string   `json:"version,omitempty"`
+	DeliveryMode           string   `json:"delivery_mode,omitempty"`
+	KafkaBrokers           string   `json:"kafka_brokers,omitempty"`
+	KafkaTopic             string   `json:"kafka_topic,omitempty"`
+	KafkaSchemaRegistryURL string   `json:"kafka_schema_registry_url,omitempty"`
+	KafkaSchemaSubject     string   `json:"kafka_schema_subject,omitempty"`
+	KafkaRequiredAcks      string   `json:"kafka_required_acks,omitempty"`
+	IncludePaths           []string `json:"include_paths,omitempty"`
+	ExcludePaths           []string `json:"exclude_paths,omitempty"`
+	SyslogBind             string   `json:"syslog_bind,omitempty"`
+	SyslogProtocol         string   `json:"syslog_protocol,omitempty"`
+	KeyRef                 string   `json:"key_ref,omitempty"`
 }
 
 type GenerateDeploymentScriptResponse struct {
@@ -765,6 +772,7 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 	if installScriptURL == "" {
 		installScriptURL = strings.TrimRight(releaseBaseURL, "/") + "/collector-agent-installer.sh"
 	}
+	deliveryConfig := resolveDeploymentDeliveryConfig(req, targetKind)
 
 	credential := AgentAuthCredential{KeyID: firstNonEmptyValue(strings.TrimSpace(req.KeyRef), h.defaultAgentKeyID, "active"), Key: strings.TrimSpace(h.defaultAgentKey)}
 	if strings.TrimSpace(req.KeyRef) != "" && h.authKeyStore != nil {
@@ -794,8 +802,20 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 	switch targetKind {
 	case "linux-systemd":
 		assetURL := strings.TrimRight(releaseBaseURL, "/") + "/collector-agent-linux-amd64.tar.gz"
-		script := buildLinuxSystemdScript(installScriptURL, sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
-		command := buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+		script := buildLinuxSystemdScript(installScriptURL, sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON, deliveryConfig)
+		command := buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON, deliveryConfig)
+		notes := []string{
+			"适用于大多数 Linux 主机，使用 systemd 托管 collector-agent。",
+			"GitHub/Gitee Release 需要同时提供 Linux 发布包与 collector-agent-installer.sh 安装脚本资产。",
+		}
+		if deliveryConfig.Mode == "upload" {
+			notes = append(notes,
+				"当前脚本会启用主动上传（Kafka 兼容）并保留 Agent HTTP 接口，便于探活与兼容后续拉取。",
+				"请确认 Kafka brokers / Schema Registry 对目标主机可达。",
+			)
+		} else {
+			notes = append(notes, "脚本默认启用被动拉取（pull-only）+ metrics report，便于控制台实时显示 Agent 与目录状态。")
+		}
 		return GenerateDeploymentScriptResponse{
 			TargetKind:   targetKind,
 			ScriptKind:   "bash",
@@ -803,14 +823,10 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 			Command:      command,
 			Script:       script,
 			AgentBaseURL: agentBaseURL,
-			Notes: []string{
-				"适用于大多数 Linux 主机，使用 systemd 托管 collector-agent。",
-				"GitHub/Gitee Release 需要同时提供 Linux 发布包与 collector-agent-installer.sh 安装脚本资产。",
-				"脚本默认启用 pull-only + metrics report，便于控制台实时显示 Agent 与目录状态。",
-			},
+			Notes:        notes,
 		}, nil
 	case "linux-docker":
-		composeYAML := buildLinuxDockerCompose(sourceName, version, containerImage, controlPlaneBaseURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+		composeYAML := buildLinuxDockerCompose(sourceName, version, containerImage, controlPlaneBaseURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON, deliveryConfig)
 		command := "mkdir -p nexuslog-agent && cd nexuslog-agent && cat > docker-compose.agent.yml <<'EOF'\n" + composeYAML + "\nEOF\ndocker compose -f docker-compose.agent.yml up -d"
 		return GenerateDeploymentScriptResponse{
 			TargetKind:   targetKind,
@@ -826,7 +842,7 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 		}, nil
 	case "windows-startup-task", "windows-powershell":
 		assetURL := strings.TrimRight(releaseBaseURL, "/") + "/collector-agent-windows-amd64.zip"
-		ps1 := buildWindowsStartupScript(sourceName, version, assetURL, controlPlaneBaseURL, credential, includePaths, excludePaths, pathRuleJSON)
+		ps1 := buildWindowsStartupScript(sourceName, version, assetURL, controlPlaneBaseURL, credential, includePaths, excludePaths, pathRuleJSON, deliveryConfig)
 		return GenerateDeploymentScriptResponse{
 			TargetKind:   targetKind,
 			ScriptKind:   "powershell",
@@ -877,19 +893,96 @@ type shellEnvAssignment struct {
 	Value string
 }
 
-func buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) []shellEnvAssignment {
-	return []shellEnvAssignment{
+type deploymentDeliveryConfig struct {
+	Mode                   string
+	EnvDeliveryMode        string
+	EnableKafkaPipeline    bool
+	KafkaBrokers           string
+	KafkaTopic             string
+	KafkaSchemaRegistryURL string
+	KafkaSchemaSubject     string
+	KafkaRequiredAcks      string
+}
+
+func normalizeDeploymentDeliveryMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "upload", "push", "kafka", "active":
+		return "upload"
+	default:
+		return "pull"
+	}
+}
+
+func defaultKafkaBrokersForTarget(targetKind string) string {
+	if strings.EqualFold(strings.TrimSpace(targetKind), "linux-docker") {
+		return "kafka:9092"
+	}
+	return "127.0.0.1:9092"
+}
+
+func defaultKafkaSchemaRegistryForTarget(targetKind string) string {
+	if strings.EqualFold(strings.TrimSpace(targetKind), "linux-docker") {
+		return "http://schema-registry:8081"
+	}
+	return "http://127.0.0.1:18081"
+}
+
+func normalizeKafkaRequiredAcks(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "0", "none":
+		return "none"
+	case "1", "leader":
+		return "leader"
+	default:
+		return "all"
+	}
+}
+
+func resolveDeploymentDeliveryConfig(req GenerateDeploymentScriptRequest, targetKind string) deploymentDeliveryConfig {
+	mode := normalizeDeploymentDeliveryMode(req.DeliveryMode)
+	topic := firstNonEmptyValue(strings.TrimSpace(req.KafkaTopic), "nexuslog.logs.raw")
+	config := deploymentDeliveryConfig{
+		Mode:                   mode,
+		EnvDeliveryMode:        "pull",
+		EnableKafkaPipeline:    false,
+		KafkaBrokers:           firstNonEmptyValue(strings.TrimSpace(req.KafkaBrokers), defaultKafkaBrokersForTarget(targetKind)),
+		KafkaTopic:             topic,
+		KafkaSchemaRegistryURL: firstNonEmptyValue(strings.TrimSpace(req.KafkaSchemaRegistryURL), defaultKafkaSchemaRegistryForTarget(targetKind)),
+		KafkaSchemaSubject:     firstNonEmptyValue(strings.TrimSpace(req.KafkaSchemaSubject), topic+"-value"),
+		KafkaRequiredAcks:      normalizeKafkaRequiredAcks(req.KafkaRequiredAcks),
+	}
+	if mode == "upload" {
+		config.EnvDeliveryMode = "dual"
+		config.EnableKafkaPipeline = true
+	}
+	return config
+}
+
+func buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string, deliveryConfig deploymentDeliveryConfig) []shellEnvAssignment {
+	assignments := []shellEnvAssignment{
 		{Key: "ASSET_URL", Value: assetURL},
 		{Key: "AGENT_ID", Value: sourceName + "-agent"},
 		{Key: "AGENT_VERSION", Value: version},
 		{Key: "CONTROL_PLANE_BASE_URL", Value: controlPlaneBaseURL},
 		{Key: "AGENT_API_KEY_ACTIVE_ID", Value: firstNonEmptyValue(credential.KeyID, "active")},
 		{Key: "AGENT_API_KEY_ACTIVE", Value: credential.Key},
+		{Key: "DELIVERY_MODE", Value: deliveryConfig.EnvDeliveryMode},
+		{Key: "ENABLE_KAFKA_PIPELINE", Value: strconv.FormatBool(deliveryConfig.EnableKafkaPipeline)},
 		{Key: "COLLECTOR_INCLUDE_PATHS", Value: strings.Join(includePaths, ",")},
 		{Key: "COLLECTOR_EXCLUDE_PATHS", Value: strings.Join(excludePaths, ",")},
 		{Key: "COLLECTOR_PATH_LABEL_RULES", Value: firstNonEmptyValue(strings.TrimSpace(pathRuleJSON), "[]")},
 		{Key: "COLLECTOR_SYSLOG_LISTENERS_JSON", Value: firstNonEmptyValue(strings.TrimSpace(syslogListenersJSON), "[]")},
 	}
+	if deliveryConfig.Mode == "upload" {
+		assignments = append(assignments,
+			shellEnvAssignment{Key: "KAFKA_BROKERS", Value: deliveryConfig.KafkaBrokers},
+			shellEnvAssignment{Key: "KAFKA_TOPIC", Value: deliveryConfig.KafkaTopic},
+			shellEnvAssignment{Key: "KAFKA_SCHEMA_REGISTRY_URL", Value: deliveryConfig.KafkaSchemaRegistryURL},
+			shellEnvAssignment{Key: "KAFKA_SCHEMA_SUBJECT", Value: deliveryConfig.KafkaSchemaSubject},
+			shellEnvAssignment{Key: "KAFKA_REQUIRED_ACKS", Value: deliveryConfig.KafkaRequiredAcks},
+		)
+	}
+	return assignments
 }
 
 func appendShellAssignments(lines []string, assignments []shellEnvAssignment) []string {
@@ -922,8 +1015,8 @@ func indentShellLines(lines []string, indent string) []string {
 	return indented
 }
 
-func buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
-	assignments := buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON)
+func buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string, deliveryConfig deploymentDeliveryConfig) string {
+	assignments := buildLinuxSystemdEnvAssignments(sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON, deliveryConfig)
 	lines := []string{
 		"if [ \"$(id -u)\" -eq 0 ]; then",
 	}
@@ -940,12 +1033,12 @@ func buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlan
 	return strings.Join(lines, "\n")
 }
 
-func buildLinuxSystemdScript(installScriptURL, sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
+func buildLinuxSystemdScript(installScriptURL, sourceName, version, agentBaseURL, controlPlaneBaseURL, assetURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string, deliveryConfig deploymentDeliveryConfig) string {
 	lines := []string{
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
 		"",
-		buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON),
+		buildLinuxSystemdCommand(installScriptURL, sourceName, version, controlPlaneBaseURL, assetURL, credential, includePaths, excludePaths, pathRuleJSON, syslogListenersJSON, deliveryConfig),
 		"",
 	}
 	if strings.TrimSpace(syslogListenersJSON) == "" {
@@ -956,7 +1049,7 @@ func buildLinuxSystemdScript(installScriptURL, sourceName, version, agentBaseURL
 	return strings.Join(lines, "\n")
 }
 
-func buildLinuxDockerCompose(sourceName, version, containerImage, controlPlaneBaseURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string) string {
+func buildLinuxDockerCompose(sourceName, version, containerImage, controlPlaneBaseURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON, syslogListenersJSON string, deliveryConfig deploymentDeliveryConfig) string {
 	mountRoots := mountRootsFromPaths(includePaths)
 	if len(mountRoots) == 0 {
 		mountRoots = []string{"/var/log"}
@@ -979,8 +1072,8 @@ func buildLinuxDockerCompose(sourceName, version, containerImage, controlPlaneBa
 		"      COLLECTOR_EXCLUDE_PATHS: \"" + escapeYAMLString(strings.Join(excludePaths, ",")) + "\"",
 		"      COLLECTOR_PATH_LABEL_RULES: '" + escapeSingleQuotedYAML(pathRuleJSON) + "'",
 		"      COLLECTOR_SYSLOG_LISTENERS_JSON: '" + escapeSingleQuotedYAML(syslogListenersJSON) + "'",
-		"      DELIVERY_MODE: \"pull\"",
-		"      ENABLE_KAFKA_PIPELINE: \"false\"",
+		"      DELIVERY_MODE: \"" + escapeYAMLString(deliveryConfig.EnvDeliveryMode) + "\"",
+		"      ENABLE_KAFKA_PIPELINE: \"" + strconv.FormatBool(deliveryConfig.EnableKafkaPipeline) + "\"",
 		"      LEGACY_LOG_PIPELINE_ENABLED: \"false\"",
 		"      CONTROL_PLANE_BASE_URL: \"" + escapeYAMLString(controlPlaneBaseURL) + "\"",
 		"      AGENT_METRICS_REPORT_ENABLED: \"true\"",
@@ -988,10 +1081,21 @@ func buildLinuxDockerCompose(sourceName, version, containerImage, controlPlaneBa
 		"      AGENT_METRICS_REPORT_TIMEOUT: \"10s\"",
 		"      CHECKPOINT_DIR: \"/var/lib/collector-agent/checkpoints\"",
 		"      CACHE_DIR: \"/var/lib/collector-agent/cache\"",
+	}
+	if deliveryConfig.Mode == "upload" {
+		lines = append(lines,
+			"      KAFKA_BROKERS: \""+escapeYAMLString(deliveryConfig.KafkaBrokers)+"\"",
+			"      KAFKA_TOPIC: \""+escapeYAMLString(deliveryConfig.KafkaTopic)+"\"",
+			"      KAFKA_SCHEMA_REGISTRY_URL: \""+escapeYAMLString(deliveryConfig.KafkaSchemaRegistryURL)+"\"",
+			"      KAFKA_SCHEMA_SUBJECT: \""+escapeYAMLString(deliveryConfig.KafkaSchemaSubject)+"\"",
+			"      KAFKA_REQUIRED_ACKS: \""+escapeYAMLString(deliveryConfig.KafkaRequiredAcks)+"\"",
+		)
+	}
+	lines = append(lines,
 		"    volumes:",
 		"      - ./state/checkpoints:/var/lib/collector-agent/checkpoints",
 		"      - ./state/cache:/var/lib/collector-agent/cache",
-	}
+	)
 	for _, root := range mountRoots {
 		lines = append(lines, "      - "+root+":"+root+":ro")
 	}
@@ -1006,8 +1110,8 @@ func buildLinuxDockerCompose(sourceName, version, containerImage, controlPlaneBa
 	return strings.Join(lines, "\n")
 }
 
-func buildWindowsStartupScript(sourceName, version, assetURL, controlPlaneBaseURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON string) string {
-	return strings.Join([]string{
+func buildWindowsStartupScript(sourceName, version, assetURL, controlPlaneBaseURL string, credential AgentAuthCredential, includePaths, excludePaths []string, pathRuleJSON string, deliveryConfig deploymentDeliveryConfig) string {
+	lines := []string{
 		"$ErrorActionPreference = 'Stop'",
 		"$InstallRoot = 'C:\\Program Files\\NexusLog\\collector-agent'",
 		"$StateRoot = 'C:\\ProgramData\\NexusLog\\collector-agent'",
@@ -1029,12 +1133,23 @@ func buildWindowsStartupScript(sourceName, version, assetURL, controlPlaneBaseUR
 		"$env:COLLECTOR_INCLUDE_PATHS = '" + strings.ReplaceAll(strings.Join(includePaths, ","), "'", "''") + "'",
 		"$env:COLLECTOR_EXCLUDE_PATHS = '" + strings.ReplaceAll(strings.Join(excludePaths, ","), "'", "''") + "'",
 		"$env:COLLECTOR_PATH_LABEL_RULES = '" + strings.ReplaceAll(pathRuleJSON, "'", "''") + "'",
-		"$env:DELIVERY_MODE = 'pull'",
-		"$env:ENABLE_KAFKA_PIPELINE = 'false'",
+		"$env:DELIVERY_MODE = '" + strings.ReplaceAll(deliveryConfig.EnvDeliveryMode, "'", "''") + "'",
+		"$env:ENABLE_KAFKA_PIPELINE = '" + strings.ReplaceAll(strconv.FormatBool(deliveryConfig.EnableKafkaPipeline), "'", "''") + "'",
 		"$env:LEGACY_LOG_PIPELINE_ENABLED = 'false'",
 		"$env:CONTROL_PLANE_BASE_URL = '" + strings.ReplaceAll(controlPlaneBaseURL, "'", "''") + "'",
 		"$env:AGENT_METRICS_REPORT_ENABLED = 'true'",
 		"$env:AGENT_METRICS_REPORT_INTERVAL = '30s'",
+	}
+	if deliveryConfig.Mode == "upload" {
+		lines = append(lines,
+			"$env:KAFKA_BROKERS = '"+strings.ReplaceAll(deliveryConfig.KafkaBrokers, "'", "''")+"'",
+			"$env:KAFKA_TOPIC = '"+strings.ReplaceAll(deliveryConfig.KafkaTopic, "'", "''")+"'",
+			"$env:KAFKA_SCHEMA_REGISTRY_URL = '"+strings.ReplaceAll(deliveryConfig.KafkaSchemaRegistryURL, "'", "''")+"'",
+			"$env:KAFKA_SCHEMA_SUBJECT = '"+strings.ReplaceAll(deliveryConfig.KafkaSchemaSubject, "'", "''")+"'",
+			"$env:KAFKA_REQUIRED_ACKS = '"+strings.ReplaceAll(deliveryConfig.KafkaRequiredAcks, "'", "''")+"'",
+		)
+	}
+	lines = append(lines,
 		"& $AgentExe.FullName",
 		"'@ | Set-Content -Path $StartScript -Encoding UTF8",
 		"$Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-ExecutionPolicy Bypass -File `\"' + $StartScript + '`\"')",
@@ -1043,7 +1158,8 @@ func buildWindowsStartupScript(sourceName, version, assetURL, controlPlaneBaseUR
 		"Register-ScheduledTask -TaskName 'NexusLogCollectorAgent' -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null",
 		"Start-ScheduledTask -TaskName 'NexusLogCollectorAgent'",
 		"Write-Host 'collector-agent startup task deployed successfully'",
-	}, "\n")
+	)
+	return strings.Join(lines, "\n")
 }
 
 func buildPathRuleJSON(sourceName, sourceType string, includePaths []string) string {

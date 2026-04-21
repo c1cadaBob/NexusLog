@@ -39,6 +39,17 @@ const IMAGE_PROVIDER_OPTIONS = [
   { label: '自定义镜像', value: 'custom' },
 ] as const;
 
+const DELIVERY_MODE_OPTIONS = [
+  { label: '被动拉取（默认）', value: 'pull', description: '控制面通过 Agent HTTP 接口被动拉取日志，适合当前默认接入方式。' },
+  { label: '主动上传（Kafka 兼容）', value: 'upload', description: 'Agent 主动写入 Kafka 兼容链路，同时保留 HTTP 健康检查与元数据接口。' },
+] as const;
+
+const KAFKA_ACK_OPTIONS = [
+  { label: '全部确认（all）', value: 'all' },
+  { label: 'Leader 确认（leader）', value: 'leader' },
+  { label: '不等待确认（none）', value: 'none' },
+] as const;
+
 const DEFAULTS_BY_SOURCE_TYPE: Record<string, { path: string; protocol: string }> = {
   custom: { path: '/var/log/*.log', protocol: 'http' },
   nginx: { path: '/var/log/nginx/access.log,/var/log/nginx/error.log', protocol: 'http' },
@@ -127,6 +138,12 @@ const AccessWizard: React.FC = () => {
   const [installScriptUrl, setInstallScriptUrl] = useState(collectorAgentConfig.installScriptUrl ?? '');
   const [containerImageProvider, setContainerImageProvider] = useState<'ghcr' | 'custom'>(collectorAgentConfig.containerImageProvider ?? 'ghcr');
   const [containerImage, setContainerImage] = useState(collectorAgentConfig.containerImage ?? '');
+  const [deliveryMode, setDeliveryMode] = useState<'pull' | 'upload'>(collectorAgentConfig.deliveryMode ?? 'pull');
+  const [kafkaBrokers, setKafkaBrokers] = useState(collectorAgentConfig.kafkaBrokers ?? '127.0.0.1:9092');
+  const [kafkaTopic, setKafkaTopic] = useState(collectorAgentConfig.kafkaTopic ?? 'nexuslog.logs.raw');
+  const [kafkaSchemaRegistryUrl, setKafkaSchemaRegistryUrl] = useState(collectorAgentConfig.kafkaSchemaRegistryUrl ?? 'http://127.0.0.1:18081');
+  const [kafkaSchemaSubject, setKafkaSchemaSubject] = useState(collectorAgentConfig.kafkaSchemaSubject ?? 'nexuslog.logs.raw-value');
+  const [kafkaRequiredAcks, setKafkaRequiredAcks] = useState<'all' | 'leader' | 'none'>(collectorAgentConfig.kafkaRequiredAcks ?? 'all');
   const [deploymentTarget, setDeploymentTarget] = useState<typeof DEPLOY_TARGET_OPTIONS[number]['value']>('linux-systemd');
   const [scriptResponse, setScriptResponse] = useState<GenerateDeploymentScriptResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -164,6 +181,7 @@ const AccessWizard: React.FC = () => {
     () => DEPLOY_TARGET_OPTIONS.find((item) => item.value === deploymentTarget) ?? null,
     [deploymentTarget],
   );
+  const isUploadMode = deliveryMode === 'upload';
 
   const loadAgents = useCallback(async () => {
     setAgentsLoading(true);
@@ -219,11 +237,17 @@ const AccessWizard: React.FC = () => {
     containerImage,
     containerImageProvider,
     controlPlaneBaseUrl,
+    deliveryMode,
     deploymentTarget,
+    installScriptUrl,
+    kafkaBrokers,
+    kafkaRequiredAcks,
+    kafkaSchemaRegistryUrl,
+    kafkaSchemaSubject,
+    kafkaTopic,
     pullIntervalSec,
     pullTimeoutSec,
     releaseBaseUrl,
-    installScriptUrl,
     releaseOwner,
     releaseProvider,
     releaseRepo,
@@ -269,10 +293,18 @@ const AccessWizard: React.FC = () => {
         messageApi.warning('请输入采集路径或 source_path');
         return false;
       }
+      if (deliveryMode === 'upload' && !kafkaBrokers.trim()) {
+        messageApi.warning('主动上传模式下，请填写 Kafka Brokers');
+        return false;
+      }
+      if (deliveryMode === 'upload' && !kafkaTopic.trim()) {
+        messageApi.warning('主动上传模式下，请填写 Kafka Topic');
+        return false;
+      }
       return true;
     }
     return true;
-  }, [agentBaseUrl, agentMode, messageApi, selectedAgentId, sourceName, sourcePath, sourceType]);
+  }, [agentBaseUrl, agentMode, deliveryMode, kafkaBrokers, kafkaTopic, messageApi, selectedAgentId, sourceName, sourcePath, sourceType]);
 
   const handleNext = useCallback(() => {
     if (!validateStep(currentStep)) return;
@@ -301,6 +333,12 @@ const AccessWizard: React.FC = () => {
         install_script_url: resolvedInstallScriptUrl || undefined,
         container_image: resolvedContainerImage || undefined,
         version: normalizedVersion,
+        delivery_mode: deliveryMode,
+        kafka_brokers: isUploadMode ? kafkaBrokers.trim() : undefined,
+        kafka_topic: isUploadMode ? kafkaTopic.trim() : undefined,
+        kafka_schema_registry_url: isUploadMode ? kafkaSchemaRegistryUrl.trim() : undefined,
+        kafka_schema_subject: isUploadMode ? kafkaSchemaSubject.trim() : undefined,
+        kafka_required_acks: isUploadMode ? kafkaRequiredAcks : undefined,
         include_paths: includePaths,
         exclude_paths: [],
         syslog_bind: sourceType === 'syslog' ? syslogBind : undefined,
@@ -316,10 +354,18 @@ const AccessWizard: React.FC = () => {
   }, [
     agentBaseUrl,
     controlPlaneBaseUrl,
+    deliveryMode,
     deploymentTarget,
+    isUploadMode,
+    kafkaBrokers,
+    kafkaRequiredAcks,
+    kafkaSchemaRegistryUrl,
+    kafkaSchemaSubject,
+    kafkaTopic,
     messageApi,
     normalizedVersion,
     resolvedContainerImage,
+    resolvedInstallScriptUrl,
     resolvedReleaseBaseUrl,
     selectedAgentId,
     sourceName,
@@ -529,6 +575,56 @@ const AccessWizard: React.FC = () => {
                 )}
               </Form>
             </Card>
+
+            <Card size="small" type="inner" title="日志传输模式">
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Radio.Group name="deliveryMode" value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value)}>
+                  <Space direction="vertical">
+                    {DELIVERY_MODE_OPTIONS.map((item) => (
+                      <Radio key={item.value} value={item.value}>
+                        <Space direction="vertical" size={0}>
+                          <span>{item.label}</span>
+                          <Typography.Text type="secondary">{item.description}</Typography.Text>
+                        </Space>
+                      </Radio>
+                    ))}
+                  </Space>
+                </Radio.Group>
+
+                {isUploadMode ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="主动上传会启用 Kafka 兼容链路"
+                    description="生成的脚本会把 Agent 配置为主动写入 Kafka，同时保留 HTTP 健康检查与元数据接口；控制面 URL 仍主要用于指标上报。"
+                  />
+                ) : null}
+
+                {isUploadMode ? (
+                  <Form layout="vertical" name="access-wizard-delivery-config">
+                    <Space align="start" wrap style={{ width: '100%' }}>
+                      <Form.Item label="Kafka Brokers" required>
+                        <Input name="kafkaBrokers" value={kafkaBrokers} onChange={(event) => setKafkaBrokers(event.target.value)} placeholder="例如：10.0.0.10:9092,10.0.0.11:9092" style={{ width: 320 }} />
+                      </Form.Item>
+                      <Form.Item label="Kafka Topic" required>
+                        <Input name="kafkaTopic" value={kafkaTopic} onChange={(event) => setKafkaTopic(event.target.value)} placeholder="例如：nexuslog.logs.raw" style={{ width: 260 }} />
+                      </Form.Item>
+                    </Space>
+                    <Space align="start" wrap style={{ width: '100%' }}>
+                      <Form.Item label="Schema Registry URL">
+                        <Input name="kafkaSchemaRegistryUrl" value={kafkaSchemaRegistryUrl} onChange={(event) => setKafkaSchemaRegistryUrl(event.target.value)} placeholder="例如：http://schema-registry:8081" style={{ width: 320 }} />
+                      </Form.Item>
+                      <Form.Item label="Schema Subject">
+                        <Input name="kafkaSchemaSubject" value={kafkaSchemaSubject} onChange={(event) => setKafkaSchemaSubject(event.target.value)} placeholder="例如：nexuslog.logs.raw-value" style={{ width: 260 }} />
+                      </Form.Item>
+                      <Form.Item label="Required Acks">
+                        <Select id="access-wizard-kafka-required-acks" value={kafkaRequiredAcks} options={KAFKA_ACK_OPTIONS.map((item) => ({ label: item.label, value: item.value }))} onChange={setKafkaRequiredAcks} style={{ width: 200 }} />
+                      </Form.Item>
+                    </Space>
+                  </Form>
+                ) : null}
+              </Space>
+            </Card>
           </Space>
         </Card>
 
@@ -577,12 +673,23 @@ const AccessWizard: React.FC = () => {
           <Descriptions.Item label="Agent URL">{agentBaseUrl || '-'}</Descriptions.Item>
           <Descriptions.Item label="版本 / Tag">{normalizedVersion}</Descriptions.Item>
           <Descriptions.Item label="发布源">{RELEASE_PROVIDER_OPTIONS.find((item) => item.value === releaseProvider)?.label ?? releaseProvider}</Descriptions.Item>
+          <Descriptions.Item label="日志传输模式">{DELIVERY_MODE_OPTIONS.find((item) => item.value === deliveryMode)?.label ?? deliveryMode}</Descriptions.Item>
+          <Descriptions.Item label="控制面 URL">{controlPlaneBaseUrl || '-'}</Descriptions.Item>
           <Descriptions.Item label="发布地址" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedReleaseBaseUrl || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="安装脚本" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedInstallScriptUrl || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="容器镜像" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{resolvedContainerImage || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="采集路径" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{sourcePath || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="拉取间隔">{pullIntervalSec}s</Descriptions.Item>
           <Descriptions.Item label="拉取超时">{pullTimeoutSec}s</Descriptions.Item>
+          {isUploadMode ? (
+            <>
+              <Descriptions.Item label="Kafka Brokers" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{kafkaBrokers || '-'}</Typography.Text></Descriptions.Item>
+              <Descriptions.Item label="Kafka Topic">{kafkaTopic || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Required Acks">{kafkaRequiredAcks}</Descriptions.Item>
+              <Descriptions.Item label="Schema Registry" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{kafkaSchemaRegistryUrl || '-'}</Typography.Text></Descriptions.Item>
+              <Descriptions.Item label="Schema Subject" span={2}><Typography.Text code style={{ wordBreak: 'break-all' }}>{kafkaSchemaSubject || '-'}</Typography.Text></Descriptions.Item>
+            </>
+          ) : null}
         </Descriptions>
 
         {(releaseConfigUsesPlaceholder || (deploymentTarget === 'linux-docker' && imageConfigUsesPlaceholder)) ? (
@@ -600,6 +707,15 @@ const AccessWizard: React.FC = () => {
             showIcon
             message={`当前脚本目标：${selectedDeploymentTarget.label}`}
             description={selectedDeploymentTarget.description}
+          />
+        ) : null}
+
+        {isUploadMode ? (
+          <Alert
+            type="info"
+            showIcon
+            message="当前将以主动上传模式生成脚本"
+            description="后端会把安装脚本映射为 Kafka 兼容主动上传配置，并保留 Agent HTTP 接口用于健康检查、元数据获取和后续兼容。"
           />
         ) : null}
 

@@ -55,6 +55,18 @@ export interface CollectorAgentReleaseConfig {
   containerImageProvider?: 'ghcr' | 'custom';
   /** 默认容器镜像地址 */
   containerImage?: string;
+  /** 默认日志传输模式 */
+  deliveryMode?: 'pull' | 'upload';
+  /** 默认 Kafka brokers */
+  kafkaBrokers?: string;
+  /** 默认 Kafka topic */
+  kafkaTopic?: string;
+  /** 默认 Schema Registry 地址 */
+  kafkaSchemaRegistryUrl?: string;
+  /** 默认 Schema Subject */
+  kafkaSchemaSubject?: string;
+  /** 默认 Kafka required acks */
+  kafkaRequiredAcks?: 'all' | 'leader' | 'none';
 }
 
 /** 运行时配置结构 */
@@ -111,6 +123,12 @@ const DEFAULT_CONFIG: RuntimeConfig = {
     installScriptUrl: 'https://github.com/c1cadabob/NexusLog/releases/download/v0.1.1/collector-agent-installer.sh',
     containerImageProvider: 'ghcr',
     containerImage: 'ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.1',
+    deliveryMode: 'pull',
+    kafkaBrokers: '127.0.0.1:9092',
+    kafkaTopic: 'nexuslog.logs.raw',
+    kafkaSchemaRegistryUrl: 'http://127.0.0.1:18081',
+    kafkaSchemaSubject: 'nexuslog.logs.raw-value',
+    kafkaRequiredAcks: 'all',
   },
 };
 

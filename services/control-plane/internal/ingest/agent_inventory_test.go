@@ -84,3 +84,66 @@ func TestGenerateDeploymentScriptLinuxDockerUsesCollectorAgentImageName(t *testi
 		t.Fatalf("expected updated default collector-agent image, got: %s", response.Script)
 	}
 }
+
+func TestGenerateDeploymentScriptLinuxSystemdDefaultsToPullDelivery(t *testing.T) {
+	handler := &AgentInventoryHandler{
+		defaultAgentKeyID: "active",
+		defaultAgentKey:   "0123456789abcdefghijklmn",
+	}
+
+	response, err := handler.generateDeploymentScript(GenerateDeploymentScriptRequest{
+		TargetKind:          "linux-systemd",
+		SourceName:          "pull-prod",
+		ControlPlaneBaseURL: "https://control.example.com",
+		ReleaseBaseURL:      "https://github.com/acme/NexusLog/releases/download/v1.2.3",
+		Version:             "v1.2.3",
+	})
+	if err != nil {
+		t.Fatalf("generateDeploymentScript returned error: %v", err)
+	}
+
+	if !strings.Contains(response.Command, "DELIVERY_MODE='pull'") {
+		t.Fatalf("expected pull delivery mode in command, got: %s", response.Command)
+	}
+	if !strings.Contains(response.Command, "ENABLE_KAFKA_PIPELINE='false'") {
+		t.Fatalf("expected kafka pipeline disabled in command, got: %s", response.Command)
+	}
+}
+
+func TestGenerateDeploymentScriptLinuxSystemdUploadIncludesKafkaConfig(t *testing.T) {
+	handler := &AgentInventoryHandler{
+		defaultAgentKeyID: "active",
+		defaultAgentKey:   "0123456789abcdefghijklmn",
+	}
+
+	response, err := handler.generateDeploymentScript(GenerateDeploymentScriptRequest{
+		TargetKind:          "linux-systemd",
+		SourceName:          "upload-prod",
+		ControlPlaneBaseURL: "https://control.example.com",
+		ReleaseBaseURL:      "https://github.com/acme/NexusLog/releases/download/v1.2.3",
+		Version:             "v1.2.3",
+		DeliveryMode:        "upload",
+		KafkaBrokers:        "10.0.0.10:9092",
+		KafkaTopic:          "foo.logs",
+		KafkaRequiredAcks:   "leader",
+	})
+	if err != nil {
+		t.Fatalf("generateDeploymentScript returned error: %v", err)
+	}
+
+	if !strings.Contains(response.Command, "DELIVERY_MODE='dual'") {
+		t.Fatalf("expected upload mode to map to dual delivery in command, got: %s", response.Command)
+	}
+	if !strings.Contains(response.Command, "ENABLE_KAFKA_PIPELINE='true'") {
+		t.Fatalf("expected kafka pipeline enabled in command, got: %s", response.Command)
+	}
+	if !strings.Contains(response.Command, "KAFKA_BROKERS='10.0.0.10:9092'") {
+		t.Fatalf("expected kafka brokers in command, got: %s", response.Command)
+	}
+	if !strings.Contains(response.Command, "KAFKA_TOPIC='foo.logs'") {
+		t.Fatalf("expected kafka topic in command, got: %s", response.Command)
+	}
+	if !strings.Contains(response.Command, "KAFKA_REQUIRED_ACKS='leader'") {
+		t.Fatalf("expected kafka required acks in command, got: %s", response.Command)
+	}
+}

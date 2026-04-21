@@ -24,6 +24,12 @@
     "releaseBaseUrl": "https://github.com/c1cadabob/NexusLog/releases/download/v0.1.1",
     "installScriptUrl": "https://github.com/c1cadabob/NexusLog/releases/download/v0.1.1/collector-agent-installer.sh",
     "containerImageProvider": "ghcr",
-    "containerImage": "ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.1"
+    "containerImage": "ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.1",
+    "deliveryMode": "pull",
+    "kafkaBrokers": "127.0.0.1:9092",
+    "kafkaTopic": "nexuslog.logs.raw",
+    "kafkaSchemaRegistryUrl": "http://127.0.0.1:18081",
+    "kafkaSchemaSubject": "nexuslog.logs.raw-value",
+    "kafkaRequiredAcks": "all"
   }
 }
