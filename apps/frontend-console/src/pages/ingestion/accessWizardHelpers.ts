@@ -149,3 +149,11 @@ export function buildPullSourceOverlapMessage(conflict: PullSource | null): stri
 
   return `当前 Agent 地址下已存在启用中的采集源“${conflict.name}”，其路径“${conflict.path}”与当前配置重叠。请改用不同路径，或到“采集源管理”停用/编辑这条采集源后再保存。`;
 }
+
+export function buildPullSourceSavedAsPausedMessage(conflict: PullSource | null, savedSourceName: string): string {
+  if (!conflict) {
+    return `采集源配置 ${savedSourceName} 已按“待启用”状态保存。部署完成后，可到“采集源管理”检查并启用。`;
+  }
+
+  return `当前 Agent 地址与启用中的采集源“${conflict.name}”存在路径重叠，已将 ${savedSourceName} 按“待启用”状态保存。部署完成后，可到“采集源管理”检查并按需启用。`;
+}

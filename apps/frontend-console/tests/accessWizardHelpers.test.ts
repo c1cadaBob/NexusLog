@@ -5,6 +5,7 @@ import {
   buildAgentOptionLabel,
   buildAgentOptionValue,
   buildPullSourceOverlapMessage,
+  buildPullSourceSavedAsPausedMessage,
   findOverlappingActivePullSource,
   pullSourcePathsOverlap,
 } from '../src/pages/ingestion/accessWizardHelpers';
@@ -80,5 +81,19 @@ describe('accessWizardHelpers', () => {
     expect(message).toContain('local-host-buffered-logs');
     expect(message).toContain('/var/log/*.log');
     expect(message).toContain('采集源管理');
+  });
+
+  it('builds a Chinese paused-save message when overlap exists', () => {
+    const message = buildPullSourceSavedAsPausedMessage({
+      source_id: 'source-a',
+      name: 'local-host-buffered-logs',
+      path: '/var/log/*.log',
+      agent_base_url: 'http://collector-agent:9091',
+      status: 'active',
+    } as PullSource, 'ceshi-agent');
+
+    expect(message).toContain('local-host-buffered-logs');
+    expect(message).toContain('待启用');
+    expect(message).toContain('ceshi-agent');
   });
 });

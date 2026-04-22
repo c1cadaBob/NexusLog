@@ -14,6 +14,7 @@ import {
   buildAgentOptionLabel,
   buildAgentOptionValue,
   buildPullSourceOverlapMessage,
+  buildPullSourceSavedAsPausedMessage,
   findOverlappingActivePullSource,
 } from './accessWizardHelpers';
 
@@ -385,27 +386,32 @@ const AccessWizard: React.FC = () => {
 
   const handleCreate = useCallback(async () => {
     if (!validateStep(1)) return;
-    const { host, port } = parseHostPort(agentBaseUrl.trim());
+    const trimmedAgentBaseUrl = agentBaseUrl.trim();
+    const trimmedSourceName = sourceName.trim();
+    const trimmedSourcePath = sourcePath.trim();
+    const { host, port } = parseHostPort(trimmedAgentBaseUrl);
     if (!host) {
       messageApi.warning('Agent 基础 URL 无法解析主机名');
       return;
     }
 
+    const buildPayload = (status: 'active' | 'paused') => ({
+      name: trimmedSourceName,
+      host,
+      port,
+      protocol,
+      path: trimmedSourcePath,
+      auth: 'agent-key',
+      agent_base_url: trimmedAgentBaseUrl,
+      pull_interval_sec: pullIntervalSec,
+      pull_timeout_sec: pullTimeoutSec,
+      key_ref: 'active',
+      status,
+    });
+
     setSubmitting(true);
     try {
-      const created = await createPullSource({
-        name: sourceName.trim(),
-        host,
-        port,
-        protocol,
-        path: sourcePath.trim(),
-        auth: 'agent-key',
-        agent_base_url: agentBaseUrl.trim(),
-        pull_interval_sec: pullIntervalSec,
-        pull_timeout_sec: pullTimeoutSec,
-        key_ref: 'active',
-        status: 'active',
-      });
+      const created = await createPullSource(buildPayload('active'));
       messageApi.success(`采集源配置 ${created.name} 已保存`);
       navigate('/ingestion/sources');
     } catch (err) {
@@ -413,26 +419,39 @@ const AccessWizard: React.FC = () => {
       const isOverlapConflict = requestError.status === 409 && /overlaps existing agent endpoint/i.test(requestError.message);
 
       if (isOverlapConflict) {
+        let conflict = null;
         try {
           const existingSources = await fetchPullSources({ status: 'active' });
-          const conflict = findOverlappingActivePullSource(existingSources, {
-            agent_base_url: agentBaseUrl.trim(),
-            path: sourcePath.trim(),
+          conflict = findOverlappingActivePullSource(existingSources, {
+            agent_base_url: trimmedAgentBaseUrl,
+            path: trimmedSourcePath,
             status: 'active',
           });
-          messageApi.error(buildPullSourceOverlapMessage(conflict));
-          return;
         } catch {
-          messageApi.error(buildPullSourceOverlapMessage(null));
-          return;
+          conflict = null;
         }
+
+        if (agentMode === 'new') {
+          try {
+            const created = await createPullSource(buildPayload('paused'));
+            messageApi.success(buildPullSourceSavedAsPausedMessage(conflict, created.name));
+            navigate('/ingestion/sources');
+            return;
+          } catch (fallbackErr) {
+            messageApi.error(`保存采集源配置失败：${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
+            return;
+          }
+        }
+
+        messageApi.error(buildPullSourceOverlapMessage(conflict));
+        return;
       }
 
       messageApi.error(`保存采集源配置失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSubmitting(false);
     }
-  }, [agentBaseUrl, messageApi, navigate, protocol, pullIntervalSec, pullTimeoutSec, sourceName, sourcePath, validateStep]);
+  }, [agentBaseUrl, agentMode, messageApi, navigate, protocol, pullIntervalSec, pullTimeoutSec, sourceName, sourcePath, validateStep]);
 
   const renderStepOne = () => (
     <Card title="1. 选择来源与命名">
@@ -733,6 +752,15 @@ const AccessWizard: React.FC = () => {
             showIcon
             message={`当前脚本目标：${selectedDeploymentTarget.label}`}
             description={selectedDeploymentTarget.description}
+          />
+        ) : null}
+
+        {agentMode === 'new' ? (
+          <Alert
+            type="info"
+            showIcon
+            message="新主机模式支持先部署、后保存"
+            description="执行一键命令后，可直接点击“保存采集源配置”。若当前 Agent 地址与已有启用采集源重叠，系统会自动按“待启用”状态保存，避免接入过程被冲突校验阻塞。"
           />
         ) : null}
 
