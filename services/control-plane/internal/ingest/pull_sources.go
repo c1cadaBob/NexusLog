@@ -279,6 +279,21 @@ func (s *PullSourceStore) Update(sourceID string, req UpdatePullSourceRequest) (
 	return updated, nil
 }
 
+// Delete 删除指定拉取源。
+func (s *PullSourceStore) Delete(sourceID string) error {
+	if s.backend != nil {
+		return s.deleteFromDB(context.Background(), sourceID)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.items[sourceID]; !ok {
+		return ErrPullSourceNotFound
+	}
+	delete(s.items, sourceID)
+	return nil
+}
+
 // GetByID 按 source_id 查询拉取源。
 func (s *PullSourceStore) GetByID(sourceID string) (PullSource, bool) {
 	if s.backend != nil {
@@ -301,7 +316,7 @@ func NewPullSourceHandler(store *PullSourceStore) *PullSourceHandler {
 	return &PullSourceHandler{store: store}
 }
 
-// RegisterPullSourceRoutes 注册 6.1 所需的 GET/POST/PUT 路由。
+// RegisterPullSourceRoutes 注册 6.1 所需的 GET/POST/PUT/DELETE 路由。
 func RegisterPullSourceRoutes(router gin.IRouter, store *PullSourceStore) {
 	handler := NewPullSourceHandler(store)
 	router.GET("/api/v1/ingest/pull-sources", handler.ListPullSources)
@@ -309,6 +324,7 @@ func RegisterPullSourceRoutes(router gin.IRouter, store *PullSourceStore) {
 	// 同时支持路径参数形式（接口设计文档）和 body 带 source_id 形式（任务描述简写）。
 	router.PUT("/api/v1/ingest/pull-sources/:source_id", handler.UpdatePullSourceByPath)
 	router.PUT("/api/v1/ingest/pull-sources", handler.UpdatePullSourceByBody)
+	router.DELETE("/api/v1/ingest/pull-sources/:source_id", handler.DeletePullSource)
 }
 
 func setPullSourceAuditEvent(c *gin.Context, action, resourceID string, details map[string]any) {
@@ -422,6 +438,21 @@ func buildPullSourceUpdateAuditDetails(sourceID string, req UpdatePullSourceRequ
 	})
 }
 
+func buildPullSourceDeleteAuditDetails(sourceID string, source PullSource, statusCode int, result string, errorCode string) map[string]any {
+	return middleware.BuildAuditDetails(map[string]any{
+		"result":           result,
+		"target_source_id": strings.TrimSpace(sourceID),
+		"source_name":      source.Name,
+		"host":             source.Host,
+		"port":             source.Port,
+		"protocol":         source.Protocol,
+		"path":             source.Path,
+		"status":           source.Status,
+		"http_status":      statusCode,
+		"error_code":       errorCode,
+	})
+}
+
 func stringValue(value *string) string {
 	if value == nil {
 		return ""
@@ -520,6 +551,38 @@ func (h *PullSourceHandler) UpdatePullSourceByPath(c *gin.Context) {
 		return
 	}
 	h.updatePullSource(c, sourceID)
+}
+
+// DeletePullSource 处理 DELETE /api/v1/ingest/pull-sources/:source_id。
+func (h *PullSourceHandler) DeletePullSource(c *gin.Context) {
+	sourceID := strings.TrimSpace(c.Param("source_id"))
+	if sourceID == "" {
+		setPullSourceAuditEvent(c, "pull_sources.delete", "", middleware.BuildAuditDetails(map[string]any{
+			"result":      "failed",
+			"http_status": http.StatusBadRequest,
+			"error_code":  ErrorCodePullSourceInvalidArgument,
+		}))
+		writeError(c, http.StatusBadRequest, ErrorCodePullSourceInvalidArgument, "source_id is required", nil)
+		return
+	}
+
+	existing, _ := h.store.GetByID(sourceID)
+	if err := h.store.Delete(sourceID); err != nil {
+		if errors.Is(err, ErrPullSourceNotFound) {
+			setPullSourceAuditEvent(c, "pull_sources.delete", sourceID, buildPullSourceDeleteAuditDetails(sourceID, existing, http.StatusNotFound, "failed", ErrorCodePullSourceNotFound))
+			writeError(c, http.StatusNotFound, ErrorCodePullSourceNotFound, "pull source not found", nil)
+			return
+		}
+		setPullSourceAuditEvent(c, "pull_sources.delete", sourceID, buildPullSourceDeleteAuditDetails(sourceID, existing, http.StatusInternalServerError, "failed", ErrorCodePullSourceInternalError))
+		writeError(c, http.StatusInternalServerError, ErrorCodePullSourceInternalError, "failed to delete pull source", nil)
+		return
+	}
+
+	if existing.SourceID == "" {
+		existing.SourceID = sourceID
+	}
+	setPullSourceAuditEvent(c, "pull_sources.delete", sourceID, buildPullSourceDeleteAuditDetails(sourceID, existing, http.StatusOK, "success", ""))
+	writeSuccess(c, http.StatusOK, gin.H{"deleted": true}, gin.H{})
 }
 
 // UpdatePullSourceByBody 处理 PUT /api/v1/ingest/pull-sources（body 含 source_id）。

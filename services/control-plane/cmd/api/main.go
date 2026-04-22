@@ -337,6 +337,7 @@ func registerLegacyPipelineRemovedRoutes(router gin.IRouter, db *sql.DB) {
 	router.POST("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.create"), respondGone)
 	router.PUT("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.update"), respondGone)
 	router.PUT("/api/v1/ingest/pull-sources/:source_id", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.update"), respondGone)
+	router.DELETE("/api/v1/ingest/pull-sources/:source_id", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.delete"), respondGone)
 	router.GET("/api/v1/ingest/pull-sources/status", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.read"), respondGone)
 	router.GET("/api/v1/ingest/agents", middleware.RequireCapabilityOrAdminRole(db, "agent.read"), respondGone)
 	router.POST("/api/v1/ingest/deployment-scripts/generate", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.read"), respondGone)

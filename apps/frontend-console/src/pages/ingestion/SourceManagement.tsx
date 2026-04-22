@@ -277,6 +277,10 @@ const SourceManagement: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState<PullSource | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteTargetSource, setDeleteTargetSource] = useState<PullSource | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [runningSourceIds, setRunningSourceIds] = useState<string[]>([]);
   const [taskHistoryState, setTaskHistoryState] = useState<TaskHistoryViewState | null>(null);
   const [packageHistoryState, setPackageHistoryState] = useState<PackageHistoryViewState | null>(null);
@@ -286,6 +290,7 @@ const SourceManagement: React.FC = () => {
   const canRunPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.run']), [capabilities]);
   const canReadPullTask = useMemo(() => hasAnyCapability(capabilities, ['ingest.task.read']), [capabilities]);
   const canReadPullPackage = useMemo(() => hasAnyCapability(capabilities, ['ingest.package.read']), [capabilities]);
+  const canDeletePullSource = useMemo(() => hasAnyCapability(capabilities, ['ingest.source.delete']), [capabilities]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes.sourceManagement ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -475,13 +480,45 @@ const SourceManagement: React.FC = () => {
 
   const handleDisable = useCallback(async (source: PullSource) => {
     try {
-      await deletePullSource(source.source_id);
+      await updatePullSource(source.source_id, { status: 'disabled' });
       messageApi.success(`已禁用采集源：${source.name}`);
       loadData();
     } catch (err) {
       messageApi.error(`禁用失败：${err instanceof Error ? err.message : String(err)}`);
     }
   }, [loadData, messageApi]);
+
+  const openDeleteModal = useCallback((source: PullSource) => {
+    setDeleteTargetSource(source);
+    setDeleteConfirmText('');
+    setDeleteModalOpen(true);
+  }, []);
+
+  const closeDeleteModal = useCallback(() => {
+    setDeleteModalOpen(false);
+    setDeleteTargetSource(null);
+    setDeleteConfirmText('');
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteTargetSource) return;
+    if (deleteConfirmText.trim() !== deleteTargetSource.name.trim()) {
+      messageApi.error('请输入正确的采集源名称后再删除');
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      await deletePullSource(deleteTargetSource.source_id);
+      messageApi.success(`已删除采集源：${deleteTargetSource.name}`);
+      closeDeleteModal();
+      loadData();
+    } catch (err) {
+      messageApi.error(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDeleting(false);
+    }
+  }, [closeDeleteModal, deleteConfirmText, deleteTargetSource, loadData, messageApi]);
 
   const handleRunNow = useCallback(async (source: PullSource) => {
     setRunningSourceIds((current) => (current.includes(source.source_id) ? current : [...current, source.source_id]));
@@ -706,6 +743,7 @@ const SourceManagement: React.FC = () => {
           canReadPullPackage ? { key: 'package', label: isPackageHistoryLoading ? '资源包记录加载中...' : '资源包记录', disabled: isPackageHistoryLoading } : null,
           canRunPullTask ? { key: 'run', label: '立即采集', disabled: String(source.status).toLowerCase() === 'disabled' } : null,
           { key: 'disable', label: '停用', danger: true },
+          canDeletePullSource ? { key: 'delete', label: '删除', danger: true } : null,
         ].filter(Boolean);
 
         return (
@@ -734,6 +772,10 @@ const SourceManagement: React.FC = () => {
                   }
                   if (key === 'disable') {
                     void handleDisable(source);
+                    return;
+                  }
+                  if (key === 'delete') {
+                    openDeleteModal(source);
                   }
                 },
               }}
@@ -870,6 +912,40 @@ const SourceManagement: React.FC = () => {
             <Input placeholder="默认使用 agent-key" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="删除采集源"
+        open={deleteModalOpen}
+        onCancel={() => {
+          if (!deleting) closeDeleteModal();
+        }}
+        onOk={() => void handleDeleteConfirm()}
+        confirmLoading={deleting}
+        okText="确认删除"
+        okButtonProps={{ danger: true, disabled: !deleteTargetSource || deleteConfirmText.trim() !== deleteTargetSource.name.trim() }}
+        cancelText="取消"
+        cancelButtonProps={{ disabled: deleting }}
+        destroyOnHidden
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Alert
+            type="warning"
+            showIcon
+            message="删除后不可恢复"
+            description="删除采集源后，将移除其拉取配置和关联的 Agent 展示项。"
+          />
+          <Typography.Paragraph style={{ marginBottom: 0 }}>
+            请输入采集源名称 <Typography.Text code>{deleteTargetSource?.name ?? '-'}</Typography.Text> 以确认删除。
+          </Typography.Paragraph>
+          <Input
+            id="source-delete-confirm-name"
+            name="sourceDeleteConfirmName"
+            value={deleteConfirmText}
+            onChange={(event) => setDeleteConfirmText(event.target.value)}
+            placeholder="请输入采集源名称"
+          />
+        </div>
       </Modal>
 
       <PullTaskHistoryDrawer

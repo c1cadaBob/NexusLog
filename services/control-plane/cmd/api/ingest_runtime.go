@@ -160,6 +160,7 @@ func registerAuthorizedPullIngestRuntimeRoutes(
 	router.POST("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.create"), sourceHandler.CreatePullSource)
 	router.PUT("/api/v1/ingest/pull-sources", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.update"), sourceHandler.UpdatePullSourceByBody)
 	router.PUT("/api/v1/ingest/pull-sources/:source_id", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.update"), sourceHandler.UpdatePullSourceByPath)
+	router.DELETE("/api/v1/ingest/pull-sources/:source_id", middleware.RequireCapabilityOrAdminRole(db, "ingest.source.delete"), sourceHandler.DeletePullSource)
 
 	taskHandler := ingest.NewPullTaskHandler(sourceStore, taskStore)
 	router.GET("/api/v1/ingest/pull-tasks", middleware.RequireCapabilityOrAdminRole(db, "ingest.task.read"), taskHandler.ListPullTasks)

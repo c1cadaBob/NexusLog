@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, App, Button, Card, Descriptions, Empty, Input, Modal, Select, Space, Spin, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
-import { fetchIngestAgents, type IngestAgentItem } from '../../api/ingest';
+import { deletePullSource, fetchIngestAgents, type IngestAgentItem } from '../../api/ingest';
+import { hasAnyCapability } from '../../auth/routeAuthorization';
+import { useAuthStore } from '../../stores/authStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { COLORS } from '../../theme/tokens';
 
@@ -59,6 +61,10 @@ function formatShortId(value?: string, head = 8, tail = 4) {
   return `${normalized.slice(0, head)}…${normalized.slice(-tail)}`;
 }
 
+function getAgentDisplayName(agent: IngestAgentItem) {
+  return agent.hostname || agent.host || agent.agent_id;
+}
+
 function renderPathPreview(paths?: string[]) {
   const normalizedPaths = (paths ?? [])
     .map((path) => String(path ?? '').trim())
@@ -99,6 +105,13 @@ const AgentManagement: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedAgent, setSelectedAgent] = useState<IngestAgentItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteTargetAgent, setDeleteTargetAgent] = useState<IngestAgentItem | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const capabilities = useAuthStore((s) => s.capabilities);
+  const canDeleteAgent = useMemo(() => hasAnyCapability(capabilities, ['ingest.source.delete']), [capabilities]);
 
   const storedPageSize = usePreferencesStore((s) => s.pageSizes.agentManagement ?? 10);
   const setStoredPageSize = usePreferencesStore((s) => s.setPageSize);
@@ -124,6 +137,63 @@ const AgentManagement: React.FC = () => {
   useEffect(() => {
     loadAgents();
   }, [loadAgents]);
+
+  const openDeleteModal = useCallback((agent: IngestAgentItem) => {
+    setDeleteTargetAgent(agent);
+    setDeleteConfirmText('');
+    setDeleteModalOpen(true);
+  }, []);
+
+  const closeDeleteModal = useCallback(() => {
+    setDeleteModalOpen(false);
+    setDeleteTargetAgent(null);
+    setDeleteConfirmText('');
+  }, []);
+
+  const handleDeleteAgent = useCallback(async () => {
+    if (!deleteTargetAgent) return;
+
+    const expectedName = getAgentDisplayName(deleteTargetAgent).trim();
+    if (deleteConfirmText.trim() !== expectedName) {
+      messageApi.error('请输入正确的 Agent 名称后再删除');
+      return;
+    }
+
+    const sourceIds = (deleteTargetAgent.source_ids ?? []).filter(Boolean);
+    if (sourceIds.length === 0) {
+      messageApi.error('当前 Agent 没有关联采集源，无法删除');
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const results = await Promise.allSettled(sourceIds.map((sourceId) => deletePullSource(sourceId)));
+      const failed = results.filter((item) => item.status === 'rejected');
+      const succeeded = results.length - failed.length;
+
+      if (failed.length === 0) {
+        messageApi.success(`已删除 Agent：${expectedName}`);
+      } else if (succeeded > 0) {
+        messageApi.warning(`已删除 ${succeeded} 个采集源，仍有 ${failed.length} 个删除失败`);
+      } else {
+        const firstError = failed[0];
+        const message = firstError && firstError.status === 'rejected'
+          ? (firstError.reason instanceof Error ? firstError.reason.message : String(firstError.reason))
+          : '未知错误';
+        messageApi.error(`删除失败：${message}`);
+        return;
+      }
+
+      if (selectedAgent?.agent_id === deleteTargetAgent.agent_id && selectedAgent?.agent_base_url === deleteTargetAgent.agent_base_url) {
+        setDetailOpen(false);
+        setSelectedAgent(null);
+      }
+      closeDeleteModal();
+      loadAgents();
+    } finally {
+      setDeleting(false);
+    }
+  }, [closeDeleteModal, deleteConfirmText, deleteTargetAgent, loadAgents, messageApi, selectedAgent]);
 
   const stats = useMemo(() => ({
     total: agents.length,
@@ -158,7 +228,7 @@ const AgentManagement: React.FC = () => {
       key: 'agent',
       width: 250,
       render: (_, agent) => {
-        const displayName = agent.hostname || agent.host || agent.agent_id;
+        const displayName = getAgentDisplayName(agent);
         const displayEndpoint = [agent.ip || agent.host, agent.agent_base_url].filter(Boolean).join(' · ');
 
         return (
@@ -254,6 +324,17 @@ const AgentManagement: React.FC = () => {
         <Space size={4}>
           <Button size="small" type="link" onClick={() => { setSelectedAgent(agent); setDetailOpen(true); }}>详情</Button>
           <Button size="small" type="link" onClick={() => navigate('/ingestion/wizard')}>接入</Button>
+          {canDeleteAgent ? (
+            <Button
+              size="small"
+              type="link"
+              danger
+              onClick={() => openDeleteModal(agent)}
+              disabled={!agent.source_ids?.length}
+            >
+              删除
+            </Button>
+          ) : null}
         </Space>
       ),
     },
@@ -371,6 +452,40 @@ const AgentManagement: React.FC = () => {
             </Card>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        title="删除 Agent"
+        open={deleteModalOpen}
+        onCancel={() => {
+          if (!deleting) closeDeleteModal();
+        }}
+        onOk={() => void handleDeleteAgent()}
+        confirmLoading={deleting}
+        okText="确认删除"
+        okButtonProps={{ danger: true, disabled: !deleteTargetAgent || deleteConfirmText.trim() !== getAgentDisplayName(deleteTargetAgent).trim() }}
+        cancelText="取消"
+        cancelButtonProps={{ disabled: deleting }}
+        destroyOnHidden
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Alert
+            type="warning"
+            showIcon
+            message="删除后不可恢复"
+            description="删除 Agent 会级联删除其关联的全部采集源配置。"
+          />
+          <Typography.Paragraph style={{ marginBottom: 0 }}>
+            请输入 Agent 名称 <Typography.Text code>{deleteTargetAgent ? getAgentDisplayName(deleteTargetAgent) : '-'}</Typography.Text> 以确认删除。
+          </Typography.Paragraph>
+          <Input
+            id="agent-delete-confirm-name"
+            name="agentDeleteConfirmName"
+            value={deleteConfirmText}
+            onChange={(event) => setDeleteConfirmText(event.target.value)}
+            placeholder="请输入 Agent 名称"
+          />
+        </div>
       </Modal>
     </div>
   );

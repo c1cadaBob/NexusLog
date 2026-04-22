@@ -512,7 +512,9 @@ export async function updatePullSource(id: string, data: UpdatePullSourcePayload
 }
 
 export async function deletePullSource(id: string): Promise<void> {
-  await updatePullSource(id, { status: 'disabled' });
+  await requestIngestApi<{ deleted: boolean }>(`/pull-sources/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function fetchIngestAgents(): Promise<IngestAgentItem[]> {

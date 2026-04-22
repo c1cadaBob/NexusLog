@@ -243,23 +243,25 @@ func (s *PullSourceStore) updateFromDB(ctx context.Context, sourceID string, req
 		return PullSource{}, err
 	}
 
+	tenantID := s.backend.ResolveTenantID(ctx)
 	now := s.backend.Now()
 	query := `
 UPDATE ingest_pull_sources
 SET
-    name = COALESCE($2, name),
-    host = COALESCE($3, host),
-    port = COALESCE($4, port),
-    protocol = COALESCE($5, protocol),
-    path_pattern = COALESCE($6, path_pattern),
-    auth_ref = COALESCE($7, auth_ref),
-    agent_base_url = COALESCE($8, agent_base_url),
-    pull_interval_sec = COALESCE($9, pull_interval_sec),
-    pull_timeout_sec = COALESCE($10, pull_timeout_sec),
-    key_ref = COALESCE($11, key_ref),
-    status = COALESCE($12, status),
-    updated_at = $13
-WHERE id = $1::uuid
+    name = COALESCE($3, name),
+    host = COALESCE($4, host),
+    port = COALESCE($5, port),
+    protocol = COALESCE($6, protocol),
+    path_pattern = COALESCE($7, path_pattern),
+    auth_ref = COALESCE($8, auth_ref),
+    agent_base_url = COALESCE($9, agent_base_url),
+    pull_interval_sec = COALESCE($10, pull_interval_sec),
+    pull_timeout_sec = COALESCE($11, pull_timeout_sec),
+    key_ref = COALESCE($12, key_ref),
+    status = COALESCE($13, status),
+    updated_at = $14
+WHERE tenant_id = $1::uuid
+  AND id = $2::uuid
 RETURNING
 	tenant_id::text,
     id::text,
@@ -282,6 +284,7 @@ RETURNING
 	err := s.backend.DB().QueryRowContext(
 		ctx,
 		query,
+		tenantID,
 		sourceID,
 		derefString(req.Name),
 		derefString(req.Host),
@@ -326,6 +329,35 @@ RETURNING
 	return updated, nil
 }
 
+func (s *PullSourceStore) deleteFromDB(ctx context.Context, sourceID string) error {
+	if s.backend == nil || s.backend.DB() == nil {
+		return fmt.Errorf("postgres backend is not configured")
+	}
+
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return ErrPullSourceNotFound
+	}
+
+	tenantID := s.backend.ResolveTenantID(ctx)
+	result, err := s.backend.DB().ExecContext(ctx, `
+DELETE FROM ingest_pull_sources
+WHERE tenant_id = $1::uuid
+  AND id = $2::uuid
+`, tenantID, sourceID)
+	if err != nil {
+		return wrapDBError("delete pull source", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return wrapDBError("delete pull source", err)
+	}
+	if affected == 0 {
+		return ErrPullSourceNotFound
+	}
+	return nil
+}
+
 func (s *PullSourceStore) getByIDFromDB(ctx context.Context, sourceID string) (PullSource, bool) {
 	if s.backend == nil || s.backend.DB() == nil {
 		return PullSource{}, false
@@ -334,6 +366,7 @@ func (s *PullSourceStore) getByIDFromDB(ctx context.Context, sourceID string) (P
 	if sourceID == "" {
 		return PullSource{}, false
 	}
+	tenantID := s.backend.ResolveTenantID(ctx)
 	query := `
 SELECT
 	tenant_id::text,
@@ -352,10 +385,11 @@ SELECT
     created_at,
     updated_at
 FROM ingest_pull_sources
-WHERE id = $1::uuid
+WHERE tenant_id = $1::uuid
+  AND id = $2::uuid
 `
 	var item PullSource
-	if err := s.backend.DB().QueryRowContext(ctx, query, sourceID).Scan(
+	if err := s.backend.DB().QueryRowContext(ctx, query, tenantID, sourceID).Scan(
 		&item.TenantID,
 		&item.SourceID,
 		&item.Name,

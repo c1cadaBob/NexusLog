@@ -208,6 +208,72 @@ func TestPullSourceUpdateByPath(t *testing.T) {
 	}
 }
 
+// TestPullSourceDeleteByPath 验证 DELETE 真删除闭环与重复删除返回 404。
+func TestPullSourceDeleteByPath(t *testing.T) {
+	router := newTestRouter()
+
+	createResp := performJSONRequest(router, http.MethodPost, "/api/v1/ingest/pull-sources", map[string]any{
+		"name":     "source-delete",
+		"host":     "10.0.0.3",
+		"port":     9091,
+		"protocol": "http",
+		"path":     "/var/log/delete.log",
+		"auth":     "token-ref-delete",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create failed: %d %s", createResp.Code, createResp.Body.String())
+	}
+	createEnvelope := decodeEnvelope(t, createResp)
+	var createData struct {
+		SourceID string `json:"source_id"`
+	}
+	if err := json.Unmarshal(createEnvelope.Data, &createData); err != nil {
+		t.Fatalf("failed to decode create data: %v", err)
+	}
+
+	deleteResp := performJSONRequest(router, http.MethodDelete, "/api/v1/ingest/pull-sources/"+createData.SourceID, nil)
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("delete failed: %d %s", deleteResp.Code, deleteResp.Body.String())
+	}
+	deleteEnvelope := decodeEnvelope(t, deleteResp)
+	if deleteEnvelope.Code != "OK" {
+		t.Fatalf("unexpected delete code: %s", deleteEnvelope.Code)
+	}
+	var deleteData struct {
+		Deleted bool `json:"deleted"`
+	}
+	if err := json.Unmarshal(deleteEnvelope.Data, &deleteData); err != nil {
+		t.Fatalf("failed to decode delete data: %v", err)
+	}
+	if !deleteData.Deleted {
+		t.Fatalf("expected deleted=true")
+	}
+
+	listResp := performJSONRequest(router, http.MethodGet, "/api/v1/ingest/pull-sources?page=1&page_size=10", nil)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("list failed: %d %s", listResp.Code, listResp.Body.String())
+	}
+	listEnvelope := decodeEnvelope(t, listResp)
+	var listData struct {
+		Items []PullSource `json:"items"`
+	}
+	if err := json.Unmarshal(listEnvelope.Data, &listData); err != nil {
+		t.Fatalf("failed to decode list data: %v", err)
+	}
+	if len(listData.Items) != 0 {
+		t.Fatalf("expected zero items after delete, got %d", len(listData.Items))
+	}
+
+	repeatDeleteResp := performJSONRequest(router, http.MethodDelete, "/api/v1/ingest/pull-sources/"+createData.SourceID, nil)
+	if repeatDeleteResp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for repeated delete, got %d %s", repeatDeleteResp.Code, repeatDeleteResp.Body.String())
+	}
+	repeatDeleteEnvelope := decodeEnvelope(t, repeatDeleteResp)
+	if repeatDeleteEnvelope.Code != ErrorCodePullSourceNotFound {
+		t.Fatalf("unexpected repeat delete error code: %s", repeatDeleteEnvelope.Code)
+	}
+}
+
 // TestPullSourceInvalidArgument 验证参数校验失败场景（6.1 验收证据要求）。
 func TestPullSourceInvalidArgument(t *testing.T) {
 	router := newTestRouter()

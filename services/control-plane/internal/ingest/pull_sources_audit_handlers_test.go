@@ -197,3 +197,34 @@ func TestHandlerUpdatePullSourceSetsExplicitAuditEvent(t *testing.T) {
 		t.Fatalf("expected renamed path, got %#v", got)
 	}
 }
+
+func TestHandlerDeletePullSourceSetsExplicitAuditEvent(t *testing.T) {
+	store := NewPullSourceStore()
+	handler := NewPullSourceHandler(store)
+	seeded := seedPullSourceForAuditTest(t, store, "audit-source-delete", "active")
+
+	c, w := newPullSourceAuditTestContext(http.MethodDelete, "/api/v1/ingest/pull-sources/"+seeded.SourceID, nil)
+	c.Params = gin.Params{{Key: "source_id", Value: seeded.SourceID}}
+
+	handler.DeletePullSource(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	event, ok := cpMiddleware.GetAuditEvent(c)
+	if !ok {
+		t.Fatal("expected audit event")
+	}
+	if event.Action != "pull_sources.delete" {
+		t.Fatalf("expected pull_sources.delete, got %s", event.Action)
+	}
+	if event.ResourceID != seeded.SourceID {
+		t.Fatalf("expected resource id %s, got %s", seeded.SourceID, event.ResourceID)
+	}
+	if got := event.Details["source_name"]; got != "audit-source-delete" {
+		t.Fatalf("expected deleted source_name, got %#v", got)
+	}
+	if got := event.Details["path"]; got != "/tmp/audit-source-delete.log" {
+		t.Fatalf("expected deleted path, got %#v", got)
+	}
+}
