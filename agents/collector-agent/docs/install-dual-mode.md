@@ -47,10 +47,10 @@ bash scripts/package-agent.sh
 
 ```bash
 if [ "$(id -u)" -eq 0 ]; then
-  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-installer.sh' | env \
-    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-linux-amd64.tar.gz' \
+  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.2/collector-agent-installer.sh' | env \
+    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.2/collector-agent-linux-amd64.tar.gz' \
     AGENT_ID='collector-agent-node-01' \
-    AGENT_VERSION='v0.1.1' \
+    AGENT_VERSION='v0.1.2' \
     CONTROL_PLANE_BASE_URL='http://<control-plane-host>:8080' \
     AGENT_API_KEY_ACTIVE_ID='active' \
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
@@ -66,10 +66,10 @@ else
     echo 'sudo is required when not running as root' >&2
     exit 1
   fi
-  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-installer.sh' | sudo env \
-    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-linux-amd64.tar.gz' \
+  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.2/collector-agent-installer.sh' | sudo env \
+    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.2/collector-agent-linux-amd64.tar.gz' \
     AGENT_ID='collector-agent-node-01' \
-    AGENT_VERSION='v0.1.1' \
+    AGENT_VERSION='v0.1.2' \
     CONTROL_PLANE_BASE_URL='http://<control-plane-host>:8080' \
     AGENT_API_KEY_ACTIVE_ID='active' \
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
@@ -87,10 +87,10 @@ fi
 
 ```bash
 if [ "$(id -u)" -eq 0 ]; then
-  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-installer.sh' | env \
-    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-linux-amd64.tar.gz' \
+  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.2/collector-agent-installer.sh' | env \
+    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.2/collector-agent-linux-amd64.tar.gz' \
     AGENT_ID='collector-agent-node-01' \
-    AGENT_VERSION='v0.1.1' \
+    AGENT_VERSION='v0.1.2' \
     CONTROL_PLANE_BASE_URL='http://<control-plane-host>:8080' \
     AGENT_API_KEY_ACTIVE_ID='active' \
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
@@ -111,10 +111,10 @@ else
     echo 'sudo is required when not running as root' >&2
     exit 1
   fi
-  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-installer.sh' | sudo env \
-    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.1/collector-agent-linux-amd64.tar.gz' \
+  curl -fsSL 'https://github.com/<owner>/<repo>/releases/download/v0.1.2/collector-agent-installer.sh' | sudo env \
+    ASSET_URL='https://github.com/<owner>/<repo>/releases/download/v0.1.2/collector-agent-linux-amd64.tar.gz' \
     AGENT_ID='collector-agent-node-01' \
-    AGENT_VERSION='v0.1.1' \
+    AGENT_VERSION='v0.1.2' \
     CONTROL_PLANE_BASE_URL='http://<control-plane-host>:8080' \
     AGENT_API_KEY_ACTIVE_ID='active' \
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \

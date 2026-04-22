@@ -8,7 +8,7 @@ services:
     environment:
       HTTP_PORT: "9091"
       AGENT_ID: "collector-agent-docker"
-      AGENT_VERSION: "0.1.1"
+      AGENT_VERSION: "0.1.2"
       AGENT_API_KEY_ACTIVE_ID: "active"
       AGENT_API_KEY_ACTIVE: "replace-with-strong-key"
       AGENT_API_KEY_NEXT_ID: "next"
