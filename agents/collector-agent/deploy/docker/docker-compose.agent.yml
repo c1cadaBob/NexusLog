@@ -18,14 +18,16 @@ services:
       COLLECTOR_EXCLUDE_PATHS: "/var/log/wtmp,/var/log/btmp"
       COLLECTOR_PATH_LABEL_RULES: '[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]'
       COLLECTOR_SYSLOG_LISTENERS_JSON: '[]'
-      DELIVERY_MODE: "dual"
-      ENABLE_KAFKA_PIPELINE: "true"
+      # 默认使用被动拉取；如需切换为主动上传，请改为 DELIVERY_MODE=dual、ENABLE_KAFKA_PIPELINE=true
+      DELIVERY_MODE: "pull"
+      ENABLE_KAFKA_PIPELINE: "false"
       CONTROL_PLANE_BASE_URL: "http://control-plane:8080"
       AGENT_METRICS_REPORT_ENABLED: "true"
       AGENT_METRICS_REPORT_INTERVAL: "30s"
       AGENT_METRICS_REPORT_TIMEOUT: "10s"
       CHECKPOINT_DIR: "/var/lib/collector-agent/checkpoints"
       CACHE_DIR: "/var/lib/collector-agent/cache"
+      # 以下 Kafka 参数仅在主动上传（Kafka 兼容）模式下生效
       KAFKA_BROKERS: "kafka:9092"
       KAFKA_TOPIC: "nexuslog.logs.raw"
       KAFKA_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
