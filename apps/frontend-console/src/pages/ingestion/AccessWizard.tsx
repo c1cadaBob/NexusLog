@@ -4,11 +4,18 @@ import { useNavigate } from 'react-router-dom';
 import {
   createPullSource,
   fetchIngestAgents,
+  fetchPullSources,
   generateDeploymentScript,
   type GenerateDeploymentScriptResponse,
   type IngestAgentItem,
 } from '../../api/ingest';
 import { getRuntimeConfig } from '../../config/runtime-config';
+import {
+  buildAgentOptionLabel,
+  buildAgentOptionValue,
+  buildPullSourceOverlapMessage,
+  findOverlappingActivePullSource,
+} from './accessWizardHelpers';
 
 const SOURCE_TYPE_OPTIONS = [
   { label: '通用文件日志', value: 'custom', description: '预填通用文件 / 目录路径，适用于任意文本日志' },
@@ -127,7 +134,7 @@ const AccessWizard: React.FC = () => {
   const [agentMode, setAgentMode] = useState<'existing' | 'new'>('existing');
   const [agents, setAgents] = useState<IngestAgentItem[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
-  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+  const [selectedAgentKey, setSelectedAgentKey] = useState<string>('');
   const [agentBaseUrl, setAgentBaseUrl] = useState('http://127.0.0.1:9091');
   const [controlPlaneBaseUrl, setControlPlaneBaseUrl] = useState(window.location.origin);
   const [releaseProvider, setReleaseProvider] = useState<'github' | 'gitee' | 'custom'>(collectorAgentConfig.releaseProvider ?? 'github');
@@ -174,8 +181,8 @@ const AccessWizard: React.FC = () => {
   );
 
   const selectedAgent = useMemo(
-    () => agents.find((item) => item.agent_id === selectedAgentId) ?? null,
-    [agents, selectedAgentId],
+    () => agents.find((item) => buildAgentOptionValue(item) === selectedAgentKey) ?? null,
+    [agents, selectedAgentKey],
   );
   const selectedDeploymentTarget = useMemo(
     () => DEPLOY_TARGET_OPTIONS.find((item) => item.value === deploymentTarget) ?? null,
@@ -190,7 +197,7 @@ const AccessWizard: React.FC = () => {
       setAgents(data);
       const firstOnline = data.find((item) => item.live_connected) ?? data[0] ?? null;
       if (firstOnline) {
-        setSelectedAgentId(firstOnline.agent_id);
+        setSelectedAgentKey(buildAgentOptionValue(firstOnline));
         if (firstOnline.agent_base_url) {
           setAgentBaseUrl(firstOnline.agent_base_url);
         }
@@ -252,7 +259,7 @@ const AccessWizard: React.FC = () => {
     releaseProvider,
     releaseRepo,
     normalizedVersion,
-    selectedAgentId,
+    selectedAgentKey,
     sourceName,
     sourcePath,
     sourceType,
@@ -262,8 +269,8 @@ const AccessWizard: React.FC = () => {
 
   const agentOptions = useMemo(
     () => agents.map((agent) => ({
-      label: `${agent.hostname || agent.host || agent.agent_id} (${agent.status})`,
-      value: agent.agent_id,
+      label: buildAgentOptionLabel(agent),
+      value: buildAgentOptionValue(agent),
     })),
     [agents],
   );
@@ -281,7 +288,7 @@ const AccessWizard: React.FC = () => {
       return true;
     }
     if (step === 1) {
-      if (agentMode === 'existing' && !selectedAgentId) {
+      if (agentMode === 'existing' && !selectedAgentKey) {
         messageApi.warning('请选择一个已有 Agent');
         return false;
       }
@@ -304,7 +311,7 @@ const AccessWizard: React.FC = () => {
       return true;
     }
     return true;
-  }, [agentBaseUrl, agentMode, deliveryMode, kafkaBrokers, kafkaTopic, messageApi, selectedAgentId, sourceName, sourcePath, sourceType]);
+  }, [agentBaseUrl, agentMode, deliveryMode, kafkaBrokers, kafkaTopic, messageApi, selectedAgentKey, sourceName, sourcePath, sourceType]);
 
   const handleNext = useCallback(() => {
     if (!validateStep(currentStep)) return;
@@ -326,7 +333,7 @@ const AccessWizard: React.FC = () => {
         target_kind: deploymentTarget,
         source_name: sourceName.trim(),
         source_type: sourceType,
-        agent_id: selectedAgentId || undefined,
+        agent_id: selectedAgent?.agent_id || undefined,
         agent_base_url: agentBaseUrl.trim(),
         control_plane_base_url: controlPlaneBaseUrl.trim(),
         release_base_url: resolvedReleaseBaseUrl || undefined,
@@ -367,7 +374,7 @@ const AccessWizard: React.FC = () => {
     resolvedContainerImage,
     resolvedInstallScriptUrl,
     resolvedReleaseBaseUrl,
-    selectedAgentId,
+    selectedAgent?.agent_id,
     sourceName,
     sourcePath,
     sourceType,
@@ -402,6 +409,25 @@ const AccessWizard: React.FC = () => {
       messageApi.success(`采集源配置 ${created.name} 已保存`);
       navigate('/ingestion/sources');
     } catch (err) {
+      const requestError = err as Error & { status?: number; code?: string };
+      const isOverlapConflict = requestError.status === 409 && /overlaps existing agent endpoint/i.test(requestError.message);
+
+      if (isOverlapConflict) {
+        try {
+          const existingSources = await fetchPullSources({ status: 'active' });
+          const conflict = findOverlappingActivePullSource(existingSources, {
+            agent_base_url: agentBaseUrl.trim(),
+            path: sourcePath.trim(),
+            status: 'active',
+          });
+          messageApi.error(buildPullSourceOverlapMessage(conflict));
+          return;
+        } catch {
+          messageApi.error(buildPullSourceOverlapMessage(null));
+          return;
+        }
+      }
+
       messageApi.error(`保存采集源配置失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSubmitting(false);
@@ -465,7 +491,7 @@ const AccessWizard: React.FC = () => {
             ) : (
               <Form layout="vertical" name="access-wizard-existing-agent">
                 <Form.Item label="Agent">
-                  <Select id="access-wizard-agent-select" value={selectedAgentId || undefined} options={agentOptions} onChange={setSelectedAgentId} />
+                  <Select id="access-wizard-agent-select" value={selectedAgentKey || undefined} options={agentOptions} onChange={setSelectedAgentKey} />
                 </Form.Item>
                 <Form.Item label="Agent 基础 URL">
                   <Input name="agentBaseUrl" value={agentBaseUrl} onChange={(event) => setAgentBaseUrl(event.target.value)} />
