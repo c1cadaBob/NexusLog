@@ -31,6 +31,12 @@ describe('resolveLogHostIP', () => {
     expect(resolveLogHostIP({ 'host.ip': ['10.0.0.10', 'fe80::1'] } as Record<string, unknown>)).toBe('10.0.0.10');
   });
 
+  it('falls back to nested agent ip and id when host ip is missing', () => {
+    expect(resolveLogHostIP({ agent: { ip: '10.0.0.11', id: 'collector-agent' } } as Record<string, unknown>)).toBe('10.0.0.11');
+    expect(resolveLogHostIP({ agent: { id: 'collector-agent' } } as Record<string, unknown>)).toBe('collector-agent');
+    expect(resolveLogHostIP({ agent_id: 'collector-agent-2' } as Record<string, unknown>)).toBe('collector-agent-2');
+  });
+
   it('returns placeholder when host ip is missing', () => {
     expect(resolveLogHostIP({ host: 'node-a' })).toBe('—');
   });

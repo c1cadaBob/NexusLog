@@ -324,6 +324,9 @@ export function resolveLogHost(fields: RealtimeLogFields & Record<string, unknow
 }
 
 export function resolveLogHostIP(fields: RealtimeLogFields & Record<string, unknown>): string {
+  const nestedAgent = fields.agent && typeof fields.agent === 'object' && !Array.isArray(fields.agent)
+    ? fields.agent as Record<string, unknown>
+    : undefined;
   const candidates = [
     fields.host_ip,
     fields['host.ip'],
@@ -331,6 +334,10 @@ export function resolveLogHostIP(fields: RealtimeLogFields & Record<string, unkn
     fields['server_ip'],
     fields['agent.ip'],
     fields['agent_ip'],
+    nestedAgent?.ip,
+    fields['agent.id'],
+    nestedAgent?.id,
+    fields.agent_id,
   ];
   for (const candidate of candidates) {
     const value = toDisplayIP(candidate);
