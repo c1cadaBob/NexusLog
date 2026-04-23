@@ -49,4 +49,8 @@ describe('resolveLogService', () => {
   it('falls back to file name when service candidate looks like a JSON envelope', () => {
     expect(resolveLogService({ service_name: '{"log":"[GIN]"', source_path: '/var/log/messages' }, '{"log":"[GIN]"')).toBe('messages');
   });
+
+  it('falls back to file name when service candidate looks like a year', () => {
+    expect(resolveLogService({ service_name: '2026', source_path: '/var/log/kern.log' }, '2026')).toBe('kern.log');
+  });
 });

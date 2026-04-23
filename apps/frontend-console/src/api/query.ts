@@ -366,6 +366,12 @@ function toServiceString(value: unknown): string {
   if (normalized.includes('{"') || normalized.includes('\\"') || /[\r\n\t]/.test(normalized)) {
     return '';
   }
+  if (/^\d+$/.test(normalized)) {
+    return '';
+  }
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[Tt _]\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(normalized)) {
+    return '';
+  }
   return normalized;
 }
 

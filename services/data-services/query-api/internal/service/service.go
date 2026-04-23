@@ -56,6 +56,8 @@ var (
 		"jan": {}, "feb": {}, "mar": {}, "apr": {}, "may": {}, "jun": {},
 		"jul": {}, "aug": {}, "sep": {}, "oct": {}, "nov": {}, "dec": {},
 	}
+	bogusNumericServicePattern = regexp.MustCompile(`^\d+$`)
+	bogusTimestampServicePattern = regexp.MustCompile(`^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[Tt _]\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$`)
 )
 
 // RequestActor 描述一次查询请求的调用身份。
@@ -912,6 +914,9 @@ func sanitizeDisplayServiceName(raw string) string {
 		return ""
 	}
 	if strings.Contains(value, `{"`) || strings.Contains(value, `\\"`) || strings.ContainsAny(value, "\r\n\t") {
+		return ""
+	}
+	if bogusNumericServicePattern.MatchString(value) || bogusTimestampServicePattern.MatchString(value) {
 		return ""
 	}
 	return value

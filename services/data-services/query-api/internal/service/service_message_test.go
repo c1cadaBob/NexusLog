@@ -288,6 +288,31 @@ func TestMapRawHit_FallsBackToSourceFileWhenServiceLooksLikeJSONEnvelope(t *test
 	}
 }
 
+func TestMapRawHit_FallsBackToSourceFileWhenServiceLooksLikeYear(t *testing.T) {
+	hit := mapRawHit(repository.RawLogHit{
+		ID:    "id-service-year-fallback",
+		Index: "nexuslog-logs-v2",
+		Source: map[string]any{
+			"message": "2026-04-23T05:22:24.585366+00:00 ser862346180628 kernel: vethaf56543 (unregistering): left allmulticast mode",
+			"service": map[string]any{
+				"name": "2026",
+			},
+			"log": map[string]any{
+				"file": map[string]any{
+					"path": "/var/log/kern.log",
+				},
+			},
+		},
+	})
+
+	if got := hit.Service; got != "kern.log" {
+		t.Fatalf("hit.Service=%q, want kern.log", got)
+	}
+	if got := hit.Fields["service_name"]; got != "kern.log" {
+		t.Fatalf("fields[service_name]=%v, want kern.log", got)
+	}
+}
+
 func TestResolveDisplayService_FallsBackToDockerComposeMetadata(t *testing.T) {
 	containerID := strings.Repeat("a", 64)
 	rootDir := t.TempDir()
