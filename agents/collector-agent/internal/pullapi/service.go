@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/nexuslog/collector-agent/internal/checkpoint"
+	"github.com/nexuslog/collector-agent/internal/pathmatch"
 	"github.com/nexuslog/collector-agent/plugins"
 )
 
@@ -824,7 +824,7 @@ func sourcePathPatternMatches(pattern, recordPath string) bool {
 	if pattern == "" || recordPath == "" {
 		return false
 	}
-	if matched, err := filepath.Match(pattern, recordPath); err == nil && matched {
+	if matched, err := pathmatch.Match(pattern, recordPath); err == nil && matched {
 		return true
 	}
 	return pattern == recordPath

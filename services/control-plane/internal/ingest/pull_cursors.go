@@ -3,10 +3,11 @@ package ingest
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nexuslog/control-plane/internal/pathmatch"
 )
 
 // PullCursor 定义按 source/path 保存的断点游标模型。
@@ -168,7 +169,7 @@ func cursorSourcePathMatches(patterns []string, sourcePath string) bool {
 		if pattern == "" {
 			continue
 		}
-		if matched, err := filepath.Match(pattern, sourcePath); err == nil && matched {
+		if matched, err := pathmatch.Match(pattern, sourcePath); err == nil && matched {
 			return true
 		}
 		if pattern == sourcePath {

@@ -193,6 +193,44 @@ func TestPullFiltersBySourcePath(t *testing.T) {
 	}
 }
 
+func TestPullFiltersByRecursiveSourcePath(t *testing.T) {
+	store := newMockCheckpointStore()
+	svc := New(store)
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, svc, MetaInfo{}, testAuthConfig())
+
+	svc.AddRecords([]plugins.Record{
+		{Source: "/var/log/app.log", Data: []byte("root-line"), Metadata: map[string]string{"offset": "10"}},
+		{Source: "/var/log/nginx/access.log", Data: []byte("nested-line"), Metadata: map[string]string{"offset": "20"}},
+		{Source: "/opt/app/app.log", Data: []byte("outside-line"), Metadata: map[string]string{"offset": "30"}},
+	})
+
+	resp := doJSONRequest(t, mux, http.MethodPost, "/agent/v1/logs/pull", map[string]any{
+		"source_path": "/var/**/*.log",
+		"max_records": 10,
+		"max_bytes":   1024,
+	}, map[string]string{
+		"X-Agent-Key": "test-active-key",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("pull failed: %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var pullData PullResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &pullData); err != nil {
+		t.Fatalf("decode pull response failed: %v", err)
+	}
+	if len(pullData.Records) != 2 {
+		t.Fatalf("expected 2 recursively filtered records, got %d", len(pullData.Records))
+	}
+	if pullData.Records[0].Source.Path != "/var/log/app.log" && pullData.Records[1].Source.Path != "/var/log/app.log" {
+		t.Fatalf("expected root log to match recursive pattern: %+v", pullData.Records)
+	}
+	if pullData.Records[0].Source.Path != "/var/log/nginx/access.log" && pullData.Records[1].Source.Path != "/var/log/nginx/access.log" {
+		t.Fatalf("expected nested log to match recursive pattern: %+v", pullData.Records)
+	}
+}
+
 func TestPullTracksCommittedCursorPerSourcePath(t *testing.T) {
 	store := newMockCheckpointStore()
 	svc := New(store)

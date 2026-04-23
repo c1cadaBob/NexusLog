@@ -3,9 +3,10 @@ package ingest
 import (
 	"context"
 	"log"
-	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/nexuslog/control-plane/internal/pathmatch"
 )
 
 const (
@@ -230,7 +231,7 @@ func (s *PullTaskScheduler) isCriticalSource(source PullSource) bool {
 			if candidate == "" {
 				continue
 			}
-			if matched, err := filepath.Match(normalizedPattern, candidate); err == nil && matched {
+			if matched, err := pathmatch.Match(normalizedPattern, candidate); err == nil && matched {
 				return true
 			}
 			if strings.Contains(candidate, normalizedPattern) {

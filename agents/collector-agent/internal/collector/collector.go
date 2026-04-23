@@ -21,6 +21,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/nexuslog/collector-agent/internal/checkpoint"
+	"github.com/nexuslog/collector-agent/internal/pathmatch"
 	"github.com/nexuslog/collector-agent/plugins"
 )
 
@@ -452,23 +453,18 @@ func resolvePathLabels(path string, rules []PathLabelRule) map[string]string {
 
 // isPathMatched 判断路径是否命中 pattern，兼容全路径与文件名匹配。
 func isPathMatched(path, pattern string) bool {
-	if matched, err := filepath.Match(pattern, path); err == nil && matched {
-		return true
-	}
-	if matched, err := filepath.Match(pattern, filepath.Base(path)); err == nil && matched {
-		return true
-	}
-	return false
+	matched, err := pathmatch.MatchPathOrBase(pattern, path)
+	return err == nil && matched
 }
 
-// resolveScanPaths 将配置项解析为可读取文件列表，支持 glob 与单文件路径。
+// resolveScanPaths 将配置项解析为可读取文件列表，支持 glob、** 递归 glob 与单文件路径。
 func resolveScanPaths(configured string) ([]string, error) {
 	configured = strings.TrimSpace(configured)
 	if configured == "" {
 		return nil, nil
 	}
 
-	matches, err := filepath.Glob(configured)
+	matches, err := pathmatch.Expand(configured)
 	if err != nil {
 		return nil, err
 	}
@@ -493,11 +489,8 @@ func isExcludedPath(path string, excludePatterns []string) bool {
 		if pattern == "" {
 			continue
 		}
-		if matched, err := filepath.Match(pattern, path); err == nil && matched {
-			return true
-		}
-		// 兼容仅写文件名模式（如 *.gz）。
-		if matched, err := filepath.Match(pattern, filepath.Base(path)); err == nil && matched {
+		matched, err := pathmatch.MatchPathOrBase(pattern, path)
+		if err == nil && matched {
 			return true
 		}
 	}
@@ -694,7 +687,11 @@ func collectWatchDirs(configuredPaths []string) []string {
 		}
 		dir := configured
 		if hasWildcard(configured) {
-			dir = filepath.Dir(configured)
+			if pathmatch.HasRecursiveWildcard(configured) {
+				dir = pathmatch.RecursiveBaseDir(configured)
+			} else {
+				dir = filepath.Dir(configured)
+			}
 		} else {
 			info, err := os.Stat(configured)
 			if err == nil {
@@ -745,7 +742,7 @@ func matchesSourcePaths(path string, configuredPaths []string) bool {
 }
 
 func hasWildcard(path string) bool {
-	return strings.ContainsAny(path, "*?[")
+	return pathmatch.HasWildcard(path)
 }
 
 // collectSyslog 从 syslog 源采集日志

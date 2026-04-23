@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/nexuslog/control-plane/internal/middleware"
+	"github.com/nexuslog/control-plane/internal/pathmatch"
 )
 
 const (
@@ -988,17 +988,17 @@ func pullSourcePatternOverlap(left, right string) bool {
 		return true
 	}
 
-	leftHasWildcard := strings.ContainsAny(left, "*?[")
-	rightHasWildcard := strings.ContainsAny(right, "*?[")
+	leftHasWildcard := pathmatch.HasWildcard(left)
+	rightHasWildcard := pathmatch.HasWildcard(right)
 	if !leftHasWildcard && !rightHasWildcard {
 		return false
 	}
 	if leftHasWildcard && !rightHasWildcard {
-		matched, err := filepath.Match(left, right)
+		matched, err := pathmatch.Match(left, right)
 		return err == nil && matched
 	}
 	if !leftHasWildcard && rightHasWildcard {
-		matched, err := filepath.Match(right, left)
+		matched, err := pathmatch.Match(right, left)
 		return err == nil && matched
 	}
 
@@ -1011,11 +1011,10 @@ func pullSourcePatternOverlap(left, right string) bool {
 }
 
 func pullSourcePatternStaticPrefix(pattern string) string {
-	idx := strings.IndexAny(pattern, "*?[")
-	if idx < 0 {
-		return pattern
+	if prefix := pathmatch.StaticPrefix(pattern); prefix != "" {
+		return prefix
 	}
-	return pattern[:idx]
+	return strings.TrimSpace(pattern)
 }
 
 func activeAgentIdentity(source PullSource) (string, bool) {

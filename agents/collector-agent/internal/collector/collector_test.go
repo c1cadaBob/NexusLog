@@ -176,6 +176,61 @@ func TestCollectFilesWithExcludePatterns(t *testing.T) {
 	}
 }
 
+func TestCollectFilesWithRecursiveGlob(t *testing.T) {
+	tempDir := t.TempDir()
+	rootFile := filepath.Join(tempDir, "root.log")
+	nestedDir := filepath.Join(tempDir, "a", "b")
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatalf("mkdir nested dir failed: %v", err)
+	}
+	nestedFile := filepath.Join(nestedDir, "nested.log")
+	if err := os.WriteFile(rootFile, []byte("root-line\n"), 0644); err != nil {
+		t.Fatalf("write root log failed: %v", err)
+	}
+	if err := os.WriteFile(nestedFile, []byte("nested-line\n"), 0644); err != nil {
+		t.Fatalf("write nested log failed: %v", err)
+	}
+
+	store, err := checkpoint.NewFileStore(filepath.Join(tempDir, "checkpoints"))
+	if err != nil {
+		t.Fatalf("new checkpoint store failed: %v", err)
+	}
+	defer store.Close()
+
+	disableFSNotify := false
+	coll := New(Config{
+		Sources: []SourceConfig{{
+			Type:  SourceTypeFile,
+			Paths: []string{filepath.Join(tempDir, "**", "*.log")},
+		}},
+		BatchSize:      10,
+		FlushInterval:  20 * time.Millisecond,
+		BufferSize:     4,
+		EnableFSNotify: &disableFSNotify,
+	}, store)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := coll.Start(ctx); err != nil {
+		t.Fatalf("start collector failed: %v", err)
+	}
+
+	batch := waitBatch(t, coll.Output(), 2*time.Second)
+	if len(batch) != 2 {
+		t.Fatalf("expected 2 records with recursive glob, got %d", len(batch))
+	}
+	bySource := make(map[string]plugins.Record, len(batch))
+	for _, record := range batch {
+		bySource[record.Source] = record
+	}
+	if got := string(bySource[rootFile].Data); got != "root-line" {
+		t.Fatalf("unexpected root record: %q", got)
+	}
+	if got := string(bySource[nestedFile].Data); got != "nested-line" {
+		t.Fatalf("unexpected nested record: %q", got)
+	}
+}
+
 // TestCollectFilesWithPathLabelRules 验证按路径匹配规则注入自定义标签。
 func TestCollectFilesWithPathLabelRules(t *testing.T) {
 	tempDir := t.TempDir()
