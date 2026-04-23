@@ -390,6 +390,7 @@ export function resolveLogService(fields: RealtimeLogFields & Record<string, unk
     ...candidates,
     fields.service_name,
     fields.service,
+    fields.app,
     fields.container_name,
   ];
   for (const candidate of directCandidates) {

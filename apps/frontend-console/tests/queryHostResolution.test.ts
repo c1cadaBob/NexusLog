@@ -39,6 +39,7 @@ describe('resolveLogHostIP', () => {
 describe('resolveLogService', () => {
   it('prefers explicit service names', () => {
     expect(resolveLogService({ service_name: 'nginx' }, 'nginx')).toBe('nginx');
+    expect(resolveLogService({ app: 'billing-api', source_path: '/var/log/auth.log' } as Record<string, unknown>)).toBe('billing-api');
     expect(resolveLogService({ container_name: 'order-api-1' })).toBe('order-api-1');
   });
 
