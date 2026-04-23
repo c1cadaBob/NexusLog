@@ -514,6 +514,13 @@ const SourceManagement: React.FC = () => {
       closeDeleteModal();
       loadData();
     } catch (err) {
+      const error = err as Error & { code?: string };
+      if (error?.code === 'INGEST_API_TIMEOUT') {
+        messageApi.warning('删除请求超时，服务端可能仍在处理中，已为你关闭弹窗并刷新列表');
+        closeDeleteModal();
+        void loadData();
+        return;
+      }
       messageApi.error(`删除失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setDeleting(false);

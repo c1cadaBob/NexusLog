@@ -415,6 +415,7 @@ async function requestIngestApi<TData>(
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
     body?: unknown;
     query?: Record<string, string | number | undefined>;
+    timeoutMs?: number;
   } = {},
 ): Promise<ApiEnvelope<TData>> {
   const accessToken = resolveAccessToken();
@@ -426,20 +427,40 @@ async function requestIngestApi<TData>(
     url.searchParams.set(key, String(value));
   });
 
-  const response = await fetch(url.pathname + url.search, {
-    method: options.method ?? 'GET',
-    headers: buildAuthHeaders(accessToken),
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? 0;
+  const timeoutID = timeoutMs > 0
+    ? window.setTimeout(() => controller.abort('INGEST_API_TIMEOUT'), timeoutMs)
+    : undefined;
 
-  const envelope = (await response.json().catch(() => null)) as ApiEnvelope<TData> | null;
-  if (!response.ok) {
-    const err = new Error(envelope?.message ?? `ingest api request failed: HTTP ${response.status}`);
-    (err as Error & { status?: number; code?: string }).status = response.status;
-    (err as Error & { status?: number; code?: string }).code = envelope?.code ?? 'INGEST_API_REQUEST_FAILED';
+  try {
+    const response = await fetch(url.pathname + url.search, {
+      method: options.method ?? 'GET',
+      headers: buildAuthHeaders(accessToken),
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: controller.signal,
+    });
+
+    const envelope = (await response.json().catch(() => null)) as ApiEnvelope<TData> | null;
+    if (!response.ok) {
+      const err = new Error(envelope?.message ?? `ingest api request failed: HTTP ${response.status}`);
+      (err as Error & { status?: number; code?: string }).status = response.status;
+      (err as Error & { status?: number; code?: string }).code = envelope?.code ?? 'INGEST_API_REQUEST_FAILED';
+      throw err;
+    }
+    return envelope ?? { code: 'OK', message: 'success', data: undefined, meta: {} };
+  } catch (err) {
+    if (controller.signal.aborted && timeoutMs > 0) {
+      const timeoutError = new Error(`ingest api request timed out after ${Math.ceil(timeoutMs / 1000)}s`);
+      (timeoutError as Error & { code?: string }).code = 'INGEST_API_TIMEOUT';
+      throw timeoutError;
+    }
     throw err;
+  } finally {
+    if (timeoutID !== undefined) {
+      window.clearTimeout(timeoutID);
+    }
   }
-  return envelope ?? { code: 'OK', message: 'success', data: undefined, meta: {} };
 }
 
 export async function fetchPullSources(params?: {
@@ -514,6 +535,7 @@ export async function updatePullSource(id: string, data: UpdatePullSourcePayload
 export async function deletePullSource(id: string): Promise<void> {
   await requestIngestApi<{ deleted: boolean }>(`/pull-sources/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    timeoutMs: 15000,
   });
 }
 

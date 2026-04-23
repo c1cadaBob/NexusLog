@@ -177,10 +177,17 @@ const AgentManagement: React.FC = () => {
         messageApi.warning(`已删除 ${succeeded} 个采集源，仍有 ${failed.length} 个删除失败`);
       } else {
         const firstError = failed[0];
-        const message = firstError && firstError.status === 'rejected'
-          ? (firstError.reason instanceof Error ? firstError.reason.message : String(firstError.reason))
-          : '未知错误';
-        messageApi.error(`删除失败：${message}`);
+        const error = firstError && firstError.status === 'rejected'
+          ? (firstError.reason as Error & { code?: string })
+          : null;
+        if (error?.code === 'INGEST_API_TIMEOUT') {
+          messageApi.warning('删除请求超时，服务端可能仍在处理中，已为你关闭弹窗并刷新列表');
+          closeDeleteModal();
+          void loadAgents();
+        } else {
+          const message = error instanceof Error ? error.message : '未知错误';
+          messageApi.error(`删除失败：${message}`);
+        }
         return;
       }
 
