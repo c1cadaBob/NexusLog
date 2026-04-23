@@ -42,15 +42,19 @@ describe('resolveLogService', () => {
     expect(resolveLogService({ container_name: 'order-api-1' })).toBe('order-api-1');
   });
 
-  it('falls back to file name when parsed service is a syslog month token', () => {
-    expect(resolveLogService({ service_name: 'Dec', source_path: '/var/log/anaconda/journal.log' }, 'Dec')).toBe('journal.log');
+  it('normalizes log file-like service names to file stem', () => {
+    expect(resolveLogService({ service_name: 'auth.log' }, 'auth.log')).toBe('auth');
+  });
+
+  it('falls back to file stem when parsed service is a syslog month token', () => {
+    expect(resolveLogService({ service_name: 'Dec', source_path: '/var/log/anaconda/journal.log' }, 'Dec')).toBe('journal');
   });
 
   it('falls back to file name when service candidate looks like a JSON envelope', () => {
     expect(resolveLogService({ service_name: '{"log":"[GIN]"', source_path: '/var/log/messages' }, '{"log":"[GIN]"')).toBe('messages');
   });
 
-  it('falls back to file name when service candidate looks like a year', () => {
-    expect(resolveLogService({ service_name: '2026', source_path: '/var/log/kern.log' }, '2026')).toBe('kern.log');
+  it('falls back to file stem when service candidate looks like a year', () => {
+    expect(resolveLogService({ service_name: '2026', source_path: '/var/log/kern.log' }, '2026')).toBe('kern');
   });
 });

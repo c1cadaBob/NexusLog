@@ -242,6 +242,30 @@ func TestResolveDisplayHostIP_FallsBackToAgentIP(t *testing.T) {
 	}
 }
 
+func TestMapRawHit_NormalizesLogSuffixServiceName(t *testing.T) {
+	hit := mapRawHit(repository.RawLogHit{
+		ID:    "id-service-log-suffix-normalized",
+		Index: "nexuslog-logs-v2",
+		Source: map[string]any{
+			"service": map[string]any{
+				"name": "auth.log",
+			},
+			"log": map[string]any{
+				"file": map[string]any{
+					"path": "/var/log/auth.log",
+				},
+			},
+		},
+	})
+
+	if got := hit.Service; got != "auth" {
+		t.Fatalf("hit.Service=%q, want auth", got)
+	}
+	if got := hit.Fields["service_name"]; got != "auth" {
+		t.Fatalf("fields[service_name]=%v, want auth", got)
+	}
+}
+
 func TestMapRawHit_FallsBackToSourceFileWhenServiceLooksLikeMonth(t *testing.T) {
 	hit := mapRawHit(repository.RawLogHit{
 		ID:    "id-service-fallback",
@@ -259,11 +283,11 @@ func TestMapRawHit_FallsBackToSourceFileWhenServiceLooksLikeMonth(t *testing.T) 
 		},
 	})
 
-	if got := hit.Service; got != "journal.log" {
-		t.Fatalf("hit.Service=%q, want journal.log", got)
+	if got := hit.Service; got != "journal" {
+		t.Fatalf("hit.Service=%q, want journal", got)
 	}
-	if got := hit.Fields["service_name"]; got != "journal.log" {
-		t.Fatalf("fields[service_name]=%v, want journal.log", got)
+	if got := hit.Fields["service_name"]; got != "journal" {
+		t.Fatalf("fields[service_name]=%v, want journal", got)
 	}
 }
 
@@ -305,11 +329,11 @@ func TestMapRawHit_FallsBackToSourceFileWhenServiceLooksLikeYear(t *testing.T) {
 		},
 	})
 
-	if got := hit.Service; got != "kern.log" {
-		t.Fatalf("hit.Service=%q, want kern.log", got)
+	if got := hit.Service; got != "kern" {
+		t.Fatalf("hit.Service=%q, want kern", got)
 	}
-	if got := hit.Fields["service_name"]; got != "kern.log" {
-		t.Fatalf("fields[service_name]=%v, want kern.log", got)
+	if got := hit.Fields["service_name"]; got != "kern" {
+		t.Fatalf("fields[service_name]=%v, want kern", got)
 	}
 }
 

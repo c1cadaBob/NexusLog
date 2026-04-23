@@ -183,7 +183,7 @@ func TestStatsServiceAggregate_SourceBucketsExposeHostAndService(t *testing.T) {
 	if got := result.Buckets[0]; got.Host != "node-a" || got.Service != "nginx" || got.Label != "node-a / nginx" || got.Count != 9 {
 		t.Fatalf("unexpected merged source aggregate bucket: %+v", got)
 	}
-	if got := result.Buckets[1]; got.Host != "node-d" || got.Service != "audit.log" || got.Label != "node-d / audit.log" || got.Count != 7 {
+	if got := result.Buckets[1]; got.Host != "node-d" || got.Service != "audit" || got.Label != "node-d / audit" || got.Count != 7 {
 		t.Fatalf("unexpected log-path fallback bucket: %+v", got)
 	}
 
@@ -245,7 +245,7 @@ func TestStatsServiceAggregate_SourceBucketsFallbackToLogPathForBogusServiceValu
 	if got := result.Buckets[0]; got.Host != "node-a" || got.Service != "messages" || got.Label != "node-a / messages" || got.Count != 5 {
 		t.Fatalf("unexpected month-name fallback bucket: %+v", got)
 	}
-	if got := result.Buckets[1]; got.Host != "node-b" || got.Service != "audit.log" || got.Label != "node-b / audit.log" || got.Count != 3 {
+	if got := result.Buckets[1]; got.Host != "node-b" || got.Service != "audit" || got.Label != "node-b / audit" || got.Count != 3 {
 		t.Fatalf("unexpected numeric fallback bucket: %+v", got)
 	}
 	if got := result.Buckets[2]; got.Host != "node-c" || got.Service != "query-api" || got.Label != "node-c / query-api" || got.Count != 2 {

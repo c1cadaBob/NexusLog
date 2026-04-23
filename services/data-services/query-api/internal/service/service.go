@@ -898,6 +898,22 @@ func resolveDisplayServiceWithHint(source map[string]any, serviceHint string) st
 	return "unknown"
 }
 
+func normalizeDisplayServiceName(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) <= len(".log") {
+		return trimmed
+	}
+	ext := path.Ext(trimmed)
+	if !strings.EqualFold(ext, ".log") {
+		return trimmed
+	}
+	stem := strings.TrimSpace(strings.TrimSuffix(trimmed, ext))
+	if stem == "" {
+		return trimmed
+	}
+	return stem
+}
+
 func sanitizeDisplayServiceName(raw string) string {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -919,7 +935,7 @@ func sanitizeDisplayServiceName(raw string) string {
 	if bogusNumericServicePattern.MatchString(value) || bogusTimestampServicePattern.MatchString(value) {
 		return ""
 	}
-	return value
+	return normalizeDisplayServiceName(value)
 }
 
 func deriveServiceNameFromSourcePath(source map[string]any) string {

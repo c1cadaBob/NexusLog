@@ -341,6 +341,15 @@ export function resolveLogHostIP(fields: RealtimeLogFields & Record<string, unkn
   return '—';
 }
 
+function normalizeServiceNameCandidate(value: string): string {
+  const normalized = value.trim();
+  if (normalized.length <= 4 || !normalized.toLowerCase().endsWith('.log')) {
+    return normalized;
+  }
+  const trimmed = normalized.slice(0, -4).trim();
+  return trimmed || normalized;
+}
+
 function extractServiceNameFromSourcePath(sourcePath: unknown): string {
   const raw = String(sourcePath ?? '').trim();
   if (!raw) {
@@ -348,7 +357,8 @@ function extractServiceNameFromSourcePath(sourcePath: unknown): string {
   }
   const normalized = raw.replace(/\\/g, '/');
   const segments = normalized.split('/').filter(Boolean);
-  return segments.at(-1)?.trim() ?? '';
+  const fileName = segments.at(-1)?.trim() ?? '';
+  return normalizeServiceNameCandidate(fileName);
 }
 
 function toServiceString(value: unknown): string {
@@ -372,7 +382,7 @@ function toServiceString(value: unknown): string {
   if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[Tt _]\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(normalized)) {
     return '';
   }
-  return normalized;
+  return normalizeServiceNameCandidate(normalized);
 }
 
 export function resolveLogService(fields: RealtimeLogFields & Record<string, unknown>, ...candidates: unknown[]): string {
