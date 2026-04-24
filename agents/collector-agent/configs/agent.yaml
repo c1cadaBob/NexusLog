@@ -12,7 +12,7 @@ collector:
   sources:
     - type: file
       paths:
-        - /var/log/**/*.log
+        - /var/**/*.log
         - /var/log/messages
         - /var/log/secure
         - /var/log/cron

@@ -99,9 +99,9 @@ if [ "$(id -u)" -eq 0 ]; then
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
     DELIVERY_MODE='pull' \
     ENABLE_KAFKA_PIPELINE='false' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='' \
-    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"smoke","source_type":"custom"},"pattern":"/var/log/**/*.log"}]' \
+    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"smoke","source_type":"custom"},"pattern":"/var/**/*.log"}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
     bash
 else
@@ -114,9 +114,9 @@ else
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
     DELIVERY_MODE='pull' \
     ENABLE_KAFKA_PIPELINE='false' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='' \
-    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"smoke","source_type":"custom"},"pattern":"/var/log/**/*.log"}]' \
+    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"smoke","source_type":"custom"},"pattern":"/var/**/*.log"}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
     bash
 fi

@@ -753,7 +753,7 @@ func (h *AgentInventoryHandler) generateDeploymentScript(req GenerateDeploymentS
 	includePaths := uniqueSortedStrings(req.IncludePaths)
 	excludePaths := uniqueSortedStrings(req.ExcludePaths)
 	if len(includePaths) == 0 && sourceType != "syslog" {
-		includePaths = []string{"/var/log/**/*.log"}
+		includePaths = []string{"/var/**/*.log"}
 	}
 	syslogProtocol := firstNonEmptyValue(strings.ToLower(strings.TrimSpace(req.SyslogProtocol)), "udp")
 	syslogBind := firstNonEmptyValue(strings.TrimSpace(req.SyslogBind), "0.0.0.0:5514")

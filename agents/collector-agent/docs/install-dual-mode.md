@@ -56,7 +56,7 @@ if [ "$(id -u)" -eq 0 ]; then
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
     DELIVERY_MODE='pull' \
     ENABLE_KAFKA_PIPELINE='false' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log,/data/app/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log,/data/app/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='/var/log/wtmp' \
     COLLECTOR_PATH_LABEL_RULES='[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
@@ -75,7 +75,7 @@ else
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
     DELIVERY_MODE='pull' \
     ENABLE_KAFKA_PIPELINE='false' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log,/data/app/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log,/data/app/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='/var/log/wtmp' \
     COLLECTOR_PATH_LABEL_RULES='[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
@@ -101,7 +101,7 @@ if [ "$(id -u)" -eq 0 ]; then
     KAFKA_SCHEMA_REGISTRY_URL='http://schema-registry:8081' \
     KAFKA_SCHEMA_SUBJECT='nexuslog.logs.raw-value' \
     KAFKA_REQUIRED_ACKS='all' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log,/data/app/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log,/data/app/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='/var/log/wtmp' \
     COLLECTOR_PATH_LABEL_RULES='[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
@@ -125,7 +125,7 @@ else
     KAFKA_SCHEMA_REGISTRY_URL='http://schema-registry:8081' \
     KAFKA_SCHEMA_SUBJECT='nexuslog.logs.raw-value' \
     KAFKA_REQUIRED_ACKS='all' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log,/data/app/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log,/data/app/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='/var/log/wtmp' \
     COLLECTOR_PATH_LABEL_RULES='[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
@@ -164,7 +164,7 @@ sudo cp deploy/systemd/collector-agent.env.example /etc/nexuslog/collector-agent
 可按需编辑 `/etc/nexuslog/collector-agent.env`：
 
 ```bash
-COLLECTOR_INCLUDE_PATHS=/var/log/**/*.log,/data/app/**/*.log
+COLLECTOR_INCLUDE_PATHS=/var/**/*.log,/data/app/**/*.log
 COLLECTOR_EXCLUDE_PATHS=/var/log/wtmp,/data/app/debug-*.log
 COLLECTOR_PATH_LABEL_RULES=[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}},{"pattern":"/data/app/**/*.log","labels":{"service":"app","env":"prod"}}]
 
@@ -214,7 +214,7 @@ curl -s -H 'X-Agent-Key: replace-with-strong-key' http://127.0.0.1:9091/agent/v1
 environment:
   DELIVERY_MODE: "pull"
   ENABLE_KAFKA_PIPELINE: "false"
-  COLLECTOR_INCLUDE_PATHS: "/var/log/**/*.log,/host-data/logs/**/*.log"
+  COLLECTOR_INCLUDE_PATHS: "/var/**/*.log,/host-data/logs/**/*.log"
   COLLECTOR_EXCLUDE_PATHS: "/var/log/wtmp,/host-data/logs/debug-*.log"
   COLLECTOR_PATH_LABEL_RULES: '[{"pattern":"/host-data/logs/nginx*.log","labels":{"service":"nginx","env":"prod"}}]'
 ```

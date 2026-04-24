@@ -62,9 +62,9 @@ if [ "$(id -u)" -eq 0 ]; then
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
     DELIVERY_MODE='pull' \
     ENABLE_KAFKA_PIPELINE='false' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='' \
-    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"custom","source_type":"custom"},"pattern":"/var/log/**/*.log"}]' \
+    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"custom","source_type":"custom"},"pattern":"/var/**/*.log"}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
     bash
 else
@@ -81,9 +81,9 @@ else
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
     DELIVERY_MODE='pull' \
     ENABLE_KAFKA_PIPELINE='false' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='' \
-    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"custom","source_type":"custom"},"pattern":"/var/log/**/*.log"}]' \
+    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"custom","source_type":"custom"},"pattern":"/var/**/*.log"}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
     bash
 fi
@@ -107,9 +107,9 @@ if [ "$(id -u)" -eq 0 ]; then
     KAFKA_SCHEMA_REGISTRY_URL='http://schema-registry:8081' \
     KAFKA_SCHEMA_SUBJECT='nexuslog.logs.raw-value' \
     KAFKA_REQUIRED_ACKS='all' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='' \
-    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"custom","source_type":"custom"},"pattern":"/var/log/**/*.log"}]' \
+    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"custom","source_type":"custom"},"pattern":"/var/**/*.log"}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
     bash
 else
@@ -131,9 +131,9 @@ else
     KAFKA_SCHEMA_REGISTRY_URL='http://schema-registry:8081' \
     KAFKA_SCHEMA_SUBJECT='nexuslog.logs.raw-value' \
     KAFKA_REQUIRED_ACKS='all' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='' \
-    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"custom","source_type":"custom"},"pattern":"/var/log/**/*.log"}]' \
+    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"custom","source_type":"custom"},"pattern":"/var/**/*.log"}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
     bash
 fi

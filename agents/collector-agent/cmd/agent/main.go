@@ -105,7 +105,7 @@ func main() {
 	}
 
 	// 4. 初始化采集器（7.6：支持 include/exclude 采集范围）
-	const defaultCollectorIncludePaths = "/var/log/**/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/**/*_log"
+	const defaultCollectorIncludePaths = "/var/**/*.log"
 	const defaultCollectorCriticalIncludePaths = "/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler"
 	includePaths := parseCSV(getEnv("COLLECTOR_INCLUDE_PATHS", defaultCollectorIncludePaths))
 	criticalIncludePaths := parseCSV(getEnv("COLLECTOR_CRITICAL_INCLUDE_PATHS", defaultCollectorCriticalIncludePaths))
