@@ -398,7 +398,7 @@ const SourceManagement: React.FC = () => {
     form.resetFields();
     form.setFieldsValue({
       protocol: 'http',
-      path: '/var/log/*.log',
+      path: '/var/log/**/*.log',
       pull_interval_sec: 30,
       pull_timeout_sec: 30,
       status: 'active',

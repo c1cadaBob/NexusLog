@@ -30,14 +30,14 @@ cleanup() {
 trap cleanup EXIT
 
 export AGENT_ID="${AGENT_ID:-local-collector-agent}"
-export AGENT_VERSION="${AGENT_VERSION:-0.1.2}"
+export AGENT_VERSION="${AGENT_VERSION:-0.1.3}"
 export CONFIG_PATH="${CONFIG_PATH:-$AGENT_DIR/configs/agent.yaml}"
 export CHECKPOINT_DIR="${CHECKPOINT_DIR:-/tmp/nexuslog-agent/checkpoints}"
 export CACHE_DIR="${CACHE_DIR:-/tmp/nexuslog-agent/cache}"
 export HTTP_PORT="${HTTP_PORT:-9091}"
 
 # 采集本地服务器所有可读日志 + 导出的 journald/Docker 日志
-export COLLECTOR_INCLUDE_PATHS="/var/log/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/*/*.log,/var/log/*/*_log,/var/log/tuned/*.log,/var/log/sunlogin/*.log,/tmp/nexuslog-agent/exported-logs/*.log"
+export COLLECTOR_INCLUDE_PATHS="/var/log/**/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/**/*_log,/var/log/tuned/*.log,/var/log/sunlogin/*.log,/tmp/nexuslog-agent/exported-logs/*.log"
 export COLLECTOR_CRITICAL_INCLUDE_PATHS="/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler"
 export COLLECTOR_EXCLUDE_PATHS="${COLLECTOR_EXCLUDE_PATHS:-}"
 export COLLECTOR_FLUSH_INTERVAL="${COLLECTOR_FLUSH_INTERVAL:-3s}"

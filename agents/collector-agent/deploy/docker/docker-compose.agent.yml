@@ -8,12 +8,12 @@ services:
     environment:
       HTTP_PORT: "9091"
       AGENT_ID: "collector-agent-docker"
-      AGENT_VERSION: "0.1.2"
+      AGENT_VERSION: "0.1.3"
       AGENT_API_KEY_ACTIVE_ID: "active"
       AGENT_API_KEY_ACTIVE: "replace-with-strong-key"
       AGENT_API_KEY_NEXT_ID: "next"
       AGENT_API_KEY_NEXT: ""
-      COLLECTOR_INCLUDE_PATHS: "/var/log/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/*/*.log,/var/log/*/*_log"
+      COLLECTOR_INCLUDE_PATHS: "/var/log/**/*.log,/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler,/var/log/boot.log,/var/log/command_audit.log,/var/log/kdump.log,/var/log/**/*_log"
       COLLECTOR_CRITICAL_INCLUDE_PATHS: "/var/log/messages,/var/log/secure,/var/log/cron,/var/log/maillog,/var/log/spooler"
       COLLECTOR_EXCLUDE_PATHS: "/var/log/wtmp,/var/log/btmp"
       COLLECTOR_PATH_LABEL_RULES: '[{"pattern":"/var/log/nginx/*.log","labels":{"service":"nginx","env":"prod"}}]'

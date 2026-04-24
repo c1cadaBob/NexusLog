@@ -1,9 +1,9 @@
-# Collector Agent `v0.1.2` GitHub Release 清单
+# Collector Agent `v0.1.3` GitHub Release 清单
 
 ## 1. 发布前确认
 
 - 当前分支工作区干净：`git status --short`
-- 版本位已经同步到 `v0.1.2`：
+- 版本位已经同步到 `v0.1.3`：
   - `apps/frontend-console/public/config/app-config.json`
   - `apps/frontend-console/src/config/runtime-config.ts`
   - `agents/collector-agent/cmd/agent/main.go`
@@ -11,9 +11,9 @@
   - `agents/collector-agent/deploy/docker/docker-compose.agent.yml`
   - `agents/collector-agent/docs/install-dual-mode.md`
 - 一键安装地址计划使用：
-  - `https://github.com/c1cadabob/NexusLog/releases/download/v0.1.2/collector-agent-installer.sh`
+  - `https://github.com/c1cadabob/NexusLog/releases/download/v0.1.3/collector-agent-installer.sh`
 - 默认容器镜像计划使用：
-  - `ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.2`
+  - `ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.3`
 - 本版默认日志传输模式为：
   - `被动拉取（pull）`
 - 本版可选日志传输模式为：
@@ -48,8 +48,8 @@ sha256sum agents/collector-agent/dist/collector-agent-installer.sh
 
 ```bash
 git push origin main
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.1.3
+git push origin v0.1.3
 ```
 
 推送标签后，会触发：
@@ -59,7 +59,7 @@ git push origin v0.1.2
 
 ## 3.1 Release 说明文案
 
-可直接将 `agents/collector-agent/docs/release-notes-v0.1.2.md` 的内容粘贴到 GitHub Release 页面。
+可直接将 `agents/collector-agent/docs/release-notes-v0.1.3.md` 的内容粘贴到 GitHub Release 页面。
 
 ## 4. GitHub Release 结果检查
 
@@ -73,15 +73,15 @@ git push origin v0.1.2
   - `collector-agent-installer.sh`
   - `collector-agent-checksums.txt`
 - GHCR 镜像标签可见：
-  - `ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.2`
+  - `ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.3`
 
 ## 5. 发布后冒烟验证
 
 ### 5.1 安装脚本可下载
 
 ```bash
-curl -I https://github.com/c1cadabob/NexusLog/releases/download/v0.1.2/collector-agent-installer.sh
-curl -I https://github.com/c1cadabob/NexusLog/releases/download/v0.1.2/collector-agent-linux-amd64.tar.gz
+curl -I https://github.com/c1cadabob/NexusLog/releases/download/v0.1.3/collector-agent-installer.sh
+curl -I https://github.com/c1cadabob/NexusLog/releases/download/v0.1.3/collector-agent-linux-amd64.tar.gz
 ```
 
 ### 5.2 默认被动拉取命令可执行
@@ -90,33 +90,33 @@ curl -I https://github.com/c1cadabob/NexusLog/releases/download/v0.1.2/collector
 
 ```bash
 if [ "$(id -u)" -eq 0 ]; then
-  curl -fsSL 'https://github.com/c1cadabob/NexusLog/releases/download/v0.1.2/collector-agent-installer.sh' | env \
-    ASSET_URL='https://github.com/c1cadabob/NexusLog/releases/download/v0.1.2/collector-agent-linux-amd64.tar.gz' \
+  curl -fsSL 'https://github.com/c1cadabob/NexusLog/releases/download/v0.1.3/collector-agent-installer.sh' | env \
+    ASSET_URL='https://github.com/c1cadabob/NexusLog/releases/download/v0.1.3/collector-agent-linux-amd64.tar.gz' \
     AGENT_ID='smoke-agent-pull' \
-    AGENT_VERSION='v0.1.2' \
+    AGENT_VERSION='v0.1.3' \
     CONTROL_PLANE_BASE_URL='http://<control-plane-host>:3000' \
     AGENT_API_KEY_ACTIVE_ID='active' \
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
     DELIVERY_MODE='pull' \
     ENABLE_KAFKA_PIPELINE='false' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='' \
-    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"smoke","source_type":"custom"},"pattern":"/var/log/*.log"}]' \
+    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"smoke","source_type":"custom"},"pattern":"/var/log/**/*.log"}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
     bash
 else
-  curl -fsSL 'https://github.com/c1cadabob/NexusLog/releases/download/v0.1.2/collector-agent-installer.sh' | sudo env \
-    ASSET_URL='https://github.com/c1cadabob/NexusLog/releases/download/v0.1.2/collector-agent-linux-amd64.tar.gz' \
+  curl -fsSL 'https://github.com/c1cadabob/NexusLog/releases/download/v0.1.3/collector-agent-installer.sh' | sudo env \
+    ASSET_URL='https://github.com/c1cadabob/NexusLog/releases/download/v0.1.3/collector-agent-linux-amd64.tar.gz' \
     AGENT_ID='smoke-agent-pull' \
-    AGENT_VERSION='v0.1.2' \
+    AGENT_VERSION='v0.1.3' \
     CONTROL_PLANE_BASE_URL='http://<control-plane-host>:3000' \
     AGENT_API_KEY_ACTIVE_ID='active' \
     AGENT_API_KEY_ACTIVE='replace-with-strong-key' \
     DELIVERY_MODE='pull' \
     ENABLE_KAFKA_PIPELINE='false' \
-    COLLECTOR_INCLUDE_PATHS='/var/log/*.log' \
+    COLLECTOR_INCLUDE_PATHS='/var/log/**/*.log' \
     COLLECTOR_EXCLUDE_PATHS='' \
-    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"smoke","source_type":"custom"},"pattern":"/var/log/*.log"}]' \
+    COLLECTOR_PATH_LABEL_RULES='[{"labels":{"service":"smoke","source_type":"custom"},"pattern":"/var/log/**/*.log"}]' \
     COLLECTOR_SYSLOG_LISTENERS_JSON='[]' \
     bash
 fi
@@ -146,14 +146,14 @@ curl -H 'X-Agent-Key: replace-with-strong-key' http://127.0.0.1:9091/agent/v1/me
 
 ## 6. 控制台验收
 
-- 打开接入向导，确认默认版本显示为 `v0.1.2`
+- 打开接入向导，确认默认版本显示为 `v0.1.3`
 - 进入“日志传输模式”，确认：
   - 默认显示 `被动拉取（默认）`
   - 切换到 `主动上传（Kafka 兼容）` 后会展开 Kafka 配置表单
 - 生成 Linux systemd 脚本，确认：
-  - 安装脚本地址为 `.../v0.1.2/collector-agent-installer.sh`
-  - 二进制资产地址为 `.../v0.1.2/collector-agent-linux-amd64.tar.gz`
-  - GHCR 镜像为 `ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.2`
+  - 安装脚本地址为 `.../v0.1.3/collector-agent-installer.sh`
+  - 二进制资产地址为 `.../v0.1.3/collector-agent-linux-amd64.tar.gz`
+  - GHCR 镜像为 `ghcr.io/c1cadabob/nexuslog-collector-agent:v0.1.3`
   - 默认模式脚本包含 `DELIVERY_MODE='pull'`
   - 主动上传脚本包含 `DELIVERY_MODE='dual'` 与 Kafka 环境变量
 - 使用新 Agent URL 完成采集源接入
@@ -162,7 +162,7 @@ curl -H 'X-Agent-Key: replace-with-strong-key' http://127.0.0.1:9091/agent/v1/me
 
 如需撤回默认版本：
 
-- 删除 Git 标签：`git tag -d v0.1.2`
-- 删除远端标签：`git push origin :refs/tags/v0.1.2`
+- 删除 Git 标签：`git tag -d v0.1.3`
+- 删除远端标签：`git push origin :refs/tags/v0.1.3`
 - 在 GitHub Release 页面删除错误资产
 - 将前端运行时配置中的默认版本改回上一版并重新部署控制台

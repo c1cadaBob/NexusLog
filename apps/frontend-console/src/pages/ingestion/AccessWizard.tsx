@@ -59,9 +59,9 @@ const KAFKA_ACK_OPTIONS = [
 ] as const;
 
 const DEFAULTS_BY_SOURCE_TYPE: Record<string, { path: string; protocol: string }> = {
-  custom: { path: '/var/log/*.log', protocol: 'http' },
+  custom: { path: '/var/log/**/*.log', protocol: 'http' },
   nginx: { path: '/var/log/nginx/access.log,/var/log/nginx/error.log', protocol: 'http' },
-  java: { path: '/var/log/*.log', protocol: 'http' },
+  java: { path: '/var/log/**/*.log', protocol: 'http' },
   mysql: { path: '/var/log/mysql/*.log,/var/log/mysqld.log', protocol: 'http' },
   docker: { path: '/var/lib/docker/containers/*/*.log', protocol: 'http' },
   kubernetes: { path: '/var/log/containers/*.log', protocol: 'http' },
@@ -545,13 +545,13 @@ const AccessWizard: React.FC = () => {
                   <Form.Item label="发布源">
                     <Select id="access-wizard-release-provider" value={releaseProvider} options={RELEASE_PROVIDER_OPTIONS.map((item) => ({ label: item.label, value: item.value }))} onChange={setReleaseProvider} style={{ width: 180 }} />
                   </Form.Item>
-                  <Form.Item label="版本 / Tag" extra="例如 latest、v0.1.2、v2026.03.30">
-                    <Input name="releaseVersion" value={releaseVersion} onChange={(event) => setReleaseVersion(event.target.value)} style={{ width: 220 }} placeholder="latest 或 v0.1.2" />
+                  <Form.Item label="版本 / Tag" extra="例如 latest、v0.1.3、v2026.03.30">
+                    <Input name="releaseVersion" value={releaseVersion} onChange={(event) => setReleaseVersion(event.target.value)} style={{ width: 220 }} placeholder="latest 或 v0.1.3" />
                   </Form.Item>
                 </Space>
                 {releaseProvider === 'custom' ? (
                   <Form.Item label="发布包基址" extra="例如 GitHub / Gitee Release 下载目录；脚本会自动补上平台包名。">
-                    <Input name="releaseBaseUrl" value={releaseBaseUrl} onChange={(event) => setReleaseBaseUrl(event.target.value)} placeholder="例如：https://github.com/<owner>/<repo>/releases/download/v0.1.2" />
+                    <Input name="releaseBaseUrl" value={releaseBaseUrl} onChange={(event) => setReleaseBaseUrl(event.target.value)} placeholder="例如：https://github.com/<owner>/<repo>/releases/download/v0.1.3" />
                   </Form.Item>
                 ) : (
                   <Space align="start" wrap style={{ width: '100%' }}>
@@ -571,7 +571,7 @@ const AccessWizard: React.FC = () => {
                     name="installScriptUrl"
                     value={installScriptUrl}
                     onChange={(event) => setInstallScriptUrl(event.target.value)}
-                    placeholder="例如：https://github.com/<owner>/<repo>/releases/download/v0.1.2/collector-agent-installer.sh"
+                    placeholder="例如：https://github.com/<owner>/<repo>/releases/download/v0.1.3/collector-agent-installer.sh"
                   />
                 </Form.Item>
                 {releaseConfigUsesPlaceholder ? (
@@ -601,7 +601,7 @@ const AccessWizard: React.FC = () => {
                 </Form.Item>
                 {containerImageProvider === 'custom' ? (
                   <Form.Item label="容器镜像">
-                    <Input name="containerImage" value={containerImage} onChange={(event) => setContainerImage(event.target.value)} placeholder="例如 ghcr.io/<owner>/nexuslog-collector-agent:v0.1.2" />
+                    <Input name="containerImage" value={containerImage} onChange={(event) => setContainerImage(event.target.value)} placeholder="例如 ghcr.io/<owner>/nexuslog-collector-agent:v0.1.3" />
                   </Form.Item>
                 ) : (
                   imageConfigUsesPlaceholder ? (

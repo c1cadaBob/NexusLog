@@ -12,7 +12,7 @@ collector:
   sources:
     - type: file
       paths:
-        - /var/log/*.log
+        - /var/log/**/*.log
         - /var/log/messages
         - /var/log/secure
         - /var/log/cron
@@ -21,8 +21,7 @@ collector:
         - /var/log/boot.log
         - /var/log/command_audit.log
         - /var/log/kdump.log
-        - /var/log/*/*.log
-        - /var/log/*/*_log
+        - /var/log/**/*_log
       encoding: utf-8
       multiline:
         pattern: '^\d{4}-\d{2}-\d{2}'
